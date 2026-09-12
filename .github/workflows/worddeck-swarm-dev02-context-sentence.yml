@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
   statuses: write
 
 concurrency:
@@ -40,24 +39,43 @@ jobs:
               sha: context.sha,
               state: 'pending',
               context: 'WordDeck DEV02 Stage 11 Context Gate',
-              description: 'DEV02 exact-tip Windows + lexical coverage gate is running.',
+              description: 'DEV02 exact-tip Windows + live attributed corpus gate is running.',
               target_url: targetUrl
             });
 
       - name: Checkout exact revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
+
+      - name: Verify exact candidate checkout
+        shell: pwsh
+        run: |
+          $expected = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}".Trim().ToLowerInvariant()
+          $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ([string]::IsNullOrWhiteSpace($expected) -or $actual -ne $expected) {
+            throw "Exact-head checkout mismatch: expected $expected actual $actual"
+          }
+          Write-Host "Exact candidate head verified: $actual"
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
 
-      - name: Validate SentencePack release validator
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate SentencePack release and attributed-pair tooling
         shell: pwsh
-        run: python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
+        run: |
+          python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Restore
         run: dotnet restore .\WordDeck\WordDeck.csproj
@@ -99,32 +117,76 @@ jobs:
           & (Join-Path $target 'WordDeck.exe') --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Download historical attributed EN-UA corpus evidence read-only
-        uses: actions/download-artifact@v4
-        with:
-          name: WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-r3
-          path: artifacts/r3-attributed
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: 32573223432
-
-      - name: Verify exact historical SQLite identity
+      - name: Build current attributed EN-UA pair evidence from official Tatoeba exports
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $sqlite = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite' | Select-Object -First 1
-          if (-not $sqlite) { throw 'Attributed EN-UA SQLite corpus artifact was not found.' }
-          $sums = Get-ChildItem -LiteralPath '.\artifacts\r3-attributed' -Recurse -File -Filter 'SHA256SUMS.txt' | Select-Object -First 1
-          if (-not $sums) { throw 'Attributed corpus SHA256SUMS.txt was not found.' }
-          $line = Get-Content -LiteralPath $sums.FullName | Where-Object { $_ -match ([regex]::Escape($sqlite.Name) + '$') } | Select-Object -First 1
-          if (-not $line) { throw 'SHA256SUMS.txt does not bind the attributed SQLite file.' }
-          $expected = (($line -split '\s+', 2)[0]).Trim().ToLowerInvariant()
-          $actual = (Get-FileHash -LiteralPath $sqlite.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($expected -ne $actual) { throw "Attributed SQLite hash mismatch: expected $expected actual $actual" }
-          "CONTEXT_SQLITE=$($sqlite.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          New-Item -ItemType Directory -Force -Path '.\artifacts\context-corpus' | Out-Null
+          python .\WordDeck\tools\build_tatoeba_ccby_pairs.py `
+            --download-dir .\artifacts\context-corpus\upstream `
+            --output .\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv `
+            --manifest .\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build exact current attributed SentencePack and SQLite evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --build-tatoeba-sentence-pack `
+            .\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv `
+            .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json `
+            tatoeba-en-uk-attributed-ccby-v1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          @'
+          from pathlib import Path
+          import gzip
+          source = Path(r'artifacts/context-corpus/WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json')
+          target = Path(str(source) + '.gz')
+          with source.open('rb') as src, target.open('wb') as raw:
+              with gzip.GzipFile(filename='', mode='wb', fileobj=raw, compresslevel=9, mtime=0) as out:
+                  while True:
+                      block = src.read(1024 * 1024)
+                      if not block:
+                          break
+                      out.write(block)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
+            --measure-sentence-pack `
+            .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json.gz `
+            .\artifacts\context-corpus\sentencepack-load-metrics.json `
+            --sqlite `
+            .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify live provenance and exact SQLite identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Resolve-Path '.\artifacts\context-corpus'
+          $manifestPath = Join-Path $root 'tatoeba-en-uk-attributed.tsv.manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.license -ne 'CC BY 2.0 FR') { throw "Unexpected attributed corpus license: $($manifest.license)" }
+          if ($manifest.source -notmatch '^Tatoeba official') { throw 'Attributed corpus manifest is not bound to official Tatoeba exports.' }
+          foreach ($name in @('english_detailed','ukrainian_detailed','links')) {
+            $hash = [string]$manifest.input_sha256.$name
+            if ($hash -notmatch '^[0-9a-f]{64}$') { throw "Missing/invalid upstream SHA256 for $name." }
+          }
+          $tsv = Join-Path $root 'tatoeba-en-uk-attributed.tsv'
+          $actualTsv = (Get-FileHash -LiteralPath $tsv -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualTsv -ne ([string]$manifest.output_sha256).ToLowerInvariant()) { throw 'Attributed pair TSV hash does not match its provenance manifest.' }
+          if ([int]$manifest.stats.pairs_emitted -lt 208408) { throw "Live attributed pair evidence regressed below the historical 208408-pair floor: $($manifest.stats.pairs_emitted)" }
+
+          $sqlite = Join-Path $root 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite'
+          if (-not (Test-Path -LiteralPath $sqlite)) { throw 'Live attributed EN-UA SQLite corpus was not created.' }
+          $actual = (Get-FileHash -LiteralPath $sqlite -Algorithm SHA256).Hash.ToLowerInvariant()
+          "CONTEXT_SQLITE=$sqlite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Measure exact lexical-form-aware 1 2 3 target coverage
+      - name: Measure exact live lexical-form-aware 1 2 3 target coverage
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -137,33 +199,43 @@ jobs:
             tatoeba-en-uk-attributed-ccby-v1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Validate exact corpus coverage and external-data boundary
+      - name: Validate live corpus provenance boundary and historical quality floors
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $doc = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.json' -Raw | ConvertFrom-Json
+          $coveragePath = '.\artifacts\context-evidence\context-coverage.json'
+          $gapPath = '.\artifacts\context-evidence\context-coverage.gaps.json'
+          if (-not (Test-Path -LiteralPath $coveragePath)) { throw 'Coverage evidence was not emitted.' }
+          if (-not (Test-Path -LiteralPath $gapPath)) { throw 'Coverage gap evidence was not emitted.' }
+
+          $doc = Get-Content -LiteralPath $coveragePath -Raw | ConvertFrom-Json
           $p = $doc.Payload
           if ($p.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
-          if ($p.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact SQLite hash.' }
+          if ($p.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact live SQLite hash.' }
           if ($p.DictionaryEntryCount -ne 5446 -or -not $p.ExactOxford5446Verified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe.' }
-          if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact real-corpus identity was not verified.' }
+          if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact live real-corpus identity was not verified.' }
           if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
-          if ($p.SentenceCount -ne 208408) { throw "Unexpected exact corpus sentence count: $($p.SentenceCount)" }
-          if ($p.OneTarget.CoveredEntryCount -ne 4492) { throw "Unexpected one-target coverage: $($p.OneTarget.CoveredEntryCount)" }
-          if ($p.TwoTarget.CoveredEntryCount -ne 4469) { throw "Unexpected natural two-target coverage: $($p.TwoTarget.CoveredEntryCount)" }
-          if ($p.ThreeTarget.CoveredEntryCount -ne 4362) { throw "Unexpected natural three-target coverage: $($p.ThreeTarget.CoveredEntryCount)" }
-          $gap = Get-Content -LiteralPath '.\artifacts\context-evidence\context-coverage.gaps.json' -Raw | ConvertFrom-Json
-          if ($gap.Payload.MissingOneTargetCount -ne 954 -or $gap.Payload.MissingNaturalPairOnlyCount -ne 23 -or $gap.Payload.MissingNaturalTripleOnlyCount -ne 107) {
-            throw 'Gap accounting no longer matches exact attributed corpus evidence.'
-          }
-          Write-Host ("Exact real EN-UA coverage: one={0}/5446; two={1}/5446; three={2}/5446; missing any={3}; pair-only={4}; triple-only={5}" -f `
-            $p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
-            $gap.Payload.MissingOneTargetCount,$gap.Payload.MissingNaturalPairOnlyCount,$gap.Payload.MissingNaturalTripleOnlyCount)
+          if ($p.SentenceCount -lt 208408) { throw "Live corpus regressed below historical sentence floor 208408: $($p.SentenceCount)" }
+          if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target coverage regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
+          if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target coverage regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
+          if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target coverage regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
+
+          $gap = Get-Content -LiteralPath $gapPath -Raw | ConvertFrom-Json
+          if ($gap.Payload.MissingOneTargetCount -ne (5446 - $p.OneTarget.CoveredEntryCount)) { throw 'One-target gap accounting does not match live coverage.' }
+          if ($gap.Payload.MissingNaturalPairOnlyCount -lt 0 -or $gap.Payload.MissingNaturalTripleOnlyCount -lt 0) { throw 'Live gap accounting contains an invalid negative count.' }
+          Write-Host ("Live exact EN-UA evidence: sentences={0}; one/two/three={1}/{2}/{3}; historical floors=208408,4492/4469/4362" -f `
+            $p.SentenceCount,$p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount)
+
+      - name: Preserve non-redistributable provenance metadata with coverage evidence
+        shell: pwsh
+        run: |
+          Copy-Item -LiteralPath '.\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json' -Destination '.\artifacts\context-evidence\tatoeba-en-uk-attributed.tsv.manifest.json'
+          Copy-Item -LiteralPath '.\artifacts\context-corpus\sentencepack-load-metrics.json' -Destination '.\artifacts\context-evidence\sentencepack-load-metrics.json'
 
       - name: Upload coverage evidence
         uses: actions/upload-artifact@v4
         with:
-          name: WordDeck-dev02-context-evidence-${{ github.sha }}
+          name: WordDeck-dev02-context-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: artifacts/context-evidence
           if-no-files-found: error
           retention-days: 14
