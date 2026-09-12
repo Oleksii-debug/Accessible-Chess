@@ -7,6 +7,7 @@ on:
     paths:
       - 'WordDeck/StoryCourseContracts.cs'
       - 'WordDeck/StoryCourseContractSelfTest.cs'
+      - 'WordDeck/StoryCourseRuntime*.cs'
       - '.github/workflows/worddeck-mass120-107-story-course.yml'
   workflow_dispatch:
 
