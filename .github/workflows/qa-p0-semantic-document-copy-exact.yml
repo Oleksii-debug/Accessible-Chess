@@ -16,6 +16,7 @@ concurrency:
 env:
   TARGET_PRODUCT_HEAD: 342c56c3a557177f44af8bb9c6bf788ff7ebf025
   CURRENT_PRODUCT_BASE: dfac3af0811a0e1abab7132149bfbd8377b04fb5
+  QA_FOUNDATION_COMMIT: 07b468d004920d0c76056c25b1f531bdc65d2d60
   TARGET_BOOTSTRAP_BLOB: 54ec25fc8e2e711fa08aa78f0064a3427cade307
   TARGET_TEST_BLOB: da6c6bd2a77029a6a0b7dfdcb5a72cde6ef2213d
 
@@ -36,7 +37,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$TARGET_PRODUCT_HEAD"
+          test "$(git rev-parse HEAD^)" = "$QA_FOUNDATION_COMMIT"
+          test "$(git rev-parse HEAD^^)" = "$TARGET_PRODUCT_HEAD"
           git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" "$TARGET_PRODUCT_HEAD"
           test "$(git merge-base "$CURRENT_PRODUCT_BASE" "$TARGET_PRODUCT_HEAD")" = "$CURRENT_PRODUCT_BASE"
           changed_child="$(git diff --name-only "$TARGET_PRODUCT_HEAD" HEAD)"
@@ -52,6 +54,13 @@ jobs:
 
       - name: Focused semantic document-copy contract
         run: python -m unittest -v tests.test_p0_semantic_document_copy
+
+      - name: Retain current presentation privacy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_shared_presentation_path_privacy
+          tests.test_v2_pgn_webview_path_privacy
+          tests.test_v2_library_presentation_path_privacy
 
       - name: Shipping bootstrap JavaScript syntax
         run: node --check web/version2_final_product_bootstrap.js
