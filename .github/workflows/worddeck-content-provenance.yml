@@ -1,0 +1,131 @@
+name: WordDeck commercial content provenance gate
+
+on:
+  pull_request:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-content-provenance.yml'
+      - '.github/workflows/worddeck-commercial-release-provenance.yml'
+      - '.github/workflows/worddeck-package-recovery.yml'
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-content-provenance.yml'
+      - '.github/workflows/worddeck-commercial-release-provenance.yml'
+      - '.github/workflows/worddeck-package-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Assert exact candidate checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$expected" ]; then
+            echo "Provenance gate checkout mismatch: expected=$expected actual=$actual" >&2
+            exit 1
+          fi
+          echo "Exact provenance checkout PASS: $actual"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run base fail-closed provenance regression suite
+        run: python WordDeck/tools/test_validate_content_provenance.py
+
+      - name: Run strict origin/release-policy regression suite
+        run: python WordDeck/tools/test_validate_content_provenance_strict.py
+
+      - name: Run actual-package inventory regression suite
+        run: python WordDeck/tools/test_build_release_content_inventory.py
+
+      - name: Run authorized package-source contract regression suite
+        run: python WordDeck/tools/test_validate_commercial_package_source.py
+
+      - name: Validate canonical manifest under strict commercial policy
+        run: >-
+          python WordDeck/tools/validate_content_provenance_strict.py
+          --manifest WordDeck/QA/content_provenance_manifest.json
+
+      - name: Prove a commercial release cannot omit exact package inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if python WordDeck/tools/validate_content_provenance_strict.py \
+              --manifest WordDeck/QA/content_provenance_manifest.json \
+              --require-inventory; then
+            echo 'FAIL: commercial mode accepted a missing package-derived inventory.' >&2
+            exit 1
+          fi
+          echo 'Negative control PASS: commercial mode requires an exact inventory.'
+
+      - name: Prove a commercial release cannot bypass an empty manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          cat > "$tmp/inventory.json" <<'JSON'
+          {
+            "release_id": "negative-control",
+            "channel": "windows_offline",
+            "assets": [
+              {
+                "asset_id": "wd:negative-control:unregistered",
+                "content_hash_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          }
+          JSON
+          if python WordDeck/tools/validate_content_provenance_strict.py \
+              --manifest WordDeck/QA/content_provenance_manifest.json \
+              --inventory "$tmp/inventory.json" \
+              --require-inventory; then
+            echo 'FAIL: unregistered commercial asset bypassed the provenance gate.' >&2
+            exit 1
+          fi
+          echo 'Negative control PASS: unregistered commercial asset is blocked.'
+
+      - name: Prove an unregistered file in a package content root is blocked
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/release/Content"
+          printf '%s\n' '{"lesson":"registered"}' > "$tmp/release/Content/registered.json"
+          printf '%s\n' '{"lesson":"unregistered"}' > "$tmp/release/Content/unregistered.json"
+          cat > "$tmp/release/CONTENT_ASSET_INDEX.json" <<'JSON'
+          {
+            "schema_version": "1.0",
+            "content_roots": ["Content"],
+            "assets": [
+              {"asset_id": "wd:negative-control:registered", "path": "Content/registered.json"}
+            ]
+          }
+          JSON
+          if python WordDeck/tools/build_release_content_inventory.py \
+              --release-root "$tmp/release" \
+              --asset-index "$tmp/release/CONTENT_ASSET_INDEX.json" \
+              --output "$tmp/inventory.json" \
+              --release-id negative-package-control \
+              --channel windows_offline; then
+            echo 'FAIL: unregistered real package content bypassed inventory construction.' >&2
+            exit 1
+          fi
+          echo 'Negative control PASS: package inventory is exhaustive for declared content roots.'
