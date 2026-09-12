@@ -95,16 +95,11 @@ internal sealed class ContextTargetLexicon
         return ids.Select((id, index) => new ContextLexicalTarget(id, LexicalKeyFor(id), index)).ToArray();
     }
 
-    public IReadOnlyList<string> AmbiguousStableIds(IEnumerable<string> entryIds)
-    {
-        IReadOnlyList<ContextLexicalTarget> targets = DescribePool(entryIds);
-        var ambiguousKeys = targets
-            .GroupBy(target => target.LexicalKey, StringComparer.OrdinalIgnoreCase)
-            .Where(group => group.Select(target => target.EntryId).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
-            .Select(group => group.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return targets.Where(target => ambiguousKeys.Contains(target.LexicalKey)).Select(target => target.EntryId).ToArray();
-    }
+    public IReadOnlyList<string> AmbiguousStableIds(IEnumerable<string> entryIds) =>
+        DescribePool(entryIds)
+            .Where(target => StableIdsForLexicalKey(target.LexicalKey).Count > 1)
+            .Select(target => target.EntryId)
+            .ToArray();
 
     private static string NormalizeLexicalKey(string source)
     {

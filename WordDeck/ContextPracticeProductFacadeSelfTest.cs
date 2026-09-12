@@ -24,6 +24,19 @@ internal static class ContextPracticeProductFacadeSelfTest
                 ("target-b", "beta"),
                 ("target-c", "gamma")
             });
+
+        var homographLexicon = new ContextTargetLexicon(
+            "context-global-homograph-fixture",
+            new[]
+            {
+                ("run-n", "run"),
+                ("run-v", "run"),
+                ("walk-v", "walk")
+            });
+        IReadOnlyList<string> narrowScopeAmbiguous = homographLexicon.AmbiguousStableIds(new[] { "run-n", "walk-v" });
+        Require(narrowScopeAmbiguous.Count == 1 && narrowScopeAmbiguous[0] == "run-n",
+            "Narrow study-scope ambiguity accounting forgot a globally homographic sibling stable ID outside the active scope.");
+
         SentencePack pack = BuildPack();
         var synthetic = new SentenceCorpusContextSource(
             pack,
@@ -110,7 +123,7 @@ internal static class ContextPracticeProductFacadeSelfTest
         Require(localDescriptor.PrivacyLocalOnly,
             "Privacy-local source contract regressed while adding product-facing context policy.");
 
-        Console.WriteLine("Context Practice product facade self-test PASS: synthetic fixtures fail closed by default, test-only opt-in is explicit, and coverage evidence remains provenance/release bounded.");
+        Console.WriteLine("Context Practice product facade self-test PASS: synthetic fixtures fail closed by default, test-only opt-in is explicit, global homograph ambiguity survives narrow scopes, and coverage evidence remains provenance/release bounded.");
     }
 
     private static void ExpectSyntheticRejected(Action action)

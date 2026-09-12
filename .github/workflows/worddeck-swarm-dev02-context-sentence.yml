@@ -39,7 +39,7 @@ jobs:
               sha: context.sha,
               state: 'pending',
               context: 'WordDeck DEV02 Stage 11 Context Gate',
-              description: 'DEV02 exact-tip Windows + live attributed corpus gate is running.',
+              description: 'DEV02 exact-tip Windows + live attributed split-identity corpus gate is running.',
               target_url: targetUrl
             });
 
@@ -186,7 +186,7 @@ jobs:
           "CONTEXT_SQLITE=$sqlite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Measure exact live lexical-form-aware 1 2 3 target coverage
+      - name: Measure exact live physical-form and conservative stable-ID coverage
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -199,14 +199,17 @@ jobs:
             tatoeba-en-uk-attributed-ccby-v1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Validate live corpus provenance boundary and historical quality floors
+      - name: Validate live provenance split coverage semantics and historical quality floors
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $coveragePath = '.\artifacts\context-evidence\context-coverage.json'
+          $physicalPath = '.\artifacts\context-evidence\context-coverage.physical-forms.json'
+          $stablePath = '.\artifacts\context-evidence\context-coverage.stable-identities.json'
           $gapPath = '.\artifacts\context-evidence\context-coverage.gaps.json'
-          if (-not (Test-Path -LiteralPath $coveragePath)) { throw 'Coverage evidence was not emitted.' }
-          if (-not (Test-Path -LiteralPath $gapPath)) { throw 'Coverage gap evidence was not emitted.' }
+          foreach ($path in @($coveragePath,$physicalPath,$stablePath,$gapPath)) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "Required coverage evidence was not emitted: $path" }
+          }
 
           $doc = Get-Content -LiteralPath $coveragePath -Raw | ConvertFrom-Json
           $p = $doc.Payload
@@ -216,15 +219,38 @@ jobs:
           if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact live real-corpus identity was not verified.' }
           if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
           if ($p.SentenceCount -lt 208408) { throw "Live corpus regressed below historical sentence floor 208408: $($p.SentenceCount)" }
-          if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target coverage regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
-          if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target coverage regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
-          if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target coverage regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
+          if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target stable-tag participation regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
+          if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target stable-tag participation regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
+          if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target stable-tag participation regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
+
+          $physicalDoc = Get-Content -LiteralPath $physicalPath -Raw | ConvertFrom-Json
+          $physical = $physicalDoc.Payload
+          if ($physical.DictionaryEntryCount -ne 5446 -or $physical.UniqueLexicalFormCount -ge 5446) { throw 'Physical-form denominator must collapse at least one homographic stable-ID group.' }
+          if ($physical.AmbiguousLexicalFormCount -le 0 -or $physical.StableIdsInAmbiguousLexicalForms -le $physical.AmbiguousLexicalFormCount) { throw 'Physical-form ambiguity accounting is missing or inconsistent.' }
+          foreach ($depth in @($physical.OneTarget,$physical.TwoTarget,$physical.ThreeTarget)) {
+            if ($depth.CoveredLexicalFormCount + $depth.UncoveredLexicalFormCount -ne $physical.UniqueLexicalFormCount) { throw 'Physical-form coverage does not partition its unique lexical-form universe.' }
+          }
+          if ($physical.RedistributionApproved) { throw 'Physical-form evidence must not approve redistribution.' }
+
+          $stableDoc = Get-Content -LiteralPath $stablePath -Raw | ConvertFrom-Json
+          $stable = $stableDoc.Payload
+          if ($stable.StableTagEvidenceSha256 -ne $doc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact stable-tag evidence document.' }
+          if ($stable.PhysicalFormEvidenceSha256 -ne $physicalDoc.EvidenceDigestSha256) { throw 'Stable-ID evidence is not bound to the exact physical-form evidence document.' }
+          foreach ($depth in @($stable.OneTarget,$stable.TwoTarget,$stable.ThreeTarget)) {
+            if ($depth.ResolvedStableCoveredEntryCount + $depth.UnresolvedAmbiguousEntryCount + $depth.StableTagAbsentEntryCount -ne 5446) { throw 'Stable-ID coverage does not partition the exact Oxford universe.' }
+            if ($depth.ResolvedStableCoveredEntryCount -gt $depth.StableTagParticipatingEntryCount) { throw 'Resolved stable-ID coverage cannot exceed stable-tag participation.' }
+          }
+          if ($stable.OneTarget.UnresolvedAmbiguousEntryCount -le 0) { throw 'Homographic stable IDs must remain explicitly unresolved without POS/sense evidence.' }
+          if ($stable.RedistributionApproved) { throw 'Stable-ID evidence must not approve redistribution.' }
 
           $gap = Get-Content -LiteralPath $gapPath -Raw | ConvertFrom-Json
-          if ($gap.Payload.MissingOneTargetCount -ne (5446 - $p.OneTarget.CoveredEntryCount)) { throw 'One-target gap accounting does not match live coverage.' }
+          if ($gap.Payload.MissingOneTargetCount -ne (5446 - $p.OneTarget.CoveredEntryCount)) { throw 'One-target gap accounting does not match live stable-tag participation.' }
           if ($gap.Payload.MissingNaturalPairOnlyCount -lt 0 -or $gap.Payload.MissingNaturalTripleOnlyCount -lt 0) { throw 'Live gap accounting contains an invalid negative count.' }
-          Write-Host ("Live exact EN-UA evidence: sentences={0}; one/two/three={1}/{2}/{3}; historical floors=208408,4492/4469/4362" -f `
-            $p.SentenceCount,$p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount)
+          Write-Host ("Live split EN-UA evidence: sentences={0}; stable-tag one/two/three={1}/{2}/{3}; unique_forms={4}; ambiguous_forms={5}; stable resolved one/two/three={6}/{7}/{8}; unresolved_ids={9}" -f `
+            $p.SentenceCount,$p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
+            $physical.UniqueLexicalFormCount,$physical.AmbiguousLexicalFormCount, `
+            $stable.OneTarget.ResolvedStableCoveredEntryCount,$stable.TwoTarget.ResolvedStableCoveredEntryCount,$stable.ThreeTarget.ResolvedStableCoveredEntryCount, `
+            $stable.OneTarget.UnresolvedAmbiguousEntryCount)
 
       - name: Preserve non-redistributable provenance metadata with coverage evidence
         shell: pwsh
