@@ -10,6 +10,8 @@
   const TEXT_ID = "document-copy-text";
   const OPEN_ID = "document-copy-open";
   const CLOSE_ID = "document-copy-close";
+  const SELECTION_GUARD_FLAG = "__accessibleChessDocumentSelectionGuardInstalled";
+  let selectionMutationDepth = 0;
 
   function isEnglish() {
     return documentRef.documentElement.lang === "en";
@@ -43,6 +45,15 @@
     return documentRef.getElementById("main-content") || documentRef.body;
   }
 
+  function semanticRoots() {
+    const roots = [];
+    const workspace = documentRef.getElementById("v2-workspace");
+    const main = documentRef.getElementById("main-content");
+    if (workspace) roots.push(workspace);
+    if (main) roots.push(main);
+    return roots;
+  }
+
   function semanticText(root) {
     if (!root) return "";
     return String(root.innerText || root.textContent || "")
@@ -52,17 +63,190 @@
       .trim();
   }
 
-  function selectedText() {
+  function currentSelection() {
     try {
-      const selection = global.getSelection && global.getSelection();
-      return selection ? String(selection.toString() || "") : "";
+      return global.getSelection && global.getSelection();
     } catch (_) {
-      return "";
+      return null;
     }
   }
 
+  function selectedText() {
+    const selection = currentSelection();
+    return selection ? String(selection.toString() || "") : "";
+  }
+
   function hasMeaningfulSelection() {
-    return selectedText().trim().length > 0;
+    const selection = currentSelection();
+    return !!selection && !selection.isCollapsed && selectedText().trim().length > 0;
+  }
+
+  function rangeIntersectsNode(range, node) {
+    if (!range || !node) return false;
+    try {
+      if (typeof range.intersectsNode === "function") return range.intersectsNode(node);
+    } catch (_) {}
+    try {
+      return node.contains(range.startContainer) || node.contains(range.endContainer);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function selectionTouches(node) {
+    if (!node) return false;
+    const selection = currentSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
+    for (let index = 0; index < selection.rangeCount; index += 1) {
+      if (rangeIntersectsNode(selection.getRangeAt(index), node)) return true;
+    }
+    return false;
+  }
+
+  function selectionRoot(range) {
+    if (!range) return null;
+    const roots = semanticRoots();
+    for (let index = 0; index < roots.length; index += 1) {
+      const root = roots[index];
+      try {
+        if (root.contains(range.startContainer) && root.contains(range.endContainer)) return root;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function textOffset(root, container, offset) {
+    const probe = documentRef.createRange();
+    probe.selectNodeContents(root);
+    probe.setEnd(container, offset);
+    return probe.toString().length;
+  }
+
+  function captureSelectionForMutation(node) {
+    if (!node || selectionMutationDepth) return null;
+    const selection = currentSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    if (!rangeIntersectsNode(range, node)) return null;
+    const root = selectionRoot(range);
+    if (!root) return null;
+    try {
+      const start = textOffset(root, range.startContainer, range.startOffset);
+      const end = textOffset(root, range.endContainer, range.endOffset);
+      const chosen = String(range.toString() || "");
+      if (!chosen.trim() || end <= start) return null;
+      return {root: root, start: start, end: end, text: chosen};
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function locateTextOffset(root, targetOffset) {
+    const showText = global.NodeFilter ? global.NodeFilter.SHOW_TEXT : 4;
+    const walker = documentRef.createTreeWalker(root, showText);
+    let remaining = Math.max(0, Number(targetOffset) || 0);
+    let last = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      last = node;
+      const length = String(node.data || "").length;
+      if (remaining <= length) return {node: node, offset: remaining};
+      remaining -= length;
+    }
+    if (last) return {node: last, offset: String(last.data || "").length};
+    return {node: root, offset: 0};
+  }
+
+  function nearestSelectedTextOffset(root, expectedText, preferredStart) {
+    const allText = String(root.textContent || "");
+    if (!expectedText) return preferredStart;
+    let index = allText.indexOf(expectedText);
+    if (index < 0) return preferredStart;
+    let best = index;
+    let bestDistance = Math.abs(index - preferredStart);
+    while (index >= 0) {
+      const distance = Math.abs(index - preferredStart);
+      if (distance < bestDistance) {
+        best = index;
+        bestDistance = distance;
+      }
+      index = allText.indexOf(expectedText, index + 1);
+    }
+    return best;
+  }
+
+  function restoreSelection(snapshot) {
+    if (!snapshot || !snapshot.root || !snapshot.root.isConnected) return false;
+    const selection = currentSelection();
+    if (!selection) return false;
+    try {
+      const root = snapshot.root;
+      const rootText = String(root.textContent || "");
+      let start = Math.max(0, Math.min(snapshot.start, rootText.length));
+      let end = Math.max(start, Math.min(snapshot.end, rootText.length));
+      if (snapshot.text && rootText.slice(start, end) !== snapshot.text) {
+        start = nearestSelectedTextOffset(root, snapshot.text, start);
+        end = Math.min(rootText.length, start + snapshot.text.length);
+      }
+      const startPoint = locateTextOffset(root, start);
+      const endPoint = locateTextOffset(root, end);
+      const range = documentRef.createRange();
+      range.setStart(startPoint.node, startPoint.offset);
+      range.setEnd(endPoint.node, endPoint.offset);
+      selectionMutationDepth += 1;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      selectionMutationDepth -= 1;
+      return String(selection.toString() || "").length > 0;
+    } catch (_) {
+      selectionMutationDepth = 0;
+      return false;
+    }
+  }
+
+  function installSelectionMutationGuard() {
+    if (global[SELECTION_GUARD_FLAG]) return;
+    global[SELECTION_GUARD_FLAG] = true;
+
+    const textContentDescriptor = Object.getOwnPropertyDescriptor(global.Node.prototype, "textContent");
+    if (textContentDescriptor && textContentDescriptor.get && textContentDescriptor.set && textContentDescriptor.configurable) {
+      Object.defineProperty(global.Node.prototype, "textContent", {
+        configurable: textContentDescriptor.configurable,
+        enumerable: textContentDescriptor.enumerable,
+        get: textContentDescriptor.get,
+        set: function (value) {
+          const snapshot = captureSelectionForMutation(this);
+          textContentDescriptor.set.call(this, value);
+          if (snapshot) restoreSelection(snapshot);
+        }
+      });
+    }
+
+    const innerHTMLDescriptor = Object.getOwnPropertyDescriptor(global.Element.prototype, "innerHTML");
+    if (innerHTMLDescriptor && innerHTMLDescriptor.get && innerHTMLDescriptor.set && innerHTMLDescriptor.configurable) {
+      Object.defineProperty(global.Element.prototype, "innerHTML", {
+        configurable: innerHTMLDescriptor.configurable,
+        enumerable: innerHTMLDescriptor.enumerable,
+        get: innerHTMLDescriptor.get,
+        set: function (value) {
+          const snapshot = captureSelectionForMutation(this);
+          innerHTMLDescriptor.set.call(this, value);
+          if (snapshot) restoreSelection(snapshot);
+        }
+      });
+    }
+
+    const nativeReplaceChildren = global.Element.prototype.replaceChildren;
+    if (typeof nativeReplaceChildren === "function") {
+      global.Element.prototype.replaceChildren = function () {
+        const snapshot = captureSelectionForMutation(this);
+        const result = nativeReplaceChildren.apply(this, arguments);
+        if (snapshot) restoreSelection(snapshot);
+        return result;
+      };
+    }
+
+    if (documentRef.body) documentRef.body.dataset.semanticDocumentSelectionGuardReady = "true";
   }
 
   function buildTools() {
@@ -159,6 +343,7 @@
 
   function install() {
     installSelectableStyle();
+    installSelectionMutationGuard();
     buildTools();
     if (documentRef.body) {
       documentRef.body.dataset.semanticDocumentCopyReady = "true";
@@ -170,6 +355,7 @@
     install: install,
     selectedText: selectedText,
     hasMeaningfulSelection: hasMeaningfulSelection,
+    selectionTouches: selectionTouches,
     currentSectionText: function () { return semanticText(visibleTextRoot()); }
   });
 
