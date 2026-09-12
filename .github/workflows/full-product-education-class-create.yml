@@ -6,8 +6,13 @@ on:
       - 'acs/education_class_management.py'
       - 'acs/version2_education_mutation_application.py'
       - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_final_product_profile.py'
       - 'run_accessible_chess_v2.py'
       - 'tests/test_version2_education_class_create.py'
+      - 'tests/test_version2_education_open_selected.py'
+      - 'tests/js/education_surface_dom_test.js'
+      - 'web/full_product_education.js'
+      - '.github/workflows/d01-education-management-webview.yml'
       - '.github/workflows/full-product-education-class-create.yml'
   workflow_dispatch:
 
@@ -18,6 +23,17 @@ concurrency:
   group: full-product-education-class-create-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CURRENT_PRODUCT_BASE: 0c06457c8421be7a0685301bfec77e174632df1c
+  PRIOR_SAME_HEAD: 2bf6a55a22461e0bfd07dd017844bc4e968f965c
+  MUTATION_APP_BLOB: 0b28608b879b1fad215e4ebbf330c6b874b2170e
+  FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
+  OPEN_SELECTED_TEST_BLOB: 8e974361b18b0dc2a81ebd67dc710869a9e7df93
+  CURRENT_SHARED_EDUCATION_TEST_BLOB: 92ef5d96eda599bdb4db66e8ebe263a693532227
+  CURRENT_EDUCATION_RELEASE_BLOB: 334c8210571be8212638e948032e61d1eee4df4d
+  DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
+  WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
+
 jobs:
   verify:
     strategy:
@@ -25,7 +41,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,41 +63,61 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove retained Education authority and current PR hygiene
+      - name: Prove current Product authority, retained Education owner, and compatibility scope
         shell: bash
-        env:
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          base="${EVENT_BASE_SHA:-}"
-          if [ -z "$base" ]; then
-            base="$(git rev-parse HEAD^)"
-          fi
-          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          git cat-file -e "${CURRENT_PRODUCT_BASE}^{commit}"
+          git cat-file -e "${PRIOR_SAME_HEAD}^{commit}"
+          test "$(git rev-parse HEAD^1)" = "$CURRENT_PRODUCT_BASE"
+          test "$(git rev-parse HEAD^2)" = "$PRIOR_SAME_HEAD"
+          test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
+          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-education-management-webview.yml' \
+            '.github/workflows/full-product-education-class-create.yml' \
+            'acs/version2_education_mutation_application.py' \
+            'acs/version2_final_product_profile.py' \
+            'tests/js/education_surface_dom_test.js' \
+            'tests/test_version2_education_open_selected.py' \
+            'web/full_product_education.js' | sort)"
+          test "$changed" = "$expected"
+
           education_owner="3df622f6d667b3513222003df159e52188e60bda"
           git cat-file -e "${education_owner}^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$education_owner" HEAD
-          git diff --check "$base" HEAD
           test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "f3a2633c400a4f07fffa52d478456c62a8330fc6"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "334c8210571be8212638e948032e61d1eee4df4d"
+          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
           test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "125f378e87acbca993acf54bd4012e93539384d3"
-          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "92ef5d96eda599bdb4db66e8ebe263a693532227"
+          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "$CURRENT_SHARED_EDUCATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_education_open_selected.py)" = "$OPEN_SELECTED_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)" = "$DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_education.js)" = "$WEB_SURFACE_BLOB"
 
-      - name: Compile changed Python
+      - name: Compile Education composition
         run: >-
           python -m py_compile
           acs/education_class_management.py
           acs/version2_education_mutation_application.py
           acs/version2_education_mutation_release.py
+          acs/version2_final_product_profile.py
           run_accessible_chess_v2.py
           tests/test_version2_education_class_create.py
+          tests/test_version2_education_open_selected.py
 
-      - name: Focused Education mutation and persistence regression
+      - name: Browser open-selected DOM contract
+        run: |
+          node --check web/full_product_education.js
+          node tests/js/education_surface_dom_test.js
+
+      - name: Focused Education mutation, open-selected, and persistence regression
         run: >-
           python -m pytest -q
           tests/test_version2_education_class_create.py
+          tests/test_version2_education_open_selected.py
           tests/test_education_workspace.py
           tests/test_education_webview_projection.py
           tests/test_education_webview_bridge.py

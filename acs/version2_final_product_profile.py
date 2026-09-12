@@ -2,10 +2,11 @@ from __future__ import annotations
 
 """Full-product V2 composition profile for current Windows integration work.
 
-This profile extends the accepted Version 2 checkpoint only with the two
-dependency-complete navigation seams that already exist in canonical product
-owners: Teacher and Classes/Education. It deliberately does not expose
-``remote.*`` or uncomposed Teacher/Classroom mutation actions.
+This profile extends the accepted Version 2 checkpoint with the dependency-complete
+Teacher/Classes navigation seams and the bounded Education read/open actions whose
+trusted-host handlers are composed by the current Education application. It
+deliberately does not expose ``remote.*`` or uncomposed Teacher/Classroom mutation
+actions.
 """
 
 from collections.abc import Callable, Mapping
@@ -30,13 +31,24 @@ from .version2_profile import (
 FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS = frozenset(
     {"screen.teacher", "screen.classes"}
 )
+FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS = frozenset(
+    {
+        "classes.open",
+        "classes.student_open",
+        "classes.lesson_open",
+        "classes.assignment_open",
+    }
+)
+FINAL_PRODUCT_EXTRA_ACTION_IDS = (
+    FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS | FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS
+)
 FINAL_PRODUCT_EXTRA_ACTIONS = tuple(
     definition
     for definition in FULL_PRODUCT_ACTIONS
-    if definition.action_id in FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS
+    if definition.action_id in FINAL_PRODUCT_EXTRA_ACTION_IDS
 )
-if frozenset(definition.action_id for definition in FINAL_PRODUCT_EXTRA_ACTIONS) != FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS:
-    raise RuntimeError("full-product route definitions are incomplete")
+if frozenset(definition.action_id for definition in FINAL_PRODUCT_EXTRA_ACTIONS) != FINAL_PRODUCT_EXTRA_ACTION_IDS:
+    raise RuntimeError("full-product extra action definitions are incomplete")
 
 FINAL_PRODUCT_ACTIONS = (*VERSION2_FULL_PRODUCT_ACTIONS, *FINAL_PRODUCT_EXTRA_ACTIONS)
 FINAL_PRODUCT_ACTION_IDS = frozenset(
@@ -77,10 +89,6 @@ def validate_final_product_action_registry(registry: ActionRegistry) -> None:
         "teacher.read_student_event",
         "student.move",
         "classes.new",
-        "classes.open",
-        "classes.student_open",
-        "classes.lesson_open",
-        "classes.assignment_open",
     }
     leaked = ids.intersection(forbidden)
     if leaked:
