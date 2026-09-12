@@ -10,7 +10,7 @@ const bootstrapPath = path.join(ROOT, "web", "version2_final_product_bootstrap.j
 const source = fs.readFileSync(bootstrapPath, "utf8");
 
 const helperStart = source.indexOf("  function currentSelection()");
-const helperEnd = source.indexOf("\n\n  const stage1Focus", helperStart);
+const helperEnd = source.indexOf("  const stage1Focus", helperStart);
 assert(helperStart >= 0, "currentSelection helper not found in shipping bootstrap");
 assert(helperEnd > helperStart, "selection helper block end not found in shipping bootstrap");
 const helperSource = source.slice(helperStart, helperEnd);
@@ -181,7 +181,6 @@ function makeSelection(root, nodeIndex, startOffset, endOffset) {
   selection = new SelectionMock(range);
 }
 
-// Full same-route rerender: exact selected text must survive even when its absolute offset moves.
 makeSelection(workspace, 1, 0, "selected text".length);
 const booksSnapshot = helpers.captureWorkspaceSelection();
 assert(booksSnapshot, "meaningful Books selection was not captured");
@@ -192,12 +191,10 @@ selection.removeAllRanges();
 assert.strictEqual(helpers.restoreWorkspaceSelection(booksSnapshot, "books"), true);
 assert.strictEqual(selection.toString(), "selected text");
 
-// Route changes must never resurrect a stale selection.
 selection.removeAllRanges();
 assert.strictEqual(helpers.restoreWorkspaceSelection(booksSnapshot, "training"), false);
 assert.strictEqual(selection.toString(), "");
 
-// Incremental Library-style rerender: preserve the exact text across replacement with shifted offsets.
 context.currentRouteId = "library";
 workspace.setParts(["Games: ", "Kasparov - Karpov", " 1-0"]);
 makeSelection(workspace, 1, 0, "Kasparov - Karpov".length);
@@ -209,13 +206,11 @@ selection.removeAllRanges();
 assert.strictEqual(helpers.restoreWorkspaceSelection(librarySnapshot, "library"), true);
 assert.strictEqual(selection.toString(), "Kasparov - Karpov");
 
-// Missing text must fail closed rather than selecting unrelated content.
 selection.removeAllRanges();
 workspace.setParts(["Different content only"]);
 assert.strictEqual(helpers.restoreWorkspaceSelection(librarySnapshot, "library"), false);
 assert.strictEqual(selection.toString(), "");
 
-// Duplicate text recovery must choose the occurrence nearest the prior absolute position.
 assert.strictEqual(helpers.nearestSelectionStart("x target 123456 target y", "target", 15), 16);
 
 console.log("P0 semantic document copy executable selection evidence: PASS");
