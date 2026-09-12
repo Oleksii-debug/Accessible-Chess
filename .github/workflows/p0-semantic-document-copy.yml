@@ -1,0 +1,30 @@
+name: P0 Semantic Document Copy
+
+on:
+  pull_request:
+    paths:
+      - "web/version2_final_product_bootstrap.js"
+      - "tests/test_p0_semantic_document_copy.py"
+      - ".github/workflows/p0-semantic-document-copy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-document-copy:
+    name: Semantic document copy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python regression contract
+        run: python -m unittest tests.test_p0_semantic_document_copy
+      - name: JavaScript syntax contract
+        run: node --check web/version2_final_product_bootstrap.js
