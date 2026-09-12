@@ -60,6 +60,8 @@ class V2LibraryDateRealCbvTests(unittest.TestCase):
                     decoder_config,
                     extractor_config,
                 ).import_database(fixture)
+                self.assertEqual(report.source_format, "cbv")
+                self.assertEqual(report.archive_backend_name, "uncbv")
                 self.assertEqual(report.decoded_game_count, TWIC_1134_EXPECTED_GAMES)
                 self.assertEqual(report.imported_game_count, TWIC_1134_EXPECTED_GAMES)
 
@@ -103,7 +105,10 @@ class V2LibraryDateRealCbvTests(unittest.TestCase):
                 self.assertGreater(len(service_page.items), 0)
                 self.assertEqual(database.verify_integrity(), ACSDB_SCHEMA_VERSION)
                 source_id = report.library_result.source_id
-                source_sha256 = database.get_source(source_id)["sha256"]
+                source_row = database.get_source(source_id)
+                self.assertEqual(source_row["source_format"], "cbv")
+                self.assertEqual(source_row["sha256"], report.source_sha256)
+                source_sha256 = source_row["sha256"]
 
             with AcsDatabase(path) as reopened:
                 self.assertEqual(reopened.schema_version, ACSDB_SCHEMA_VERSION)
