@@ -21,6 +21,7 @@ def _external_environment_ready() -> bool:
             "UNCBV_BINARY",
             "UNCBV_BINARY_SHA256",
             "UNCBV_FIXTURE",
+            "UNCBV_SMALL_FIXTURE",
             "LIBCBH_BRIDGE",
         )
     )
@@ -33,9 +34,7 @@ def _external_environment_ready() -> bool:
 class CbvUncbvExternalFixtureTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = Path(os.environ["UNCBV_FIXTURE"])
-        self.small_fixture = Path(
-            os.environ.get("UNCBV_SMALL_FIXTURE", os.environ["UNCBV_FIXTURE"])
-        )
+        self.small_fixture = Path(os.environ["UNCBV_SMALL_FIXTURE"])
         self.extractor_config = ExternalCbvExtractorConfig(
             Path(os.environ["UNCBV_BINARY"]),
             expected_backend_sha256=os.environ["UNCBV_BINARY_SHA256"],
@@ -51,6 +50,7 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
         )
 
     def test_real_cbv_archive_extracts_to_one_classic_cbh_family(self) -> None:
+        self.assertEqual(self.small_fixture.name.lower(), "small.cbv")
         with tempfile.TemporaryDirectory() as temporary:
             result = extract_cbv_external(
                 self.small_fixture,
@@ -64,7 +64,7 @@ class CbvUncbvExternalFixtureTests(unittest.TestCase):
             self.assertTrue(result.primary_path.is_file())
 
     def test_real_cbv_to_libcbh_to_canonical_acsdatabase(self) -> None:
-        self.assertEqual(self.small_fixture.suffix.lower(), ".cbv")
+        self.assertEqual(self.small_fixture.name.lower(), "small.cbv")
         with tempfile.TemporaryDirectory() as temporary:
             database = AcsDatabase(Path(temporary) / "real-cbv-small.acsdb")
             try:
