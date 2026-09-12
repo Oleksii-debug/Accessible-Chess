@@ -180,7 +180,11 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                     _LOG.warning("Version 2 streaming PGN worker cleanup failed", exc_info=True)
             with self._lock:
                 if generation == self._generation:
-                    self._worker = None
+                    # Keep the completed Thread object published until caller-side
+                    # wait/shutdown can join it. Clearing the reference from inside
+                    # the worker creates a window where wait_for_import() reports
+                    # completion while this thread is still unwinding, which can
+                    # leave Windows file handles briefly live during teardown.
                     self._cancel_event = None
 
 
