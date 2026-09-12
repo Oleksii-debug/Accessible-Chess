@@ -9,7 +9,10 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_windows_upgrade_status.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'run_accessible_chess_v2.py'
       - 'tests/test_v2_windows_upgrade_status.py'
+      - 'tests/test_v2_windows_upgrade_status_shipping.py'
       - '.github/workflows/v2-windows-upgrade-status.yml'
   workflow_dispatch:
 
@@ -21,10 +24,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT_BASE: 7580f614a2d422a4af8120a4ee33264d78cf1502
-  SOURCE_HEAD: b6ed6ae4d7e0adead615ece0ef2e7504345028fa
+  CURRENT_PRODUCT_BASE: 3f6aedbbf48cdc3e7542452268766430b8c0bbc6
+  PROVENANCE_HEAD: f618375ea7784c47070b60edcb0171879ab3f8fb
   SOURCE_ADAPTER_BLOB: 9fb7d1521f3387316e399d63ae81504957710b09
   SOURCE_TEST_BLOB: 3c55d1e85724d0473e8e282d65294ae19040b22c
+  SHIPPING_BINDING_BLOB: 6631d8e8a000ed32f60a95f68d9b02cf0422c4df
+  SHIPPING_TEST_BLOB: 7cf695af6b7c0975b075d0cee332dbd815af9a6d
+  LAUNCHER_BLOB: 4903519834ed266bfb867ba55ccdf67bdf2e10d1
+  CURRENT_RELEASE_APP_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
+  CURRENT_EDUCATION_RELEASE_BLOB: 334c8210571be8212638e948032e61d1eee4df4d
 
 jobs:
   upgrade-status:
@@ -33,7 +41,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,45 +63,59 @@ jobs:
       - name: Install pinned verification dependencies
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current-product reconvergence and owner isolation
+      - name: Prove current-product convergence and owned shipping scope
         shell: bash
         run: |
           set -euo pipefail
-          for commit in "$CURRENT_PRODUCT_BASE" "$SOURCE_HEAD"; do
+          for commit in "$CURRENT_PRODUCT_BASE" "$PROVENANCE_HEAD"; do
             git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
           done
           git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
-          git merge-base --is-ancestor "$SOURCE_HEAD" HEAD
-          test "$(git rev-parse HEAD^)" = "$CURRENT_PRODUCT_BASE"
+          git merge-base --is-ancestor "$PROVENANCE_HEAD" HEAD
+          test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"
           git diff --check "$CURRENT_PRODUCT_BASE" HEAD
           changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-windows-upgrade-status.yml' \
+            'acs/version2_upgrade_status_release.py' \
             'acs/version2_windows_upgrade_status.py' \
-            'tests/test_v2_windows_upgrade_status.py' | sort)"
+            'run_accessible_chess_v2.py' \
+            'tests/test_v2_windows_upgrade_status.py' \
+            'tests/test_v2_windows_upgrade_status_shipping.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/version2_windows_upgrade_status.py)" = "$SOURCE_ADAPTER_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status.py)" = "$SOURCE_TEST_BLOB"
-          for path in \
-            acs/version2_upgrade.py \
-            acs/acsdb.py \
-            acs/settings.py \
-            acs/version2_application.py \
-            acs/version2_release_ui.py \
-            run_accessible_chess_v2.py; do
-            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$CURRENT_PRODUCT_BASE:$path")"
-          done
+          test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$SHIPPING_BINDING_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status_shipping.py)" = "$SHIPPING_TEST_BLOB"
+          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$LAUNCHER_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$CURRENT_RELEASE_APP_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
+          test "$(git rev-parse "$CURRENT_PRODUCT_BASE:acs/version2_release_app.py")" = "$CURRENT_RELEASE_APP_BLOB"
+          test "$(git rev-parse "$CURRENT_PRODUCT_BASE:acs/version2_education_mutation_release.py")" = "$CURRENT_EDUCATION_RELEASE_BLOB"
 
-      - name: Compile adapter package
+      - name: Prove production launcher uses the shipping status binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'from acs.version2_upgrade_status_release import (' run_accessible_chess_v2.py
+          grep -q 'from acs.version2_upgrade_status_release import main' run_accessible_chess_v2.py
+          ! grep -q 'from acs.version2_education_mutation_release import main' run_accessible_chess_v2.py
+
+      - name: Compile upgrade status package and shipping binding
         run: >-
           python -m compileall -q
           acs/version2_windows_upgrade_status.py
+          acs/version2_upgrade_status_release.py
+          run_accessible_chess_v2.py
           tests/test_v2_windows_upgrade_status.py
+          tests/test_v2_windows_upgrade_status_shipping.py
 
-      - name: Focused accessible adapter and current canonical upgrade contracts
+      - name: Focused shipping status and canonical upgrade contracts
         run: >-
           python -m unittest -v
+          tests.test_v2_windows_upgrade_status_shipping
           tests.test_v2_windows_upgrade_status
+          tests.test_version2_release_app
           tests.test_v2_upgrade_tracked_writer_conflict
           tests.test_v2_upgrade_current_acsdb_identity_audit
           tests.test_v2_upgrade_v6_successor
@@ -104,7 +126,9 @@ jobs:
       - name: Focused pytest parity
         run: >-
           python -m pytest -q
+          tests/test_v2_windows_upgrade_status_shipping.py
           tests/test_v2_windows_upgrade_status.py
+          tests/test_version2_release_app.py
           tests/test_v2_upgrade_tracked_writer_conflict.py
           tests/test_v2_upgrade_current_acsdb_identity_audit.py
           tests/test_v2_upgrade_v6_successor.py
@@ -118,7 +142,7 @@ jobs:
       - name: Full repository pytest
         run: python -m pytest -q tests
 
-      - name: SELFTEST and final-product diagnostic
+      - name: SELFTEST and exact production-composition diagnostic
         run: |
           python -m acs.selftest
           python run_accessible_chess_v2.py --diagnostic
