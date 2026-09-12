@@ -140,3 +140,73 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & .\WordDeck\scripts\worddeck-package-recovery-smoke.ps1 -CandidateRoot .\artifacts\release
+
+      - name: Materialize fail-closed commercial package binding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releaseRoot = (Resolve-Path .\artifacts\release).Path
+          $contentRoot = Join-Path $releaseRoot 'commercial-content'
+          New-Item -ItemType Directory -Force -Path $contentRoot | Out-Null
+
+          $markerName = 'COMMERCIAL_CONTENT_NOT_CLEARED.txt'
+          $markerPath = Join-Path $contentRoot $markerName
+          @'
+          WordDeck commercial release is HOLD.
+          This engineering Windows candidate does not assert cleared production rights.
+          A commercial release requires an independently reviewed CONTENT_ASSET_INDEX.json
+          with commercial_release_eligible=true and exact cleared-production provenance.
+          '@ | Set-Content -LiteralPath $markerPath -Encoding utf8NoBOM
+
+          $sourceSha = '${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}'
+          if ($sourceSha -notmatch '^[0-9a-fA-F]{40}$') {
+            throw "Cannot bind commercial package index to invalid source SHA: $sourceSha"
+          }
+
+          $index = [ordered]@{
+            schema_version = '1.0'
+            commercial_release_eligible = $false
+            source_sha = $sourceSha.ToLowerInvariant()
+            producer_workflow = '.github/workflows/worddeck-package-recovery.yml'
+            artifact_name = 'worddeck-windows-release-candidate'
+            content_roots = @('commercial-content')
+            assets = @(
+              [ordered]@{
+                asset_id = 'worddeck-commercial-release-hold-marker-v1'
+                path = "commercial-content/$markerName"
+              }
+            )
+          }
+          $indexPath = Join-Path $releaseRoot 'CONTENT_ASSET_INDEX.json'
+          $index | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $indexPath -Encoding utf8NoBOM
+
+          if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
+            throw 'Commercial package binding failed to materialize CONTENT_ASSET_INDEX.json.'
+          }
+          Write-Host "Commercial package binding materialized fail-closed: $indexPath"
+
+      - name: Recheck exact release artifact contains no personal state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
+            $_.Name -like 'WordDeck-profile*.json' -or
+            $_.FullName -match '[\\/]Backups[\\/]'
+          })
+          if ($forbidden.Count -ne 0) {
+            throw "Release artifact contains personal state after acceptance: $($forbidden.FullName -join ', ')"
+          }
+          if (-not (Test-Path -LiteralPath .\artifacts\release\CONTENT_ASSET_INDEX.json -PathType Leaf)) {
+            throw 'Release artifact is missing CONTENT_ASSET_INDEX.json.'
+          }
+
+      - name: Upload exact Windows release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-windows-release-candidate
+          path: ./artifacts/release
+          if-no-files-found: error
+          retention-days: 30

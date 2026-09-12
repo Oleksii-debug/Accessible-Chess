@@ -1,0 +1,202 @@
+name: WordDeck commercial release provenance from packaged artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful authorized packaging workflow run ID whose exact artifact will be commercially gated'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact 40-hex worddeck-bootstrap source SHA expected from the authorized packaging run'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      source_run_id:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  WORDDECK_COMMERCIAL_PRODUCER_WORKFLOW: .github/workflows/worddeck-package-recovery.yml
+  WORDDECK_COMMERCIAL_ARTIFACT_NAME: worddeck-windows-release-candidate
+
+jobs:
+  commercial-package-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve authorized exact package source
+        id: source
+        uses: actions/github-script@v7
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const runId = Number(process.env.SOURCE_RUN_ID);
+            if (!Number.isSafeInteger(runId) || runId <= 0) {
+              throw new Error('source_run_id must be a positive workflow run ID');
+            }
+            const expectedSha = String(process.env.SOURCE_SHA || '').trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(expectedSha)) {
+              throw new Error('source_sha must be an exact 40-hex commit SHA');
+            }
+
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId
+            });
+            const { data: artifactResponse } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+              per_page: 100
+            });
+
+            const evidence = {
+              run: {
+                id: run.id,
+                path: run.path,
+                head_branch: run.head_branch,
+                head_sha: run.head_sha,
+                conclusion: run.conclusion
+              },
+              artifacts: (artifactResponse.artifacts || []).map(a => ({
+                id: a.id,
+                name: a.name,
+                expired: a.expired
+              }))
+            };
+            const evidencePath = path.join(process.env.RUNNER_TEMP, 'commercial-package-source.json');
+            fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n', 'utf8');
+            core.setOutput('sha', expectedSha);
+            core.setOutput('evidence_path', evidencePath);
+
+      - name: Checkout exact packaged source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate fixed producer workflow, exact source SHA and stable artifact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python WordDeck/tools/validate_commercial_package_source.py \
+            --contract-json '${{ steps.source.outputs.evidence_path }}' \
+            --expected-run-id '${{ inputs.source_run_id }}' \
+            --expected-workflow-path "$WORDDECK_COMMERCIAL_PRODUCER_WORKFLOW" \
+            --expected-branch worddeck-bootstrap \
+            --expected-sha '${{ inputs.source_sha }}' \
+            --expected-artifact-name "$WORDDECK_COMMERCIAL_ARTIFACT_NAME"
+
+      - name: Download only the fixed authorized package artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          name: worddeck-windows-release-candidate
+          path: ./commercial-package
+
+      - name: Validate package binding and derive exact shipped-content inventory
+        id: inventory
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t indexes < <(find ./commercial-package -type f -name CONTENT_ASSET_INDEX.json -print)
+          if [ "${#indexes[@]}" -ne 1 ]; then
+            echo "Commercial package must contain exactly one CONTENT_ASSET_INDEX.json; found ${#indexes[@]}" >&2
+            exit 1
+          fi
+          index="${indexes[0]}"
+          release_root="$(dirname "$index")"
+
+          python - "$index" "$EXPECTED_SOURCE_SHA" "$WORDDECK_COMMERCIAL_PRODUCER_WORKFLOW" "$WORDDECK_COMMERCIAL_ARTIFACT_NAME" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          index_path = Path(sys.argv[1])
+          expected_sha = sys.argv[2].strip().lower()
+          expected_workflow = sys.argv[3]
+          expected_artifact = sys.argv[4]
+          data = json.loads(index_path.read_text(encoding="utf-8-sig"))
+
+          errors = []
+          if data.get("commercial_release_eligible") is not True:
+              errors.append("commercial_release_eligible must be true; engineering/HOLD artifacts cannot pass")
+          if str(data.get("source_sha", "")).lower() != expected_sha:
+              errors.append("CONTENT_ASSET_INDEX source_sha does not match the authorized exact package source")
+          if data.get("producer_workflow") != expected_workflow:
+              errors.append("CONTENT_ASSET_INDEX producer_workflow is not the authorized packaging workflow")
+          if data.get("artifact_name") != expected_artifact:
+              errors.append("CONTENT_ASSET_INDEX artifact_name is not the stable authorized release artifact")
+          if not re.fullmatch(r"[0-9a-f]{40}", expected_sha):
+              errors.append("expected source SHA is invalid")
+
+          if errors:
+              print("COMMERCIAL_PACKAGE_BINDING_FAIL", file=sys.stderr)
+              for error in errors:
+                  print(f"- {error}", file=sys.stderr)
+              raise SystemExit(1)
+          print("COMMERCIAL_PACKAGE_BINDING_PASS")
+          PY
+
+          printf 'release_root=%s\n' "$release_root" >> "$GITHUB_OUTPUT"
+          python WordDeck/tools/build_release_content_inventory.py \
+            --release-root "$release_root" \
+            --asset-index "$index" \
+            --output ./commercial-release-content-inventory.json \
+            --release-id "worddeck-${EXPECTED_SOURCE_SHA}" \
+            --channel windows_offline
+
+      - name: Validate exact package inventory against exact-source provenance manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_root='${{ steps.inventory.outputs.release_root }}'
+          notice_args=()
+          mapfile -t notices < <(find "$release_root" -maxdepth 2 -type f -name CONTENT_NOTICES.json -print)
+          if [ "${#notices[@]}" -gt 1 ]; then
+            echo "Commercial package has ambiguous CONTENT_NOTICES.json catalogues" >&2
+            exit 1
+          fi
+          if [ "${#notices[@]}" -eq 1 ]; then
+            notice_args=(--notices "${notices[0]}")
+          fi
+          python WordDeck/tools/validate_content_provenance_strict.py \
+            --manifest WordDeck/QA/content_provenance_manifest.json \
+            --inventory ./commercial-release-content-inventory.json \
+            --require-inventory \
+            "${notice_args[@]}"
+
+      - name: Upload exact commercial provenance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-commercial-provenance-${{ inputs.source_sha }}
+          path: |
+            ${{ steps.source.outputs.evidence_path }}
+            ./commercial-release-content-inventory.json
+          if-no-files-found: error
+          retention-days: 90
