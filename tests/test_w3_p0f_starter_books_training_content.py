@@ -130,6 +130,21 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         len(app.reader.document.exercises()),
                     )
 
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    self.assertEqual(EXPECTED_BOOKLETS, catalogue["booklet_count"])
+                    self.assertEqual(EXPECTED_BOOKLETS + 1, len(catalogue["items"]))
+                    self.assertEqual("starter-course", catalogue["current_id"])
+                    self.assertEqual(
+                        EXPECTED_BOOKLETS,
+                        len(
+                            [
+                                item
+                                for item in catalogue["items"]
+                                if item["material_id"].startswith("starter-booklet-")
+                            ]
+                        ),
+                    )
+
                     self.assertTrue(app._start_training_from_current_book())
                     self.assertEqual("Exercise", app.reader.location().kind)
                     self.assertIsNotNone(app.training_workspace)
@@ -137,6 +152,91 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     snapshot = app.training_workspace.snapshot()
                     self.assertIsNotNone(snapshot)
                     self.assertTrue(snapshot["title"].strip())
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_all_24_booklets_are_discoverable_openable_and_keep_isolated_progress(self) -> None:
+        manifest = starter_release_manifest()
+        expected_titles = {
+            item["material_id"]: item["title"] for item in manifest["materials"]
+        }
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-discovery-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    initial = app.snapshot()["books"]["starter_materials"]
+                    booklet_items = [
+                        item
+                        for item in initial["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    ]
+                    self.assertEqual(EXPECTED_BOOKLETS, len(booklet_items))
+                    self.assertEqual(
+                        set(expected_titles),
+                        {item["material_id"] for item in booklet_items},
+                    )
+
+                    for item in booklet_items:
+                        material_id = item["material_id"]
+                        result = app.browser_command(
+                            "books",
+                            "book.open_starter_material",
+                            {"material_id": material_id},
+                        )
+                        self.assertEqual("render", result["kind"])
+                        self.assertEqual(expected_titles[material_id], app.reader.document.title)
+                        self.assertEqual(material_id, result["payload"]["snapshot"]["starter_materials"]["current_id"])
+                        self.assertEqual("Heading", app.reader.location().kind)
+                        self.assertIn(material_id, app.book_key)
+
+                    first_id = booklet_items[0]["material_id"]
+                    second_id = booklet_items[1]["material_id"]
+                    app.browser_command(
+                        "books", "book.open_starter_material", {"material_id": first_id}
+                    )
+                    moved = app.browser_command("books", "book.next", {})
+                    self.assertEqual("render", moved["kind"])
+                    remembered_index = app.reader.location().index
+                    self.assertGreater(remembered_index, 0)
+                    app.browser_command(
+                        "books", "book.open_starter_material", {"material_id": second_id}
+                    )
+                    app.browser_command(
+                        "books", "book.open_starter_material", {"material_id": first_id}
+                    )
+                    self.assertEqual(remembered_index, app.reader.location().index)
+
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    rejected = app.browser_command(
+                        "books",
+                        "book.open_starter_material",
+                        {"material_id": "starter-booklet-does-not-exist"},
+                    )
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+
+                    # Training remains a first-class route after reading any
+                    # booklet: it returns to the canonical exercise-bearing
+                    # starter course, rather than leaving a dead Training page.
+                    self.assertTrue(app._start_training_from_current_book())
+                    self.assertEqual(STARTER_COURSE_BOOK_KEY, app.book_key)
+                    self.assertEqual("Exercise", app.reader.location().kind)
+                    self.assertIsNotNone(app.training_workspace)
+                    self.assertIsNotNone(app.training)
                 finally:
                     app.shutdown()
             finally:
