@@ -28,7 +28,6 @@ def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
     resources = (
         ("Stage 1 WebView bootstrap", root / "stage1_release_bootstrap.js"),
-        ("Semantic document copy surface", root / "document_text_copy.js"),
         ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
         ("V2 PGN surface", root / "full_product_pgn.js"),
         ("V2 Library surface", root / "full_product_library.js"),
