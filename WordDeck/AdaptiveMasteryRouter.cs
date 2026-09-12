@@ -132,6 +132,7 @@ internal sealed class AdaptiveMasteryRouter
 
     private readonly record struct TargetKey(string DictionaryId, string TargetId, AdaptiveTargetKind Kind);
     private readonly record struct ChannelKey(TargetKey Target, AdaptiveEvidenceChannel Channel);
+    private readonly record struct SourceKey(ChannelKey Channel, string SourceId);
 
     private static readonly AdaptiveEvidenceChannel[] AllChannels =
     {
@@ -242,11 +243,15 @@ internal sealed class AdaptiveMasteryRouter
     private static Dictionary<ChannelKey, Aggregate> BuildIndex(IEnumerable<AdaptiveMasteryObservation> observations)
     {
         var index = new Dictionary<ChannelKey, Aggregate>();
+        var seenSources = new HashSet<SourceKey>();
         foreach (AdaptiveMasteryObservation observation in observations)
         {
             ValidateObservation(observation);
             var target = new TargetKey(observation.DictionaryId, observation.TargetId, observation.TargetKind);
             var key = new ChannelKey(target, observation.Channel);
+            var sourceKey = new SourceKey(key, observation.SourceId);
+            if (!seenSources.Add(sourceKey))
+                throw new InvalidDataException($"Adaptive evidence for {observation.TargetId} duplicates source '{observation.SourceId}' in channel {observation.Channel}; duplicate snapshots cannot count as new learner evidence.");
             if (!index.TryGetValue(key, out Aggregate? aggregate))
             {
                 aggregate = new Aggregate();
