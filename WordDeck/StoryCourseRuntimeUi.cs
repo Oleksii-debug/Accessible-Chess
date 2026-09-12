@@ -383,7 +383,7 @@ internal sealed class StoryCourseRuntimeForm : Form
         _submitProductive.Click += (_, _) => SubmitProductivePractice();
         _nextUnit.Click += (_, _) => MoveNextUnit();
         _close.Click += (_, _) => Close();
-        FormClosing += (_, _) => PersistSafely();
+        FormClosing += (_, _) => { _ = PersistSafely(out _); };
         Shown += (_, _) =>
         {
             PopulateUnits();
@@ -459,10 +459,12 @@ internal sealed class StoryCourseRuntimeForm : Form
     {
         if (_unitCombo.SelectedItem is not UnitChoice selected) return;
         string? learnerStateWarning = null;
+        string? legacyProgressWarning = null;
         if (recordSelection)
         {
             _progress = StoryCourseRuntimeStateStore.SelectUnit(_progress, selected.Level, selected.Module, selected.Unit);
-            PersistSafely();
+            if (!PersistSafely(out string? persistError))
+                legacyProgressWarning = persistError;
             try
             {
                 _learnerBridge.RecordUnitSelection(_manifest, selected.Module.ModuleId, selected.Unit.UnitId);
@@ -499,6 +501,7 @@ internal sealed class StoryCourseRuntimeForm : Form
         PopulateTasks(selected.Unit);
         PopulateProductiveTasks(selected.Unit);
         string opened = "Розділ відкрито. Tab переходить між матеріалом, comprehension і productive practice.";
+        if (!string.IsNullOrWhiteSpace(legacyProgressWarning)) opened += Environment.NewLine + legacyProgressWarning;
         if (!string.IsNullOrWhiteSpace(learnerStateWarning)) opened += Environment.NewLine + learnerStateWarning;
         UpdateProgressStatus(opened);
     }
@@ -638,7 +641,11 @@ internal sealed class StoryCourseRuntimeForm : Form
         }
 
         _progress = StoryCourseRuntimeStateStore.RecordNarrativeCompletion(_progress, selected.Context);
-        PersistSafely();
+        if (!PersistSafely(out string? persistError))
+        {
+            UpdateProgressStatus("Exposure збережено в learner-state, але legacy completion не вдалося зберегти. " + persistError);
+            return;
+        }
         UpdateProgressStatus("Матеріал позначено прочитаним. Exposure збережено окремо від mastery.");
     }
 
@@ -676,8 +683,14 @@ internal sealed class StoryCourseRuntimeForm : Form
         if (accepted)
         {
             _progress = StoryCourseRuntimeStateStore.RecordBoundedComprehensionSuccess(_progress, selected.Task);
-            PersistSafely();
-            UpdateProgressStatus("Правильно. Practice evidence збережено; legacy comprehension completion оновлено. Mastery не змінено.");
+            if (!PersistSafely(out string? persistError))
+            {
+                UpdateProgressStatus("Practice evidence збережено, але legacy comprehension completion не вдалося зберегти. Mastery не змінено. " + persistError);
+            }
+            else
+            {
+                UpdateProgressStatus("Правильно. Practice evidence збережено; legacy comprehension completion оновлено. Mastery не змінено.");
+            }
         }
         else
         {
@@ -797,12 +810,19 @@ internal sealed class StoryCourseRuntimeForm : Form
             learnerEvidence + warnings;
     }
 
-    private void PersistSafely()
+    private bool PersistSafely(out string? error)
     {
-        try { _store.Save(_progress); }
+        try
+        {
+            _store.Save(_progress);
+            error = null;
+            return true;
+        }
         catch (Exception ex)
         {
-            _status.Text = "Прогрес курсу не вдалося безпечно зберегти. Наявні файли не видалялися. " + ex.Message;
+            error = "Legacy прогрес курсу не вдалося безпечно зберегти. Наявні файли не видалялися. " + ex.Message;
+            _status.Text = error;
+            return false;
         }
     }
 }
