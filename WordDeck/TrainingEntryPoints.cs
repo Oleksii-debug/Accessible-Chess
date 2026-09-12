@@ -16,6 +16,16 @@ internal static class TrainingEntryPoints
             .FirstOrDefault(item => (item.Text ?? string.Empty).Replace("&", string.Empty).Equals("Tools", StringComparison.OrdinalIgnoreCase));
         if (tools is null) return;
 
+        // Story/Course has an isolated state file and must remain usable even if a
+        // different training mode needs recovery. It consumes only independently
+        // approved local course manifests and the same live canonical dictionary.
+        var openStoryCourse = new ToolStripMenuItem("Відкрити &курс...")
+        {
+            AccessibleName = "Відкрити курс WordDeck"
+        };
+        openStoryCourse.Click += (_, _) => OpenStoryCourse(main);
+        tools.DropDownItems.Insert(0, openStoryCourse);
+
         SpellingStateSession spelling;
         try
         {
@@ -24,7 +34,7 @@ internal static class TrainingEntryPoints
         catch (Exception ex)
         {
             AddUnavailableTrainingItems(tools, ex.Message);
-            AddUnifiedProfileItems(tools, main, insertIndex: 2);
+            AddUnifiedProfileItems(tools, main, insertIndex: 3);
             return;
         }
 
@@ -57,7 +67,7 @@ internal static class TrainingEntryPoints
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
         tools.DropDownItems.Insert(2, settings);
-        AddUnifiedProfileItems(tools, main, insertIndex: 3);
+        AddUnifiedProfileItems(tools, main, insertIndex: 4);
     }
 
     private static void AddUnifiedProfileItems(ToolStripMenuItem tools, MainForm main, int insertIndex)
@@ -77,6 +87,18 @@ internal static class TrainingEntryPoints
         tools.DropDownItems.Insert(insertIndex, exportProfile);
         tools.DropDownItems.Insert(insertIndex + 1, importProfile);
         tools.DropDownItems.Insert(insertIndex + 2, new ToolStripSeparator());
+    }
+
+    private static void OpenStoryCourse(MainForm owner)
+    {
+        try
+        {
+            StoryCourseRuntimeUi.Open(owner, owner.ActivePackageForTraining);
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Story/Course", ex);
+        }
     }
 
     private static void OpenTrainingShortcutSettings(MainForm owner, ToolStripMenuItem spellingItem, ToolStripMenuItem sentenceItem)
