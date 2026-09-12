@@ -1,0 +1,43 @@
+name: P0 Semantic Document Copy Executable Evidence
+
+on:
+  pull_request:
+    paths:
+      - "web/version2_final_product_bootstrap.js"
+      - "tests/test_p0_semantic_document_copy.py"
+      - "tests/p0_semantic_document_copy_executable.js"
+      - ".github/workflows/p0-semantic-document-copy-executable-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  executable-selection:
+    name: Execute semantic selection restoration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact evidence head
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Execute shipping selection helpers
+        run: node tests/p0_semantic_document_copy_executable.js
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Retain source-contract regression
+        run: python -m unittest discover -s tests -p "test_p0_semantic_document_copy.py" -v
