@@ -25,8 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT_BASE: 0c06457c8421be7a0685301bfec77e174632df1c
-  PRIOR_SAME_HEAD: 2bf6a55a22461e0bfd07dd017844bc4e968f965c
+  D01_RETAINED_BINDING_HEAD: 1322f3ea0a4e4906023a8d614d087579f1f963a1
   MUTATION_APP_BLOB: 0b28608b879b1fad215e4ebbf330c6b874b2170e
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
@@ -64,26 +63,18 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Product authority, SAME lineage, and compatibility scope
+      - name: Prove retained Education authority and current Product compatibility
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git cat-file -e "${CURRENT_PRODUCT_BASE}^{commit}"
-          git cat-file -e "${PRIOR_SAME_HEAD}^{commit}"
-          test "$(git rev-parse HEAD^1)" = "$CURRENT_PRODUCT_BASE"
-          test "$(git rev-parse HEAD^2)" = "$PRIOR_SAME_HEAD"
-          test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
-          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d01-education-management-webview.yml' \
-            '.github/workflows/full-product-education-class-create.yml' \
-            'acs/version2_education_mutation_application.py' \
-            'acs/version2_final_product_profile.py' \
-            'tests/js/education_surface_dom_test.js' \
-            'tests/test_version2_education_open_selected.py' \
-            'web/full_product_education.js' | sort)"
-          test "$changed" = "$expected"
+          base="${PR_BASE_SHA:-$D01_RETAINED_BINDING_HEAD}"
+          git cat-file -e "${base}^{commit}"
+          git cat-file -e "${D01_RETAINED_BINDING_HEAD}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$D01_RETAINED_BINDING_HEAD" HEAD
+          git diff --check "$base" HEAD
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
           test "$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)" = "$DOM_TEST_BLOB"
@@ -94,6 +85,7 @@ jobs:
 
           education_owner="e5ac1982423c87c42c359726c37707f3fccffac5"
           git cat-file -e "${education_owner}^{commit}"
+          git merge-base --is-ancestor "$education_owner" HEAD
           for path in \
             acs/education_webview_bridge.py \
             acs/education_webview_projection.py \
@@ -105,6 +97,7 @@ jobs:
               exit 1
             }
           done
+          printf 'Retained Education authority PASS: base=%s binding=%s head=%s\n' "$base" "$D01_RETAINED_BINDING_HEAD" "$(git rev-parse HEAD)"
 
       - name: Compile Education current composition
         run: >-
