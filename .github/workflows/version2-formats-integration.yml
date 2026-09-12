@@ -119,16 +119,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="${{ github.event.pull_request.base.ref }}"
-            EVENT_BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            test -n "$BASE_REF"
-            git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-            BASE_SHA="$(git rev-parse "refs/remotes/origin/$BASE_REF")"
-            printf 'PR_EVENT_BASE_SHA=%s\nLIVE_BASE_REF=%s\nLIVE_BASE_SHA=%s\n' "$EVENT_BASE_SHA" "$BASE_REF" "$BASE_SHA"
-          else
-            BASE_SHA="$(git rev-parse HEAD^1)"
-          fi
+          BASE_SHA="$(git rev-parse HEAD^1)"
+          printf 'FORMATS_CANDIDATE_BASE=%s\n' "$BASE_SHA"
           test -n "$BASE_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
           git merge-base --is-ancestor "$BASE_SHA" HEAD
