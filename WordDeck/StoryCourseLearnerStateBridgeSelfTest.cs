@@ -40,6 +40,21 @@ internal static class StoryCourseLearnerStateBridgeSelfTest
             Require(selected.EvidenceHistory.Count == 0 && selected.MasteryByObjectiveId.Count == 0,
                 "navigation state manufactured learning evidence or mastery");
 
+            StoryCourseManifestContract technicalFixture = manifest with
+            {
+                CurriculumAuthority = StoryCourseCurriculumAuthority.TechnicalFixture
+            };
+            ExpectInvalid(
+                () => bridge.RecordUnitSelection(technicalFixture, "module.bridge", "unit.bridge", "context.bridge"),
+                "technical fixture was allowed to write learner course state");
+            StoryCourseManifestContract pedagogicalDraft = manifest with
+            {
+                CurriculumAuthority = StoryCourseCurriculumAuthority.PedagogicalDraft
+            };
+            ExpectInvalid(
+                () => bridge.RecordUnitSelection(pedagogicalDraft, "module.bridge", "unit.bridge", "context.bridge"),
+                "pedagogical draft was allowed to write learner course state");
+
             LearnerCourseState exposed = bridge.RecordNarrativeExposure(
                 manifest,
                 "module.bridge",
@@ -81,8 +96,8 @@ internal static class StoryCourseLearnerStateBridgeSelfTest
                 StoryCourseProductiveSubmissionKind.TypedFallback,
                 attemptNumber: 1);
             LearnerEvidenceEvent fallback = speakingFallback.EvidenceHistory.Single(item => item.EventId == "bridge.ev.speaking.fallback");
-            Require(fallback.SkillId == "speaking-pronunciation" && !fallback.IsProductivePerformance && fallback.Correct is null,
-                "typed fallback was falsely recorded as speaking performance or judged correctness");
+            Require(fallback.SkillId == "typed-fallback" && !fallback.IsProductivePerformance && fallback.Correct is null,
+                "typed fallback leaked into speaking evidence or fabricated judged correctness");
 
             LearnerCourseState speakingReal = bridge.RecordProductivePracticeAttempt(
                 manifest,
@@ -243,7 +258,7 @@ internal static class StoryCourseLearnerStateBridgeSelfTest
         return new StoryCourseManifestContract(
             "course.bridge",
             "Course learner-state bridge fixture",
-            StoryCourseCurriculumAuthority.TechnicalFixture,
+            StoryCourseCurriculumAuthority.ApprovedCurriculum,
             ClaimsCompleteEnglishCourse: false,
             Levels: new[] { level },
             Provenance: provenance);
