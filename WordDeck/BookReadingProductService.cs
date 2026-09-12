@@ -161,9 +161,35 @@ internal sealed class BookReadingProductService
         var decks = new DeckService(appState);
         if (decks.Find(learningDeckId) is null)
             throw new InvalidDataException("The selected learning deck no longer exists.");
-        Dictionary<string, string> assignments = decks.EnsureDictionaryAssignments(dictionary.Id, dictionary.Entries.Select(entry => entry.Id));
-        assignments[id] = learningDeckId;
-        _stateStore.CaptureUnknown(document, id, sentence.SentenceId);
+
+        bool hadAssignments = appState.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? originalAssignments);
+        KeyValuePair<string, string>[] assignmentSnapshot = hadAssignments && originalAssignments is not null
+            ? originalAssignments.ToArray()
+            : Array.Empty<KeyValuePair<string, string>>();
+        try
+        {
+            Dictionary<string, string> assignments = decks.EnsureDictionaryAssignments(dictionary.Id, dictionary.Entries.Select(entry => entry.Id));
+            assignments[id] = learningDeckId;
+            _stateStore.CaptureUnknown(document, id, sentence.SentenceId);
+        }
+        catch
+        {
+            // Deck assignment normalization mutates caller AppState before SQLite capture.
+            // A durable capture failure must therefore restore the exact pre-call map,
+            // including stale/invalid entries and the case where the map did not exist.
+            if (!hadAssignments || originalAssignments is null)
+            {
+                appState.DeckIdsByDictionary.Remove(dictionary.Id);
+            }
+            else
+            {
+                originalAssignments.Clear();
+                foreach (KeyValuePair<string, string> pair in assignmentSnapshot)
+                    originalAssignments[pair.Key] = pair.Value;
+                appState.DeckIdsByDictionary[dictionary.Id] = originalAssignments;
+            }
+            throw;
+        }
     }
 
     public static BookDeckVocabularySnapshot BuildVocabularySnapshot(
