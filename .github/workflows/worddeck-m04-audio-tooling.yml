@@ -1,0 +1,27 @@
+name: WordDeck M04 audio tooling
+
+on:
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - WordDeck/tools/produce_m04_audio.py
+      - .github/workflows/worddeck-m04-audio-tooling.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-m04-audio-tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile tooling
+        run: python -m py_compile WordDeck/tools/produce_m04_audio.py
+      - name: Run deterministic fail-closed self-test
+        run: python WordDeck/tools/produce_m04_audio.py --self-test
