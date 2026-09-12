@@ -184,12 +184,48 @@ internal sealed class StoryCourseRuntimeStateStore
     public void Save(StoryCourseProgressContract progress)
     {
         ValidateRuntimeProgress(progress);
+
+        bool primaryExists = File.Exists(_path);
+        bool primaryIsValid = false;
+        if (primaryExists)
+        {
+            try
+            {
+                _ = ReadValidated(_path, progress.CourseId);
+                primaryIsValid = true;
+            }
+            catch (StoryCourseNewerRuntimeStateException ex)
+            {
+                throw new InvalidDataException(ex.Message, ex);
+            }
+            catch (Exception primaryFailure)
+            {
+                if (!File.Exists(_backupPath))
+                    throw new InvalidDataException(
+                        "Story/Course progress cannot be saved because the primary state is invalid and no last-known-good backup exists. Existing files were left untouched.",
+                        primaryFailure);
+
+                try { _ = ReadValidated(_backupPath, progress.CourseId); }
+                catch (StoryCourseNewerRuntimeStateException ex) { throw new InvalidDataException(ex.Message, ex); }
+                catch (Exception backupFailure)
+                {
+                    throw new InvalidDataException(
+                        "Story/Course progress cannot be saved because neither the primary nor backup state is safe to replace. Existing files were left untouched.",
+                        new AggregateException(primaryFailure, backupFailure));
+                }
+            }
+        }
+
         string temp = _path + ".tmp";
         try
         {
             File.WriteAllText(temp, JsonSerializer.Serialize(progress, JsonOptions));
             _ = ReadValidated(temp, progress.CourseId);
-            if (File.Exists(_path)) File.Copy(_path, _backupPath, overwrite: true);
+
+            // Rotate only a validated current primary into the backup. If LoadOrCreate
+            // recovered from a valid backup because primary is corrupt, preserve that
+            // backup as the last-known-good copy while replacing primary from temp.
+            if (primaryIsValid) File.Copy(_path, _backupPath, overwrite: true);
             File.Move(temp, _path, overwrite: true);
         }
         finally
