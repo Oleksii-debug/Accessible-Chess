@@ -149,6 +149,15 @@ internal sealed class ListeningStateStore
         else
             state.ActiveScopeId = StudyScopeIds.Ordered.First(id => string.Equals(id, state.ActiveScopeId, StringComparison.OrdinalIgnoreCase));
         state.SelectionCounter = Math.Max(0, state.SelectionCounter);
+        if (state.CurrentRoundWrongAttempts < 0 || state.CurrentRoundReplays < 0)
+            throw new InvalidDataException("Listening progress contains negative unfinished-round evidence.");
+        if (string.IsNullOrWhiteSpace(state.CurrentExerciseId))
+        {
+            state.CurrentExerciseId = null;
+            state.CurrentRoundWrongAttempts = 0;
+            state.CurrentRoundReplays = 0;
+            state.CurrentRoundRevealed = false;
+        }
         state.StatsByDictionary ??= new Dictionary<string, Dictionary<string, ListeningItemStats>>(StringComparer.OrdinalIgnoreCase);
         var normalized = new Dictionary<string, Dictionary<string, ListeningItemStats>>(StringComparer.OrdinalIgnoreCase);
         foreach ((string dictionaryId, Dictionary<string, ListeningItemStats>? source) in state.StatsByDictionary)

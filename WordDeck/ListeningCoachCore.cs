@@ -154,6 +154,12 @@ internal sealed class ListeningCoachState
     // Only an unfinished item is persisted here. Completion clears this field so
     // a reviewed item cannot be resurrected as pending after restart/import.
     public string? CurrentExerciseId { get; set; }
+    // Unfinished-round evidence is durable because UI persistence can fail after
+    // an earlier wrong attempt/replay was already committed. Rebuilding the
+    // engine must not silently turn that evidence back into a clean round.
+    public int CurrentRoundWrongAttempts { get; set; }
+    public int CurrentRoundReplays { get; set; }
+    public bool CurrentRoundRevealed { get; set; }
     public long SelectionCounter { get; set; }
     public Dictionary<string, Dictionary<string, ListeningItemStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<ListeningHistoryRecord> History { get; set; } = new();
@@ -227,11 +233,12 @@ internal sealed class ListeningCoachEngine
             // The audio/scope/visibility may have changed since the previous run.
             // Do not fabricate a pending item that can no longer be practiced.
             _state.CurrentExerciseId = null;
+            ResetRound();
             return false;
         }
 
         Current = exercise;
-        ResetRound();
+        RestoreRoundFromState();
         return true;
     }
 
@@ -296,6 +303,7 @@ internal sealed class ListeningCoachEngine
         if (played && countAsReplay)
         {
             _roundReplays++;
+            _state.CurrentRoundReplays = _roundReplays;
             GetStats(Current).ReplayCount++;
         }
         return played;
@@ -316,6 +324,7 @@ internal sealed class ListeningCoachEngine
         if (!correct)
         {
             _roundWrongAttempts++;
+            _state.CurrentRoundWrongAttempts = _roundWrongAttempts;
             GetStats(Current).WrongAttempts++;
             return new ListeningCheckResult(false, false, "Not correct yet. Edit the answer and try again, replay the audio, or show the answer.");
         }
@@ -330,6 +339,7 @@ internal sealed class ListeningCoachEngine
         if (!_roundCompleted)
         {
             _roundRevealed = true;
+            _state.CurrentRoundRevealed = true;
             GetStats(Current).ShowAnswerUses++;
             CompleteCurrent(correct: false, showedAnswer: true, skipped: false);
         }
@@ -441,8 +451,9 @@ internal sealed class ListeningCoachEngine
         });
         if (_state.History.Count > MaxHistory)
             _state.History.RemoveRange(0, _state.History.Count - MaxHistory);
-        _roundCompleted = true;
         _state.CurrentExerciseId = null;
+        ResetRound();
+        _roundCompleted = true;
     }
 
     private void ResetRound()
@@ -451,6 +462,17 @@ internal sealed class ListeningCoachEngine
         _roundReplays = 0;
         _roundCompleted = false;
         _roundRevealed = false;
+        _state.CurrentRoundWrongAttempts = 0;
+        _state.CurrentRoundReplays = 0;
+        _state.CurrentRoundRevealed = false;
+    }
+
+    private void RestoreRoundFromState()
+    {
+        _roundWrongAttempts = _state.CurrentRoundWrongAttempts;
+        _roundReplays = _state.CurrentRoundReplays;
+        _roundCompleted = false;
+        _roundRevealed = _state.CurrentRoundRevealed;
     }
 
     internal static string NormalizeAnswer(string? value)
