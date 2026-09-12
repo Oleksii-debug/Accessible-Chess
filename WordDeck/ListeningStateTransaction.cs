@@ -19,9 +19,13 @@ internal static class ListeningStateTransaction
     public static ListeningCoachState Snapshot(ListeningCoachState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        return JsonSerializer.Deserialize<ListeningCoachState>(
+        ListeningCoachState clone = JsonSerializer.Deserialize<ListeningCoachState>(
                    JsonSerializer.Serialize(state, JsonOptions), JsonOptions)
                ?? throw new InvalidDataException("Could not snapshot Listening state for a safe transaction.");
+        // JSON round-tripping does not preserve Dictionary comparers. Reuse the
+        // canonical state normalization so a restored snapshot keeps the same
+        // case-insensitive dictionary semantics as a normally loaded profile.
+        return ListeningStateStore.Normalize(clone);
     }
 
     public static bool TryCommit(
@@ -65,9 +69,19 @@ internal static class ListeningStateTransactionSelfTest
 {
     public static void Run()
     {
+        TestSnapshotPreservesCanonicalDictionarySemantics();
         TestSuccessfulCommitPersistsExactMutation();
         TestFailedCommitRestoresExactPreActionState();
-        Console.WriteLine("WordDeck Listening state transaction self-test passed: successful mutations persist and failed durable writes restore the exact pre-action learner state.");
+        Console.WriteLine("WordDeck Listening state transaction self-test passed: snapshots retain canonical dictionary semantics, successful mutations persist and failed durable writes restore the exact pre-action learner state.");
+    }
+
+    private static void TestSnapshotPreservesCanonicalDictionarySemantics()
+    {
+        ListeningCoachState snapshot = ListeningStateTransaction.Snapshot(BuildBaseline());
+        Require(snapshot.StatsByDictionary.ContainsKey("TEST-DICTIONARY"),
+            "Listening transaction snapshot lost the canonical case-insensitive dictionary comparer.");
+        Require(snapshot.StatsByDictionary["TEST-DICTIONARY"].ContainsKey("WORD:A"),
+            "Listening transaction snapshot lost the canonical case-insensitive exercise comparer.");
     }
 
     private static void TestSuccessfulCommitPersistsExactMutation()
@@ -141,6 +155,9 @@ internal static class ListeningStateTransactionSelfTest
             Require(!committed && !string.IsNullOrWhiteSpace(error), "Forced Listening persistence failure was not surfaced.");
             Require(Fingerprint(effective) == expected,
                 "Failed Listening persistence left mastery/history/current-item mutations in the effective learner state.");
+            Require(effective.StatsByDictionary.ContainsKey("TEST-DICTIONARY") &&
+                    effective.StatsByDictionary["TEST-DICTIONARY"].ContainsKey("WORD:A"),
+                "Failed Listening persistence restored data but lost canonical case-insensitive lookup semantics.");
             Require(Fingerprint(mutated) != expected,
                 "Failure fixture did not actually mutate the candidate state before persistence.");
         }
