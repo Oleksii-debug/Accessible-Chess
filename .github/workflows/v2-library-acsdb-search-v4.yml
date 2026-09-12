@@ -53,4 +53,4 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           git diff --exit-code "${CURRENT_PRODUCT_BASE}" -- acs/acsdb.py
           python -m py_compile acs/acsdb.py tools/v2_library_acsdb_search_v4_benchmark.py
-          python tools/v2_library_acsdb_search_v4_benchmark.py --rows 100000
+          python -m tools.v2_library_acsdb_search_v4_benchmark --rows 100000
