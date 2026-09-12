@@ -107,7 +107,8 @@ internal sealed class SpeechCaptureSample : IDisposable
         _buffer = audio.ToArray();
     }
 
-    public ReadOnlyMemory<byte> Audio => _buffer ?? ReadOnlyMemory<byte>.Empty;
+    public ReadOnlyMemory<byte> Audio =>
+        _buffer is null ? ReadOnlyMemory<byte>.Empty : _buffer;
 
     internal byte[] DangerousBufferForSelfTest() =>
         _buffer ?? Array.Empty<byte>();
@@ -234,8 +235,11 @@ internal sealed class SpeechPracticeRuntime
         SpeechProviderQualification captureQualification = _capture.Qualification;
         SpeechProviderQualification judgeQualification = _judge.Qualification;
 
-        if (captureQualification.RawAudioPolicy != SpeechRawAudioPolicy.EphemeralMemoryOnly)
+        if (captureQualification.RawAudioPolicy != SpeechRawAudioPolicy.EphemeralMemoryOnly ||
+            judgeQualification.RawAudioPolicy != SpeechRawAudioPolicy.EphemeralMemoryOnly)
+        {
             return SpeechPracticeOutcome.TechnicalInvalid("RAW_AUDIO_RETENTION_NOT_AUTHORIZED");
+        }
 
         bool providersQualifiedForEvidence =
             captureQualification.HasDocumentedQualification &&
@@ -336,6 +340,8 @@ internal sealed class SpeechPracticeRuntime
         request is not null &&
         request.Binding is not null &&
         request.Binding.IsValid &&
+        Enum.IsDefined(request.Mode) &&
+        Enum.IsDefined(request.SubmissionKind) &&
         !string.IsNullOrWhiteSpace(request.ExpectedUtterance);
 
     private static SpeechProviderCapabilities RequiredJudgementCapability(SpeechPracticeMode mode) =>
@@ -343,7 +349,7 @@ internal sealed class SpeechPracticeRuntime
         {
             SpeechPracticeMode.Speaking => SpeechProviderCapabilities.SpeakingJudgement,
             SpeechPracticeMode.Pronunciation => SpeechProviderCapabilities.PronunciationJudgement,
-            _ => SpeechProviderCapabilities.None
+            _ => throw new ArgumentOutOfRangeException(nameof(mode))
         };
 
     private static bool TryNormalizeDeficitCodes(
