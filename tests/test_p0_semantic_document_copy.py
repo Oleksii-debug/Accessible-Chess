@@ -22,13 +22,27 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
             self.assertRegex(source, r"create_window\([\s\S]*?text_select\s*=\s*True")
 
     def test_stage1_plain_ctrl_c_and_existing_selection_are_not_hijacked(self) -> None:
-        self.assertIn("String(e.key).toLowerCase()==='c')return", self.index)
-        self.assertIn("selection&&selection.toString()", self.index)
-        self.assertNotRegex(
-            self.index,
-            r"(?is)(?:ctrlKey[^\n]{0,180}(?:key|code)[^\n]{0,80}['\"]c['\"][^\n]{0,300}preventDefault)|"
-            r"(?:['\"]c['\"][^\n]{0,180}ctrlKey[^\n]{0,300}preventDefault)",
+        handler_start = self.index.index("document.addEventListener('keydown',async e=>{if(capture)return;")
+        handler_end = self.index.index("\nel('move-submit').addEventListener", handler_start)
+        handler = self.index[handler_start:handler_end]
+
+        ctrl_c_guard = "if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return;"
+        selection_guard = (
+            "const selection=window.getSelection&&window.getSelection();"
+            "if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
         )
+        binding_resolution = "const chord=eventChord(e);"
+        binding_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
+
+        ctrl_c_index = handler.index(ctrl_c_guard)
+        selection_index = handler.index(selection_guard)
+        binding_index = handler.index(binding_resolution)
+        prevent_default_index = handler.index(binding_prevent_default)
+
+        self.assertNotIn("preventDefault", handler[:ctrl_c_index])
+        self.assertLess(ctrl_c_index, selection_index)
+        self.assertLess(selection_index, binding_index)
+        self.assertLess(binding_index, prevent_default_index)
 
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
