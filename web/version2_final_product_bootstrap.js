@@ -42,6 +42,116 @@
   originalMain.parentNode.insertBefore(nav, originalMain);
   originalMain.parentNode.insertBefore(workspace, originalMain);
 
+  const selectionStyle = documentRef.createElement("style");
+  selectionStyle.id = "v2-semantic-selection-style";
+  selectionStyle.textContent = [
+    "#main-content, #v2-workspace,",
+    "#main-content p, #main-content div, #main-content span, #main-content li,",
+    "#main-content h1, #main-content h2, #main-content h3, #main-content pre, #main-content code,",
+    "#v2-workspace p, #v2-workspace div, #v2-workspace span, #v2-workspace li,",
+    "#v2-workspace h1, #v2-workspace h2, #v2-workspace h3, #v2-workspace pre, #v2-workspace code {",
+    "  -webkit-user-select: text !important;",
+    "  user-select: text !important;",
+    "}"
+  ].join("\n");
+  (documentRef.head || documentRef.documentElement).appendChild(selectionStyle);
+
+  function currentSelection() {
+    try {
+      return typeof global.getSelection === "function" ? global.getSelection() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function textOffset(root, container, offset) {
+    const probe = documentRef.createRange();
+    probe.selectNodeContents(root);
+    probe.setEnd(container, offset);
+    return probe.toString().length;
+  }
+
+  function captureWorkspaceSelection() {
+    const selection = currentSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
+    const range = selection.getRangeAt(0);
+    try {
+      if (!workspace.contains(range.startContainer) || !workspace.contains(range.endContainer)) return null;
+      const chosenText = String(range.toString() || "");
+      if (!chosenText.trim()) return null;
+      const start = textOffset(workspace, range.startContainer, range.startOffset);
+      const end = textOffset(workspace, range.endContainer, range.endOffset);
+      if (end <= start) return null;
+      return {
+        routeId: currentRouteId,
+        start: start,
+        end: end,
+        text: chosenText
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function textPoint(root, targetOffset) {
+    const showText = global.NodeFilter ? global.NodeFilter.SHOW_TEXT : 4;
+    const walker = documentRef.createTreeWalker(root, showText);
+    let remaining = Math.max(0, Number(targetOffset) || 0);
+    let lastText = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      lastText = node;
+      const length = String(node.data || "").length;
+      if (remaining <= length) return {node: node, offset: remaining};
+      remaining -= length;
+    }
+    if (lastText) return {node: lastText, offset: String(lastText.data || "").length};
+    return {node: root, offset: 0};
+  }
+
+  function nearestSelectionStart(fullText, selectedText, preferredStart) {
+    if (!selectedText) return preferredStart;
+    let match = fullText.indexOf(selectedText);
+    if (match < 0) return -1;
+    let best = match;
+    let bestDistance = Math.abs(match - preferredStart);
+    while (match >= 0) {
+      const distance = Math.abs(match - preferredStart);
+      if (distance < bestDistance) {
+        best = match;
+        bestDistance = distance;
+      }
+      match = fullText.indexOf(selectedText, match + 1);
+    }
+    return best;
+  }
+
+  function restoreWorkspaceSelection(snapshot, routeId) {
+    if (!snapshot || snapshot.routeId !== routeId || workspace.hidden) return false;
+    const selection = currentSelection();
+    if (!selection) return false;
+    try {
+      const fullText = String(workspace.textContent || "");
+      let start = Math.max(0, Math.min(snapshot.start, fullText.length));
+      let end = Math.max(start, Math.min(snapshot.end, fullText.length));
+      if (snapshot.text && fullText.slice(start, end) !== snapshot.text) {
+        start = nearestSelectionStart(fullText, snapshot.text, start);
+        if (start < 0) return false;
+        end = Math.min(fullText.length, start + snapshot.text.length);
+      }
+      const startPoint = textPoint(workspace, start);
+      const endPoint = textPoint(workspace, end);
+      const range = documentRef.createRange();
+      range.setStart(startPoint.node, startPoint.offset);
+      range.setEnd(endPoint.node, endPoint.offset);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return String(selection.toString() || "") === snapshot.text;
+    } catch (_) {
+      return false;
+    }
+  }
+
   const stage1Focus = Object.freeze({
     board: "board-launcher",
     analysis: "h-engine",
@@ -254,6 +364,7 @@
 
   function render(snapshot, restoreFocus) {
     if (!snapshot || typeof snapshot !== "object") return;
+    const selectionSnapshot = captureWorkspaceSelection();
     currentLanguage = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
     documentRef.documentElement.lang = currentLanguage;
     nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
@@ -267,6 +378,7 @@
 
     if (productRoutes.has(routeId)) {
       renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
+      restoreWorkspaceSelection(selectionSnapshot, routeId);
       return;
     }
 
@@ -311,9 +423,12 @@
     if (event.kind === "render-import") {
       if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
           typeof global.AccessibleChessLibrarySurface.apply === "function") {
+        const selectionSnapshot = captureWorkspaceSelection();
         try {
           global.AccessibleChessLibrarySurface.apply(workspace, event, areaInvoke("library"), announce);
+          restoreWorkspaceSelection(selectionSnapshot, currentRouteId);
         } catch (_) {
+          restoreWorkspaceSelection(selectionSnapshot, currentRouteId);
           return true;
         }
       } else if (payload.announcement) {
