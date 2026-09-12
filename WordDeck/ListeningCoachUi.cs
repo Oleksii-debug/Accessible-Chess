@@ -16,6 +16,7 @@ internal sealed class ListeningCoachForm : Form
     private readonly Button _show = new() { AutoSize = true };
     private readonly Button _next = new() { AutoSize = true };
     private readonly Label _keyboardHelp = new() { AutoSize = true, AccessibleName = "Listening keyboard help" };
+    private bool _synchronizingScope;
 
     public ListeningCoachForm(DictionaryPackage package, ShortcutManager shortcuts, string? personalStateRoot = null)
     {
@@ -38,7 +39,10 @@ internal sealed class ListeningCoachForm : Form
         BuildUi();
         RefreshShortcutPresentation();
         Load += (_, _) => StartOrResume();
-        FormClosing += (_, _) => SafeSave();
+        FormClosing += (_, e) =>
+        {
+            if (!TrySaveCurrentState("Closing Listening")) e.Cancel = true;
+        };
         KeyDown += OnFormKeyDown;
     }
 
@@ -67,8 +71,7 @@ internal sealed class ListeningCoachForm : Form
         _scope.AccessibleName = "Listening study scope";
         _scope.AccessibleDescription = "Choose All Oxford 5000 or one CEFR level for listening practice.";
         foreach (string scopeId in StudyScopeIds.Ordered) _scope.Items.Add(new ScopeChoice(scopeId));
-        int activeIndex = StudyScopeIds.Ordered.ToList().FindIndex(id => string.Equals(id, _state.ActiveScopeId, StringComparison.OrdinalIgnoreCase));
-        _scope.SelectedIndex = Math.Max(0, activeIndex);
+        SyncScopeSelectorFromState();
         _scope.SelectedIndexChanged += (_, _) => ChangeScope();
 
         _answer.AccessibleName = "Type English listening answer";
@@ -131,7 +134,6 @@ internal sealed class ListeningCoachForm : Form
             _answer.Clear();
             _answer.ReadOnly = false;
             SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. Resumed unfinished listening item. {ListeningCoachPresentation.BeforeCheck(exercise)}");
-            SafeSave();
             _answer.Focus();
             BeginInvoke(new Action(() => PlayCurrent(countReplay: false)));
             return;
@@ -141,11 +143,12 @@ internal sealed class ListeningCoachForm : Form
 
     private void ChangeScope()
     {
-        if (_scope.SelectedItem is not ScopeChoice selected) return;
+        if (_synchronizingScope || _scope.SelectedItem is not ScopeChoice selected) return;
         if (!ShouldApplyScopeChange(_state.ActiveScopeId, selected.Id)) return;
+        ListeningCoachState before = ListeningStateTransaction.Snapshot(_state);
         _engine.CancelCurrent();
         _state.ActiveScopeId = selected.Id;
-        SafeSave();
+        if (!TryCommitOrRollback(before, "Changing Listening study scope")) return;
         if (Visible) StartNext(autoPlay: true, recordSkip: false);
     }
 
@@ -154,6 +157,7 @@ internal sealed class ListeningCoachForm : Form
 
     private void StartNext(bool autoPlay, bool recordSkip)
     {
+        ListeningCoachState before = ListeningStateTransaction.Snapshot(_state);
         try
         {
             ListeningExercise exercise = _engine.StartNext(recordSkip);
@@ -161,13 +165,14 @@ internal sealed class ListeningCoachForm : Form
             _answer.ReadOnly = false;
             string prompt = ListeningCoachPresentation.BeforeCheck(exercise);
             SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. {prompt}");
-            SafeSave();
+            if (!TryCommitOrRollback(before, "Starting the next Listening item")) return;
             _answer.Focus();
             if (autoPlay) BeginInvoke(new Action(() => PlayCurrent(countReplay: false)));
         }
         catch (Exception ex)
         {
-            _answer.ReadOnly = true;
+            RestoreSnapshot(before);
+            _answer.ReadOnly = _state.CurrentExerciseId is null;
             SetStatus(ex.Message);
         }
     }
@@ -176,6 +181,7 @@ internal sealed class ListeningCoachForm : Form
 
     private void PlayCurrent(bool countReplay)
     {
+        ListeningCoachState before = ListeningStateTransaction.Snapshot(_state);
         if (!_engine.TryPlayCurrent(countReplay, out string? error))
         {
             SetStatus(error ?? "Listening audio could not be played.");
@@ -183,15 +189,20 @@ internal sealed class ListeningCoachForm : Form
         }
         if (countReplay)
         {
-            SafeSave();
+            if (!TryCommitOrRollback(before, "Recording the Listening replay")) return;
             SetStatus("Audio replayed. The answer remains hidden.");
         }
     }
 
     private void Check()
     {
+        ListeningCoachState before = ListeningStateTransaction.Snapshot(_state);
         ListeningCheckResult result = _engine.Check(_answer.Text);
-        SafeSave();
+        if (!TryCommitOrRollback(before, "Recording the Listening answer"))
+        {
+            _answer.Focus();
+            return;
+        }
         if (!result.Completed)
         {
             SetStatus($"{result.Message} Replay: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningReplay))}; show answer: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer))}.");
@@ -206,14 +217,19 @@ internal sealed class ListeningCoachForm : Form
 
     private void ShowAnswer()
     {
+        ListeningCoachState before = ListeningStateTransaction.Snapshot(_state);
         try
         {
             _ = _engine.ShowAnswer();
-            SafeSave();
+            if (!TryCommitOrRollback(before, "Recording the Listening answer reveal")) return;
             SetStatus($"{ListeningCoachPresentation.AfterShow(_engine.Current!)}. This review is recorded as needing more listening practice. Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
             _next.Focus();
         }
-        catch (Exception ex) { SetStatus(ex.Message); }
+        catch (Exception ex)
+        {
+            RestoreSnapshot(before);
+            SetStatus(ex.Message);
+        }
     }
 
     private void ShowStatistics()
@@ -253,7 +269,7 @@ internal sealed class ListeningCoachForm : Form
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            SafeSave();
+            if (!TrySaveCurrentState("Saving Listening progress before export")) return;
             new ListeningProfileService(_store).Export(_state, dialog.FileName);
             SetStatus($"Listening progress exported to {dialog.FileName}. Recall, Spelling, dictionary and audio files were not copied.");
         }
@@ -273,8 +289,7 @@ internal sealed class ListeningCoachForm : Form
             string? backup = new ListeningProfileService(_store).Import(dialog.FileName);
             _state = _store.Load();
             _engine = new ListeningCoachEngine(_package, _state, _source);
-            int activeIndex = StudyScopeIds.Ordered.ToList().FindIndex(id => string.Equals(id, _state.ActiveScopeId, StringComparison.OrdinalIgnoreCase));
-            _scope.SelectedIndex = Math.Max(0, activeIndex);
+            SyncScopeSelectorFromState();
             StartOrResume();
             SetStatus(backup is null
                 ? "Listening progress imported. There was no earlier Listening state to back up."
@@ -326,10 +341,50 @@ internal sealed class ListeningCoachForm : Form
             "Listening and Dictation help", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
-    private void SafeSave()
+    private bool TryCommitOrRollback(ListeningCoachState beforeAction, string operation)
     {
-        try { _store.Save(_state); }
-        catch (Exception ex) { SetStatus($"Listening progress could not be saved safely: {ex.Message}"); }
+        if (ListeningStateTransaction.TryCommit(
+                _store, _state, beforeAction, out ListeningCoachState effectiveState, out string? error))
+            return true;
+
+        _state = effectiveState;
+        _engine = new ListeningCoachEngine(_package, _state, _source);
+        SyncScopeSelectorFromState();
+        bool resumed = _engine.TryResumeCurrent(out ListeningExercise? exercise) && exercise is not null;
+        _answer.ReadOnly = !resumed;
+        SetStatus($"{operation} was not saved. WordDeck restored the last pre-action Listening state and will not count the failed action. {error}");
+        return false;
+    }
+
+    private void RestoreSnapshot(ListeningCoachState beforeAction)
+    {
+        _state = ListeningStateTransaction.Snapshot(beforeAction);
+        _engine = new ListeningCoachEngine(_package, _state, _source);
+        SyncScopeSelectorFromState();
+        _ = _engine.TryResumeCurrent(out _);
+    }
+
+    private bool TrySaveCurrentState(string operation)
+    {
+        try
+        {
+            _store.Save(_state);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"{operation} failed. WordDeck kept the window open so acknowledged Listening progress is not silently lost. {ex.Message}");
+            return false;
+        }
+    }
+
+    private void SyncScopeSelectorFromState()
+    {
+        int activeIndex = StudyScopeIds.Ordered.ToList().FindIndex(id =>
+            string.Equals(id, _state.ActiveScopeId, StringComparison.OrdinalIgnoreCase));
+        _synchronizingScope = true;
+        try { _scope.SelectedIndex = Math.Max(0, activeIndex); }
+        finally { _synchronizingScope = false; }
     }
 
     private void SetStatus(string message)
