@@ -196,7 +196,6 @@ jobs:
             }
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_webview_projection.py=45049519527cda3d9c9f3c4de8e4244afc9fc614
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
@@ -205,6 +204,19 @@ jobs:
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
+
+          # Presentation privacy is an intentional successor of the exact D01
+          # projection. Accept only the prior projection or the reviewed privacy
+          # successor; every third identity remains fail-closed.
+          projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
+          case "$projection_actual" in
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
+              exit 1
+              ;;
+          esac
 
           workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
           case "$workspace_actual" in
