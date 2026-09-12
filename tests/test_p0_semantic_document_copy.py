@@ -13,14 +13,16 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         cls.copy_surface = (ROOT / "web" / "document_text_copy.js").read_text(encoding="utf-8")
+        cls.stage1_release = (ROOT / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
         cls.release_ui = (ROOT / "acs" / "version2_release_ui.py").read_text(encoding="utf-8")
         cls.final_release = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
 
-    def test_shipping_window_explicitly_enables_document_text_selection(self) -> None:
-        self.assertRegex(
-            self.release_ui,
-            r"create_window\([\s\S]*?text_select\s*=\s*True",
-        )
+    def test_shipping_windows_explicitly_enable_document_text_selection(self) -> None:
+        for source in (self.stage1_release, self.release_ui):
+            self.assertRegex(
+                source,
+                r"create_window\([\s\S]*?text_select\s*=\s*True",
+            )
 
     def test_plain_ctrl_c_and_existing_selection_are_not_hijacked(self) -> None:
         self.assertIn("String(e.key).toLowerCase()==='c')return", self.index)
@@ -38,6 +40,17 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("-webkit-user-select: text !important", self.copy_surface)
         self.assertIn("#main-content", self.copy_surface)
         self.assertIn("#v2-workspace", self.copy_surface)
+
+    def test_dynamic_rerender_preserves_meaningful_semantic_selection(self) -> None:
+        self.assertIn("function captureSelectionForMutation(node)", self.copy_surface)
+        self.assertIn("function restoreSelection(snapshot)", self.copy_surface)
+        self.assertIn('Object.getOwnPropertyDescriptor(global.Node.prototype, "textContent")', self.copy_surface)
+        self.assertIn('Object.getOwnPropertyDescriptor(global.Element.prototype, "innerHTML")', self.copy_surface)
+        self.assertIn("global.Element.prototype.replaceChildren", self.copy_surface)
+        self.assertIn("const snapshot = captureSelectionForMutation(this)", self.copy_surface)
+        self.assertIn("if (snapshot) restoreSelection(snapshot)", self.copy_surface)
+        self.assertIn('dataset.semanticDocumentSelectionGuardReady = "true"', self.copy_surface)
+        self.assertIn("selectionTouches: selectionTouches", self.copy_surface)
 
     def test_copy_review_fallback_is_a_real_readonly_textarea(self) -> None:
         self.assertIn('documentRef.createElement("textarea")', self.copy_surface)
@@ -62,6 +75,13 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertNotIn("preventDefault()", self.copy_surface)
         self.assertNotIn("execCommand", self.copy_surface)
         self.assertNotIn("navigator.clipboard", self.copy_surface)
+
+    def test_stage1_packages_copy_surface_before_release_bootstrap(self) -> None:
+        self.assertIn('document_copy = _asset_root() / "web" / "document_text_copy.js"', self.stage1_release)
+        self.assertIn('document_copy_source = document_copy.read_text(encoding="utf-8")', self.stage1_release)
+        copy_eval = self.stage1_release.index("window.evaluate_js(document_copy_source)")
+        bootstrap_eval = self.stage1_release.index("window.evaluate_js(bootstrap_source)")
+        self.assertLess(copy_eval, bootstrap_eval)
 
     def test_current_final_product_packages_copy_surface_before_dynamic_routes(self) -> None:
         copy_pos = self.final_release.index('root / "document_text_copy.js"')
