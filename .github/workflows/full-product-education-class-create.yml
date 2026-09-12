@@ -64,16 +64,9 @@ jobs:
 
       - name: Prove retained Education class-create authority on current Product
         shell: bash
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-
-          if [ -n "${PR_BASE_SHA:-}" ]; then
-            product_base="$PR_BASE_SHA"
-          else
-            product_base="$(git rev-parse HEAD^1)"
-          fi
+          product_base="$(git rev-parse HEAD^1)"
 
           git cat-file -e "${product_base}^{commit}"
           test "$(git merge-base HEAD "$product_base")" = "$product_base"
