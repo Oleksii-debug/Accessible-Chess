@@ -6,6 +6,7 @@ on:
       - work/w3-p0f-starter-books-training-content-20260911
       - fix/p0f-w3-semantic-post-integration-20260912
       - fix/p0f-starter-structured-diagrams-variations-20260912
+      - fix/p0f-starter-material-discovery-20260912
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -16,8 +17,10 @@ on:
       - acs/starter_structured_examples.py
       - acs/version2_starter_content_application.py
       - acs/version2_education_mutation_release.py
+      - web/full_product_books_training.js
       - tests/test_w3_p0f_starter_books_training_content.py
       - tests/test_p0f_starter_structured_examples.py
+      - tests/js/books_training_surface_dom_test.js
       - docs/V2_STARTER_CONTENT_PROVENANCE.md
       - .github/workflows/w3-p0f-starter-books-training.yml
   workflow_dispatch:
@@ -63,3 +66,5 @@ jobs:
           tests/test_w3_p0f_starter_books_training_content.py
           tests/test_p0f_starter_structured_examples.py
           tests/test_version2_training_current_runtime.py
+      - name: Prove keyboard and screen-reader starter material discovery DOM
+        run: node tests/js/books_training_surface_dom_test.js
