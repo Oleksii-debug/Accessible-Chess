@@ -1,0 +1,141 @@
+name: V2 D07 Canonical PGN Ingress Current
+
+on:
+  push:
+    branches:
+      - work/v2-d07-canonical-ingress-repair-20260901
+    paths:
+      - 'acs/acsdb.py'
+      - 'acs/duplicate_detection.py'
+      - 'tests/test_d07_canonical_ingress_current.py'
+      - 'tests/test_dev4_import_history_error_privacy.py'
+      - '.github/workflows/v2-d07-canonical-ingress-current.yml'
+  pull_request:
+    paths:
+      - 'acs/acsdb.py'
+      - 'acs/duplicate_detection.py'
+      - 'tests/test_d07_canonical_ingress_current.py'
+      - 'tests/test_dev4_import_history_error_privacy.py'
+      - '.github/workflows/v2-d07-canonical-ingress-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-d07-canonical-ingress-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_PRODUCT_BASE: 0060f6321423cf39ae20f9b50731e4cbe127bee5
+  ORIGINAL_REPAIR_HEAD: 6f2343e6dc0b95974c6302ea8674a02b45a2e4dc
+  ORIGINAL_AUDIT_HEAD: 9673ae84b5887a8f05c6ca078d4103f75a294033
+  ORIGINAL_AUDIT_TEST_BLOB: 06f650e8db4baf23d26ef81de4113dcadcc470cc
+  REPAIR_BRANCH: work/v2-d07-canonical-ingress-repair-20260901
+  ACSDB_REPAIR_BLOB: 1e28f97546e63969a4670cbfd0b60584722d09a7
+  PRIVACY_GATE_BLOB: d7debb951c1d279f92fbc6325d7e0c799d3fb120
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact current authority and SAME repair lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for commit in "$CURRENT_PRODUCT_BASE" "$ORIGINAL_REPAIR_HEAD" "$ORIGINAL_AUDIT_HEAD"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
+          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$ORIGINAL_REPAIR_HEAD" HEAD
+          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-d07-canonical-ingress-current.yml' \
+            'acs/acsdb.py' \
+            'acs/duplicate_detection.py' \
+            'tests/test_d07_canonical_ingress_current.py' \
+            'tests/test_dev4_import_history_error_privacy.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$ACSDB_REPAIR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_import_history_error_privacy.py)" = "$PRIVACY_GATE_BLOB"
+          test "$(git rev-parse "$CURRENT_PRODUCT_BASE":acs/acsdb.py)" = 'f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74'
+
+      - name: Materialize immutable historical Audit-B oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$ORIGINAL_AUDIT_HEAD:tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py")" = "$ORIGINAL_AUDIT_TEST_BLOB"
+          mkdir -p _audit_b
+          git cat-file blob "$ORIGINAL_AUDIT_TEST_BLOB" > _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+          test "$(git hash-object _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py)" = "$ORIGINAL_AUDIT_TEST_BLOB"
+
+      - name: Syntax and imports
+        run: >-
+          python -m compileall -q
+          acs/acsdb.py
+          acs/duplicate_detection.py
+          tests/test_d07_canonical_ingress_current.py
+          tests/test_dev4_import_history_error_privacy.py
+          _audit_b
+
+      - name: Current focused canonical-ingress regressions
+        run: >-
+          python -m pytest -q
+          tests/test_d07_canonical_ingress_current.py
+          tests/test_acsdb.py
+          tests/test_duplicate_detection.py
+          tests/test_d06_pgn_roundtrip.py
+          tests/test_dev4_import_history_error_privacy.py
+
+      - name: Replay immutable historical Audit-B oracle
+        shell: bash
+        run: PYTHONPATH="$PWD" python _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+
+      - name: Product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad repository pytest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q tests
+
+      - name: Emit exact current repair authority
+        shell: bash
+        run: |
+          echo "CURRENT_PRODUCT_BASE=$CURRENT_PRODUCT_BASE"
+          echo "ORIGINAL_REPAIR_HEAD=$ORIGINAL_REPAIR_HEAD"
+          echo "QUALIFIED_HEAD=$(git rev-parse HEAD)"
+          echo "HUMAN_TESTED=NO"
+          echo "NVDA_VERIFIED=NO"
