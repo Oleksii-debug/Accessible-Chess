@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""First bounded Education mutation composed into the final-product V2 app."""
+"""Bounded Education mutation and read-open composition for the final-product V2 app."""
 
 from collections.abc import Mapping
 import secrets
@@ -24,10 +24,30 @@ _DEFAULT_TITLE = {
     UILanguage.UA: "Новий клас",
     UILanguage.EN: "New class",
 }
+_OPENED = {
+    UILanguage.UA: "Відкрито",
+    UILanguage.EN: "Opened",
+}
+_OPEN_ACTIONS = {
+    EducationCollection.CLASS: "classes.open",
+    EducationCollection.STUDENT: "classes.student_open",
+    EducationCollection.LESSON: "classes.lesson_open",
+    EducationCollection.ASSIGNMENT: "classes.assignment_open",
+}
+_OPEN_RECORDS = {
+    "classes.open": ("classes", "class_id", EducationCollection.CLASS.value),
+    "classes.student_open": ("students", "student_id", EducationCollection.STUDENT.value),
+    "classes.lesson_open": ("lessons", "lesson_id", EducationCollection.LESSON.value),
+    "classes.assignment_open": (
+        "assignments",
+        "assignment_id",
+        EducationCollection.ASSIGNMENT.value,
+    ),
+}
 
 
 class MutableEducationWebViewProjection(EducationWebViewProjection):
-    """Keep the existing read projection and refresh after trusted class creation."""
+    """Keep the canonical projection and add trusted class-create/read-open events."""
 
     def new_class(self) -> EducationWebViewEvent:
         try:
@@ -59,14 +79,50 @@ class MutableEducationWebViewProjection(EducationWebViewProjection):
             },
         )
 
+    def open_selected(self, kind: EducationCollection | str) -> EducationWebViewEvent:
+        """Publish a bounded read-only detail after trusted-host revalidation."""
+
+        try:
+            parsed = self._parse_kind(kind)
+            action = _OPEN_ACTIONS[parsed]
+            records = self._records(self._workspace())[parsed]
+            selected_id = self._selected[parsed]
+            selected = next(
+                record for record in records if record.record_id == selected_id
+            )
+
+            # Browser content never supplies this identity. It is recovered from
+            # the HMAC-backed selection and revalidated by the trusted host.
+            self._dispatch(action, {"record_id": selected_id})
+            detail = {
+                "kind": parsed.value,
+                "heading": self._bounded(selected.label, limit=160),
+                "secondary": self._bounded(selected.secondary, limit=200),
+                "status": self._bounded(selected.status, limit=160),
+            }
+        except Exception as exc:
+            return self._safe_error(exc)
+
+        return EducationWebViewEvent(
+            "delegated",
+            {
+                "kind": parsed.value,
+                "action": action,
+                "detail": detail,
+                "focus_target": "education-detail-heading",
+                "announcement": f"{_OPENED[self._language]}: {detail['heading']}",
+            },
+        )
+
 
 class Version2EducationMutationApplication(Version2FinalProductApplication):
-    """Final-product application with one durable, keyboard-reachable D10 mutation.
+    """Final-product Education composition over the canonical D10 workspace.
 
     The browser can request ``classes.new`` but cannot provide the canonical
     class identity, operation identity, workspace revision, or storage path.
-    Those remain trusted-host state and publication stays on the existing D10
-    ``EducationWorkspaceStore`` CAS boundary.
+    Open-selected actions receive a record identity only from the trusted
+    HMAC-backed projection, validate it against the current canonical workspace,
+    and return no durable mutation or raw identity to browser content.
     """
 
     @staticmethod
@@ -83,6 +139,25 @@ class Version2EducationMutationApplication(Version2FinalProductApplication):
         action_id: str,
         payload: Mapping[str, object],
     ) -> object:
+        open_spec = _OPEN_RECORDS.get(action_id)
+        if open_spec is not None:
+            if set(payload) != {"record_id"}:
+                raise ValueError("education open accepts only trusted record identity")
+            record_id = payload.get("record_id")
+            if type(record_id) is not str or not record_id:
+                raise ValueError("education open requires a non-empty record identity")
+
+            workspace = self._education_provider()
+            collection_name, identity_name, kind = open_spec
+            records = getattr(workspace.classroom, collection_name)
+            matches = sum(
+                1 for record in records
+                if getattr(record, identity_name) == record_id
+            )
+            if matches != 1:
+                raise LookupError("selected education record is no longer current")
+            return {"validated": True, "kind": kind}
+
         if action_id != "classes.new":
             return super()._education_dispatch(action_id, payload)
         if payload:
