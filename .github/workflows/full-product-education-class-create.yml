@@ -24,11 +24,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT_BASE: 0c06457c8421be7a0685301bfec77e174632df1c
-  PRIOR_SAME_HEAD: 2bf6a55a22461e0bfd07dd017844bc4e968f965c
-  MUTATION_APP_BLOB: 0b28608b879b1fad215e4ebbf330c6b874b2170e
+  CURRENT_PRODUCT_BASE: 169136979b141aa3844ffe7ed10d96290a6b7726
+  MUTATION_APP_BLOB: f9429f3c9e9a6fdc32708716cacfa669c7cb4184
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
-  OPEN_SELECTED_TEST_BLOB: 8e974361b18b0dc2a81ebd67dc710869a9e7df93
+  OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
   CURRENT_SHARED_EDUCATION_TEST_BLOB: 92ef5d96eda599bdb4db66e8ebe263a693532227
   CURRENT_EDUCATION_RELEASE_BLOB: 334c8210571be8212638e948032e61d1eee4df4d
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
@@ -63,14 +62,12 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current Product authority, retained Education owner, and compatibility scope
+      - name: Prove current Product authority and bounded P0 repair scope
         shell: bash
         run: |
           set -euo pipefail
           git cat-file -e "${CURRENT_PRODUCT_BASE}^{commit}"
-          git cat-file -e "${PRIOR_SAME_HEAD}^{commit}"
           test "$(git rev-parse HEAD^1)" = "$CURRENT_PRODUCT_BASE"
-          test "$(git rev-parse HEAD^2)" = "$PRIOR_SAME_HEAD"
           test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
           git diff --check "$CURRENT_PRODUCT_BASE" HEAD
           changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
@@ -78,10 +75,7 @@ jobs:
             '.github/workflows/d01-education-management-webview.yml' \
             '.github/workflows/full-product-education-class-create.yml' \
             'acs/version2_education_mutation_application.py' \
-            'acs/version2_final_product_profile.py' \
-            'tests/js/education_surface_dom_test.js' \
-            'tests/test_version2_education_open_selected.py' \
-            'web/full_product_education.js' | sort)"
+            'tests/test_version2_education_open_selected.py' | sort)"
           test "$changed" = "$expected"
 
           education_owner="3df622f6d667b3513222003df159e52188e60bda"
