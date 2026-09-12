@@ -1,0 +1,114 @@
+name: WordDeck commercial release provenance from packaged artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful canonical packaging workflow run ID whose artifact will be commercially gated'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Exact unpacked release artifact name containing CONTENT_ASSET_INDEX.json'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      source_run_id:
+        required: true
+        type: string
+      artifact_name:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  commercial-package-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve and validate exact canonical package source
+        id: source
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const runId = Number('${{ inputs.source_run_id }}');
+            if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error('source_run_id must be a positive workflow run ID');
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId
+            });
+            if (run.head_branch !== 'worddeck-bootstrap') throw new Error(`Commercial package must come from worddeck-bootstrap; got ${run.head_branch}`);
+            if (run.conclusion !== 'success') throw new Error(`Source packaging run must be successful; got ${run.conclusion}`);
+            if (!/^[0-9a-f]{40}$/i.test(run.head_sha || '')) throw new Error('Source packaging run has no valid exact head SHA');
+            core.setOutput('sha', run.head_sha);
+            core.info(`Commercial package source pinned: run=${runId} sha=${run.head_sha}`);
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download exact package artifact from the pinned source run
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          name: ${{ inputs.artifact_name }}
+          path: ./commercial-package
+
+      - name: Derive exact shipped-content inventory from actual package bytes
+        id: inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t indexes < <(find ./commercial-package -type f -name CONTENT_ASSET_INDEX.json -print)
+          if [ "${#indexes[@]}" -ne 1 ]; then
+            echo "Commercial package must contain exactly one CONTENT_ASSET_INDEX.json; found ${#indexes[@]}" >&2
+            exit 1
+          fi
+          index="${indexes[0]}"
+          release_root="$(dirname "$index")"
+          printf 'release_root=%s\n' "$release_root" >> "$GITHUB_OUTPUT"
+          python WordDeck/tools/build_release_content_inventory.py \
+            --release-root "$release_root" \
+            --asset-index "$index" \
+            --output ./commercial-release-content-inventory.json \
+            --release-id "worddeck-${{ steps.source.outputs.sha }}" \
+            --channel windows_offline
+
+      - name: Validate exact package inventory against exact-source provenance manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_root='${{ steps.inventory.outputs.release_root }}'
+          notice_args=()
+          mapfile -t notices < <(find "$release_root" -maxdepth 2 -type f -name CONTENT_NOTICES.json -print)
+          if [ "${#notices[@]}" -gt 1 ]; then
+            echo "Commercial package has ambiguous CONTENT_NOTICES.json catalogues" >&2
+            exit 1
+          fi
+          if [ "${#notices[@]}" -eq 1 ]; then
+            notice_args=(--notices "${notices[0]}")
+          fi
+          python WordDeck/tools/validate_content_provenance_strict.py \
+            --manifest WordDeck/QA/content_provenance_manifest.json \
+            --inventory ./commercial-release-content-inventory.json \
+            --require-inventory \
+            "${notice_args[@]}"
+
+      - name: Upload exact commercial provenance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-commercial-provenance-${{ steps.source.outputs.sha }}
+          path: ./commercial-release-content-inventory.json
+          if-no-files-found: error
+          retention-days: 90
