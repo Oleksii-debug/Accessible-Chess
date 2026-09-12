@@ -395,16 +395,17 @@ def _raise_budget_failure(
 def _open_bound_source_fd(
     source: SourceFingerprint,
     *,
+    expected_identity: tuple[int, int],
     chunk_size: int,
     accepted_games: int,
 ) -> int:
-    """Bind streaming reads to the already-validated regular-file snapshot.
+    """Bind streaming reads to the originally observed regular-file object.
 
-    The descriptor is opened non-blocking/no-follow where supported, then the
-    path is fingerprinted again while that descriptor remains held. No source
-    bytes are consumed until descriptor identity and byte snapshot agree with the
-    preliminary fingerprint. Later path replacement cannot redirect the held
-    descriptor; the existing pre-publication fingerprint still rejects changes.
+    The descriptor is opened non-blocking/no-follow where supported. Before any
+    bytes are consumed, both the opened object identity and the path snapshot must
+    still match the identity observed before canonical fingerprinting. The held
+    descriptor remains open through parsing so later path replacement cannot
+    redirect reads.
     """
 
     flags = (
@@ -424,7 +425,8 @@ def _open_bound_source_fd(
 
     try:
         opened = os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode):
+        opened_identity = (int(opened.st_dev), int(opened.st_ino))
+        if not stat.S_ISREG(opened.st_mode) or opened_identity != expected_identity:
             raise StreamingPgnImportError(
                 "PGN source changed before streaming",
                 code=StreamingPgnErrorCode.SOURCE_CHANGED,
@@ -432,9 +434,9 @@ def _open_bound_source_fd(
             )
         rebound = fingerprint(source.path, chunk_size=chunk_size)
         rebound_stat = os.stat(rebound.path, follow_symlinks=False)
-        same_identity = (opened.st_dev, opened.st_ino) == (
-            rebound_stat.st_dev,
-            rebound_stat.st_ino,
+        same_identity = opened_identity == (
+            int(rebound_stat.st_dev),
+            int(rebound_stat.st_ino),
         )
         same_snapshot = (
             rebound.size == source.size
@@ -496,7 +498,12 @@ class StreamingPgnLibraryImporter:
 
         submitted = Path(path)
         try:
-            preliminary_size = submitted.stat().st_size
+            preliminary_stat = submitted.stat()
+            preliminary_size = preliminary_stat.st_size
+            expected_identity = (
+                int(preliminary_stat.st_dev),
+                int(preliminary_stat.st_ino),
+            )
         except OSError as exc:
             raise StreamingPgnImportError(
                 "PGN source is unavailable",
@@ -530,6 +537,7 @@ class StreamingPgnLibraryImporter:
             failure = self._stream_source(
                 source,
                 spool,
+                expected_identity=expected_identity,
                 limits=limits,
                 cancel_check=cancel_check,
                 progress_callback=progress_callback,
@@ -558,10 +566,26 @@ class StreamingPgnLibraryImporter:
                     semantic_code=failure.code,
                 )
 
-            # Bind publication to the exact bytes fingerprinted before parsing.
-            # Prefix publication is never permitted for a source that changed.
+            # Bind publication to the same object and exact bytes trusted before
+            # parsing. A byte-identical path replacement must still fail closed.
             try:
+                publication_stat = os.stat(submitted, follow_symlinks=False)
+                publication_identity = (
+                    int(publication_stat.st_dev),
+                    int(publication_stat.st_ino),
+                )
+                if (
+                    not stat.S_ISREG(publication_stat.st_mode)
+                    or publication_identity != expected_identity
+                ):
+                    raise StreamingPgnImportError(
+                        "PGN source changed before publication",
+                        code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                        accepted_games=accepted_games,
+                    )
                 unchanged = verify_source_unchanged(source, submitted)
+            except StreamingPgnImportError:
+                raise
             except Exception as exc:
                 raise StreamingPgnImportError(
                     "PGN source changed before publication",
@@ -635,6 +659,7 @@ class StreamingPgnLibraryImporter:
         source: SourceFingerprint,
         spool: _CanonicalGameSpool,
         *,
+        expected_identity: tuple[int, int],
         limits: StreamingPgnLimits,
         cancel_check: CancelCheck | None,
         progress_callback: ProgressCallback | None,
@@ -705,6 +730,7 @@ class StreamingPgnLibraryImporter:
         try:
             fd = _open_bound_source_fd(
                 source,
+                expected_identity=expected_identity,
                 chunk_size=limits.read_chunk_bytes,
                 accepted_games=len(spool),
             )
