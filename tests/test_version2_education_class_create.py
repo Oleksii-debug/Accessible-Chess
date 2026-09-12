@@ -12,10 +12,8 @@ from acs.education_class_management import create_class
 from acs.education_workspace import EducationWorkspace, EducationWorkspaceError
 from acs.education_workspace_store import EducationWorkspaceStore
 from acs.full_product_ui_shell import UILanguage
-from acs.version2_education_mutation_application import (
-    MutableEducationWebViewProjection,
-    Version2EducationMutationApplication,
-)
+from acs.version2_education_mutation_application import MutableEducationWebViewProjection
+from acs.version2_starter_content_application import Version2StarterContentApplication
 
 
 class EducationClassManagementTests(unittest.TestCase):
@@ -156,7 +154,7 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
             result = mutation_release.create_version2_release_application()
 
         self.assertEqual(result, (api, "application", "runtime", "native"))
-        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assertEqual(observed, [Version2StarterContentApplication])
         self.assertTrue(callable(api._sync_version2_language))
         self.assertIs(version2_release_app.Version2Application, previous_owner)
 
@@ -193,7 +191,7 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
             (returned_api, application, runtime, native),
             (api, "application", "runtime", "native"),
         )
-        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self.assertEqual(observed, [Version2StarterContentApplication])
         self.assertIs(version2_release_app.Version2Application, previous_owner)
 
 
