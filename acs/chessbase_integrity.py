@@ -57,6 +57,18 @@ def _is_reparse_point(st: os.stat_result) -> bool:
     return bool(attrs & marker)
 
 
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return left.st_dev == right.st_dev and left.st_ino == right.st_ino
+
+
+def _stable_file_metadata(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        _same_file_identity(left, right)
+        and left.st_size == right.st_size
+        and left.st_mtime_ns == right.st_mtime_ns
+    )
+
+
 def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     safe_name = report_safe_name(path)
     try:
@@ -74,13 +86,44 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
             "ChessBase source evidence must be a regular file"
         )
 
-    digest = sha256()
-    size = 0
+    first_digest = sha256()
+    second_digest = sha256()
+    first_size = 0
+    second_size = 0
     try:
         with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or _is_reparse_point(opened)
+                or not _same_file_identity(before, opened)
+            ):
+                raise ChessBaseSourceChangedError(
+                    "ChessBase source changed before integrity evidence could be collected"
+                )
+
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                size += len(chunk)
-                digest.update(chunk)
+                first_size += len(chunk)
+                first_digest.update(chunk)
+
+            after_first = os.fstat(stream.fileno())
+            if not _stable_file_metadata(opened, after_first):
+                raise ChessBaseSourceChangedError(
+                    "ChessBase source changed while integrity evidence was being collected"
+                )
+
+            stream.seek(0)
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                second_size += len(chunk)
+                second_digest.update(chunk)
+
+            after_second = os.fstat(stream.fileno())
+            if not _stable_file_metadata(after_first, after_second):
+                raise ChessBaseSourceChangedError(
+                    "ChessBase source changed while integrity evidence was being collected"
+                )
+    except ChessBaseSourceChangedError:
+        raise
     except OSError as exc:
         raise ChessBaseIntegrityIOError(
             f"ChessBase source evidence is unavailable for {safe_name}"
@@ -93,23 +136,29 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
             f"ChessBase source evidence disappeared for {safe_name}"
         ) from exc
     if (
-        before.st_dev != after.st_dev
-        or before.st_ino != after.st_ino
-        or before.st_size != after.st_size
-        or before.st_mtime_ns != after.st_mtime_ns
+        not _stable_file_metadata(before, after)
+        or not _same_file_identity(after_second, after)
         or stat.S_ISLNK(after.st_mode)
         or _is_reparse_point(after)
     ):
         raise ChessBaseSourceChangedError(
             "ChessBase source changed while integrity evidence was being collected"
         )
+    if (
+        first_size != second_size
+        or first_size != after_second.st_size
+        or first_digest.hexdigest() != second_digest.hexdigest()
+    ):
+        raise ChessBaseSourceChangedError(
+            "ChessBase source content changed while integrity evidence was being collected"
+        )
 
     return SourceFileEvidence(
         path=Path(os.path.abspath(os.fspath(path))),
         extension=extension,
         role=role,
-        size_bytes=size,
-        sha256=digest.hexdigest(),
+        size_bytes=second_size,
+        sha256=second_digest.hexdigest(),
     )
 
 
