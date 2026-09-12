@@ -39,7 +39,9 @@ jobs:
             $base = '${{ github.event.pull_request.base.sha }}'
             $changed = @(git diff --name-only "$base...HEAD")
             $forbidden = @($changed | Where-Object {
-              $_ -notlike 'WordDeck/*' -and $_ -ne '.github/workflows/worddeck-package-recovery.yml'
+              $_ -notlike 'WordDeck/*' -and
+              $_ -notlike '.github/workflows/worddeck-*.yml' -and
+              $_ -notlike '.github/workflows/worddeck-*.yaml'
             })
             if ($forbidden.Count -ne 0) {
               throw "Package-recovery PR crosses WordDeck authority boundary: $($forbidden -join ', ')"
