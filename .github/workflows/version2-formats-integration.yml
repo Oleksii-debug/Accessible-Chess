@@ -179,7 +179,7 @@ jobs:
           tools/optional/LIBCBH_BACKEND.md=8dd90cd1f24bd42c8cbefb23be0dfcc979ca6560
           tools/optional/libcbh_json_bridge.cpp=ab4ffb128eada2fd225386b20f01016e0f87325b
           acs/library_webview_bridge.py=4ee98f89f1d7312b04eb8c3190b6846db16bf3f6
-          acs/library_webview_projection.py=9123b5fb89884ee9a821c89c0898011ae42c1247
+          acs/library_webview_projection.py=c24cba7a700f110eacb1a1da1f10d5fac52da731
           tests/test_dev1_library_webview_projection.py=fc9fbc36b4b6b9a2792a2db6ef09b2f1405a4d9b
           tests/test_library_import_ui_integration.py=7fca70f8100ee38c2f452b04e8165ad54941f773
           tests/js/library_surface_dom_test.js=7f69c17619f73d7c001392ea43e037933d75a50b
