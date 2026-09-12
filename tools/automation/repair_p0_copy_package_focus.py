@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Regenerate after the retained presentation-privacy gate became part of Full Product.
 import os
 import re
 import subprocess
