@@ -326,23 +326,23 @@ internal sealed class StoryCourseRuntimeForm : Form
             RowCount = 17,
             AutoScroll = true
         };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 20));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 14));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 0 unit label
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 1 unit combo
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12)); // 2 unit info
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 3 context combo
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18)); // 4 context text
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 5 mark read
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 6 comprehension combo
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12)); // 7 comprehension prompt
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 8 answer
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 9 check
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 10 productive combo
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12)); // 11 productive prompt
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18)); // 12 productive response
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 13 productive submit
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 14 navigation
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 14)); // 15 status
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 16 mastery disclaimer
 
         root.Controls.Add(new Label { Text = "&Розділ курсу:", AutoSize = true }, 0, 0);
         root.Controls.Add(_unitCombo, 0, 1);
