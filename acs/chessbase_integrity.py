@@ -147,7 +147,7 @@ def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
     if (
         first_size != second_size
         or first_size != after_second.st_size
-        or first_digest.digest() != second_digest.digest()
+        or first_digest.hexdigest() != second_digest.hexdigest()
     ):
         raise ChessBaseSourceChangedError(
             "ChessBase source content changed while integrity evidence was being collected"
