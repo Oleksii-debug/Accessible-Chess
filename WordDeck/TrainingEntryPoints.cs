@@ -127,6 +127,7 @@ internal static class TrainingEntryPoints
             SentenceStateSession sentence = TrainingStateContinuityGuard.LoadSentence();
             var shortcuts = new ShortcutManager(appState, spelling.State.Decks, ShortcutDispatchContext.Sentence);
             DictionaryPackage package = owner.ActivePackageForTraining;
+            SentenceCoachResumeSnapshot resume = SentenceCoachResumeSnapshot.Capture(sentence.State);
 
             using var form = new SentenceCoachForm(
                 appState,
@@ -136,6 +137,8 @@ internal static class TrainingEntryPoints
                 new SentencePackStore(),
                 sentence.Store,
                 sentence.State);
+            if (resume.RestoreIfSamePack(sentence.State))
+                sentence.Store.Save(sentence.State);
             using var blankSubmitGuard = BlankLearningSubmissionGuard.Attach(form, "Type the current English target word or phrase");
             KeyboardSelectorFocusGuard.Attach(
                 form,
