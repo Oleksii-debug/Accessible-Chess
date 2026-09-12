@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-"""Deterministic ACSDB v4 search benchmark with semantic equivalence checks.
+"""Deterministic ACSDB search benchmark with semantic equivalence checks.
 
 This is engineering evidence, not a million-game readiness claim. It seeds a
 synthetic legal metadata corpus directly through the owned ACSDB connection so
 schema/trigger/search cost can be measured without conflating PGN parser cost.
+The benchmark follows the canonical ACSDB schema version instead of freezing
+the original search-v4 migration number.
 """
 
 import argparse
@@ -12,7 +14,7 @@ import json
 import statistics
 import time
 
-from acs.acsdb import AcsDatabase
+from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.search_policy import SEARCH_FOLD_SQL_FUNCTION, install_search_fold, literal_like_pattern
 
 
@@ -99,8 +101,12 @@ def main() -> int:
     with AcsDatabase() as database:
         install_search_fold(database.conn)
         seed_ms = _seed(database, args.games)
-        if database.verify_integrity() != 4:
-            raise AssertionError("unexpected schema version")
+        integrity_version = database.verify_integrity()
+        if integrity_version != ACSDB_SCHEMA_VERSION:
+            raise AssertionError(
+                "unexpected schema version: "
+                f"integrity={integrity_version}, canonical={ACSDB_SCHEMA_VERSION}"
+            )
 
         cases = {
             "player_no_hit": ("player-does-not-exist", False, "player"),
