@@ -1,0 +1,57 @@
+name: WordDeck Story Course Contracts Gate
+
+on:
+  pull_request:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/StoryCourseContracts.cs'
+      - 'WordDeck/StoryCourseContractSelfTest.cs'
+      - '.github/workflows/worddeck-mass120-107-story-course.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  story-course-contracts:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - name: Assert exact checkout
+        shell: pwsh
+        run: |
+          $expected = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) {
+            throw "Story/Course gate checkout mismatch: expected $expected, got $actual"
+          }
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build with warnings as errors
+        run: dotnet build WordDeck/WordDeck.csproj -c Release -warnaserror
+      - name: Run deterministic WordDeck self-tests
+        run: dotnet run --project WordDeck/WordDeck.csproj -c Release --no-build -- --self-test
+      - name: Verify Story does not own Grammar registry snapshot
+        shell: pwsh
+        run: |
+          $storyFiles = Get-ChildItem WordDeck -File | Where-Object { $_.Name -match 'Story|Course|Narrative' }
+          $bad = $storyFiles | Select-String -Pattern 'KnownSkillIds|LegacyAliases\s*=|GrammarSkillCatalog\s*=|new\s+HashSet<string>\s*\(StringComparer\.OrdinalIgnoreCase\).*present\.simple' -AllMatches
+          if ($bad) {
+            $bad | ForEach-Object { Write-Host $_ }
+            throw 'Story/Course must consume canonical GrammarSkillReferenceResolver instead of owning a parallel Grammar registry.'
+          }
+      - name: Verify no Complete English content claim in technical fixture
+        shell: pwsh
+        run: |
+          $text = Get-Content WordDeck/StoryCourseContractSelfTest.cs -Raw
+          if ($text -notmatch 'ClaimsCompleteEnglishCourse:\s*false') {
+            throw 'Technical Story/Course fixture must not claim Complete English curriculum authority.'
+          }
