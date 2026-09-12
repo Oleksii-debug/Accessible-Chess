@@ -255,10 +255,26 @@ internal static class ContextPracticeIntegrationGatewaySelfTest
             ContextCorpusKind.RealCorpus,
             pack.Provenance,
             pack.License));
+        var lexicon = new ContextTargetLexicon("integration", new[] { ("target-a", "practice"), ("helper-b", "daily") });
+
+        bool missingCatalogBlocked = false;
+        try
+        {
+            _ = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(
+                ContextConsumerKind.SentenceCoach,
+                new[] { "target-a" }));
+        }
+        catch (InvalidDataException)
+        {
+            missingCatalogBlocked = true;
+        }
+        Check(missingCatalogBlocked,
+            "Real-corpus integration must fail closed when the lexical catalog required for homograph-safe stable-target resolution is absent.");
 
         ContextIntegrationItem localItem = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(
             ContextConsumerKind.SentenceCoach,
-            new[] { "target-a" })).Single();
+            new[] { "target-a" },
+            TargetLexicon: lexicon)).Single();
         Check(localItem.DataBoundary == ContextDataBoundary.ExternalCorpusRedistributionUnverified,
             "RealCorpus must not be labelled shareable without a separate approval gate.");
         Check(!localItem.RedistributionApproved && localItem.DistributionBoundary.Contains("does not imply redistribution approval", StringComparison.Ordinal),
@@ -267,7 +283,10 @@ internal static class ContextPracticeIntegrationGatewaySelfTest
         bool webBlocked = false;
         try
         {
-            _ = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(ContextConsumerKind.WebFrontend, new[] { "target-a" }));
+            _ = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(
+                ContextConsumerKind.WebFrontend,
+                new[] { "target-a" },
+                TargetLexicon: lexicon));
         }
         catch (InvalidDataException)
         {
@@ -282,10 +301,12 @@ internal static class ContextPracticeIntegrationGatewaySelfTest
         var descriptor = new ContextSourceDescriptor(pack.PackId, ContextCorpusKind.LocalUserText, pack.Provenance, pack.License, PrivacyLocalOnly: true);
         var location = new LocalTextContextLocation(pack.PackId, "book-1", "chapter-2", 100, 140);
         var source = new SingleEnvelopeSource(new ContextSentenceEnvelope(pack.Sentences[0], descriptor, location, new[] { "present-simple" }), descriptor);
+        var lexicon = new ContextTargetLexicon("integration", new[] { ("target-a", "practice"), ("helper-b", "daily") });
 
         IReadOnlyList<ContextIntegrationItem> local = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(
             ContextConsumerKind.Reading,
             new[] { "target-a" },
+            TargetLexicon: lexicon,
             AllowPrivateLocalContextIdentity: true));
         Check(local.Single().LocalLocation?.ChapterId == "chapter-2", "Local reading must preserve return-to-context identity when explicitly requested.");
         Check(local[0].DataBoundary == ContextDataBoundary.LocalOnly && !local[0].RedistributionApproved, "User-book context must stay local-only and non-redistributable by default.");
@@ -293,7 +314,10 @@ internal static class ContextPracticeIntegrationGatewaySelfTest
         bool blocked = false;
         try
         {
-            _ = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(ContextConsumerKind.WebFrontend, new[] { "target-a" }));
+            _ = ContextPracticeIntegrationGateway.Query(source, new ContextIntegrationRequest(
+                ContextConsumerKind.WebFrontend,
+                new[] { "target-a" },
+                TargetLexicon: lexicon));
         }
         catch (InvalidDataException)
         {
