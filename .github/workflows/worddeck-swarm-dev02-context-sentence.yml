@@ -46,8 +46,18 @@ jobs:
       - name: Checkout exact revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
+
+      - name: Verify exact candidate checkout
+        shell: pwsh
+        run: |
+          $expected = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}".Trim().ToLowerInvariant()
+          $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ([string]::IsNullOrWhiteSpace($expected) -or $actual -ne $expected) {
+            throw "Exact-head checkout mismatch: expected $expected actual $actual"
+          }
+          Write-Host "Exact candidate head verified: $actual"
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -225,7 +235,7 @@ jobs:
       - name: Upload coverage evidence
         uses: actions/upload-artifact@v4
         with:
-          name: WordDeck-dev02-context-evidence-${{ github.sha }}
+          name: WordDeck-dev02-context-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: artifacts/context-evidence
           if-no-files-found: error
           retention-days: 14
