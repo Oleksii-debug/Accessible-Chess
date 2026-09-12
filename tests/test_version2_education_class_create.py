@@ -16,6 +16,7 @@ from acs.version2_education_mutation_application import (
     MutableEducationWebViewProjection,
     Version2EducationMutationApplication,
 )
+from acs.version2_starter_content_application import Version2StarterContentApplication
 
 
 class EducationClassManagementTests(unittest.TestCase):
@@ -126,6 +127,15 @@ class EducationClassProjectionTests(unittest.TestCase):
 
 
 class EducationMutationReleaseBindingTests(unittest.TestCase):
+    def _assert_current_application_owner(self, observed: list[object]) -> None:
+        self.assertEqual(observed, [Version2StarterContentApplication])
+        self.assertTrue(
+            issubclass(
+                Version2StarterContentApplication,
+                Version2EducationMutationApplication,
+            )
+        )
+
     def test_import_preserves_exact_prior_release_application_owner(self) -> None:
         from acs import version2_education_mutation_release as mutation_release
         from acs import version2_release_app
@@ -156,7 +166,7 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
             result = mutation_release.create_version2_release_application()
 
         self.assertEqual(result, (api, "application", "runtime", "native"))
-        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self._assert_current_application_owner(observed)
         self.assertTrue(callable(api._sync_version2_language))
         self.assertIs(version2_release_app.Version2Application, previous_owner)
 
@@ -193,7 +203,7 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
             (returned_api, application, runtime, native),
             (api, "application", "runtime", "native"),
         )
-        self.assertEqual(observed, [Version2EducationMutationApplication])
+        self._assert_current_application_owner(observed)
         self.assertIs(version2_release_app.Version2Application, previous_owner)
 
 
