@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace WordDeck;
 
@@ -75,6 +76,33 @@ internal static class StoryCourseRuntimeSelfTest
             StoryCourseProgressContract recovered = store.LoadOrCreate(approved);
             Require(recovered.CompletedTaskIds.Contains(comprehension.TaskId, StringComparer.OrdinalIgnoreCase),
                 "corrupt primary state did not recover from last-known-good backup");
+
+            // Saving immediately after backup recovery must not rotate the corrupt primary over
+            // the only known-good backup. Corrupt primary a second time and prove recovery still works.
+            store.Save(recovered);
+            File.WriteAllText(primaryPath, "{ corrupt-again");
+            StoryCourseProgressContract recoveredAgain = store.LoadOrCreate(approved);
+            Require(recoveredAgain.CompletedTaskIds.Contains(comprehension.TaskId, StringComparer.OrdinalIgnoreCase),
+                "save after backup recovery destroyed the last-known-good Story/Course backup");
+
+            // Restore a valid current primary, then place a deliberately newer-schema state at
+            // the primary path. Save must reject it before mutating either primary or backup.
+            store.Save(recoveredAgain);
+            StoryCourseProgressContract newer = recoveredAgain with
+            {
+                SchemaVersion = StoryCourseRuntimeStateStore.CurrentSchemaVersion + 1
+            };
+            string newerBytes = JsonSerializer.Serialize(
+                newer,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
+            File.WriteAllText(primaryPath, newerBytes);
+            bool newerRejected = false;
+            try { store.Save(recoveredAgain); }
+            catch (InvalidDataException) { newerRejected = true; }
+            Require(newerRejected,
+                "Story/Course save did not fail closed around an existing newer-schema primary");
+            Require(File.ReadAllText(primaryPath) == newerBytes,
+                "Story/Course save mutated an existing newer-schema primary before rejecting it");
 
             Console.WriteLine("WordDeck Story/Course runtime self-test PASS.");
         }
