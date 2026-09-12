@@ -1,0 +1,129 @@
+name: P0-F Starter Content Qualification
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/starter_content.py'
+      - 'scripts/build_starter_content.py'
+      - 'tests/test_p0f_starter_content.py'
+      - 'docs/P0F_STARTER_CONTENT_PROVENANCE.md'
+      - '.github/workflows/p0f-starter-content.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0f-starter-content-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile bounded source
+        run: >-
+          python -m py_compile
+          acs/starter_content.py
+          scripts/build_starter_content.py
+          tests/test_p0f_starter_content.py
+
+      - name: Run starter, ACSDB, and GameTree regressions
+        run: >-
+          python -m pytest -q
+          tests/test_p0f_starter_content.py
+          tests/test_acsdb.py
+          tests/test_gametree.py
+
+      - name: Prove direct CLI invocation without package install
+        run: >-
+          python scripts/build_starter_content.py
+          .p0f-smoke
+          --starter-games 32
+          --stress-games 64
+
+  default-volume:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build default acceptance-volume bundle
+        run: python scripts/build_starter_content.py .p0f-default
+
+      - name: Verify 240-game starter and licensed payload manifest
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+          from acs.starter_content import CONTENT_LICENSE_ID
+
+          root = Path('.p0f-default')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          assert manifest['counts']['starter_games'] >= 200
+          assert manifest['counts']['stress_games'] > manifest['counts']['starter_games']
+          assert manifest['provenance']['third_party_corpus'] is False
+          assert manifest['license']['id'] == CONTENT_LICENSE_ID
+          assert set(manifest['license']['applies_to']) == set(manifest['files'])
+          assert all(item['license_id'] == CONTENT_LICENSE_ID for item in manifest['files'].values())
+          with AcsDatabase(root / 'sample_library.acsdb') as db:
+              assert db.verify_integrity() == ACSDB_SCHEMA_VERSION
+              total, distinct = db.conn.execute(
+                  'SELECT COUNT(*), COUNT(DISTINCT pgn_text) FROM games'
+              ).fetchone()
+              assert total == distinct == manifest['counts']['starter_games']
+              assert len(db.search_games(player='Учень', limit=25)) == 25
+              assert db.search_games(opening='Game', limit=25)
+          print('P0_F_STARTER_DEFAULT_VOLUME=PASS')
+          PY
+
+      - name: Prove full 1200-game stress corpus through canonical import and search
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+
+          root = Path('.p0f-default')
+          stress_text = (root / 'stress_uk.pgn').read_text(encoding='utf-8')
+          with AcsDatabase(root / 'stress_acceptance.acsdb') as db:
+              report = db.import_pgn_text(stress_text, source_name='stress_uk.pgn')
+              assert report.total == 1200
+              assert report.damaged == 0
+              assert len(report.game_ids) == 1200
+              assert db.verify_integrity() == ACSDB_SCHEMA_VERSION
+              total, distinct, whites, blacks, events = db.conn.execute(
+                  'SELECT COUNT(*), COUNT(DISTINCT pgn_text), '
+                  'COUNT(DISTINCT white), COUNT(DISTINCT black), COUNT(DISTINCT event) FROM games'
+              ).fetchone()
+              assert total == distinct == 1200
+              assert whites >= 20
+              assert blacks >= 10
+              assert events >= 16
+              assert len(db.search_games(player='Учень', limit=25)) == 25
+              assert len(db.search_games(event='Accessible Chess', limit=25)) == 25
+          print('P0_F_STRESS_1200_CANONICAL_IMPORT_SEARCH=PASS')
+          PY

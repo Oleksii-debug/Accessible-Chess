@@ -1,0 +1,108 @@
+name: D10 Prepared Position Current Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/education_workspace.py'
+      - 'tests/test_d10_prepared_position_durability.py'
+      - '.github/workflows/d10-no-implicit-delete-current.yml'
+      - '.github/workflows/d10-prepared-position-current-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d10-prepared-position-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained prepared-position authority and current PR hygiene
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_HEAD_SHA: bbd52bf60f2215d3798189cd860c9682eddcdecb
+          PREPARED_OWNER_SHA: 1a88d70f38abe8fc156035c8b602821ad4252a99
+        run: |
+          set -euo pipefail
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          git cat-file -e "${SOURCE_HEAD_SHA}^{commit}" || git fetch --no-tags origin "$SOURCE_HEAD_SHA"
+          git cat-file -e "${PREPARED_OWNER_SHA}^{commit}" || git fetch --no-tags origin "$PREPARED_OWNER_SHA"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          git merge-base --is-ancestor "$PREPARED_OWNER_SHA" HEAD
+          git diff --check "$base" HEAD
+
+          for path in \
+            acs/education_workspace.py \
+            tests/test_d10_prepared_position_durability.py \
+            tests/test_d10_no_implicit_delete_current.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "${PREPARED_OWNER_SHA}:$path")" || {
+              printf 'Prepared-position retained blob drift: %s\n' "$path" >&2
+              exit 1
+            }
+          done
+          printf 'Prepared-position retained authority PASS: source=%s owner=%s base=%s head=%s\n' \
+            "$SOURCE_HEAD_SHA" "$PREPARED_OWNER_SHA" "$base" "$(git rev-parse HEAD)"
+
+      - name: Compile converged Education workspace
+        run: >-
+          python -m py_compile
+          acs/education_workspace.py
+          tests/test_d10_prepared_position_durability.py
+          tests/test_d10_no_implicit_delete_current.py
+
+      - name: Focused prepared-position and current lifecycle regressions
+        run: >-
+          python -m pytest -q
+          tests/test_d10_prepared_position_durability.py
+          tests/test_d10_no_implicit_delete_current.py
+          tests/test_education_workspace.py
+          tests/test_education_records.py
+          tests/test_classroom_domain.py
+          tests/test_version2_education_class_create.py
+          tests/test_version2_final_product_composition.py
+
+      - name: Final-product production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad unittest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad pytest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q

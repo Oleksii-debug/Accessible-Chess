@@ -1,0 +1,119 @@
+name: V2 Markdown Semantic Lists Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/book_text_import.py'
+      - 'tests/test_v2_book_text_import.py'
+      - 'tests/test_v2_markdown_semantic_lists.py'
+      - '.github/workflows/v2-markdown-semantic-lists-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-markdown-lists-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Restore frozen Stage1 blobs byte-exact on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
+          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained Markdown convergence authority and immutable PR-base hygiene
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE_SHA:-}"
+          test -n "$base" || {
+            printf 'Markdown convergence qualification requires pull_request event base SHA\n' >&2
+            exit 1
+          }
+          git cat-file -e "${base}^{commit}"
+          markdown_owner="2954b8e95f678d62bfc8f7c56ef5cf9f826e6247"
+          git cat-file -e "${markdown_owner}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$markdown_owner" HEAD
+          git diff --check "$base" HEAD
+          for path in \
+            acs/book_text_import.py \
+            tests/test_v2_book_text_import.py \
+            tests/test_v2_markdown_semantic_lists.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$markdown_owner:$path")"
+          done
+          printf 'Markdown retained authority PASS: immutable-pr-base=%s owner=%s head=%s\n' "$base" "$markdown_owner" "$(git rev-parse HEAD)"
+
+      - name: Compile bounded Books adapter
+        run: python -m py_compile acs/book_text_import.py tests/test_v2_book_text_import.py tests/test_v2_markdown_semantic_lists.py
+
+      - name: Existing TXT and Markdown importer contracts
+        run: python -m unittest -v tests.test_v2_book_text_import
+
+      - name: Canonical semantic-list regression
+        run: python -m unittest -v tests.test_v2_markdown_semantic_lists
+
+      - name: Canonical Book core and reader regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_accessible_book_core
+
+      - name: Re-materialize frozen Stage1 blobs before broad byte contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
+          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic

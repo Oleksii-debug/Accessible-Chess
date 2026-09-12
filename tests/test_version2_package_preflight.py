@@ -89,6 +89,9 @@ def _make_tree(root: Path) -> None:
         "full_product_pgn.js",
         "full_product_library.js",
         "full_product_books_training.js",
+        "full_product_teacher.js",
+        "full_product_education.js",
+        "version2_final_product_bootstrap.js",
         "version2_release_bootstrap.js",
     )
     for name in web_files:
@@ -194,6 +197,43 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.inventory, tree.inventory)
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
+
+    def test_final_product_runtime_web_resources_are_required(self):
+        required = (
+            "full_product_teacher.js",
+            "full_product_education.js",
+            "version2_final_product_bootstrap.js",
+        )
+        for missing in required:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "package"
+                root.mkdir()
+                _make_tree(root)
+                (root / "AccessibleChess" / "web" / missing).unlink()
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError, "web resource is missing"
+                ):
+                    _validate_tree(root)
+
+    def test_final_zip_and_nested_zip_use_snapshot_handles(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            archive = base / "Accessible-Chess-V2.zip"
+            _zip_tree(root, archive)
+            original_zipfile = zipfile.ZipFile
+            with patch(
+                "acs.version2_package_preflight.zipfile.ZipFile",
+                wraps=original_zipfile,
+            ) as wrapped:
+                report = _validate_zip(archive)
+            self.assertEqual(report.integration_sha, _SHA)
+            self.assertGreaterEqual(len(wrapped.call_args_list), 2)
+            for call in wrapped.call_args_list:
+                self.assertFalse(isinstance(call.args[0], (str, Path)))
 
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:

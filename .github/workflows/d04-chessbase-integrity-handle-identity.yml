@@ -1,0 +1,114 @@
+name: D04 ChessBase Integrity Current Convergence
+
+on:
+  push:
+    branches:
+      - work/d04-classic-chessbase-handle-identity-20260907
+      - fix/d04-retained-gate-current-product-20260912
+  pull_request:
+    paths:
+      - '.github/workflows/d04-chessbase-integrity-handle-identity.yml'
+      - 'acs/chessbase_integrity.py'
+      - 'tests/test_d04_chessbase_integrity_handle_identity.py'
+      - 'tests/test_dev4_chessbase_integrity_atomicity.py'
+      - 'tests/test_dev4_chessbase_integrity_io_observability.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-chessbase-integrity-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  D04_OWNER: d56e5db0f251da49f1a5ec5653e856402b7a76c6
+  INTEGRITY_BLOB: c08f0869f996d4ec428a90c64e9846374a720562
+  IMPORT_CONTRACT_BLOB: a072d0ee5c54c303e2af0112f83225282bcb0e1c
+  HANDLE_IDENTITY_TEST_BLOB: 374d233142ae98bd2c76ca3a10e0f4b80d45bc3d
+  ATOMICITY_TEST_BLOB: 10943344862e41c405e7af46a91383841ea1da71
+  IO_OBSERVABILITY_TEST_BLOB: 80070604b66425d2c9008c01f924263cf532a478
+
+jobs:
+  current-integrity-convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained D04 authority and exact accepted bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$D04_OWNER")" = "$D04_OWNER"
+          git diff --check "$D04_OWNER" HEAD -- \
+            '.github/workflows/d04-chessbase-integrity-handle-identity.yml' \
+            'acs/chessbase_integrity.py' \
+            'tests/test_d04_chessbase_integrity_handle_identity.py' \
+            'tests/test_dev4_chessbase_integrity_atomicity.py' \
+            'tests/test_dev4_chessbase_integrity_io_observability.py'
+          test "$(git rev-parse HEAD:acs/chessbase_integrity.py)" = "$INTEGRITY_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d04_chessbase_integrity_handle_identity.py)" = "$HANDLE_IDENTITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_chessbase_integrity_atomicity.py)" = "$ATOMICITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_chessbase_integrity_io_observability.py)" = "$IO_OBSERVABILITY_TEST_BLOB"
+
+      - name: Compile integrity boundary and oracles
+        run: >-
+          python -m py_compile
+          acs/chessbase_integrity.py
+          acs/import_contract.py
+          tests/test_d04_chessbase_integrity_handle_identity.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_integrity_io_observability.py
+
+      - name: Focused integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_chessbase_integrity
+          tests.test_import_contract
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_d04_chessbase_integrity_handle_identity.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_integrity_io_observability.py
+          tests/test_chessbase_integrity.py
+          tests/test_import_contract.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
