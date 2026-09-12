@@ -22,7 +22,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_BASE: 25e58b12c6b8f0e4b6969d80e461f9e4bd87963c
   SOURCE_HEAD: 93d7b1ff646fc8e4ff5ef2c82b976fab6a23359d
   DEDUPE_OWNER_HEAD: 5b68baf4c1f32a992f46067b8da120e4d1168294
   REPAIRED_IMPORT_BLOB: 60aeb06516689bd81686606da83cf00c79327d96
@@ -73,26 +72,22 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Exact current-base scope and owner identity
+      - name: Prove retained Source Catalog authority on current Product
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$CURRENT_BASE^{commit}"
+          product_base="$(git rev-parse HEAD^1)"
+
+          git cat-file -e "${product_base}^{commit}"
           git cat-file -e "$SOURCE_HEAD^{commit}"
           git cat-file -e "$DEDUPE_OWNER_HEAD^{commit}"
-          git merge-base --is-ancestor "$CURRENT_BASE" HEAD
+          test "$(git merge-base HEAD "$product_base")" = "$product_base"
+          git merge-base --is-ancestor "$SOURCE_HEAD" "$product_base"
           git merge-base --is-ancestor "$SOURCE_HEAD" HEAD
+          git merge-base --is-ancestor "$DEDUPE_OWNER_HEAD" "$product_base"
           git merge-base --is-ancestor "$DEDUPE_OWNER_HEAD" HEAD
-          git diff --check "$CURRENT_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/w2-library-source-catalog-d07-current.yml' \
-            'acs/library_import_service.py' \
-            'acs/library_source_service.py' \
-            'tests/test_d07_library_import_exact_source_order.py' \
-            'tests/test_v2_library_source_catalog.py' \
-            'tools/v2_library_source_catalog_real_corpus.py' | sort)"
-          test "$changed" = "$expected"
+          git diff --check "$product_base" HEAD
+
           test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$REPAIRED_IMPORT_BLOB"
           test "$(git rev-parse HEAD:acs/library_source_service.py)" = "$OWNER_SERVICE_BLOB"
           test "$(git rev-parse HEAD:tests/test_d07_library_import_exact_source_order.py)" = "$IDEMPOTENCY_TEST_BLOB"
@@ -100,8 +95,14 @@ jobs:
           test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$CURRENT_ACSDB_BLOB"
           test "$(git rev-parse HEAD:acs/search_service.py)" = "$CURRENT_SEARCH_BLOB"
-          test "$(git rev-parse "$CURRENT_BASE:acs/acsdb.py")" = "$CURRENT_ACSDB_BLOB"
-          test "$(git rev-parse "$CURRENT_BASE:acs/search_service.py")" = "$CURRENT_SEARCH_BLOB"
+
+          test "$(git rev-parse "$product_base:acs/library_import_service.py")" = "$REPAIRED_IMPORT_BLOB"
+          test "$(git rev-parse "$product_base:acs/library_source_service.py")" = "$OWNER_SERVICE_BLOB"
+          test "$(git rev-parse "$product_base:tests/test_d07_library_import_exact_source_order.py")" = "$IDEMPOTENCY_TEST_BLOB"
+          test "$(git rev-parse "$product_base:tests/test_v2_library_source_catalog.py")" = "$OWNER_TEST_BLOB"
+          test "$(git rev-parse "$product_base:tools/v2_library_source_catalog_real_corpus.py")" = "$OWNER_REAL_ORACLE_BLOB"
+          test "$(git rev-parse "$product_base:acs/acsdb.py")" = "$CURRENT_ACSDB_BLOB"
+          test "$(git rev-parse "$product_base:acs/search_service.py")" = "$CURRENT_SEARCH_BLOB"
 
       - name: Compile bounded source catalog and repaired importer
         run: python -m py_compile acs/library_import_service.py acs/library_source_service.py tests/test_d07_library_import_exact_source_order.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
@@ -172,14 +173,14 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import json, os
+          import json, os, subprocess
           from pathlib import Path
           path = Path('source-catalog-real-evidence.json')
           payload = json.loads(path.read_text(encoding='utf-8'))
           payload['source_catalog_source_head'] = os.environ['SOURCE_HEAD']
           payload['dedupe_owner_head'] = os.environ['DEDUPE_OWNER_HEAD']
-          payload['convergence_base'] = os.environ['CURRENT_BASE']
-          payload['convergence_head'] = os.environ['GITHUB_SHA']
+          payload['convergence_base'] = subprocess.check_output(['git', 'rev-parse', 'HEAD^1'], text=True).strip()
+          payload['convergence_head'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
           PY
       - name: Upload evidence summary only
