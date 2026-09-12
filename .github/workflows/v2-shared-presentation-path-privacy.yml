@@ -6,6 +6,7 @@ on:
       - converge/v2-presentation-privacy-current-20260911
   pull_request:
     paths:
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/v2-shared-presentation-path-privacy.yml'
       - '.github/workflows/version2-formats-integration.yml'
       - 'acs/presentation_privacy.py'
@@ -56,6 +57,7 @@ jobs:
           git diff --check "$CURRENT_BASE" HEAD
           changed="$(git diff --name-only "$CURRENT_BASE" HEAD | sort)"
           allowed="$(printf '%s\n' \
+            .github/workflows/d01-pgn-workspace-webview.yml \
             .github/workflows/v2-shared-presentation-path-privacy.yml \
             .github/workflows/version2-formats-integration.yml \
             acs/book_webview_projection.py \
