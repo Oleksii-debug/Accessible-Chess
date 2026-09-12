@@ -114,7 +114,7 @@ internal sealed class StoryCourseLearnerStateBridge
         string pathId = BuildPathId(manifest);
         DateTimeOffset now = _clock();
         SetPosition(state, pathId, manifest.CourseId, owned.Module.ModuleId, owned.Unit.UnitId, task.TaskId, now);
-        foreach (string objectiveId in RequireObjectives(task.ObjectiveIds, task.TaskId))
+        foreach (string objectiveId in RequireOwnedObjectives(owned, task.ObjectiveIds, task.TaskId))
         {
             AddEvidence(state, new LearnerEvidenceEvent
             {
@@ -179,7 +179,7 @@ internal sealed class StoryCourseLearnerStateBridge
             _ => throw new InvalidDataException($"Productive task '{task.TaskId}' has invalid channel '{task.Channel}'.")
         };
 
-        foreach (string objectiveId in RequireObjectives(task.ObjectiveIds, task.TaskId))
+        foreach (string objectiveId in RequireOwnedObjectives(owned, task.ObjectiveIds, task.TaskId))
         {
             AddEvidence(state, new LearnerEvidenceEvent
             {
@@ -224,19 +224,31 @@ internal sealed class StoryCourseLearnerStateBridge
         StoryCourseContractId.Require(manifest.CourseId, "learner course id");
         StoryCourseContractId.Require(moduleId, "learner course module id");
         StoryCourseContractId.Require(unitId, "learner course unit id");
+        if (manifest.Levels is null)
+            throw new InvalidDataException("Story/Course manifest levels are required for learner-state binding.");
 
         OwnedUnit[] matches = manifest.Levels
+            .Where(level => level is not null && level.Modules is not null)
             .SelectMany(level => level.Modules.Select(module => new { level, module }))
-            .Where(pair => pair.module.ModuleId.Equals(moduleId, StringComparison.OrdinalIgnoreCase))
-            .SelectMany(pair => pair.module.Units
-                .Where(unit => unit.UnitId.Equals(unitId, StringComparison.OrdinalIgnoreCase))
+            .Where(pair => pair.module is not null && pair.module.ModuleId.Equals(moduleId, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(pair => (pair.module.Units ?? Array.Empty<StoryCourseUnitContract>())
+                .Where(unit => unit is not null && unit.UnitId.Equals(unitId, StringComparison.OrdinalIgnoreCase))
                 .Select(unit => new OwnedUnit(pair.level, pair.module, unit)))
             .ToArray();
 
         if (matches.Length != 1)
             throw new InvalidDataException(
                 $"Story/Course learner-state bridge could not resolve exactly one manifest-owned unit '{moduleId}/{unitId}'.");
-        return matches[0];
+
+        OwnedUnit owned = matches[0];
+        StoryCourseContractId.Require(owned.Level.LevelId, "learner course level id");
+        StoryCourseContractId.Require(owned.Module.ModuleId, "learner course module id");
+        StoryCourseContractId.Require(owned.Unit.UnitId, "learner course unit id");
+        if (!owned.Module.LevelId.Equals(owned.Level.LevelId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"Story/Course module '{owned.Module.ModuleId}' is attached to the wrong level.");
+        if (!owned.Unit.ModuleId.Equals(owned.Module.ModuleId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"Story/Course unit '{owned.Unit.UnitId}' is attached to the wrong module.");
+        return owned;
     }
 
     private static bool OwnsActivity(StoryCourseUnitContract unit, string activityId) =>
@@ -245,12 +257,31 @@ internal sealed class StoryCourseLearnerStateBridge
         unit.ProductiveTasks.Any(item => item.TaskId.Equals(activityId, StringComparison.OrdinalIgnoreCase)) ||
         (unit.Checkpoint?.CheckpointId.Equals(activityId, StringComparison.OrdinalIgnoreCase) ?? false);
 
-    private static IReadOnlyList<string> RequireObjectives(IReadOnlyList<string> objectiveIds, string ownerId)
+    private static IReadOnlyList<string> RequireOwnedObjectives(
+        OwnedUnit owned,
+        IReadOnlyList<string> objectiveIds,
+        string ownerId)
     {
         if (objectiveIds is null || objectiveIds.Count == 0 || objectiveIds.Any(string.IsNullOrWhiteSpace))
             throw new InvalidDataException($"Story/Course activity '{ownerId}' requires owned objective ids before learner evidence can be recorded.");
         if (objectiveIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != objectiveIds.Count)
             throw new InvalidDataException($"Story/Course activity '{ownerId}' contains duplicate objective ids.");
+        if (owned.Module.Objectives is null)
+            throw new InvalidDataException($"Story/Course module '{owned.Module.ModuleId}' has no objective collection.");
+
+        var moduleObjectives = new HashSet<string>(
+            owned.Module.Objectives.Where(objective => objective is not null).Select(objective => objective.ObjectiveId),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string objectiveId in objectiveIds)
+        {
+            StoryCourseContractId.Require(objectiveId, $"{ownerId} learner evidence objective id");
+            if (!moduleObjectives.Contains(objectiveId))
+                throw new InvalidDataException(
+                    $"Story/Course activity '{ownerId}' references objective '{objectiveId}' that is not owned by module '{owned.Module.ModuleId}'.");
+            if (!owned.Unit.ObjectiveIds.Contains(objectiveId, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidDataException(
+                    $"Story/Course activity '{ownerId}' references objective '{objectiveId}' that is not assigned to unit '{owned.Unit.UnitId}'.");
+        }
         return objectiveIds;
     }
 
