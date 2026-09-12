@@ -22,13 +22,20 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
             self.assertRegex(source, r"create_window\([\s\S]*?text_select\s*=\s*True")
 
     def test_stage1_plain_ctrl_c_and_existing_selection_are_not_hijacked(self) -> None:
-        self.assertIn("String(e.key).toLowerCase()==='c')return", self.index)
-        self.assertIn("selection&&selection.toString()", self.index)
-        self.assertNotRegex(
-            self.index,
-            r"(?is)(?:ctrlKey[^\n]{0,180}(?:key|code)[^\n]{0,80}['\"]c['\"][^\n]{0,300}preventDefault)|"
-            r"(?:['\"]c['\"][^\n]{0,180}ctrlKey[^\n]{0,300}preventDefault)",
-        )
+        plain_copy_guard = "if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return;"
+        selection_guard = "if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
+        dispatch_marker = "const chord=eventChord(e);"
+
+        plain_copy = self.index.index(plain_copy_guard)
+        selection = self.index.index(selection_guard, plain_copy)
+        dispatch = self.index.index(dispatch_marker, selection)
+        handler = self.index.rfind("addEventListener('keydown'", 0, plain_copy)
+
+        self.assertNotEqual(handler, -1)
+        self.assertLess(handler, plain_copy)
+        self.assertLess(plain_copy, selection)
+        self.assertLess(selection, dispatch)
+        self.assertNotIn("preventDefault", self.index[handler:dispatch])
 
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
