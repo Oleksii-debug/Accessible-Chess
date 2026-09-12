@@ -80,33 +80,25 @@ class MutableEducationWebViewProjection(EducationWebViewProjection):
         )
 
     def open_selected(self, kind: EducationCollection | str) -> EducationWebViewEvent:
-        """Publish only trusted detail from the freshly revalidated canonical record."""
+        """Publish a bounded read-only detail after trusted-host revalidation."""
 
         try:
             parsed = self._parse_kind(kind)
             action = _OPEN_ACTIONS[parsed]
             records = self._records(self._workspace())[parsed]
             selected_id = self._selected[parsed]
-            next(record for record in records if record.record_id == selected_id)
+            selected = next(
+                record for record in records if record.record_id == selected_id
+            )
 
             # Browser content never supplies this identity. It is recovered from
-            # the HMAC-backed selection. The trusted host re-reads canonical state
-            # and returns the bounded detail from that same current snapshot.
-            result = self._dispatch(action, {"record_id": selected_id})
-            if not isinstance(result, Mapping):
-                raise TypeError("education open result must be a mapping")
-            detail_result = result.get("detail")
-            if not isinstance(detail_result, Mapping):
-                raise TypeError("education open result is missing trusted detail")
-            if set(detail_result) != {"kind", "heading", "secondary", "status"}:
-                raise ValueError("education open detail fields are invalid")
-            if detail_result.get("kind") != parsed.value:
-                raise ValueError("education open detail kind does not match selection")
+            # the HMAC-backed selection and revalidated by the trusted host.
+            self._dispatch(action, {"record_id": selected_id})
             detail = {
                 "kind": parsed.value,
-                "heading": self._bounded(detail_result.get("heading"), limit=160),
-                "secondary": self._bounded(detail_result.get("secondary"), limit=200),
-                "status": self._bounded(detail_result.get("status"), limit=160),
+                "heading": self._bounded(selected.label, limit=160),
+                "secondary": self._bounded(selected.secondary, limit=200),
+                "status": self._bounded(selected.status, limit=160),
             }
         except Exception as exc:
             return self._safe_error(exc)
@@ -129,9 +121,8 @@ class Version2EducationMutationApplication(Version2FinalProductApplication):
     The browser can request ``classes.new`` but cannot provide the canonical
     class identity, operation identity, workspace revision, or storage path.
     Open-selected actions receive a record identity only from the trusted
-    HMAC-backed projection. The trusted host validates that identity and derives
-    the bounded presentation detail from one freshly-read canonical workspace;
-    raw identity and durable authority never cross into browser content.
+    HMAC-backed projection, validate it against the current canonical workspace,
+    and return no durable mutation or raw identity to browser content.
     """
 
     @staticmethod
@@ -156,34 +147,16 @@ class Version2EducationMutationApplication(Version2FinalProductApplication):
             if type(record_id) is not str or not record_id:
                 raise ValueError("education open requires a non-empty record identity")
 
-            # Read canonical Education state exactly once for both identity
-            # validation and presentation. Reusing the canonical projector keeps
-            # labels/status semantics identical to the browser collection view.
             workspace = self._education_provider()
-            _collection_name, _identity_name, kind = open_spec
-            parsed = EducationCollection(kind)
-            projector = EducationWebViewProjection(
-                lambda: workspace,
-                lambda _action, _payload: None,
-                language=self.shell.language,
+            collection_name, identity_name, kind = open_spec
+            records = getattr(workspace.classroom, collection_name)
+            matches = sum(
+                1 for record in records
+                if getattr(record, identity_name) == record_id
             )
-            matches = [
-                record
-                for record in projector._records(workspace)[parsed]
-                if record.record_id == record_id
-            ]
-            if len(matches) != 1:
+            if matches != 1:
                 raise LookupError("selected education record is no longer current")
-            current = matches[0]
-            return {
-                "validated": True,
-                "detail": {
-                    "kind": parsed.value,
-                    "heading": projector._bounded(current.label, limit=160),
-                    "secondary": projector._bounded(current.secondary, limit=200),
-                    "status": projector._bounded(current.status, limit=160),
-                },
-            }
+            return {"validated": True, "kind": kind}
 
         if action_id != "classes.new":
             return super()._education_dispatch(action_id, payload)

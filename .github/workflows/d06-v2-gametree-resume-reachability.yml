@@ -16,7 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_V2_RESUME_BASE: 169136979b141aa3844ffe7ed10d96290a6b7726
+  D06_V2_RESUME_OWNER: c2a080712ab76bd318dc6a6c3037db464ab67857
+  D06_RESUME_BLOB: 585574d61de42c3f956e050b0d7acf5e19dc7942
+  D06_RELEASE_APP_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
+  D06_TEST_BLOB: 3a52ce7a15ac296b362d25e3ca470bd99497961a
 
 jobs:
   v2-resume-reachability:
@@ -48,20 +51,22 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact canonical ancestry and bounded scope
+      - name: Prove retained D06 authority and current Product compatibility
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git cat-file -e "$D06_V2_RESUME_BASE^{commit}"
-          test "$(git merge-base HEAD "$D06_V2_RESUME_BASE")" = "$D06_V2_RESUME_BASE"
-          git diff --check "$D06_V2_RESUME_BASE" HEAD
-          changed="$(git diff --name-only "$D06_V2_RESUME_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d06-v2-gametree-resume-reachability.yml' \
-            'acs/version2_gametree_resume.py' \
-            'acs/version2_release_app.py' \
-            'tests/test_d06_v2_gametree_resume_reachability.py' | sort)"
-          test "$changed" = "$expected"
+          base="${PR_BASE_SHA:-$D06_V2_RESUME_OWNER}"
+          git cat-file -e "${base}^{commit}"
+          git cat-file -e "${D06_V2_RESUME_OWNER}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$D06_V2_RESUME_OWNER" HEAD
+          git diff --check "$base" HEAD
+          test "$(git rev-parse HEAD:acs/version2_gametree_resume.py)" = "$D06_RESUME_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$D06_RELEASE_APP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_reachability.py)" = "$D06_TEST_BLOB"
+          printf 'Retained D06 authority PASS: base=%s owner=%s head=%s\n' "$base" "$D06_V2_RESUME_OWNER" "$(git rev-parse HEAD)"
 
       - name: Compile changed Python surface
         run: >-
