@@ -81,35 +81,86 @@ internal sealed record StoryCourseObjectiveContract(
 }
 
 /// <summary>
+/// A presentation-neutral reference to a stable target owned by approved course
+/// content rather than by the Oxford dictionary or Grammar registry. The
+/// domain/targetRef shape mirrors the generic Course SkillTarget contract, but
+/// Story/Course deliberately accepts only the governed course-target domain here:
+/// lexical and Grammar identities must continue through their canonical resolvers.
+/// Presence/exposure of this metadata is never mastery evidence.
+/// </summary>
+internal sealed record StoryCourseSkillTargetReferenceContract(
+    string Domain,
+    string TargetRef)
+{
+    public const string CourseTargetDomain = "course-target";
+
+    public void ValidateShape(string unitId)
+    {
+        StoryCourseContractId.Require(Domain, $"{unitId} skill-target domain");
+        if (!Domain.Equals(CourseTargetDomain, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"{unitId} skill-target domain '{Domain}' is not owned by Story/Course. Lexical and Grammar targets must use their canonical target collections.");
+        StoryCourseExternalTargetRef.Require(TargetRef, $"{unitId} governed course target reference");
+    }
+}
+
+/// <summary>
 /// Targets carry canonical identities only. Story/Course content must never
 /// identify lexical targets by a surface form or own a parallel Grammar registry.
+/// Governed course-target references preserve stable pedagogical identities from
+/// independently approved curriculum packages without pretending those identities
+/// are Oxford dictionary entries or Grammar skills.
 /// </summary>
 internal sealed record StoryCourseTargetsContract(
     IReadOnlyList<string> LexicalEntryIds,
     IReadOnlyList<string> GrammarSkillIds)
 {
+    public IReadOnlyList<StoryCourseSkillTargetReferenceContract> SkillTargets { get; init; }
+        = Array.Empty<StoryCourseSkillTargetReferenceContract>();
+
     public void ValidateShape(string unitId)
     {
-        if (LexicalEntryIds is null || GrammarSkillIds is null)
+        if (LexicalEntryIds is null || GrammarSkillIds is null || SkillTargets is null)
             throw new InvalidDataException($"{unitId} target collections are required.");
         if (LexicalEntryIds.Any(string.IsNullOrWhiteSpace))
             throw new InvalidDataException($"{unitId} contains a blank stable lexical entry id.");
         if (GrammarSkillIds.Any(string.IsNullOrWhiteSpace))
             throw new InvalidDataException($"{unitId} contains a blank Grammar skill reference.");
-        if (LexicalEntryIds.Count == 0 && GrammarSkillIds.Count == 0)
-            throw new InvalidDataException($"{unitId} requires at least one lexical or Grammar target.");
+        foreach (StoryCourseSkillTargetReferenceContract target in SkillTargets)
+        {
+            if (target is null) throw new InvalidDataException($"{unitId} contains a null governed course target reference.");
+            target.ValidateShape(unitId);
+        }
+        if (LexicalEntryIds.Count == 0 && GrammarSkillIds.Count == 0 && SkillTargets.Count == 0)
+            throw new InvalidDataException($"{unitId} requires at least one lexical, Grammar, or governed course target.");
         if (LexicalEntryIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != LexicalEntryIds.Count)
             throw new InvalidDataException($"{unitId} contains duplicate stable lexical entry ids.");
+        if (SkillTargets
+            .Select(target => target.Domain + "\u001f" + target.TargetRef)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count() != SkillTargets.Count)
+            throw new InvalidDataException($"{unitId} contains duplicate governed course target references.");
     }
 }
 
 internal sealed record ResolvedStoryCourseTargets(
     IReadOnlyList<DictionaryEntry> LexicalEntries,
-    IReadOnlyList<string> GrammarSkillIds);
+    IReadOnlyList<string> GrammarSkillIds)
+{
+    public IReadOnlyList<StoryCourseSkillTargetReferenceContract> SkillTargets { get; init; }
+        = Array.Empty<StoryCourseSkillTargetReferenceContract>();
+}
 
 internal static class StoryCourseIdentityResolver
 {
     public static ResolvedStoryCourseTargets Resolve(DictionaryPackage dictionary, StoryCourseTargetsContract targets, string unitId)
+        => Resolve(dictionary, targets, unitId, StoryCourseCurriculumAuthority.TechnicalFixture);
+
+    internal static ResolvedStoryCourseTargets Resolve(
+        DictionaryPackage dictionary,
+        StoryCourseTargetsContract targets,
+        string unitId,
+        StoryCourseCurriculumAuthority curriculumAuthority)
     {
         ArgumentNullException.ThrowIfNull(dictionary);
         ArgumentNullException.ThrowIfNull(targets);
@@ -138,7 +189,19 @@ internal static class StoryCourseIdentityResolver
         // Canonical resolver owns aliases, validation and fail-closed behavior.
         // No Story/Course Grammar alias map or known-ID snapshot is permitted here.
         IReadOnlyList<string> grammar = GrammarSkillReferenceResolver.Normalize(targets.GrammarSkillIds);
-        return new ResolvedStoryCourseTargets(lexical, grammar);
+
+        if (targets.SkillTargets.Count != 0 && curriculumAuthority != StoryCourseCurriculumAuthority.ApprovedCurriculum)
+            throw new InvalidDataException(
+                $"{unitId} contains governed course target references but its curriculum authority is not ApprovedCurriculum.");
+
+        StoryCourseSkillTargetReferenceContract[] governedCourseTargets = targets.SkillTargets
+            .Select(target => new StoryCourseSkillTargetReferenceContract(target.Domain, target.TargetRef))
+            .ToArray();
+
+        return new ResolvedStoryCourseTargets(lexical, grammar)
+        {
+            SkillTargets = governedCourseTargets
+        };
     }
 }
 
@@ -308,7 +371,16 @@ internal static class StoryCourseContractValidator
                 if (module.Units is null || module.Units.Count == 0)
                     throw new InvalidDataException($"{module.ModuleId} requires at least one unit contract.");
                 foreach (StoryCourseUnitContract unit in module.Units)
-                    ValidateUnit(unit, module.ModuleId, objectiveIds, dictionary, globalUnitIds, globalTaskIds, globalCheckpointIds, manifest.ClaimsCompleteEnglishCourse);
+                    ValidateUnit(
+                        unit,
+                        module.ModuleId,
+                        objectiveIds,
+                        dictionary,
+                        globalUnitIds,
+                        globalTaskIds,
+                        globalCheckpointIds,
+                        manifest.ClaimsCompleteEnglishCourse,
+                        manifest.CurriculumAuthority);
             }
         }
     }
@@ -321,7 +393,8 @@ internal static class StoryCourseContractValidator
         ISet<string> globalUnitIds,
         ISet<string> globalTaskIds,
         ISet<string> globalCheckpointIds,
-        bool claimsCompleteEnglishCourse)
+        bool claimsCompleteEnglishCourse,
+        StoryCourseCurriculumAuthority curriculumAuthority)
     {
         StoryCourseContractId.Require(unit.UnitId, $"{moduleId} unit id");
         if (!globalUnitIds.Add(unit.UnitId)) throw new InvalidDataException($"Duplicate unit id '{unit.UnitId}'.");
@@ -335,7 +408,7 @@ internal static class StoryCourseContractValidator
         if (claimsCompleteEnglishCourse)
             RequireCompleteEnglishEligibleProvenance(unit.Provenance, unit.UnitId);
 
-        _ = StoryCourseIdentityResolver.Resolve(dictionary, unit.Targets, unit.UnitId);
+        _ = StoryCourseIdentityResolver.Resolve(dictionary, unit.Targets, unit.UnitId, curriculumAuthority);
 
         if (unit.DialogueOrStory is null || unit.DialogueOrStory.Count == 0)
             throw new InvalidDataException($"{unit.UnitId} requires at least one dialogue/story context.");
@@ -477,6 +550,20 @@ internal static class StoryCourseContractId
     {
         if (string.IsNullOrWhiteSpace(value) || !Pattern.IsMatch(value))
             throw new InvalidDataException($"{label} must be a stable lower-case identifier.");
+    }
+}
+
+internal static class StoryCourseExternalTargetRef
+{
+    private static readonly Regex Pattern = new(
+        "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static void Require(string? value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !value.Equals(value.Trim(), StringComparison.Ordinal) || !Pattern.IsMatch(value))
+            throw new InvalidDataException(
+                $"{label} must be an exact stable logical target identifier without whitespace, URI syntax, or path separators.");
     }
 }
 

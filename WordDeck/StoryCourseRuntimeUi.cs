@@ -329,6 +329,33 @@ internal sealed class StoryCourseRuntimeForm : Form
             .SelectMany(level => level.Modules.SelectMany(module => module.Units.Select(unit => new UnitChoice(level, module, unit))))
             .ToList();
 
+    internal static ResolvedStoryCourseTargets ResolveUnitTargetsForDisplay(
+        DictionaryPackage dictionary,
+        StoryCourseManifestContract manifest,
+        string unitId)
+    {
+        ArgumentNullException.ThrowIfNull(dictionary);
+        ArgumentNullException.ThrowIfNull(manifest);
+        StoryCourseContractId.Require(unitId, "learner runtime unit id");
+
+        StoryCourseUnitContract[] matchingUnits = manifest.Levels
+            .SelectMany(level => level.Modules)
+            .SelectMany(module => module.Units)
+            .Where(unit => unit.UnitId.Equals(unitId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (matchingUnits.Length != 1)
+            throw new InvalidDataException(
+                $"Learner runtime could not resolve exactly one manifest-owned unit '{unitId}'.");
+
+        StoryCourseUnitContract unit = matchingUnits[0];
+        return StoryCourseIdentityResolver.Resolve(
+            dictionary,
+            unit.Targets,
+            unit.UnitId,
+            manifest.CurriculumAuthority);
+    }
+
     private void PopulateUnits()
     {
         _changing = true;
@@ -358,7 +385,10 @@ internal sealed class StoryCourseRuntimeForm : Form
             PersistSafely();
         }
 
-        ResolvedStoryCourseTargets targets = StoryCourseIdentityResolver.Resolve(_dictionary, selected.Unit.Targets, selected.Unit.UnitId);
+        ResolvedStoryCourseTargets targets = ResolveUnitTargetsForDisplay(
+            _dictionary,
+            _manifest,
+            selected.Unit.UnitId);
         string targetLines = targets.LexicalEntries.Count == 0
             ? "Лексичних targets немає."
             : string.Join(Environment.NewLine, targets.LexicalEntries.Select(entry => $"{entry.Id}: {entry.Source} — {entry.Target} ({entry.Level})"));
