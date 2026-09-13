@@ -1,0 +1,120 @@
+name: WordDeck A1 M09 Audio Candidate
+
+on:
+  pull_request:
+    branches: [worddeck-bootstrap]
+    paths:
+      - "WordDeck/tools/produce_a1_m09_audio.py"
+      - "WordDeck/Audio/CE-A1-M09/audio-production-contract.json"
+      - ".github/workflows/worddeck-a1-m09-audio.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-a1-m09-audio-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONTRACT: WordDeck/Audio/CE-A1-M09/audio-production-contract.json
+  PRODUCER: WordDeck/tools/produce_a1_m09_audio.py
+  KOKORO_WHEEL_SHA256: a129dc6364a286bd6a92c396e9862459d3d3e45f2c15596ed5a94dcee5789efd
+
+jobs:
+  contract-gate:
+    name: Contract / fail-closed self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile producer
+        run: python -m py_compile "$PRODUCER"
+      - name: Fail-closed mutation self-test
+        run: python "$PRODUCER" --self-test "$CONTRACT"
+      - name: Validate exact governed contract
+        run: python "$PRODUCER" --validate-only "$CONTRACT"
+
+  synthesize-candidate:
+    name: Synthesize 10 governed AUD candidates
+    needs: contract-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install native audio dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends espeak-ng ffmpeg
+      - name: Download and verify exact Kokoro wheel
+        id: wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kokoro-wheel"
+          python -m pip download --disable-pip-version-check --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/kokoro-wheel" "kokoro==0.9.4"
+          WHEEL="$(find "$RUNNER_TEMP/kokoro-wheel" -maxdepth 1 -type f -name 'kokoro-0.9.4-*.whl' -print -quit)"
+          test -n "$WHEEL"
+          echo "$KOKORO_WHEEL_SHA256  $WHEEL" | sha256sum -c -
+          echo "path=$WHEEL" >> "$GITHUB_OUTPUT"
+      - name: Install exact production dependency lock
+        run: |
+          python -m pip install --disable-pip-version-check \
+            "${{ steps.wheel.outputs.path }}" \
+            "misaki==0.9.4" \
+            "huggingface_hub==0.34.4" \
+            "numpy==2.2.6" \
+            "soundfile==0.13.1" \
+            "torch==2.8.0"
+          python -m pip check
+      - name: Produce candidate audio batch
+        run: |
+          rm -rf "$RUNNER_TEMP/a1-m09-audio"
+          python "$PRODUCER" \
+            --input "$CONTRACT" \
+            --output "$RUNNER_TEMP/a1-m09-audio" \
+            --kokoro-wheel "${{ steps.wheel.outputs.path }}"
+          rm -rf "$RUNNER_TEMP/a1-m09-audio/.hf-cache"
+      - name: Fail closed on technical artifact shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/a1-m09-audio"
+          test -f "$OUT/manifest.json"
+          test "$(find "$OUT" -maxdepth 1 -type f -name 'CE-A1-M09-AUD*.mp3' | wc -l)" -eq 10
+          python - "$OUT/manifest.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert data["schema"] == "worddeck-ce-a1-m09-audio-batch-manifest-v1"
+          assert data["qa_status"] == "NOT_REVIEWED"
+          assert data["runtime_binding"] == "NOT_PERFORMED"
+          assert data["commercial_release"] == "HOLD"
+          assets = data["assets"]
+          assert len(assets) == 10
+          assert [x["audio_id"] for x in assets] == [f"CE-A1-M09-AUD{i:04d}" for i in range(1, 11)]
+          assert all(x["qa_status"] == "NOT_REVIEWED" for x in assets)
+          assert all(x["eligible_for_mastery"] is False for x in assets)
+          assert all(x["runtime_binding"] == "NOT_PERFORMED" for x in assets)
+          print("MANIFEST_GATE_PASS assets=10 QA=NOT_REVIEWED RELEASE=HOLD")
+          PY
+          for f in "$OUT"/CE-A1-M09-AUD*.mp3; do
+            test "$(ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate -of default=nw=1:nk=1 "$f")" = "24000"
+            test "$(ffprobe -v error -select_streams a:0 -show_entries stream=channels -of default=nw=1:nk=1 "$f")" = "1"
+          done
+      - name: Upload candidate batch for different independent QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: worddeck-ce-a1-m09-audio-candidate-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/a1-m09-audio/manifest.json
+            ${{ runner.temp }}/a1-m09-audio/CE-A1-M09-AUD*.mp3
+          if-no-files-found: error
+          retention-days: 14
