@@ -23,8 +23,9 @@ internal static class StoryCourseRuntimeBuiltInM07SelfTest
             };
 
             IReadOnlyList<StoryCourseManifestContract> builtIns = StoryCourseRuntimeBuiltInCatalog.BuildApprovedManifests();
-            Require(builtIns.Count == 1, "expected exactly one governed built-in package in this bounded lineage");
-            StoryCourseManifestContract manifest = builtIns.Single();
+            Require(builtIns.Count == 2, "expected governed M07 and A1-M10 built-in packages in this lineage");
+            StoryCourseManifestContract manifest = builtIns.Single(candidate =>
+                candidate.CourseId == StoryCourseRuntimeBuiltInCatalog.M07MissionRuntimeCourseId);
             StoryCourseContractValidator.Validate(manifest, dictionary);
 
             Require(manifest.CourseId == StoryCourseRuntimeBuiltInCatalog.M07MissionRuntimeCourseId,
@@ -108,6 +109,8 @@ internal static class StoryCourseRuntimeBuiltInM07SelfTest
                 "S04 original short route message lost Writing ownership");
             Require(productive["ce-st-m07-msn-001-s05-speaking"].Channel == StoryCourseProductiveChannel.Speaking,
                 "S05 communication-repair interaction lost its spoken-channel requirement");
+            Require(productive.Values.All(task => StoryCourseProductiveRevealPolicy.RequiredPriorTaskId(task) is null),
+                "M07 regression acquired an unintended staged-reveal prerequisite");
             Require(StoryCourseRuntimeForm.SubmissionKindForCurrentUi(StoryCourseProductiveChannel.Speaking) ==
                     StoryCourseProductiveSubmissionKind.TypedFallback,
                 "current UI would fabricate Speaking evidence from typed fallback");
@@ -117,7 +120,8 @@ internal static class StoryCourseRuntimeBuiltInM07SelfTest
 
             StoryCoursePackageDiscoveryResult discovery =
                 StoryCoursePackageLoader.DiscoverIncludingBuiltIns(dictionary, new[] { courseRoot });
-            Require(discovery.Courses.Count == 1 && discovery.Courses[0].CourseId == manifest.CourseId,
+            Require(discovery.Courses.Count == builtIns.Count &&
+                    discovery.Courses.Any(course => course.CourseId == manifest.CourseId),
                 "governed M07 built-in package is not reachable through learner runtime discovery");
             Require(discovery.Errors.Count == 0,
                 "clean built-in discovery reported an unexpected error");
@@ -127,7 +131,8 @@ internal static class StoryCourseRuntimeBuiltInM07SelfTest
                 StoryCoursePackageLoader.Serialize(manifest));
             StoryCoursePackageDiscoveryResult duplicateDiscovery =
                 StoryCoursePackageLoader.DiscoverIncludingBuiltIns(dictionary, new[] { courseRoot });
-            Require(duplicateDiscovery.Courses.Count == 1 && duplicateDiscovery.Courses[0].CourseId == manifest.CourseId,
+            Require(duplicateDiscovery.Courses.Count == builtIns.Count &&
+                    duplicateDiscovery.Courses.Any(course => course.CourseId == manifest.CourseId),
                 "external duplicate displaced the governed built-in package");
             Require(duplicateDiscovery.Errors.Any(error => error.Contains("duplicates governed built-in", StringComparison.OrdinalIgnoreCase)),
                 "external duplicate built-in course id did not fail closed with a deterministic diagnostic");
