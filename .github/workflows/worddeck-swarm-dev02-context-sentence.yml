@@ -162,7 +162,7 @@ jobs:
             .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify live provenance and exact SQLite identity
+      - name: Verify live provenance, baseline identity and exact SQLite identity
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -175,14 +175,60 @@ jobs:
             $hash = [string]$manifest.input_sha256.$name
             if ($hash -notmatch '^[0-9a-f]{64}$') { throw "Missing/invalid upstream SHA256 for $name." }
           }
+
+          $baselineInputs = [ordered]@{
+            english_detailed = '40283f993461d457c9a2d7151f7ae50a0a6a9facb41e98911fd4714eb8d701a7'
+            ukrainian_detailed = '6259f4dca3725445e1b1e7d617fe56d547a336a15af4e2824e223a6260e0448b'
+            links = '9aa8305ad09f81d39686397be15935ceff678a2018c4ee2c85ee30b9de59b57a'
+          }
+          $baselineMatch =
+            ([string]$manifest.input_sha256.english_detailed).ToLowerInvariant() -eq $baselineInputs.english_detailed -and
+            ([string]$manifest.input_sha256.ukrainian_detailed).ToLowerInvariant() -eq $baselineInputs.ukrainian_detailed -and
+            ([string]$manifest.input_sha256.links).ToLowerInvariant() -eq $baselineInputs.links
+
           $tsv = Join-Path $root 'tatoeba-en-uk-attributed.tsv'
           $actualTsv = (Get-FileHash -LiteralPath $tsv -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actualTsv -ne ([string]$manifest.output_sha256).ToLowerInvariant()) { throw 'Attributed pair TSV hash does not match its provenance manifest.' }
-          if ([int]$manifest.stats.pairs_emitted -lt 208408) { throw "Live attributed pair evidence regressed below the historical 208408-pair floor: $($manifest.stats.pairs_emitted)" }
+          if ($baselineMatch -and [int]$manifest.stats.pairs_emitted -lt 208408) {
+            throw "Historical baseline pair evidence regressed below floor 208408: $($manifest.stats.pairs_emitted)"
+          }
+
+          $baselineBinding = [ordered]@{
+            SchemaVersion = 1
+            Authority = 'GitHub Actions run 34709934049 artifact 10303156056'
+            HistoricalBaselineInputSha256 = $baselineInputs
+            ObservedInputSha256 = [ordered]@{
+              english_detailed = ([string]$manifest.input_sha256.english_detailed).ToLowerInvariant()
+              ukrainian_detailed = ([string]$manifest.input_sha256.ukrainian_detailed).ToLowerInvariant()
+              links = ([string]$manifest.input_sha256.links).ToLowerInvariant()
+            }
+            HistoricalBaselineMatch = [bool]$baselineMatch
+            HistoricalBaselineSqliteSha256 = 'c121d67fcac89eabe51d70f020737cd88dc10752251e09db6a1780a7e780d91f'
+            HistoricalFloors = [ordered]@{
+              sentence_count = 208408
+              one_target_stable_tag = 4492
+              two_target_stable_tag = 4469
+              three_target_stable_tag = 4362
+            }
+            HistoricalReleaseBaselineQualified = [bool]$baselineMatch
+          }
+          $bindingPath = Join-Path $root 'historical-baseline-binding.json'
+          $baselineBinding | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $bindingPath -Encoding utf8
+          "CONTEXT_HISTORICAL_BASELINE_MATCH=$($baselineMatch.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CONTEXT_BASELINE_BINDING=$bindingPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          if ($baselineMatch) {
+            Write-Host 'Historical Context input tuple matched exactly; historical non-regression floors are applicable.'
+          } else {
+            Write-Warning 'Official Tatoeba upstream input identity differs from the historical baseline. This run remains live provenance/semantic evidence only and MUST NOT qualify the historical release baseline.'
+          }
 
           $sqlite = Join-Path $root 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite'
           if (-not (Test-Path -LiteralPath $sqlite)) { throw 'Live attributed EN-UA SQLite corpus was not created.' }
           $actual = (Get-FileHash -LiteralPath $sqlite -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($baselineMatch -and $actual -ne $baselineBinding.HistoricalBaselineSqliteSha256) {
+            throw "Historical baseline inputs reproduced a different SQLite identity: expected $($baselineBinding.HistoricalBaselineSqliteSha256), actual $actual"
+          }
           "CONTEXT_SQLITE=$sqlite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -199,7 +245,7 @@ jobs:
             tatoeba-en-uk-attributed-ccby-v1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Validate live provenance split coverage semantics and historical quality floors
+      - name: Validate split coverage semantics and identity-bound historical quality floors
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -218,10 +264,24 @@ jobs:
           if ($p.DictionaryEntryCount -ne 5446 -or -not $p.ExactOxford5446Verified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe.' }
           if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact live real-corpus identity was not verified.' }
           if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
-          if ($p.SentenceCount -lt 208408) { throw "Live corpus regressed below historical sentence floor 208408: $($p.SentenceCount)" }
-          if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target stable-tag participation regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
-          if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target stable-tag participation regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
-          if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target stable-tag participation regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
+
+          $binding = Get-Content -LiteralPath $env:CONTEXT_BASELINE_BINDING -Raw | ConvertFrom-Json
+          $baselineMatch = [bool]$binding.HistoricalBaselineMatch
+          if ($baselineMatch -ne ($env:CONTEXT_HISTORICAL_BASELINE_MATCH -eq 'true')) {
+            throw 'Historical baseline match state is inconsistent across workflow steps.'
+          }
+          if ($baselineMatch) {
+            if (-not [bool]$binding.HistoricalReleaseBaselineQualified) { throw 'Exact historical input tuple must qualify the historical baseline binding before floor validation.' }
+            if ($p.SentenceCount -lt 208408) { throw "Historical baseline corpus regressed below sentence floor 208408: $($p.SentenceCount)" }
+            if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target stable-tag participation regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
+            if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target stable-tag participation regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
+            if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target stable-tag participation regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
+            Write-Host 'Historical baseline identity matched; historical quality floors passed.'
+          } else {
+            if ([bool]$binding.HistoricalReleaseBaselineQualified) { throw 'Changed upstream identity must fail closed for historical release-baseline qualification.' }
+            Write-Warning ("UPSTREAM_DRIFT_OBSERVATION_ONLY: current official input is not the historical release baseline; historical floors 4492/4469/4362 are intentionally inapplicable to this different input identity. Live observed stable-tag participation={0}/{1}/{2}." -f `
+              $p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount)
+          }
 
           $physicalDoc = Get-Content -LiteralPath $physicalPath -Raw | ConvertFrom-Json
           $physical = $physicalDoc.Payload
@@ -246,17 +306,18 @@ jobs:
           $gap = Get-Content -LiteralPath $gapPath -Raw | ConvertFrom-Json
           if ($gap.Payload.MissingOneTargetCount -ne (5446 - $p.OneTarget.CoveredEntryCount)) { throw 'One-target gap accounting does not match live stable-tag participation.' }
           if ($gap.Payload.MissingNaturalPairOnlyCount -lt 0 -or $gap.Payload.MissingNaturalTripleOnlyCount -lt 0) { throw 'Live gap accounting contains an invalid negative count.' }
-          Write-Host ("Live split EN-UA evidence: sentences={0}; stable-tag one/two/three={1}/{2}/{3}; unique_forms={4}; ambiguous_forms={5}; stable resolved one/two/three={6}/{7}/{8}; unresolved_ids={9}" -f `
+          Write-Host ("Live split EN-UA evidence: sentences={0}; stable-tag one/two/three={1}/{2}/{3}; unique_forms={4}; ambiguous_forms={5}; stable resolved one/two/three={6}/{7}/{8}; unresolved_ids={9}; historical_baseline_match={10}" -f `
             $p.SentenceCount,$p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount, `
             $physical.UniqueLexicalFormCount,$physical.AmbiguousLexicalFormCount, `
             $stable.OneTarget.ResolvedStableCoveredEntryCount,$stable.TwoTarget.ResolvedStableCoveredEntryCount,$stable.ThreeTarget.ResolvedStableCoveredEntryCount, `
-            $stable.OneTarget.UnresolvedAmbiguousEntryCount)
+            $stable.OneTarget.UnresolvedAmbiguousEntryCount,$baselineMatch)
 
       - name: Preserve non-redistributable provenance metadata with coverage evidence
         shell: pwsh
         run: |
           Copy-Item -LiteralPath '.\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json' -Destination '.\artifacts\context-evidence\tatoeba-en-uk-attributed.tsv.manifest.json'
           Copy-Item -LiteralPath '.\artifacts\context-corpus\sentencepack-load-metrics.json' -Destination '.\artifacts\context-evidence\sentencepack-load-metrics.json'
+          Copy-Item -LiteralPath "$env:CONTEXT_BASELINE_BINDING" -Destination '.\artifacts\context-evidence\historical-baseline-binding.json'
 
       - name: Upload coverage evidence
         uses: actions/upload-artifact@v4
