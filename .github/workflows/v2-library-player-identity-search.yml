@@ -9,6 +9,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - .github/workflows/v2-library-player-identity-search.yml
+      - .github/workflows/v2-d07-canonical-ingress-current.yml
       - acs/acsdb.py
       - acs/search_policy.py
       - tests/test_v2_library_player_identity_search.py
@@ -22,6 +23,7 @@ concurrency:
 
 env:
   CURRENT_PRODUCT_BASE: 9c1369f7b6edd309aadf8a06f8b99db7ca4e97f8
+  PRIOR_COMPOSED_HEAD: 3c5a012dc3511d485e4b74687a2e128713c0ac17
   PRIOR_SAME_HEAD: ed6355b0449987e5a685f45d468a73f18aa7332a
   ACSDB_BLOB: ee8e3394549bf0498bd1908f9ff782c481169700
   SEARCH_POLICY_BLOB: 42437b0ee268f25503fbc309a3e35dc0ec6979a9
@@ -48,28 +50,30 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact current authority provenance and bounded scope
+      - name: Prove current authority provenance and bounded successor scope
         shell: bash
         env:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          for commit in "$CURRENT_PRODUCT_BASE" "$PRIOR_SAME_HEAD"; do
+          for commit in "$CURRENT_PRODUCT_BASE" "$PRIOR_COMPOSED_HEAD" "$PRIOR_SAME_HEAD"; do
             git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
           done
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
-          test "$(git rev-parse HEAD^1)" = "$CURRENT_PRODUCT_BASE"
-          test "$(git rev-parse HEAD^2)" = "$PRIOR_SAME_HEAD"
+          test "$(git rev-parse HEAD^1)" = "$PRIOR_COMPOSED_HEAD"
+          test "$(git rev-parse "$PRIOR_COMPOSED_HEAD^1")" = "$CURRENT_PRODUCT_BASE"
+          test "$(git rev-parse "$PRIOR_COMPOSED_HEAD^2")" = "$PRIOR_SAME_HEAD"
           test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
           git diff --check "$CURRENT_PRODUCT_BASE" HEAD
           changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/v2-d07-canonical-ingress-current.yml' \
             '.github/workflows/v2-library-player-identity-search.yml' \
             'acs/acsdb.py' \
             'acs/search_policy.py' \
             'tests/test_v2_library_player_identity_search.py' | sort)"
           test "$changed" = "$expected" || {
-            printf 'Unexpected player-search scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected player-search successor scope:\n%s\n' "$changed" >&2
             exit 1
           }
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$ACSDB_BLOB"
@@ -114,5 +118,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "CURRENT_PRODUCT_BASE=$CURRENT_PRODUCT_BASE"
+          echo "PRIOR_COMPOSED_HEAD=$PRIOR_COMPOSED_HEAD"
           echo "PRIOR_SAME_HEAD=$PRIOR_SAME_HEAD"
           echo "QUALIFIED_HEAD=$(git rev-parse HEAD)"
