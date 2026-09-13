@@ -170,10 +170,12 @@ internal sealed class AdaptiveDiagnosticStateBridge
                     changed = true;
                 }
             }
-            else if (priorRouteOwnedByBridge)
+            else if (snapshot.EvidenceStatus == AdaptiveEvidenceStatus.Scored && priorRouteOwnedByBridge)
             {
-                // A later clean/unscored formal reassessment supersedes only this
-                // bridge's own stale remediation. Foreign routes remain untouched.
+                // Only current scored evidence can prove that this bridge's prior
+                // remediation is stale. Exposure-only/unknown evidence must not
+                // erase a previously demonstrated weakness. Foreign routes remain
+                // untouched in every no-direct-need case.
                 learnerState.AdaptiveRouteByPathId.Remove(binding.PathId);
                 routeTouched = true;
                 changed = true;
