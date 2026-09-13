@@ -110,6 +110,23 @@ internal static class ContextPracticeApplicationService
         if (!pool.EntryIds.Contains(anchor, StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("Context practice anchor must belong to the selected 30/100/200/full study pool.");
 
+        // Ambiguity is a property of the full dictionary identity, not of which sibling
+        // IDs happen to fall inside the current 30/100/200 study window. A homograph
+        // must therefore stay visible in the ledger even when only one of its stable
+        // IDs is present in this particular pool.
+        string[] ambiguousStableIds = pool.EntryIds
+            .Where(lexicon.IsAmbiguousStableIdentity)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (lexicon.IsAmbiguousStableIdentity(anchor))
+        {
+            return new ContextPracticeApplicationResult(
+                pool,
+                Array.Empty<ContextPracticeCard>(),
+                ambiguousStableIds,
+                "No canonical Context Practice card was selected because the anchor written form maps to multiple stable dictionary entries. Surface-form corpus evidence cannot choose its POS/sense identity, so the target remains unresolved until explicit disambiguating evidence is available.");
+        }
+
         IReadOnlyList<NaturalContextTargetSet> targetSets;
         if (request.DesiredTargetCount == 1)
         {
@@ -190,9 +207,6 @@ internal static class ContextPracticeApplicationService
             .Take(request.MaxCards)
             .ToArray();
 
-        string[] ambiguousStableIds = lexicon.AmbiguousStableIds(pool.EntryIds)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
         string explanation = targetSets.Count == 0
             ? $"No natural {request.DesiredTargetCount}-target sentence set was found for the anchor in the selected study pool. No sentence was fabricated."
             : $"Selected from {targetSets.Count} natural target set(s) in the {PoolName(pool)} pool; learner-known vocabulary drives difficulty before CEFR, and recently used sentences are deprioritized.";
@@ -205,6 +219,19 @@ internal static class ContextPracticeApplicationService
         ArgumentNullException.ThrowIfNull(card);
         return SentenceAnswerEvaluator.Evaluate(card.EnglishAnswer, typedEnglish ?? string.Empty);
     }
+
+    public static ContextTargetSpellingExercise BuildTargetSpelling(
+        ContextPracticeCard card,
+        string focusTargetEntryId,
+        ContextTargetLexicon lexicon,
+        DictionaryPackage dictionary) =>
+        ContextTargetSpellingService.Build(card, focusTargetEntryId, lexicon, dictionary);
+
+    public static IReadOnlyList<ContextTargetSpellingExercise> BuildTargetSpellingForAllTargets(
+        ContextPracticeCard card,
+        ContextTargetLexicon lexicon,
+        DictionaryPackage dictionary) =>
+        ContextTargetSpellingService.BuildAllTargets(card, lexicon, dictionary);
 
     public static ContextCoverageEvidence MeasurePoolCoverage(
         IContextSentenceSource source,

@@ -20,9 +20,9 @@ internal static class ContextPracticeApplicationSelfTest
         TestSyntheticBoundaryAndNaturalCards();
         TestRecentSentenceDeprioritization();
         TestSentenceSpellingEvaluation();
-        TestSameWrittenFormCannotBecomeTwoTargets();
+        TestSameWrittenFormReturnsUnresolvedWithoutSenseEvidence();
         TestNoNaturalPairDoesNotFabricate();
-        Console.WriteLine("Context Practice application self-test PASS: 30/100/200/full pools, natural cards, recent-history ranking, Sentence Spelling, homograph safety and no-fabrication behavior verified.");
+        Console.WriteLine("Context Practice application self-test PASS: 30/100/200/full pools, natural cards, recent-history ranking, Sentence Spelling, graceful fail-closed homograph safety and no-fabrication behavior verified.");
     }
 
     private static void TestStudyPoolPresets()
@@ -140,7 +140,7 @@ internal static class ContextPracticeApplicationSelfTest
         Check(!duplicate.Accepted && duplicate.Extra.Contains("well", StringComparer.Ordinal), "Sentence Spelling failed to reject an extra duplicated form.");
     }
 
-    private static void TestSameWrittenFormCannotBecomeTwoTargets()
+    private static void TestSameWrittenFormReturnsUnresolvedWithoutSenseEvidence()
     {
         SentencePack pack = BuildPack(
             "application-homograph",
@@ -152,14 +152,63 @@ internal static class ContextPracticeApplicationSelfTest
             ("bank-verb", "bank")
         });
 
-        ContextPracticeApplicationResult result = ContextPracticeApplicationService.BuildCards(
+        ContextPracticeApplicationResult pair = ContextPracticeApplicationService.BuildCards(
             source,
             lexicon,
             new[] { "bank-noun", "bank-verb" },
             new ContextPracticeApplicationRequest("bank-noun", 2, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
             new ContextProductUseOptions(AllowSyntheticFixtures: true));
-        Check(result.Cards.Count == 0, "Two Oxford stable IDs for the same written lexical form must never become a fake two-word exercise.");
-        Check(result.AmbiguousStableEntryIds.Count == 2, "Physical lexical-form ambiguity must remain explicit in the application result.");
+        Check(pair.Cards.Count == 0, "An ambiguous homograph anchor must not become a fake two-target exercise.");
+        Check(pair.AmbiguousStableEntryIds.Count == 2, "Both homographic stable IDs must remain explicit in the application result.");
+        Check(pair.SelectionExplanation.Contains("POS/sense", StringComparison.OrdinalIgnoreCase),
+            "Ambiguous homograph result must explain that explicit POS/sense evidence is required.");
+
+        ContextPracticeApplicationResult single = ContextPracticeApplicationService.BuildCards(
+            source,
+            lexicon,
+            new[] { "bank-noun", "bank-verb" },
+            new ContextPracticeApplicationRequest("bank-noun", 1, ContextStudyPoolPreset.Full, MaxCards: 10, CandidateLimit: 20),
+            new ContextProductUseOptions(AllowSyntheticFixtures: true));
+        Check(single.Cards.Count == 0, "An ambiguous homograph anchor must not become a one-target stable-ID exercise without sense evidence.");
+        Check(single.AmbiguousStableEntryIds.Count == 2 && single.SelectionExplanation.Contains("POS/sense", StringComparison.OrdinalIgnoreCase),
+            "One-target ambiguous homograph result must remain unresolved and explain the identity boundary.");
+
+        var boundedEntries = new List<(string EntryId, string Word)>();
+        for (int i = 1; i <= 29; i++)
+            boundedEntries.Add(($"filler-{i:00}", AlphabeticFixtureWord(i)));
+        boundedEntries.Add(("bank-noun", "bank"));
+        boundedEntries.Add(("bank-verb", "bank"));
+        var boundedLexicon = new ContextTargetLexicon("application-bounded-homograph", boundedEntries);
+        string[] orderedPool = boundedEntries.Select(entry => entry.EntryId).ToArray();
+        ContextStudyPoolSelection boundedPool = ContextStudyPoolBuilder.Build(orderedPool, ContextStudyPoolPreset.Thirty);
+        Check(boundedPool.EntryIds.Count == 30 &&
+              string.Equals(boundedPool.EntryIds[^1], "bank-noun", StringComparison.OrdinalIgnoreCase) &&
+              !boundedPool.EntryIds.Contains("bank-verb", StringComparer.OrdinalIgnoreCase),
+            "30-word regression fixture no longer places only bank-noun at the pool edge.");
+        Check(boundedLexicon.IsAmbiguousStableIdentity("bank-noun") && boundedLexicon.IsAmbiguousStableIdentity("bank-verb"),
+            "Full-dictionary regression lexicon did not retain both bank stable IDs as one ambiguous written form.");
+
+        ContextPracticeApplicationResult bounded = ContextPracticeApplicationService.BuildCards(
+            source,
+            boundedLexicon,
+            orderedPool,
+            new ContextPracticeApplicationRequest("bank-noun", 1, ContextStudyPoolPreset.Thirty, MaxCards: 10, CandidateLimit: 20),
+            new ContextProductUseOptions(AllowSyntheticFixtures: true));
+        Check(bounded.Cards.Count == 0, "A homograph must remain fail-closed when its sibling stable ID falls just outside the active 30-word pool.");
+        string actualLedger = string.Join(",", bounded.AmbiguousStableEntryIds);
+        Check(bounded.AmbiguousStableEntryIds.Count == 1 &&
+              string.Equals(bounded.AmbiguousStableEntryIds[0], "bank-noun", StringComparison.OrdinalIgnoreCase),
+            $"The active-pool ambiguity ledger must use full-dictionary identity and retain only the in-pool homograph when its sibling is outside the current study window. Actual ledger=[{actualLedger}].");
+    }
+
+    private static string AlphabeticFixtureWord(int ordinal)
+    {
+        if (ordinal is < 1 or > 29)
+            throw new ArgumentOutOfRangeException(nameof(ordinal));
+        string suffix = ordinal <= 26
+            ? ((char)('a' + ordinal - 1)).ToString()
+            : "a" + (char)('a' + ordinal - 27);
+        return "fillerword" + suffix;
     }
 
     private static void TestNoNaturalPairDoesNotFabricate()

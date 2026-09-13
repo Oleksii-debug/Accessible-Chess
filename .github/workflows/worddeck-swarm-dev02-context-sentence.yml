@@ -1,50 +1,24 @@
 name: WordDeck DEV02 Stage 11 Context Gate
 
 on:
-  push:
-    branches:
-      - worddeck-swarm-dev02-context-sentence
   pull_request:
-    branches:
-      - worddeck-bootstrap
+    branches: [worddeck-bootstrap]
     paths:
       - 'WordDeck/**'
       - '.github/workflows/worddeck-swarm-dev02-context-sentence.yml'
+  push:
+    branches: [worddeck-swarm-dev02-context-sentence]
   workflow_dispatch:
 
 permissions:
   contents: read
-  statuses: write
-
-concurrency:
-  group: worddeck-dev02-context-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   context-gate:
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
-      - name: Publish pending exact-tip status
-        if: github.event_name != 'pull_request'
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: 'pending',
-              context: 'WordDeck DEV02 Stage 11 Context Gate',
-              description: 'DEV02 exact-tip Windows + live attributed corpus gate is running.',
-              target_url: targetUrl
-            });
-
-      - name: Checkout exact revision
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
@@ -54,70 +28,41 @@ jobs:
         run: |
           $expected = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}".Trim().ToLowerInvariant()
           $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
-          if ([string]::IsNullOrWhiteSpace($expected) -or $actual -ne $expected) {
-            throw "Exact-head checkout mismatch: expected $expected actual $actual"
-          }
-          Write-Host "Exact candidate head verified: $actual"
+          if ([string]::IsNullOrWhiteSpace($expected) -or $actual -ne $expected) { throw "Exact-head checkout mismatch: expected=$expected actual=$actual" }
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Validate SentencePack release and attributed-pair tooling
+      - name: Build, self-test, publish and portability smoke
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           python .\WordDeck\tools\validate_sentencepack_release_bundle.py --self-test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python .\WordDeck\tools\build_tatoeba_ccby_pairs.py --self-test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Restore
-        run: dotnet restore .\WordDeck\WordDeck.csproj
-
-      - name: Build Release warnings as errors
-        run: dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
-
-      - name: Run complete source-build self-test suite
-        run: dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
-
-      - name: Publish self-contained Windows x64
-        run: dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev02-context
-
-      - name: Run published EXE self-test
-        shell: pwsh
-        run: |
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\WordDeck-dev02-context
           & .\artifacts\WordDeck-dev02-context\WordDeck.exe --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify no personal state in publish tree
-        shell: pwsh
-        run: |
           $bad = Get-ChildItem -LiteralPath '.\artifacts\WordDeck-dev02-context' -Recurse -File | Where-Object {
             $_.Name -match '^(state|spelling-state|sentence-state|sentence-coach-state)(\.backup)?\.json$' -or
-            $_.Name -match '^WordDeck-profile.*\.json$' -or
-            $_.FullName -match '[\\/]Backups[\\/]'
+            $_.Name -match '^WordDeck-profile.*\.json$' -or $_.FullName -match '[\\/]Backups[\\/]'
           }
-          if ($bad) {
-            $bad | ForEach-Object { Write-Error "Personal state leaked into publish tree: $($_.FullName)" }
-            exit 1
-          }
+          if ($bad) { throw "Personal learner state leaked into publish tree: $($bad.FullName -join ', ')" }
 
-      - name: Cyrillic and spaces path smoke
-        shell: pwsh
-        run: |
-          $target = Join-Path $env:RUNNER_TEMP 'WordDeck контекст DEV02\Published App'
-          New-Item -ItemType Directory -Force -Path $target | Out-Null
-          Copy-Item -Path '.\artifacts\WordDeck-dev02-context\*' -Destination $target -Recurse -Force
-          & (Join-Path $target 'WordDeck.exe') --self-test
+          $portable = Join-Path $env:RUNNER_TEMP 'WordDeck контекст DEV02\Published App'
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          Copy-Item -Path '.\artifacts\WordDeck-dev02-context\*' -Destination $portable -Recurse -Force
+          & (Join-Path $portable 'WordDeck.exe') --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build current attributed EN-UA pair evidence from official Tatoeba exports
+      - name: Build exact official Tatoeba SentencePack and SQLite
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -128,10 +73,6 @@ jobs:
             --manifest .\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build exact current attributed SentencePack and SQLite evidence
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
             --build-tatoeba-sentence-pack `
             .\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv `
@@ -142,119 +83,210 @@ jobs:
           @'
           from pathlib import Path
           import gzip
-          source = Path(r'artifacts/context-corpus/WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json')
-          target = Path(str(source) + '.gz')
-          with source.open('rb') as src, target.open('wb') as raw:
+          src = Path(r'artifacts/context-corpus/WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json')
+          dst = Path(str(src) + '.gz')
+          with src.open('rb') as inp, dst.open('wb') as raw:
               with gzip.GzipFile(filename='', mode='wb', fileobj=raw, compresslevel=9, mtime=0) as out:
-                  while True:
-                      block = src.read(1024 * 1024)
-                      if not block:
-                          break
+                  while block := inp.read(1024 * 1024):
                       out.write(block)
           '@ | python -
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
             --measure-sentence-pack `
             .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.json.gz `
             .\artifacts\context-corpus\sentencepack-load-metrics.json `
-            --sqlite `
-            .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
+            --sqlite .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify live provenance and exact SQLite identity
-        shell: pwsh
+      - name: Bind legacy provenance and corrected physical-form semantic baseline
+        shell: python {0}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $root = Resolve-Path '.\artifacts\context-corpus'
-          $manifestPath = Join-Path $root 'tatoeba-en-uk-attributed.tsv.manifest.json'
-          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-          if ($manifest.license -ne 'CC BY 2.0 FR') { throw "Unexpected attributed corpus license: $($manifest.license)" }
-          if ($manifest.source -notmatch '^Tatoeba official') { throw 'Attributed corpus manifest is not bound to official Tatoeba exports.' }
-          foreach ($name in @('english_detailed','ukrainian_detailed','links')) {
-            $hash = [string]$manifest.input_sha256.$name
-            if ($hash -notmatch '^[0-9a-f]{64}$') { throw "Missing/invalid upstream SHA256 for $name." }
+          import hashlib, json, os
+          from pathlib import Path
+
+          root = Path(r"artifacts\context-corpus")
+          manifest = json.loads((root / "tatoeba-en-uk-attributed.tsv.manifest.json").read_text(encoding="utf-8-sig"))
+          baseline_path = Path(r"WordDeck\QA\context_physical_form_semantic_baseline_v1.json")
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8-sig"))
+          if manifest["license"] != "CC BY 2.0 FR" or not str(manifest["source"]).startswith("Tatoeba official"):
+              raise SystemExit("Attributed corpus provenance/license boundary failed.")
+          if baseline["schema_version"] != 1 or baseline["baseline_id"] != "tatoeba-en-uk-attributed-ccby-v1-physical-form-v1":
+              raise SystemExit("Unexpected Context semantic baseline schema/id.")
+          contract = baseline["supersession_contract"]
+          required_true = [
+              "legacy_values_remain_provenance",
+              "future_same_input_runs_must_match_corrected_sqlite_sha256_exactly",
+              "future_changed_input_runs_are_observation_only_until_a_new_governed_baseline_is_qualified",
+              "homograph_resolution_is_not_relaxed",
+              "redistribution_is_not_approved",
+          ]
+          if not all(contract.get(k) is True for k in required_true):
+              raise SystemExit("Context semantic baseline fail-closed contract is incomplete.")
+
+          expected_inputs = {k: str(v).lower() for k, v in baseline["input_sha256"].items()}
+          observed_inputs = {k: str(manifest["input_sha256"][k]).lower() for k in expected_inputs}
+          if not all(len(v) == 64 and set(v) <= set("0123456789abcdef") for v in observed_inputs.values()):
+              raise SystemExit("Invalid observed upstream SHA256.")
+          baseline_match = observed_inputs == expected_inputs
+
+          tsv = root / "tatoeba-en-uk-attributed.tsv"
+          actual_tsv = hashlib.sha256(tsv.read_bytes()).hexdigest()
+          if actual_tsv != str(manifest["output_sha256"]).lower():
+              raise SystemExit("Attributed TSV hash does not match manifest.")
+          if baseline_match and int(manifest["stats"]["pairs_emitted"]) < 208408:
+              raise SystemExit("Same-input pair evidence regressed below historical floor 208408.")
+
+          sqlite = root / "WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite"
+          actual_sqlite = hashlib.sha256(sqlite.read_bytes()).hexdigest()
+          legacy_sha = baseline["legacy_provenance"]["sqlite_sha256"].lower()
+          corrected_sha = baseline["corrected_physical_form_v1"]["sqlite_sha256"].lower()
+          corrected_match = actual_sqlite == corrected_sha
+          if baseline_match and not corrected_match:
+              raise SystemExit(f"Same-input corrected physical-form SQLite drift: expected={corrected_sha} actual={actual_sqlite}")
+
+          binding = {
+              "SchemaVersion": 3,
+              "SemanticBaselineId": baseline["baseline_id"],
+              "LegacyAuthority": f"GitHub Actions run {baseline['legacy_provenance']['workflow_run_id']} artifact {baseline['legacy_provenance']['artifact_id']}",
+              "CorrectedAuthority": f"GitHub Actions run {baseline['corrected_physical_form_v1']['workflow_run_id']} artifact {baseline['corrected_physical_form_v1']['artifact_id']}",
+              "HistoricalBaselineInputSha256": expected_inputs,
+              "ObservedInputSha256": observed_inputs,
+              "HistoricalBaselineMatch": baseline_match,
+              "LegacyBaselineSqliteSha256": legacy_sha,
+              "CorrectedPhysicalFormSqliteSha256": corrected_sha,
+              "ObservedSqliteSha256": actual_sqlite,
+              "LegacySqliteByteIdentityMatch": actual_sqlite == legacy_sha,
+              "CorrectedPhysicalFormSqliteByteIdentityMatch": corrected_match,
+              "CorrectedPhysicalFormBaselineQualified": baseline_match and corrected_match,
           }
-          $tsv = Join-Path $root 'tatoeba-en-uk-attributed.tsv'
-          $actualTsv = (Get-FileHash -LiteralPath $tsv -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualTsv -ne ([string]$manifest.output_sha256).ToLowerInvariant()) { throw 'Attributed pair TSV hash does not match its provenance manifest.' }
-          if ([int]$manifest.stats.pairs_emitted -lt 208408) { throw "Live attributed pair evidence regressed below the historical 208408-pair floor: $($manifest.stats.pairs_emitted)" }
+          binding_path = root / "historical-baseline-binding.json"
+          binding_path.write_text(json.dumps(binding, indent=2) + "\n", encoding="utf-8")
+          env = Path(os.environ["GITHUB_ENV"])
+          with env.open("a", encoding="utf-8") as f:
+              f.write(f"CONTEXT_HISTORICAL_BASELINE_MATCH={str(baseline_match).lower()}\n")
+              f.write(f"CONTEXT_CORRECTED_SEMANTIC_SQLITE_MATCH={str(corrected_match).lower()}\n")
+              f.write(f"CONTEXT_BASELINE_BINDING={binding_path.resolve()}\n")
+              f.write(f"CONTEXT_SEMANTIC_BASELINE={baseline_path.resolve()}\n")
+              f.write(f"CONTEXT_SQLITE={sqlite.resolve()}\n")
+              f.write(f"CONTEXT_SQLITE_SHA={actual_sqlite}\n")
+          print(f"historical_input_match={baseline_match}; corrected_semantic_sqlite_match={corrected_match}; sqlite={actual_sqlite}")
 
-          $sqlite = Join-Path $root 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite'
-          if (-not (Test-Path -LiteralPath $sqlite)) { throw 'Live attributed EN-UA SQLite corpus was not created.' }
-          $actual = (Get-FileHash -LiteralPath $sqlite -Algorithm SHA256).Hash.ToLowerInvariant()
-          "CONTEXT_SQLITE=$sqlite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Measure exact live lexical-form-aware 1 2 3 target coverage
+      - name: Measure exact live physical-form and conservative stable-ID coverage
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path '.\artifacts\context-evidence' | Out-Null
           dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- `
-            --measure-context-coverage `
-            "$env:CONTEXT_SQLITE" `
+            --measure-context-coverage "$env:CONTEXT_SQLITE" `
             .\artifacts\context-evidence\context-coverage.json `
-            "$env:CONTEXT_SQLITE_SHA" `
-            tatoeba-en-uk-attributed-ccby-v1
+            "$env:CONTEXT_SQLITE_SHA" tatoeba-en-uk-attributed-ccby-v1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Validate live corpus provenance boundary and historical quality floors
+      - name: Validate versioned Context evidence contract
+        shell: python {0}
+        run: |
+          import hashlib, json, os
+          from pathlib import Path
+
+          evidence = Path(r"artifacts\context-evidence")
+          def load(name):
+              return json.loads((evidence / name).read_text(encoding="utf-8-sig"))
+          doc = load("context-coverage.json")
+          physical_doc = load("context-coverage.physical-forms.json")
+          stable_doc = load("context-coverage.stable-identities.json")
+          gap_doc = load("context-coverage.gaps.json")
+          p = doc["Payload"]
+          physical = physical_doc["Payload"]
+          stable = stable_doc["Payload"]
+          binding = json.loads(Path(os.environ["CONTEXT_BASELINE_BINDING"]).read_text(encoding="utf-8-sig"))
+          baseline = json.loads(Path(os.environ["CONTEXT_SEMANTIC_BASELINE"]).read_text(encoding="utf-8-sig"))
+
+          if p["SourceId"] != "tatoeba-en-uk-attributed-ccby-v1" or p["DatabaseSha256"] != os.environ["CONTEXT_SQLITE_SHA"]:
+              raise SystemExit("Coverage is not bound to exact corpus/SQLite.")
+          if p["DictionaryEntryCount"] != 5446 or not p["ExactOxford5446Verified"]:
+              raise SystemExit("Coverage is not bound to exact Oxford 5446.")
+          if not p["ExactDatabaseIdentityVerified"] or not p["CanSupportRealCorpusCoverageClaim"] or p["RedistributionApproved"]:
+              raise SystemExit("Real-corpus identity/redistribution boundary failed.")
+
+          baseline_match = bool(binding["HistoricalBaselineMatch"])
+          if baseline_match != (os.environ["CONTEXT_HISTORICAL_BASELINE_MATCH"] == "true"):
+              raise SystemExit("Baseline match state changed across steps.")
+          if binding["ObservedSqliteSha256"] != os.environ["CONTEXT_SQLITE_SHA"]:
+              raise SystemExit("Binding lost current SQLite identity.")
+
+          if baseline_match:
+              if not binding["CorrectedPhysicalFormBaselineQualified"] or os.environ["CONTEXT_CORRECTED_SEMANTIC_SQLITE_MATCH"] != "true":
+                  raise SystemExit("Same-input run did not qualify exact corrected physical-form baseline.")
+              legacy = baseline["legacy_provenance"]
+              corrected = baseline["corrected_physical_form_v1"]
+              expected_counts = corrected["stable_tag_participation"]
+              actual_counts = {
+                  "one_target": p["OneTarget"]["CoveredEntryCount"],
+                  "two_target": p["TwoTarget"]["CoveredEntryCount"],
+                  "three_target": p["ThreeTarget"]["CoveredEntryCount"],
+              }
+              if p["SentenceCount"] != corrected["sentence_count"] or actual_counts != expected_counts:
+                  raise SystemExit(f"Corrected semantic baseline drift: sentences={p['SentenceCount']} counts={actual_counts}")
+              removed = corrected["removed_false_positive_stable_ids"]
+              if len(removed) != 4 or corrected["added_stable_ids"] != []:
+                  raise SystemExit("Physical-form supersession must remain exactly four removals and zero additions.")
+              legacy_counts = legacy["stable_tag_participation"]
+              if any(legacy_counts[k] - expected_counts[k] != len(removed) for k in expected_counts):
+                  raise SystemExit("Legacy-to-corrected count delta is not the exact four-ID correction.")
+
+              depth_docs = [p["OneTarget"], p["TwoTarget"], p["ThreeTarget"]]
+              gap_items = {x["EntryId"]: x for x in gap_doc["Payload"]["PriorityItems"]}
+              for item in removed:
+                  identity = "\x1f".join([item["source"].strip().lower(), item["part_of_speech"].strip().lower(), item["level"].strip().lower()])
+                  computed = "ox5000-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+                  if computed != item["entry_id"]:
+                      raise SystemExit(f"Removed ID identity mismatch: declared={item['entry_id']} computed={computed}")
+                  if any(item["entry_id"] in d["CoveredEntryIds"] for d in depth_docs):
+                      raise SystemExit(f"Token-only false positive still present: {item['entry_id']}")
+                  gap = gap_items.get(item["entry_id"])
+                  if not gap or gap["Source"] != item["source"] or gap["Level"] != item["level"]:
+                      raise SystemExit(f"Gap evidence metadata mismatch for {item['entry_id']}")
+              print("Corrected physical-form semantic baseline PASS; legacy provenance retained unchanged.")
+          elif binding["CorrectedPhysicalFormBaselineQualified"]:
+              raise SystemExit("Changed upstream input was incorrectly release-qualified.")
+          else:
+              print("UPSTREAM_DRIFT_OBSERVATION_ONLY: a new governed baseline is required before release qualification.")
+
+          if physical["DictionaryEntryCount"] != 5446 or physical["UniqueLexicalFormCount"] >= 5446:
+              raise SystemExit("Physical-form denominator did not collapse homographs.")
+          if physical["AmbiguousLexicalFormCount"] <= 0 or physical["StableIdsInAmbiguousLexicalForms"] <= physical["AmbiguousLexicalFormCount"]:
+              raise SystemExit("Physical-form ambiguity accounting failed.")
+          for d in [physical["OneTarget"], physical["TwoTarget"], physical["ThreeTarget"]]:
+              if d["CoveredLexicalFormCount"] + d["UncoveredLexicalFormCount"] != physical["UniqueLexicalFormCount"]:
+                  raise SystemExit("Physical-form partition failed.")
+          if physical["RedistributionApproved"]:
+              raise SystemExit("Physical evidence must not approve redistribution.")
+
+          if stable["StableTagEvidenceSha256"] != doc["EvidenceDigestSha256"] or stable["PhysicalFormEvidenceSha256"] != physical_doc["EvidenceDigestSha256"]:
+              raise SystemExit("Stable-ID evidence digest binding failed.")
+          for d in [stable["OneTarget"], stable["TwoTarget"], stable["ThreeTarget"]]:
+              if d["ResolvedStableCoveredEntryCount"] + d["UnresolvedAmbiguousEntryCount"] + d["StableTagAbsentEntryCount"] != 5446:
+                  raise SystemExit("Stable-ID partition failed.")
+              if d["ResolvedStableCoveredEntryCount"] > d["StableTagParticipatingEntryCount"]:
+                  raise SystemExit("Resolved stable IDs exceed stable-tag participation.")
+          if stable["OneTarget"]["UnresolvedAmbiguousEntryCount"] <= 0 or stable["RedistributionApproved"]:
+              raise SystemExit("Homograph fail-closed/redistribution boundary failed.")
+          if gap_doc["Payload"]["MissingOneTargetCount"] != 5446 - p["OneTarget"]["CoveredEntryCount"]:
+              raise SystemExit("Gap accounting does not match stable-tag participation.")
+
+      - name: Preserve and upload non-redistributable evidence
+        if: always() && hashFiles('artifacts/context-evidence/context-coverage.json') != ''
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $coveragePath = '.\artifacts\context-evidence\context-coverage.json'
-          $gapPath = '.\artifacts\context-evidence\context-coverage.gaps.json'
-          if (-not (Test-Path -LiteralPath $coveragePath)) { throw 'Coverage evidence was not emitted.' }
-          if (-not (Test-Path -LiteralPath $gapPath)) { throw 'Coverage gap evidence was not emitted.' }
-
-          $doc = Get-Content -LiteralPath $coveragePath -Raw | ConvertFrom-Json
-          $p = $doc.Payload
-          if ($p.SourceId -ne 'tatoeba-en-uk-attributed-ccby-v1') { throw 'Unexpected corpus PackId.' }
-          if ($p.DatabaseSha256 -ne $env:CONTEXT_SQLITE_SHA) { throw 'Coverage evidence is not bound to exact live SQLite hash.' }
-          if ($p.DictionaryEntryCount -ne 5446 -or -not $p.ExactOxford5446Verified) { throw 'Coverage evidence is not bound to exact Oxford 5446 universe.' }
-          if (-not $p.ExactDatabaseIdentityVerified -or -not $p.CanSupportRealCorpusCoverageClaim) { throw 'Exact live real-corpus identity was not verified.' }
-          if ($p.RedistributionApproved) { throw 'Coverage tooling must never self-approve redistribution.' }
-          if ($p.SentenceCount -lt 208408) { throw "Live corpus regressed below historical sentence floor 208408: $($p.SentenceCount)" }
-          if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target coverage regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
-          if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target coverage regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
-          if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target coverage regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
-
-          $gap = Get-Content -LiteralPath $gapPath -Raw | ConvertFrom-Json
-          if ($gap.Payload.MissingOneTargetCount -ne (5446 - $p.OneTarget.CoveredEntryCount)) { throw 'One-target gap accounting does not match live coverage.' }
-          if ($gap.Payload.MissingNaturalPairOnlyCount -lt 0 -or $gap.Payload.MissingNaturalTripleOnlyCount -lt 0) { throw 'Live gap accounting contains an invalid negative count.' }
-          Write-Host ("Live exact EN-UA evidence: sentences={0}; one/two/three={1}/{2}/{3}; historical floors=208408,4492/4469/4362" -f `
-            $p.SentenceCount,$p.OneTarget.CoveredEntryCount,$p.TwoTarget.CoveredEntryCount,$p.ThreeTarget.CoveredEntryCount)
-
-      - name: Preserve non-redistributable provenance metadata with coverage evidence
-        shell: pwsh
-        run: |
-          Copy-Item -LiteralPath '.\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json' -Destination '.\artifacts\context-evidence\tatoeba-en-uk-attributed.tsv.manifest.json'
-          Copy-Item -LiteralPath '.\artifacts\context-corpus\sentencepack-load-metrics.json' -Destination '.\artifacts\context-evidence\sentencepack-load-metrics.json'
+          Copy-Item '.\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json' '.\artifacts\context-evidence\tatoeba-en-uk-attributed.tsv.manifest.json'
+          Copy-Item '.\artifacts\context-corpus\sentencepack-load-metrics.json' '.\artifacts\context-evidence\sentencepack-load-metrics.json'
+          Copy-Item "$env:CONTEXT_BASELINE_BINDING" '.\artifacts\context-evidence\historical-baseline-binding.json'
+          Copy-Item "$env:CONTEXT_SEMANTIC_BASELINE" '.\artifacts\context-evidence\context-physical-form-semantic-baseline-v1.json'
 
       - name: Upload coverage evidence
+        if: always() && hashFiles('artifacts/context-evidence/context-coverage.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-dev02-context-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: artifacts/context-evidence
           if-no-files-found: error
           retention-days: 14
-
-      - name: Publish final exact-tip status
-        if: always() && github.event_name != 'pull_request'
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const succeeded = '${{ job.status }}' === 'success';
-            const targetUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: succeeded ? 'success' : 'failure',
-              context: 'WordDeck DEV02 Stage 11 Context Gate',
-              description: succeeded ? 'DEV02 Stage-11 exact-tip gate passed.' : 'DEV02 Stage-11 exact-tip gate failed.',
-              target_url: targetUrl
-            });
