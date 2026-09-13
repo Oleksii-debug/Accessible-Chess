@@ -24,6 +24,26 @@ internal static class DeepListeningJourneySelfTest
                 $"e{index}"))
             .ToArray();
 
+        // Regression WD-G3-R03-F07-DLHIST1: a same-exercise history row does not
+        // become a second completed review merely because aggregate stats prove one
+        // legitimate completion for that exercise. History credit is bounded by the
+        // durable per-exercise CompletedReviews count.
+        var duplicateHistoryState = new ListeningCoachState();
+        AddCompletedReview(duplicateHistoryState, dictionaryId, "word:e1", correct: true);
+        duplicateHistoryState.History.Add(Record(
+            dictionaryId,
+            "word:e1",
+            correct: false,
+            wrongAttempts: 9,
+            replays: 9));
+        DeepListeningJourney.Progress duplicateHistory =
+            DeepListeningJourney.ActiveProgress(duplicateHistoryState, dictionaryId, available);
+        Require(duplicateHistory.CompletedReviews == 1 && duplicateHistory.Remaining == 4,
+            "A duplicate same-exercise history row inflated Deep Listening journey credit beyond durable completion count.");
+        Require(duplicateHistory.CorrectReviews == 1 && duplicateHistory.NeedsReview == 0 &&
+                duplicateHistory.WrongAttempts == 0 && duplicateHistory.Replays == 0,
+            "A duplicate same-exercise history row leaked stale outcome evidence into Deep Listening feedback.");
+
         var state = new ListeningCoachState();
         AddCompletedReview(state, dictionaryId, "word:e1", correct: true);
         AddCompletedReview(state, "other-dict", "word:e1", correct: false, wrongAttempts: 9, replays: 9);
@@ -89,7 +109,7 @@ internal static class DeepListeningJourneySelfTest
         Require(hiddenResumed.CompletedReviews == 1 && hiddenResumed.CorrectReviews == 1 && hiddenResumed.Remaining == 4,
             "Current eligibility rewrote already-counted progress in the next journey.");
 
-        Console.WriteLine("WordDeck Deep Listening journey self-test passed: bounded five-review progress, deterministic feedback, durable completion evidence, hide/unhide-stable history boundaries and resume continuity.");
+        Console.WriteLine("WordDeck Deep Listening journey self-test passed: bounded five-review progress, deterministic feedback, per-exercise durable completion reconciliation, hide/unhide-stable history boundaries and resume continuity.");
     }
 
     private static void AddCompletedReview(
