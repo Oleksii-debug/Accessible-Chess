@@ -28,7 +28,7 @@ jobs:
       - name: Install focused verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Build exact two-parent composed tree
+      - name: Build and publish workflow-free materialization
         shell: bash
         run: |
           set -euo pipefail
@@ -38,27 +38,21 @@ jobs:
           git cat-file -e "${PRIOR}^{commit}" || git fetch --no-tags origin "$PRIOR"
           git checkout --detach "$PRODUCT"
 
-          # Carry only the accepted #492 non-overlapping owner files.
           git checkout "$PRIOR" -- \
             acs/search_policy.py \
             tests/test_v2_library_player_identity_search.py \
             .github/workflows/v2-library-player-identity-search.yml
 
-          # Mechanically compose only #492's player-search hunks into the current
-          # canonical ACSDB, preserving #422 parse_pgn_text ingress byte-for-byte.
           python - <<'PY'
           from pathlib import Path
-
           path = Path('acs/acsdb.py')
           text = path.read_text(encoding='utf-8')
-
           def replace_once(old: str, new: str, label: str) -> None:
               global text
               count = text.count(old)
               if count != 1:
                   raise SystemExit(f'{label}: expected exactly one match, got {count}')
               text = text.replace(old, new, 1)
-
           replace_once(
               'from .search_policy import (\n    SEARCH_DATE_KEY_SQL_FUNCTION,\n',
               'from .search_policy import (\n    PLAYER_COMPONENT_KEY_SQL_FUNCTION,\n    SEARCH_DATE_KEY_SQL_FUNCTION,\n',
@@ -84,25 +78,20 @@ jobs:
               '''        if player_terms:\n            if len(player_terms) == 1:\n                clauses.append(\n                    "(sf.white_fold LIKE ? ESCAPE '\\\\' OR sf.black_fold LIKE ? ESCAPE '\\\\')"\n                )\n                needle = literal_like_pattern(player_terms[0])\n                params.extend([needle, needle])\n            else:\n                white_terms = " AND ".join(\n                    f"INSTR({PLAYER_COMPONENT_KEY_SQL_FUNCTION}(sf.white_fold), ?) > 0"\n                    for _ in player_terms\n                )\n                black_terms = " AND ".join(\n                    f"INSTR({PLAYER_COMPONENT_KEY_SQL_FUNCTION}(sf.black_fold), ?) > 0"\n                    for _ in player_terms\n                )\n                clauses.append(f"(({white_terms}) OR ({black_terms}))")\n                needles = [player_component_key(term) for term in player_terms]\n                if any(needle is None for needle in needles):\n                    raise RuntimeError("player component normalization failed")\n                params.extend(needles)\n                params.extend(needles)\n''',
               'player predicate',
           )
-
           if 'from .pgn_roundtrip import parse_pgn_text' not in text:
               raise SystemExit('canonical parse_pgn_text import was lost')
           if 'from .gametree import PgnGame, parse_games, serialize_game' in text:
               raise SystemExit('lower-level parse_games ingress was reintroduced')
           if 'parse_pgn_text(' not in text:
               raise SystemExit('canonical parse_pgn_text call was lost')
-
           path.write_text(text, encoding='utf-8')
           PY
 
-          # Rebind the dedicated #492 gate to the exact current Product and prior
-          # SAME head, then add explicit #422 canonical-ingress regression coverage.
           ACSDB_BLOB="$(git hash-object acs/acsdb.py)"
           export ACSDB_BLOB
           python - <<'PY'
           import os
           from pathlib import Path
-
           path = Path('.github/workflows/v2-library-player-identity-search.yml')
           text = path.read_text(encoding='utf-8')
           replacements = {
@@ -123,10 +112,10 @@ jobs:
                   raise SystemExit(f'workflow rebind expected one match for {old!r}, got {count}')
               text = text.replace(old, new, 1)
           path.write_text(text, encoding='utf-8')
+          Path('automation-v2-library-player-identity-search.yml.txt').write_text(text, encoding='utf-8')
           PY
 
-          python -m py_compile \
-            acs/acsdb.py acs/search_policy.py tests/test_v2_library_player_identity_search.py
+          python -m py_compile acs/acsdb.py acs/search_policy.py tests/test_v2_library_player_identity_search.py
           python -m unittest -v \
             tests.test_d07_canonical_ingress_current \
             tests.test_v2_library_player_identity_search \
@@ -138,30 +127,30 @@ jobs:
             tests/test_v2_library_search_service_v4.py \
             tests/test_d07_library_search_cancellation.py
 
+          # Never push a workflow mutation with the Actions token. The trusted
+          # connector will later reuse the materialized .txt blob at the real path.
+          git reset "$PRODUCT" -- .github/workflows/v2-library-player-identity-search.yml
           git add \
-            .github/workflows/v2-library-player-identity-search.yml \
             acs/acsdb.py \
             acs/search_policy.py \
-            tests/test_v2_library_player_identity_search.py
+            tests/test_v2_library_player_identity_search.py \
+            automation-v2-library-player-identity-search.yml.txt
           git diff --cached --check
           changed="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/v2-library-player-identity-search.yml' \
             'acs/acsdb.py' \
             'acs/search_policy.py' \
+            'automation-v2-library-player-identity-search.yml.txt' \
             'tests/test_v2_library_player_identity_search.py' | sort)"
           test "$changed" = "$expected"
 
           TREE="$(git write-tree)"
           RESULT="$(printf '%s\n' \
-            'D07: compose player identity after canonical PGN ingress' \
+            'automation: materialize player identity after canonical ingress' \
             '' \
-            'First parent is exact current Full Product 9c1369f7b6edd309aadf8a06f8b99db7ca4e97f8; second parent is prior SAME #492 ed6355b0449987e5a685f45d468a73f18aa7332a. Preserve #422 parse_pgn_text ingress and add only #492 player-identity semantics plus its dedicated gate.' \
-            'HUMAN_TESTED=NO; NVDA_VERIFIED=NO.' | git commit-tree "$TREE" -p "$PRODUCT" -p "$PRIOR")"
+            'Temporary workflow-free materialization for trusted connector intake.' | git commit-tree "$TREE" -p "$PRODUCT" -p "$PRIOR")"
           test "$(git rev-parse "$RESULT^1")" = "$PRODUCT"
           test "$(git rev-parse "$RESULT^2")" = "$PRIOR"
-          git diff --check "$PRODUCT" "$RESULT"
-          test "$(git diff --name-only "$PRODUCT" "$RESULT" | sort)" = "$expected"
-          git push origin "$RESULT:refs/heads/$RESULT_BRANCH"
           echo "RESULT_COMMIT=$RESULT"
           echo "ACSDB_BLOB=$ACSDB_BLOB"
+          git push origin "$RESULT:refs/heads/$RESULT_BRANCH"
