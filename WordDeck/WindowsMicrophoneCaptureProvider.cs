@@ -151,6 +151,10 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
     private const ushort BlockAlign = Channels * (BitsPerSample / 8);
     private const uint AverageBytesPerSecond = SamplesPerSecond * BlockAlign;
     private const int WaveHeaderBytes = 44;
+    private const int CleanupAttempts = 3;
+
+    private static readonly object QuarantineSync = new();
+    private static readonly List<(IWaveInApi Api, byte[] RawBuffer, GCHandle PinnedBuffer, nint HeaderPointer, nint WaveHandle)> QuarantinedLeases = new();
 
     private readonly IWaveInApi _api;
     private readonly WindowsMicrophoneCaptureOptions _options;
@@ -204,16 +208,37 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        try
+        {
+            byte[] wavePayload = CaptureWavePayload(cancellationToken);
+            try
+            {
+                return SpeechCaptureResult.Ok(new SpeechCaptureSample(wavePayload));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(wavePayload);
+            }
+        }
+        catch (MicrophoneCaptureException error)
+        {
+            return SpeechCaptureResult.Fail(error.ReasonCode);
+        }
+    }
+
+    private byte[] CaptureWavePayload(CancellationToken cancellationToken)
+    {
         if (_api.GetDeviceCount() == 0)
-            return SpeechCaptureResult.Fail("MICROPHONE_UNAVAILABLE");
+            throw new MicrophoneCaptureException("MICROPHONE_UNAVAILABLE");
 
         int rawBufferLength = checked((int)Math.Ceiling(
             AverageBytesPerSecond * _options.MaxDuration.TotalSeconds));
         rawBufferLength -= rawBufferLength % BlockAlign;
         if (rawBufferLength <= 0)
-            return SpeechCaptureResult.Fail("MICROPHONE_CAPTURE_CONFIGURATION_INVALID");
+            throw new MicrophoneCaptureException("MICROPHONE_CAPTURE_CONFIGURATION_INVALID");
 
         byte[] rawBuffer = GC.AllocateUninitializedArray<byte>(rawBufferLength);
+        byte[]? wavePayload = null;
         GCHandle pinnedBuffer = default;
         nint headerPointer = nint.Zero;
         nint waveHandle = nint.Zero;
@@ -230,7 +255,7 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
                 ref format,
                 captureEvent.SafeWaitHandle.DangerousGetHandle());
             if (result != MmNoError)
-                return SpeechCaptureResult.Fail(MapNativeFailure("OPEN", result));
+                throw new MicrophoneCaptureException(MapNativeFailure("OPEN", result));
 
             pinnedBuffer = GCHandle.Alloc(rawBuffer, GCHandleType.Pinned);
             headerPointer = Marshal.AllocHGlobal((int)headerSize);
@@ -249,19 +274,19 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
 
             result = _api.PrepareHeader(waveHandle, headerPointer, headerSize);
             if (result != MmNoError)
-                return SpeechCaptureResult.Fail(MapNativeFailure("PREPARE", result));
+                throw new MicrophoneCaptureException(MapNativeFailure("PREPARE", result));
             headerPrepared = true;
 
             result = _api.AddBuffer(waveHandle, headerPointer, headerSize);
             if (result != MmNoError)
-                return SpeechCaptureResult.Fail(MapNativeFailure("BUFFER", result));
+                throw new MicrophoneCaptureException(MapNativeFailure("BUFFER", result));
 
             // An event callback may have been signalled for the device-open state.
             // Clear that state before starting the queued capture buffer.
             captureEvent.Reset();
             result = _api.Start(waveHandle);
             if (result != MmNoError)
-                return SpeechCaptureResult.Fail(MapNativeFailure("START", result));
+                throw new MicrophoneCaptureException(MapNativeFailure("START", result));
 
             int signal = WaitHandle.WaitAny(
                 new WaitHandle[] { captureEvent, cancellationToken.WaitHandle },
@@ -272,8 +297,10 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
 
             if (signal == WaitHandle.WaitTimeout)
             {
-                // Reset returns the partial pending buffer and updates BytesRecorded.
-                _api.Reset(waveHandle);
+                // A successful reset returns the partial pending buffer before we inspect it.
+                result = _api.Reset(waveHandle);
+                if (result != MmNoError)
+                    throw new MicrophoneCaptureException(MapNativeFailure("RESET", result));
                 captureEvent.WaitOne(TimeSpan.FromSeconds(2));
             }
 
@@ -281,38 +308,104 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
             int recordedLength = checked((int)Math.Min(completed.BytesRecorded, (uint)rawBuffer.Length));
             recordedLength -= recordedLength % BlockAlign;
             if (recordedLength <= 0)
-                return SpeechCaptureResult.Fail("MICROPHONE_EMPTY_CAPTURE");
+                throw new MicrophoneCaptureException("MICROPHONE_EMPTY_CAPTURE");
 
-            byte[] wavePayload = BuildPcmWavePayload(rawBuffer.AsSpan(0, recordedLength));
-            try
-            {
-                return SpeechCaptureResult.Ok(new SpeechCaptureSample(wavePayload));
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(wavePayload);
-            }
+            wavePayload = BuildPcmWavePayload(rawBuffer.AsSpan(0, recordedLength));
+            return wavePayload;
         }
         finally
         {
-            if (waveHandle != nint.Zero)
+            bool cleanupSafe = TryReleaseNativeResources(
+                waveHandle,
+                headerPrepared,
+                headerPointer,
+                headerSize,
+                captureEvent,
+                rawBuffer,
+                ref pinnedBuffer);
+
+            if (!cleanupSafe)
             {
-                if (headerPrepared)
-                {
-                    _api.Reset(waveHandle);
-                    captureEvent.WaitOne(TimeSpan.FromMilliseconds(250));
-                    _api.UnprepareHeader(waveHandle, headerPointer, headerSize);
-                }
-                _api.Close(waveHandle);
+                if (wavePayload is not null)
+                    CryptographicOperations.ZeroMemory(wavePayload);
+                throw new MicrophoneCaptureException("MICROPHONE_CLEANUP_FAILED");
             }
-
-            if (headerPointer != nint.Zero)
-                Marshal.FreeHGlobal(headerPointer);
-
-            CryptographicOperations.ZeroMemory(rawBuffer);
-            if (pinnedBuffer.IsAllocated)
-                pinnedBuffer.Free();
         }
+    }
+
+    private bool TryReleaseNativeResources(
+        nint waveHandle,
+        bool headerPrepared,
+        nint headerPointer,
+        uint headerSize,
+        EventWaitHandle captureEvent,
+        byte[] rawBuffer,
+        ref GCHandle pinnedBuffer)
+    {
+        bool headerReleased = !headerPrepared;
+
+        if (waveHandle != nint.Zero && headerPrepared && headerPointer != nint.Zero)
+        {
+            for (int attempt = 0; attempt < CleanupAttempts; attempt++)
+            {
+                uint resetResult = _api.Reset(waveHandle);
+                if (resetResult == MmNoError)
+                    captureEvent.WaitOne(TimeSpan.FromMilliseconds(100));
+
+                uint unprepareResult = _api.UnprepareHeader(waveHandle, headerPointer, headerSize);
+                if (unprepareResult is MmNoError or WaveUnprepared)
+                {
+                    headerReleased = true;
+                    break;
+                }
+
+                if (unprepareResult != WaveStillPlaying)
+                    break;
+            }
+        }
+
+        if (!headerReleased)
+        {
+            // Fail-safe ownership quarantine: the driver may still own the WAVEHDR/data.
+            // Keeping the handle, unmanaged header and pin alive is safer than a native
+            // use-after-free. Nothing is persisted; a fresh process clears this emergency
+            // state. Normal and recoverable cleanup paths never enter quarantine.
+            lock (QuarantineSync)
+            {
+                QuarantinedLeases.Add((_api, rawBuffer, pinnedBuffer, headerPointer, waveHandle));
+            }
+            pinnedBuffer = default;
+            return false;
+        }
+
+        bool closeSucceeded = waveHandle == nint.Zero;
+        if (waveHandle != nint.Zero)
+        {
+            for (int attempt = 0; attempt < CleanupAttempts; attempt++)
+            {
+                uint closeResult = _api.Close(waveHandle);
+                if (closeResult == MmNoError)
+                {
+                    closeSucceeded = true;
+                    break;
+                }
+
+                if (closeResult != WaveStillPlaying)
+                    break;
+
+                Thread.Sleep(TimeSpan.FromMilliseconds(25));
+            }
+        }
+
+        if (headerPointer != nint.Zero)
+            Marshal.FreeHGlobal(headerPointer);
+
+        CryptographicOperations.ZeroMemory(rawBuffer);
+        if (pinnedBuffer.IsAllocated)
+            pinnedBuffer.Free();
+        pinnedBuffer = default;
+
+        return closeSucceeded;
     }
 
     private static WindowsWaveFormat CreateWaveFormat() => new()
@@ -364,4 +457,24 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
 
     internal static byte[] BuildPcmWavePayloadForSelfTest(ReadOnlySpan<byte> pcm) =>
         BuildPcmWavePayload(pcm);
+
+    internal static int QuarantinedLeaseCountForSelfTest
+    {
+        get
+        {
+            lock (QuarantineSync)
+                return QuarantinedLeases.Count;
+        }
+    }
+
+    private sealed class MicrophoneCaptureException : Exception
+    {
+        public MicrophoneCaptureException(string reasonCode)
+            : base(reasonCode)
+        {
+            ReasonCode = reasonCode;
+        }
+
+        public string ReasonCode { get; }
+    }
 }
