@@ -75,14 +75,28 @@ internal static class DeepListeningJourney
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(available);
 
-        var availableIds = new HashSet<string>(
-            available.Select(item => item.ExerciseId),
-            StringComparer.OrdinalIgnoreCase);
+        // `available` is the current selection/playback truth. It may change when a
+        // learner hides a word, changes scope, or when an audio asset is temporarily
+        // unavailable. Projecting durable journey chronology through that reversible
+        // view would make prior credit disappear and can move a five-review boundary.
+        //
+        // A completed Listening review is durably evidenced twice in the existing
+        // single ListeningCoachState: History contains the chronological record and
+        // StatsByDictionary records CompletedReviews for the same exercise. Use that
+        // durable completion evidence to reject synthetic/stale history without making
+        // current eligibility rewrite already-counted journey chronology.
+        var completedExerciseIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (state.StatsByDictionary.TryGetValue(dictionaryId, out Dictionary<string, ListeningItemStats>? perDictionary))
+        {
+            foreach ((string exerciseId, ListeningItemStats stats) in perDictionary)
+                if (stats.CompletedReviews > 0) completedExerciseIds.Add(exerciseId);
+        }
 
         List<ListeningHistoryRecord> relevant = state.History
             .Where(record =>
                 string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) &&
-                availableIds.Contains(record.ExerciseId))
+                record.Kind == ListeningExerciseKind.Word &&
+                completedExerciseIds.Contains(record.ExerciseId))
             .ToList();
 
         int inCycle = relevant.Count % TargetReviews;
