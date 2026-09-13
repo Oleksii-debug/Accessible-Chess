@@ -124,12 +124,15 @@ internal sealed class AdaptiveDiagnosticStateBridge
 
         AdaptiveRouteDecision? priorRoute = null;
         bool hadPriorRoute = learnerState.AdaptiveRouteByPathId.TryGetValue(binding.PathId, out priorRoute);
+        bool priorRouteOwnedByBridge = hadPriorRoute &&
+            priorRoute!.RuleVersion.Equals(binding.RuleVersion, StringComparison.OrdinalIgnoreCase) &&
+            priorRoute.Route == AdaptivePracticeRoute.DeepPractice &&
+            priorRoute.ReasonCode.Equals(DirectNeedReasonCode, StringComparison.Ordinal);
         if (snapshot.HasDirectNeed && hadPriorRoute)
         {
             if (!priorRoute!.RuleVersion.Equals(binding.RuleVersion, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException($"Adaptive path '{binding.PathId}' is owned by rule '{priorRoute.RuleVersion}', not '{binding.RuleVersion}'.");
-            if (priorRoute.Route != AdaptivePracticeRoute.DeepPractice ||
-                !priorRoute.ReasonCode.Equals(DirectNeedReasonCode, StringComparison.Ordinal))
+            if (!priorRouteOwnedByBridge)
                 throw new InvalidDataException($"Adaptive path '{binding.PathId}' contains a conflicting decision under rule '{binding.RuleVersion}'.");
         }
 
@@ -166,6 +169,14 @@ internal sealed class AdaptiveDiagnosticStateBridge
                     routeTouched = true;
                     changed = true;
                 }
+            }
+            else if (priorRouteOwnedByBridge)
+            {
+                // A later clean/unscored formal reassessment supersedes only this
+                // bridge's own stale remediation. Foreign routes remain untouched.
+                learnerState.AdaptiveRouteByPathId.Remove(binding.PathId);
+                routeTouched = true;
+                changed = true;
             }
 
             // This validation proves every route evidence ID resolves to a mirrored
