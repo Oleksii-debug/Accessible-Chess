@@ -325,6 +325,7 @@ jobs:
             $stable.OneTarget.UnresolvedAmbiguousEntryCount,$baselineMatch)
 
       - name: Preserve non-redistributable provenance metadata with coverage evidence
+        if: always() && hashFiles('artifacts/context-evidence/context-coverage.json') != ''
         shell: pwsh
         run: |
           Copy-Item -LiteralPath '.\artifacts\context-corpus\tatoeba-en-uk-attributed.tsv.manifest.json' -Destination '.\artifacts\context-evidence\tatoeba-en-uk-attributed.tsv.manifest.json'
@@ -332,6 +333,7 @@ jobs:
           Copy-Item -LiteralPath "$env:CONTEXT_BASELINE_BINDING" -Destination '.\artifacts\context-evidence\historical-baseline-binding.json'
 
       - name: Upload coverage evidence
+        if: always() && hashFiles('artifacts/context-evidence/context-coverage.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: WordDeck-dev02-context-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
