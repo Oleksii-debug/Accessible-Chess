@@ -1,0 +1,87 @@
+name: V2 Upgrade Current ACSDB Identity Audit Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-upgrade-current-acsdb-identity-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_upgrade_current_acsdb_identity_audit.py'
+      - '.github/workflows/v2-upgrade-current-acsdb-identity-audit.yml'
+      - 'acs/version2_upgrade.py'
+      - 'acs/acsdb.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-upgrade-current-acsdb-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Prove exact owner ancestry and evidence-only scope
+        shell: bash
+        env:
+          OWNER_HEAD: bde040a4c3a6080403d6f5b85f89587558b6aae5
+          UPGRADE_BLOB: 5d33a5eb8720c52cf749b47b633c9a749f2a08ea
+          ACSDB_BLOB: 3d7d31b4421990815a8d2f10367f6ff84e9bcd67
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$OWNER_HEAD" HEAD)" = "$OWNER_HEAD"
+          git diff --check "$OWNER_HEAD" HEAD
+          changed="$(git diff --name-only "$OWNER_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-upgrade-current-acsdb-identity-audit.yml' \
+            'tests/test_v2_upgrade_current_acsdb_identity_audit.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_upgrade.py)" = "$UPGRADE_BLOB"
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$ACSDB_BLOB"
+      - name: Compile audit surface
+        run: python -m compileall -q tests/test_v2_upgrade_current_acsdb_identity_audit.py
+      - name: Existing upgrade and ACSDB focused regressions remain green
+        run: >-
+          python -m unittest -v
+          tests.test_version2_upgrade
+          tests.test_windows_data_release_regressions
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+      - name: Broad owner regressions remain green on untouched exact authority
+        shell: bash
+        env:
+          OWNER_HEAD: bde040a4c3a6080403d6f5b85f89587558b6aae5
+        run: |
+          set -euo pipefail
+          owner_tree="../v2-owner-broad-${GITHUB_RUN_ID}-${RUNNER_OS}"
+          rm -rf "$owner_tree"
+          git worktree add --detach "$owner_tree" "$OWNER_HEAD"
+          cleanup() {
+            git worktree remove --force "$owner_tree" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          (
+            cd "$owner_tree"
+            python -m unittest discover -s tests
+            python -m pytest -q tests
+          )
+          cleanup
+          trap - EXIT
+      - name: Independent current-schema ACSDB identity oracle
+        if: ${{ always() }}
+        run: python -m unittest -v tests.test_v2_upgrade_current_acsdb_identity_audit
