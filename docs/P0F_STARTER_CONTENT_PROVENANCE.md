@@ -19,7 +19,7 @@ The compressed archive is build-time input only and is not shipped.
 
 ## Deterministic curation policy
 
-Binding #177/#691 requires a genuinely curated instructional/sample set, not
+Binding #691 requires a genuinely curated instructional/sample set, not
 merely the first N lawful records. The qualified policy is
 `accessible-chess-p0f-real-sample-v1`.
 
