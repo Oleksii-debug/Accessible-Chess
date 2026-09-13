@@ -91,13 +91,15 @@ internal static class TrainingEntryPoints
     {
         var exportProfile = new ToolStripMenuItem("Export complete personal &profile...")
         {
-            AccessibleName = "Export complete Recall Spelling Sentence and Listening personal profile"
+            AccessibleName = "Export complete Recall Spelling Sentence Listening and Course Story personal profile",
+            AccessibleDescription = "Export portable WordDeck learning progress including Recall, Spelling, Sentence, Listening, and Course or Story learner state."
         };
         exportProfile.Click += (_, _) => main.ExportUnifiedPersonalProfileInteractive();
 
         var importProfile = new ToolStripMenuItem("Import complete personal pro&file...")
         {
-            AccessibleName = "Import complete Recall Spelling Sentence and Listening personal profile"
+            AccessibleName = "Import complete Recall Spelling Sentence Listening and Course Story personal profile",
+            AccessibleDescription = "Import a WordDeck learning-progress profile. Older supported profiles preserve newer local Course or Story progress that they do not contain."
         };
         importProfile.Click += (_, _) => main.ImportUnifiedPersonalProfileInteractive();
 
