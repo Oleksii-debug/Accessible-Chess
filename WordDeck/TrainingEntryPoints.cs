@@ -28,6 +28,17 @@ internal static class TrainingEntryPoints
         openStoryCourse.Click += (_, _) => OpenStoryCourse(main);
         tools.DropDownItems.Insert(0, openStoryCourse);
 
+        // Governed Grammar owns a separate course-state sidecar. Keep this entry
+        // independent from Spelling/Sentence recovery so a failure in those stores
+        // cannot hide an otherwise valid Deep Grammar learner journey.
+        var openGovernedGrammar = new ToolStripMenuItem("Відкрити &Deep Grammar A1...")
+        {
+            AccessibleName = "Відкрити Deep Grammar A1 Present Continuous",
+            AccessibleDescription = "Keyboard and screen-reader accessible governed practice for G-A1-06 Present Continuous."
+        };
+        openGovernedGrammar.Click += (_, _) => OpenGovernedGrammar(main);
+        tools.DropDownItems.Insert(1, openGovernedGrammar);
+
         var listeningShortcuts = new ShortcutManager(appState, null, ShortcutDispatchContext.Listening);
 
         // Listening owns independent progress and must remain launchable even if
@@ -50,7 +61,7 @@ internal static class TrainingEntryPoints
         catch (Exception ex)
         {
             AddUnavailableTrainingItems(tools, ex.Message);
-            AddUnifiedProfileItems(tools, main, insertIndex: 4);
+            AddUnifiedProfileItems(tools, main, insertIndex: 5);
             return;
         }
 
@@ -82,9 +93,10 @@ internal static class TrainingEntryPoints
 
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
-        // Listening remains at index 2. Story/Course remains reachable at index 3.
-        tools.DropDownItems.Insert(3, settings);
-        AddUnifiedProfileItems(tools, main, insertIndex: 5);
+        // Listening remains at index 2, Story/Course at index 3 and governed
+        // Deep Grammar at index 4. Keep shortcut settings after learner modes.
+        tools.DropDownItems.Insert(5, settings);
+        AddUnifiedProfileItems(tools, main, insertIndex: 6);
     }
 
     private static void AddUnifiedProfileItems(ToolStripMenuItem tools, MainForm main, int insertIndex)
@@ -115,6 +127,18 @@ internal static class TrainingEntryPoints
         catch (Exception ex)
         {
             ShowProtectedProgressError(owner, "Story/Course", ex);
+        }
+    }
+
+    private static void OpenGovernedGrammar(MainForm owner)
+    {
+        try
+        {
+            GovernedGrammarA106RuntimeUi.Open(owner);
+        }
+        catch (Exception ex)
+        {
+            ShowProtectedProgressError(owner, "Deep Grammar A1", ex);
         }
     }
 
