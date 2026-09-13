@@ -9,7 +9,8 @@ internal sealed record StoryCoursePackageDiscoveryResult(
     IReadOnlyList<string> Errors);
 
 /// <summary>
-/// Production package boundary for Story/Course. Only exact local JSON files are read;
+/// Production package boundary for Story/Course. Learner-facing authority may come
+/// from an explicitly governed release-bundled catalog or from exact local JSON files;
 /// network content and pedagogical drafts never become learner-facing runtime authority.
 /// Every accepted package is revalidated against the active canonical dictionary and
 /// GrammarSkillReferenceResolver through StoryCourseContractValidator.
@@ -27,7 +28,58 @@ internal static class StoryCoursePackageLoader
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WordDeck",
             "Courses");
-        return Discover(dictionary, new[] { Path.Combine(AppContext.BaseDirectory, "Courses"), localRoot });
+        return DiscoverIncludingBuiltIns(
+            dictionary,
+            new[] { Path.Combine(AppContext.BaseDirectory, "Courses"), localRoot });
+    }
+
+    internal static StoryCoursePackageDiscoveryResult DiscoverIncludingBuiltIns(
+        DictionaryPackage dictionary,
+        IEnumerable<string> roots)
+    {
+        ArgumentNullException.ThrowIfNull(dictionary);
+        ArgumentNullException.ThrowIfNull(roots);
+
+        StoryCoursePackageDiscoveryResult external = Discover(dictionary, roots);
+        var courses = new List<StoryCourseManifestContract>();
+        var errors = new List<string>();
+        var reservedCourseIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (StoryCourseManifestContract manifest in StoryCourseRuntimeBuiltInCatalog.BuildApprovedManifests())
+        {
+            if (!reservedCourseIds.Add(manifest.CourseId))
+            {
+                errors.Add($"Built-in governed course id '{manifest.CourseId}' is duplicated. WordDeck will not guess which package is authoritative.");
+                continue;
+            }
+
+            try
+            {
+                StoryCourseContractValidator.Validate(manifest, dictionary);
+                if (manifest.CurriculumAuthority != StoryCourseCurriculumAuthority.ApprovedCurriculum)
+                    throw new InvalidDataException("Only independently approved curriculum is eligible for the learner-facing Story/Course runtime.");
+                courses.Add(manifest);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Built-in governed course '{manifest.CourseId}' is invalid: {ex.Message}");
+            }
+        }
+
+        foreach (StoryCourseManifestContract manifest in external.Courses)
+        {
+            if (!reservedCourseIds.Add(manifest.CourseId))
+            {
+                errors.Add(
+                    $"Local approved package '{manifest.CourseId}' duplicates governed built-in course id '{manifest.CourseId}'. " +
+                    "The external duplicate was rejected; WordDeck will not override release-bundled governed content implicitly.");
+                continue;
+            }
+            courses.Add(manifest);
+        }
+
+        errors.AddRange(external.Errors);
+        return new StoryCoursePackageDiscoveryResult(courses, errors);
     }
 
     internal static StoryCoursePackageDiscoveryResult Discover(DictionaryPackage dictionary, IEnumerable<string> roots)
