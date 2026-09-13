@@ -28,6 +28,11 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         MissingDeviceFailsClosedWithoutOpening();
         BusyDeviceMapsToStableTechnicalReason();
         CancellationReturnsControlAndCleansNativeResources();
+        CleanupRetriesStillPlayingUntilOwnershipReturns();
+        PersistentQueuedOwnershipIsQuarantinedInsteadOfFreed();
+        CloseStillPlayingFailsClosedAfterHeaderRelease();
+        TimeoutResetFailureMapsToStableTechnicalFailure();
+        CancellationCleanupFailureFailsClosedAndQuarantines();
         InvalidDurationFailsBeforeCapture();
     }
 
@@ -79,15 +84,9 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
             CaptureBytes = new byte[] { 11, 22, 33, 44, 55, 66, 77, 88 },
             CompleteOnStart = true
         };
-        var provider = new WindowsMicrophoneCaptureProvider(
-            api,
-            new WindowsMicrophoneCaptureOptions(TimeSpan.FromSeconds(1)),
-            enforceWindowsPlatform: false);
+        var provider = CreateProvider(api);
 
-        SpeechCaptureResult result = provider
-            .CaptureAsync(MicrophoneRequest, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        SpeechCaptureResult result = Capture(provider);
 
         Assert(result.Success && result.Sample is not null, "successful capture result");
         Assert(api.OpenCalls == 1, "open lifecycle");
@@ -110,15 +109,9 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
     private static void MissingDeviceFailsClosedWithoutOpening()
     {
         var api = new FakeWaveInApi { DeviceCount = 0 };
-        var provider = new WindowsMicrophoneCaptureProvider(
-            api,
-            new WindowsMicrophoneCaptureOptions(TimeSpan.FromSeconds(1)),
-            enforceWindowsPlatform: false);
+        var provider = CreateProvider(api);
 
-        SpeechCaptureResult result = provider
-            .CaptureAsync(MicrophoneRequest, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        SpeechCaptureResult result = Capture(provider);
 
         Assert(!result.Success, "missing microphone result");
         Assert(result.ReasonCode == "MICROPHONE_UNAVAILABLE", "missing microphone reason");
@@ -128,15 +121,9 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
     private static void BusyDeviceMapsToStableTechnicalReason()
     {
         var api = new FakeWaveInApi { OpenResult = 4 };
-        var provider = new WindowsMicrophoneCaptureProvider(
-            api,
-            new WindowsMicrophoneCaptureOptions(TimeSpan.FromSeconds(1)),
-            enforceWindowsPlatform: false);
+        var provider = CreateProvider(api);
 
-        SpeechCaptureResult result = provider
-            .CaptureAsync(MicrophoneRequest, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        SpeechCaptureResult result = Capture(provider);
 
         Assert(!result.Success, "busy microphone result");
         Assert(result.ReasonCode == "MICROPHONE_BUSY", "busy microphone reason");
@@ -171,6 +158,118 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         Assert(api.CloseCalls == 1, "cancelled capture must close native input");
     }
 
+    private static void CleanupRetriesStillPlayingUntilOwnershipReturns()
+    {
+        int quarantineBefore = WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest;
+        var api = new FakeWaveInApi
+        {
+            CompleteOnStart = true,
+            UnprepareStillPlayingRemaining = 2
+        };
+        var provider = CreateProvider(api);
+
+        SpeechCaptureResult result = Capture(provider);
+
+        Assert(result.Success && result.Sample is not null, "recoverable STILLPLAYING capture result");
+        Assert(api.ResetCalls == 3, "cleanup must reset before each unprepare retry");
+        Assert(api.UnprepareCalls == 3, "cleanup must retry STILLPLAYING until header returns");
+        Assert(api.CloseCalls == 1, "close only after header ownership returns");
+        Assert(
+            WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore,
+            "recoverable STILLPLAYING must not quarantine");
+        result.Sample!.Dispose();
+    }
+
+    private static void PersistentQueuedOwnershipIsQuarantinedInsteadOfFreed()
+    {
+        int quarantineBefore = WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest;
+        var api = new FakeWaveInApi
+        {
+            CompleteOnStart = true,
+            ResetFailuresRemaining = 3,
+            UnprepareStillPlayingRemaining = 3
+        };
+        var provider = CreateProvider(api);
+
+        SpeechCaptureResult result = Capture(provider);
+
+        Assert(!result.Success, "persistent queued ownership must fail capture closed");
+        Assert(result.ReasonCode == "MICROPHONE_CLEANUP_FAILED", "persistent queued ownership reason");
+        Assert(api.ResetCalls == 3, "persistent cleanup reset attempts are bounded");
+        Assert(api.UnprepareCalls == 3, "persistent cleanup unprepare attempts are bounded");
+        Assert(api.CloseCalls == 0, "must not close/free while header ownership is unproven");
+        Assert(
+            WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore + 1,
+            "driver-owned memory and callback lifetime must be quarantined");
+    }
+
+    private static void CloseStillPlayingFailsClosedAfterHeaderRelease()
+    {
+        int quarantineBefore = WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest;
+        var api = new FakeWaveInApi
+        {
+            CompleteOnStart = true,
+            CloseStillPlayingRemaining = 3
+        };
+        var provider = CreateProvider(api);
+
+        SpeechCaptureResult result = Capture(provider);
+
+        Assert(!result.Success, "persistent close failure must fail capture closed");
+        Assert(result.ReasonCode == "MICROPHONE_CLEANUP_FAILED", "persistent close failure reason");
+        Assert(api.UnprepareCalls == 1, "header must be unprepared before close attempts");
+        Assert(api.CloseCalls == 3, "close STILLPLAYING retries are bounded");
+        Assert(
+            WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore + 1,
+            "unclosed native handle and callback lifetime must be retained");
+    }
+
+    private static void TimeoutResetFailureMapsToStableTechnicalFailure()
+    {
+        var api = new FakeWaveInApi
+        {
+            CompleteOnStart = false,
+            ResetFailuresRemaining = 1
+        };
+        var provider = CreateProvider(api);
+
+        SpeechCaptureResult result = Capture(provider);
+
+        Assert(!result.Success, "timeout reset failure must fail capture");
+        Assert(result.ReasonCode == "MICROPHONE_RESET_FAILED", "timeout reset failure reason");
+        Assert(api.ResetCalls >= 2, "cleanup retries ownership after timeout reset failure");
+        Assert(api.UnprepareCalls == 1, "timeout reset failure still safely unprepares");
+        Assert(api.CloseCalls == 1, "timeout reset failure still closes after safe return");
+    }
+
+    private static void CancellationCleanupFailureFailsClosedAndQuarantines()
+    {
+        int quarantineBefore = WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest;
+        var api = new FakeWaveInApi
+        {
+            CompleteOnStart = false,
+            ResetFailuresRemaining = 3,
+            UnprepareStillPlayingRemaining = 3
+        };
+        var provider = new WindowsMicrophoneCaptureProvider(
+            api,
+            new WindowsMicrophoneCaptureOptions(TimeSpan.FromSeconds(2)),
+            enforceWindowsPlatform: false);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(50));
+
+        SpeechCaptureResult result = provider.CaptureAsync(MicrophoneRequest, cancellation.Token)
+            .GetAwaiter()
+            .GetResult();
+
+        Assert(!result.Success, "unsafe cancellation cleanup must override cancellation with technical failure");
+        Assert(result.ReasonCode == "MICROPHONE_CLEANUP_FAILED", "cancellation cleanup failure reason");
+        Assert(api.CloseCalls == 0, "unsafe cancellation cleanup must not close/free driver-owned buffer");
+        Assert(
+            WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore + 1,
+            "unsafe cancellation cleanup must retain driver-owned lifetime");
+    }
+
     private static void InvalidDurationFailsBeforeCapture()
     {
         bool rejected = false;
@@ -184,6 +283,17 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         }
         Assert(rejected, "sub-second capture duration must be rejected");
     }
+
+    private static WindowsMicrophoneCaptureProvider CreateProvider(FakeWaveInApi api) =>
+        new(
+            api,
+            new WindowsMicrophoneCaptureOptions(TimeSpan.FromSeconds(1)),
+            enforceWindowsPlatform: false);
+
+    private static SpeechCaptureResult Capture(WindowsMicrophoneCaptureProvider provider) =>
+        provider.CaptureAsync(MicrophoneRequest, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
 
     private static void Assert(bool condition, string message)
     {
@@ -200,6 +310,9 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         public uint OpenResult { get; init; }
         public bool CompleteOnStart { get; init; } = true;
         public byte[] CaptureBytes { get; init; } = new byte[] { 1, 2, 3, 4 };
+        public int ResetFailuresRemaining { get; set; }
+        public int UnprepareStillPlayingRemaining { get; set; }
+        public int CloseStillPlayingRemaining { get; set; }
 
         public int OpenCalls { get; private set; }
         public int PrepareCalls { get; private set; }
@@ -244,6 +357,12 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         public uint Reset(nint handle)
         {
             ResetCalls++;
+            if (ResetFailuresRemaining > 0)
+            {
+                ResetFailuresRemaining--;
+                return 1;
+            }
+
             SignalCallbackEvent();
             return 0;
         }
@@ -251,12 +370,22 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         public uint UnprepareHeader(nint handle, nint header, uint headerSize)
         {
             UnprepareCalls++;
+            if (UnprepareStillPlayingRemaining > 0)
+            {
+                UnprepareStillPlayingRemaining--;
+                return 33;
+            }
             return 0;
         }
 
         public uint Close(nint handle)
         {
             CloseCalls++;
+            if (CloseStillPlayingRemaining > 0)
+            {
+                CloseStillPlayingRemaining--;
+                return 33;
+            }
             return 0;
         }
 
