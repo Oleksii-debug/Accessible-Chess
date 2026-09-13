@@ -1,0 +1,64 @@
+name: V2 Windows Action Reachability Audit Oracle
+
+on:
+  push:
+    branches:
+      - audit/v2-windows-pgn-save-reachability-20260828
+  pull_request:
+    paths:
+      - 'tests/test_v2_windows_action_reachability_audit.py'
+      - '.github/workflows/v2-windows-action-reachability-audit.yml'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/full_product_actions.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-windows-action-reachability-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove evidence-only scope and exact host ancestry
+        shell: bash
+        env:
+          HOST_HEAD: 3096e38284cec066cc9630efeb2f2bb105ed1e0d
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$HOST_HEAD" HEAD
+          test "$(git merge-base "$HOST_HEAD" HEAD)" = "$HOST_HEAD"
+          git diff --check "$HOST_HEAD" HEAD
+          changed="$(git diff --name-only "$HOST_HEAD" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-windows-action-reachability-audit.yml' \
+            'tests/test_v2_windows_action_reachability_audit.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet "$HOST_HEAD" HEAD -- \
+            acs/version2_windows_file_workflows.py \
+            acs/version2_windows_import_event_mailbox.py \
+            acs/version2_windows_pgn_export.py \
+            acs/full_product_actions.py \
+            acs/keybindings.py
+
+      - name: Compile audit oracle
+        run: python -m compileall -q tests/test_v2_windows_action_reachability_audit.py
+
+      - name: Independent one-action-path reachability oracle
+        run: python -m unittest -v tests.test_v2_windows_action_reachability_audit
