@@ -93,9 +93,10 @@ internal static class TrainingEntryPoints
 
         tools.DropDownItems.Insert(0, openSpelling);
         tools.DropDownItems.Insert(1, openSentence);
-        // Listening remains at index 2, Story/Course at index 3 and governed
-        // Deep Grammar at index 4. Keep shortcut settings after learner modes.
-        tools.DropDownItems.Insert(5, settings);
+        // Preserve the established keyboard contract: Listening remains at index 2,
+        // shortcut settings at index 3 and Story/Course at index 4. Governed Deep
+        // Grammar follows Story/Course at index 5 without shifting the older route.
+        tools.DropDownItems.Insert(3, settings);
         AddUnifiedProfileItems(tools, main, insertIndex: 6);
     }
 
