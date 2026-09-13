@@ -22,7 +22,7 @@ jobs:
         env:
           PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
           PACKAGE_BRANCH: work/post-freeze-v2-windows-package-qualification-20260911
-          EXPECTED_PACKAGE_HEAD: 3d2e1e13111419b7e6a7b101afe3255d94ad4789
+          EXPECTED_PACKAGE_HEAD: 5843e0ea895e83bf61c38f00ee85e9dc52536b14
           P0_MERGE_SHA: be15b3cdb9a37abf90069257a6527a6fd64a6212
           API_TOKEN: ${{ github.token }}
         run: python tools/automation/repair_p0_copy_package_focus.py
