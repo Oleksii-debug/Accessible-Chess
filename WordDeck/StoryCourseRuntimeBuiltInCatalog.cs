@@ -24,7 +24,7 @@ internal static class StoryCourseRuntimeBuiltInCatalog
         "HOLD_PENDING_CANONICAL_CONTENT_PROVENANCE_MANIFEST_AND_INDEPENDENT_RIGHTS_REVIEW";
 
     internal static IReadOnlyList<StoryCourseManifestContract> BuildApprovedManifests() =>
-        new[] { BuildM07Mission() };
+        new[] { BuildM07Mission(), StoryCourseRuntimeBuiltInA1M10Catalog.BuildManifest() };
 
     private static StoryCourseManifestContract BuildM07Mission()
     {
