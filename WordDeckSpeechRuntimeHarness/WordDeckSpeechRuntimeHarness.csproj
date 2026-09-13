@@ -9,5 +9,7 @@
   <ItemGroup>
     <Compile Include="../WordDeck/SpeechPracticeRuntime.cs" Link="SpeechPracticeRuntime.cs" />
     <Compile Include="../WordDeck/SpeechPracticeRuntimeSelfTest.cs" Link="SpeechPracticeRuntimeSelfTest.cs" />
+    <Compile Include="../WordDeck/WindowsMicrophoneCaptureProvider.cs" Link="WindowsMicrophoneCaptureProvider.cs" />
+    <Compile Include="../WordDeck/WindowsMicrophoneCaptureProviderSelfTest.cs" Link="WindowsMicrophoneCaptureProviderSelfTest.cs" />
   </ItemGroup>
 </Project>

@@ -7,6 +7,8 @@ on:
     paths:
       - 'WordDeck/SpeechPracticeRuntime.cs'
       - 'WordDeck/SpeechPracticeRuntimeSelfTest.cs'
+      - 'WordDeck/WindowsMicrophoneCaptureProvider.cs'
+      - 'WordDeck/WindowsMicrophoneCaptureProviderSelfTest.cs'
       - 'WordDeckSpeechRuntimeHarness/**'
       - '.github/workflows/worddeck-speech-runtime.yml'
   workflow_dispatch:
@@ -27,7 +29,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Run isolated speech runtime self-tests
+      - name: Run isolated speech runtime and Windows capture self-tests
         run: dotnet run --project WordDeckSpeechRuntimeHarness/WordDeckSpeechRuntimeHarness.csproj --configuration Release
 
       - name: Build WordDeck Windows application
