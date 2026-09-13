@@ -297,19 +297,32 @@ try {
     Focus 'Current English word'
     Send-Keys 'ctrl+shift+e' 'Current English word'
     Wait-For 'WordDeck Sentence Spelling' 10000
-    foreach ($required in @('Type the English sentence words','Ukrainian sentence prompt','Sentence training spelling deck','Number of target words per sentence')) { Wait-For $required }
+    $sentenceAnswer = 'Type the current English target word or phrase'
+    foreach ($required in @(
+        $sentenceAnswer,
+        'Ukrainian sentence prompt',
+        'English sentence with current target blank',
+        'Sentence training spelling deck',
+        'Sentence study pool size',
+        'Number of target words per sentence')) { Wait-For $required }
     Exercise-Combo 'Sentence training spelling deck' 20
+    Exercise-Combo 'Sentence study pool size' 10
     Exercise-Combo 'Number of target words per sentence' 10
     $sentencePrompt = Get-Value 'Ukrainian sentence prompt'
-    Focus 'Type the English sentence words'
-    Send-Keys 'enter' 'Type the English sentence words'
-    Assert-Focus 'Type the English sentence words' 'Sentence blank Enter guard'
+    $sentenceCloze = Get-Value 'English sentence with current target blank'
+    Focus $sentenceAnswer
+    Send-Keys 'enter' $sentenceAnswer
+    Assert-Focus $sentenceAnswer 'Sentence target-only blank Enter guard'
     if ((Get-Value 'Ukrainian sentence prompt') -ne $sentencePrompt) { Fail 'Blank Enter advanced the Sentence exercise.' }
-    Exercise-NativeTextKeys 'Type the English sentence words' { (Get-Value 'Ukrainian sentence prompt') -eq $sentencePrompt } 'Sentence answer native navigation'
+    if ((Get-Value 'English sentence with current target blank') -ne $sentenceCloze) { Fail 'Blank Enter changed the current target-only cloze.' }
+    Exercise-NativeTextKeys $sentenceAnswer {
+        (Get-Value 'Ukrainian sentence prompt') -eq $sentencePrompt -and
+        (Get-Value 'English sentence with current target blank') -eq $sentenceCloze
+    } 'Sentence target-only answer native navigation'
     Send-Keys 'alt+f4'
     Wait-Gone 'WordDeck Sentence Spelling' 7000
 
-    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, truthful F1/current training bindings, Ctrl+K settings, complete profile/reset dialogs, blank-submit guards, Spelling scope/answer and Sentence keyboard surfaces verified.'
+    Write-Host 'WordDeck R4 integrated UIA PASS: Recall arrows/true previous, selector focus retention, native menu/text navigation, truthful F1/current training bindings, Ctrl+K settings, complete profile/reset dialogs, blank-submit guards, Spelling scope/answer and Sentence target-only keyboard surfaces verified.'
 }
 finally {
     if ($null -ne $appPid -and $appPid -gt 0) {
