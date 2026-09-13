@@ -51,32 +51,25 @@ internal sealed record GovernedGrammarAttemptDecision(
     IReadOnlyList<GovernedGrammarAtomicCeiling> AtomicCeilings);
 
 /// <summary>
-/// Exact governed-content binding for Deep Grammar A1 / G-A1-06 Present Continuous.
-///
-/// This class deliberately reuses the existing LearnerCourseState sidecar,
-/// SpeechPracticeRuntime, GrammarSkillCatalog and adaptive target model. It does
-/// not create a second progress/mastery system. It records attributable facts;
-/// approved assessment/mastery rules remain responsible for deriving mastery.
+/// Exact governed-content adapter for Deep Grammar A1 / G-A1-06 Present
+/// Continuous. It records attributable facts in the existing course-state store
+/// and delegates speech/adaptive identity to existing WordDeck runtimes. It does
+/// not derive mastery, CEFR promotion or adaptive routes by itself.
 /// </summary>
 internal sealed class GovernedGrammarA106Runtime
 {
     public const string CourseId = "grammar-a1";
     public const string ModuleId = "G-A1-06";
-    public const string CompatibilityAnchor = "present-continuous";
     public const string GrammarSkillId = "present.continuous";
     public const string PathId = "deep-grammar:grammar-a1:G-A1-06";
-
-    public const string SourceDocumentId = "12ujFMeyM9nrgLhLo7Xv5xSNEl4aGX8LDPYrt_bZdSFE";
     public const string SourceRevision = "ANLCKQnm0_8JCGi5Rb3zod8B4MBO7hgtJWl4VUEr_ZHCVL55XS05J6syEYlMzuvO9_6Q12izcLbf1N_L4sBnpmsTyIdTu4H94LsF99n1Fw";
-    public const string IndependentQaDocumentId = "1zQ8U0lnTc95x_tNK9O8UqSyRw6sN6L5G0mCrSXTN8LM";
-    public const string IndependentQaRevision = "ANLCKQkRO431xxtUM_fUZPKjBx-2ATvvQgZqpv11Q5OUlhkB1BJNlyszqsQIUibywn9Fzd3LRIoJV87l6qXdmVlmy41sN_YRd1IQwiDcPQ";
     public const string IntegrationRecordId = "1PlzllAR0Nz42E9CtK1VdiO8AioLGOkqkOS_UzCqu_TU";
     public const string IntegrationRevision = "ANLCKQk4_iQMtooBeVyDJ-hkIb5P0EENo7g5bwbUpY93M2ukWS8g64HsLNc8oQeVq8k_UVPuCA7Uk3zHfwsB_aYLPdkH-vgYGypCROKwFA";
 
     private const string ProtectedSiblingGroup = "GA106-MULTIACTOR-CURRENT-01";
     private const string S0604TargetId = "spoken_repair/negative_architecture";
 
-    private static readonly IReadOnlyDictionary<string, GovernedGrammarAtomicCeiling> AtomicCeilings =
+    private static readonly IReadOnlyDictionary<string, GovernedGrammarAtomicCeiling> ContributionCeilings =
         new Dictionary<string, GovernedGrammarAtomicCeiling>(StringComparer.OrdinalIgnoreCase)
         {
             ["present.continuous-form"] = new("present.continuous-form", "A1", GovernedGrammarMasteryStage.ProductiveMastery),
@@ -139,7 +132,7 @@ internal sealed class GovernedGrammarA106Runtime
     private readonly Func<DateTimeOffset> _clock;
 
     public GovernedGrammarA106Runtime(LearnerCourseStateStore store)
-        : this(store, CreateEventId, () => DateTimeOffset.UtcNow)
+        : this(store, () => "ga106.event." + Guid.NewGuid().ToString("N"), () => DateTimeOffset.UtcNow)
     {
     }
 
@@ -167,7 +160,7 @@ internal sealed class GovernedGrammarA106Runtime
         if (string.IsNullOrWhiteSpace(atomicSkillId))
             throw new ArgumentException("Atomic grammar skill id is required.", nameof(atomicSkillId));
         string id = atomicSkillId.Trim();
-        if (!AtomicCeilings.TryGetValue(id, out GovernedGrammarAtomicCeiling? ceiling))
+        if (!ContributionCeilings.TryGetValue(id, out GovernedGrammarAtomicCeiling? ceiling))
             throw new InvalidDataException($"G-A1-06 does not own atomic grammar node '{id}'.");
         return ceiling;
     }
@@ -180,14 +173,14 @@ internal sealed class GovernedGrammarA106Runtime
         if (!Enum.IsDefined(requestedStage) || string.IsNullOrWhiteSpace(levelId))
             return false;
         GovernedGrammarAtomicCeiling ceiling = GetAtomicCeiling(atomicSkillId);
-        int requestedLevel = CefrRank(levelId.Trim());
-        int ceilingLevel = CefrRank(ceiling.LevelId);
-        return requestedLevel >= 0 && requestedLevel <= ceilingLevel && requestedStage <= ceiling.HighestStage;
+        return CefrRank(levelId) is int requestedLevel && requestedLevel >= 0 &&
+               requestedLevel <= CefrRank(ceiling.LevelId) &&
+               requestedStage <= ceiling.HighestStage;
     }
 
     public static AdaptivePracticeCandidate CreateAdaptiveCandidate(string dictionaryId)
     {
-        if (string.IsNullOrWhiteSpace(dictionaryId) || !string.Equals(dictionaryId, dictionaryId.Trim(), StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(dictionaryId) || dictionaryId != dictionaryId.Trim())
             throw new InvalidDataException("G-A1-06 adaptive dictionary identity must be canonical non-blank text.");
         RequireCanonicalRuntimeBinding();
         return new AdaptivePracticeCandidate(
@@ -197,12 +190,6 @@ internal sealed class GovernedGrammarA106Runtime
             new HashSet<AdaptivePracticeMode> { AdaptivePracticeMode.Grammar });
     }
 
-    /// <summary>
-    /// Records learner-visible administration. Safe prompt administration does
-    /// not by itself invalidate the same protected item, but it immediately
-    /// retires a reciprocal protected sibling for this learner, as governed by
-    /// G-A1-06 D2. Answer-bearing exposure is represented fail-closed by a reveal.
-    /// </summary>
     public LearnerCourseState RecordExposure(
         string itemId,
         bool answerBearing = false,
@@ -213,18 +200,17 @@ internal sealed class GovernedGrammarA106Runtime
         RequireCounters(hintUses, revealUses);
         LearnerCourseState state = _store.Load();
         int effectiveRevealUses = answerBearing ? checked(revealUses + 1) : revealUses;
-        bool unseenAtAdministration = item.ProtectedEvidence &&
-            !HasAnyActivityForItem(state, item.ItemId) &&
-            !HasConflictingSiblingActivity(state, item);
+        bool unseen = item.ProtectedEvidence &&
+                      !HasAnyActivityForItem(state, item.ItemId) &&
+                      !HasConflictingSiblingActivity(state, item);
 
         state.EvidenceHistory.Add(NewEvidence(
             item,
             LearnerActivityKind.Exposure,
             objectiveId: null,
             skillId: GrammarSkillId,
-            completed: true,
             correct: null,
-            unseenAtAdministration,
+            unseen,
             productive: false,
             transfer: false,
             hintUses,
@@ -234,12 +220,6 @@ internal sealed class GovernedGrammarA106Runtime
         return state;
     }
 
-    /// <summary>
-    /// Records a protected Fast Track / unseen-transfer attempt as evidence facts
-    /// only. No MasteryClaim, SkillLevelEstimate or adaptive route is synthesized.
-    /// Reuse, reveal/hint contamination and reciprocal sibling exposure all fail
-    /// closed for qualifying evidence.
-    /// </summary>
     public GovernedGrammarAttemptDecision RecordProtectedAttempt(
         string itemId,
         bool correct,
@@ -254,14 +234,13 @@ internal sealed class GovernedGrammarA106Runtime
 
         LearnerCourseState state = _store.Load();
         bool siblingClear = !HasConflictingSiblingActivity(state, item);
-        bool priorSameItemClean = !HasPriorDisqualifyingSameItemActivity(state, item.ItemId);
-        bool noCurrentContamination = hintUses == 0 && revealUses == 0;
-        bool eligible = siblingClear && priorSameItemClean && noCurrentContamination;
-        bool mayContribute = correct && eligible;
+        bool sameItemClean = !HasPriorDisqualifyingSameItemActivity(state, item.ItemId);
+        bool currentClean = hintUses == 0 && revealUses == 0;
+        bool eligible = siblingClear && sameItemClean && currentClean;
 
         string reason = !siblingClear ? "PROTECTED_SIBLING_RETIRED"
-            : !priorSameItemClean ? "ITEM_REUSED_OR_PRIORLY_CONTAMINATED"
-            : !noCurrentContamination ? "HINT_OR_REVEAL_CONTAMINATED"
+            : !sameItemClean ? "ITEM_REUSED_OR_PRIORLY_CONTAMINATED"
+            : !currentClean ? "HINT_OR_REVEAL_CONTAMINATED"
             : !correct ? "INCORRECT_PRACTICE_ONLY"
             : "QUALIFYING_GOVERNED_EVIDENCE";
 
@@ -271,9 +250,8 @@ internal sealed class GovernedGrammarA106Runtime
             state.EvidenceHistory.Add(NewEvidence(
                 item,
                 LearnerActivityKind.Assessment,
-                atomicSkillId,
-                GrammarSkillId,
-                completed: true,
+                objectiveId: atomicSkillId,
+                skillId: GrammarSkillId,
                 correct,
                 unseen: eligible,
                 productive: true,
@@ -288,27 +266,22 @@ internal sealed class GovernedGrammarA106Runtime
             item.ItemId,
             correct,
             eligible,
-            mayContribute,
+            correct && eligible,
             reason,
             item.AtomicSkillIds.Select(GetAtomicCeiling).ToArray());
     }
 
-    /// <summary>
-    /// The only typed fallback owned by this exact binding is S06-04. It remains
-    /// practice and is never labeled as spoken/listening mastery.
-    /// </summary>
     public LearnerCourseState RecordS0604TypedFallbackPractice(bool? correct, int attemptNumber = 1)
     {
         if (attemptNumber < 1)
-            throw new ArgumentOutOfRangeException(nameof(attemptNumber), "Attempt number must be at least 1.");
+            throw new ArgumentOutOfRangeException(nameof(attemptNumber));
         GovernedGrammarItemContract item = GetItem("S06-04");
         LearnerCourseState state = _store.Load();
         state.EvidenceHistory.Add(NewEvidence(
             item,
             LearnerActivityKind.Practice,
-            item.AtomicSkillIds.Single(),
+            objectiveId: item.AtomicSkillIds.Single(),
             skillId: "typed-fallback",
-            completed: true,
             correct,
             unseen: false,
             productive: false,
@@ -362,7 +335,6 @@ internal sealed class GovernedGrammarA106Runtime
         LearnerActivityKind activityKind,
         string? objectiveId,
         string skillId,
-        bool completed,
         bool? correct,
         bool unseen,
         bool productive,
@@ -371,8 +343,8 @@ internal sealed class GovernedGrammarA106Runtime
         int revealUses,
         int attemptNumber)
     {
-        string eventId = _eventIdFactory()?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(eventId))
+        string eventId = (_eventIdFactory() ?? string.Empty).Trim();
+        if (eventId.Length == 0)
             throw new InvalidDataException("G-A1-06 learner evidence requires a non-blank event id.");
         return new LearnerEvidenceEvent
         {
@@ -384,7 +356,7 @@ internal sealed class GovernedGrammarA106Runtime
             ObjectiveId = objectiveId,
             SkillId = skillId,
             ItemId = item.ItemId,
-            Completed = completed,
+            Completed = true,
             Correct = correct,
             IsUnseenMaterial = unseen,
             IsProductivePerformance = productive,
@@ -396,26 +368,24 @@ internal sealed class GovernedGrammarA106Runtime
         };
     }
 
-    private static bool HasConflictingSiblingActivity(
-        LearnerCourseState state,
-        GovernedGrammarItemContract item) =>
+    private static bool HasConflictingSiblingActivity(LearnerCourseState state, GovernedGrammarItemContract item) =>
         !string.IsNullOrWhiteSpace(item.ConflictWithItemId) &&
         HasAnyActivityForItem(state, item.ConflictWithItemId);
 
     private static bool HasAnyActivityForItem(LearnerCourseState state, string itemId) =>
-        state.EvidenceHistory.Any(evidence =>
-            evidence is not null &&
-            string.Equals(evidence.CourseId, CourseId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(evidence.ModuleId, ModuleId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(evidence.ItemId, itemId, StringComparison.OrdinalIgnoreCase));
+        state.EvidenceHistory.Any(e =>
+            e is not null &&
+            string.Equals(e.CourseId, CourseId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.ModuleId, ModuleId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.ItemId, itemId, StringComparison.OrdinalIgnoreCase));
 
     private static bool HasPriorDisqualifyingSameItemActivity(LearnerCourseState state, string itemId) =>
-        state.EvidenceHistory.Any(evidence =>
-            evidence is not null &&
-            string.Equals(evidence.CourseId, CourseId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(evidence.ModuleId, ModuleId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(evidence.ItemId, itemId, StringComparison.OrdinalIgnoreCase) &&
-            (evidence.ActivityKind != LearnerActivityKind.Exposure || evidence.HintUses > 0 || evidence.RevealUses > 0));
+        state.EvidenceHistory.Any(e =>
+            e is not null &&
+            string.Equals(e.CourseId, CourseId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.ModuleId, ModuleId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.ItemId, itemId, StringComparison.OrdinalIgnoreCase) &&
+            (e.ActivityKind != LearnerActivityKind.Exposure || e.HintUses > 0 || e.RevealUses > 0));
 
     private static string RequireItemId(string itemId)
     {
@@ -445,11 +415,9 @@ internal sealed class GovernedGrammarA106Runtime
     {
         if (!GrammarSkillCatalog.ById.TryGetValue(GrammarSkillId, out GrammarSkill? skill))
             throw new InvalidDataException($"G-A1-06 canonical grammar skill '{GrammarSkillId}' is missing.");
-        if (!string.Equals(skill.Cefr, "A1", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(skill.CefrLevel, "A1", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"G-A1-06 canonical grammar skill '{GrammarSkillId}' no longer has the governed A1 level.");
     }
-
-    private static string CreateEventId() => "ga106.event." + Guid.NewGuid().ToString("N");
 }
 
 internal static class GovernedGrammarA106RuntimeSelfTestBootstrap
@@ -466,165 +434,152 @@ internal static class GovernedGrammarA106RuntimeSelfTest
 {
     public static void Run()
     {
-        CanonicalAndAtomicCeilingsAreFailClosed();
+        CanonicalAndContributionCeilingsAreFailClosed();
         ProtectedSiblingRetirementSurvivesRestart();
-        FastTrackRevealCannotBecomeMasteryEvidence();
-        EvidenceFactsDoNotInventMasteryOrAdaptiveRoute();
-        S0604TypedFallbackCannotBecomeSpeechOrListeningMastery();
+        RevealCannotBecomeProtectedMasteryEvidence();
+        EvidenceFactsDoNotInventMasteryOrRoute();
+        TypedFallbackCannotBecomeSpeechOrListeningMastery();
     }
 
-    private static void CanonicalAndAtomicCeilingsAreFailClosed()
+    private static void CanonicalAndContributionCeilingsAreFailClosed()
     {
         AdaptivePracticeCandidate candidate = GovernedGrammarA106Runtime.CreateAdaptiveCandidate("oxford");
         Require(candidate.TargetId == GovernedGrammarA106Runtime.GrammarSkillId,
-            "Governed module did not map to the existing canonical Grammar target.");
+            "Canonical Grammar target mapping failed.");
         Require(GovernedGrammarA106Runtime.IsWithinAtomicCeiling(
             "present.continuous-form", "A1", GovernedGrammarMasteryStage.ProductiveMastery),
-            "A1 productive form evidence was incorrectly rejected.");
+            "A1 productive form evidence was rejected.");
         Require(!GovernedGrammarA106Runtime.IsWithinAtomicCeiling(
             "present.continuous-use", "A2", GovernedGrammarMasteryStage.ProductiveMastery),
-            "G-A1-06 must not promote continuous-use to its later A2 productive-mastery state.");
+            "A1 module illegally promoted later A2 productive-use mastery.");
         Require(!GovernedGrammarA106Runtime.IsWithinAtomicCeiling(
             "present.state-dynamic-basic", "A1", GovernedGrammarMasteryStage.ControlledMastery),
-            "G-A1-06 must cap state/dynamic evidence at A1 familiarity/exposure.");
-        Require(!GovernedGrammarA106Runtime.IsWithinAtomicCeiling(
-            "present.simple-vs-continuous", "B1", GovernedGrammarMasteryStage.ProductiveMastery),
-            "G-A1-06 must not promote broad Simple-vs-Continuous evidence to B1 productive mastery.");
+            "A1 module exceeded state/dynamic familiarity ceiling.");
     }
 
     private static void ProtectedSiblingRetirementSurvivesRestart()
     {
-        string root = NewTempRoot();
+        string root = NewRoot();
         try
         {
-            int sequence = 0;
-            var store = new LearnerCourseStateStore(root);
-            var runtime = new GovernedGrammarA106Runtime(
-                store,
-                () => "ga106.test." + (++sequence).ToString("D4"),
-                () => new DateTimeOffset(2026, 9, 13, 3, 30, sequence, TimeSpan.Zero));
-
+            int n = 0;
+            var runtime = NewRuntime(root, "sibling", ref n);
             runtime.RecordExposure("FT06-06");
             Require(!runtime.IsProtectedItemAvailable("UT06-03"),
-                "Administering FT06-06 must retire reciprocal UT06-03 protected evidence for this learner.");
+                "FT06-06 administration must retire reciprocal UT06-03.");
             Require(runtime.IsProtectedItemAvailable("FT06-06"),
-                "Safe prompt administration must not invalidate the same FT06-06 item before commitment.");
+                "Clean prompt administration must not invalidate its own first commitment.");
 
-            var restarted = new GovernedGrammarA106Runtime(
-                new LearnerCourseStateStore(root),
-                () => "ga106.restart." + (++sequence).ToString("D4"),
-                () => new DateTimeOffset(2026, 9, 13, 3, 31, sequence, TimeSpan.Zero));
-            Require(!restarted.IsProtectedItemAvailable("UT06-03"),
-                "Reciprocal protected-sibling retirement did not survive reopen.");
-
-            GovernedGrammarAttemptDecision decision = restarted.RecordProtectedAttempt("FT06-06", correct: true);
-            Require(decision.ProtectedEvidenceEligible && decision.MayContributeToAuthorizedMasteryDerivation,
-                "Clean first FT06-06 commitment should remain eligible after safe prompt administration.");
-            Require(!restarted.IsProtectedItemAvailable("FT06-06"),
-                "A submitted protected item must not be reusable as fresh protected evidence.");
+            var reopened = NewRuntime(root, "reopen", ref n);
+            Require(!reopened.IsProtectedItemAvailable("UT06-03"),
+                "Sibling retirement did not survive reopen.");
+            GovernedGrammarAttemptDecision decision = reopened.RecordProtectedAttempt("FT06-06", correct: true);
+            Require(decision.MayContributeToAuthorizedMasteryDerivation,
+                "Clean first FT06-06 commitment should remain eligible.");
+            Require(!reopened.IsProtectedItemAvailable("FT06-06"),
+                "Submitted protected item became reusable.");
         }
-        finally
-        {
-            TryDeleteDirectory(root);
-        }
+        finally { DeleteRoot(root); }
     }
 
-    private static void FastTrackRevealCannotBecomeMasteryEvidence()
+    private static void RevealCannotBecomeProtectedMasteryEvidence()
     {
-        string root = NewTempRoot();
+        string root = NewRoot();
         try
         {
-            int sequence = 0;
-            var runtime = new GovernedGrammarA106Runtime(
-                new LearnerCourseStateStore(root),
-                () => "ga106.fasttrack." + (++sequence).ToString("D4"),
-                () => new DateTimeOffset(2026, 9, 13, 3, 32, sequence, TimeSpan.Zero));
+            int n = 0;
+            var runtime = NewRuntime(root, "reveal", ref n);
             runtime.RecordExposure("FT06-05", answerBearing: true);
-            GovernedGrammarAttemptDecision contaminated = runtime.RecordProtectedAttempt("FT06-05", correct: true);
-            Require(!contaminated.ProtectedEvidenceEligible && !contaminated.MayContributeToAuthorizedMasteryDerivation,
-                "Answer-bearing FT06-05 exposure must fail closed even after a correct response.");
-            Require(contaminated.ReasonCode == "ITEM_REUSED_OR_PRIORLY_CONTAMINATED",
-                "FT06-05 contamination did not produce the expected fail-closed reason.");
+            GovernedGrammarAttemptDecision result = runtime.RecordProtectedAttempt("FT06-05", correct: true);
+            Require(!result.ProtectedEvidenceEligible && !result.MayContributeToAuthorizedMasteryDerivation,
+                "Answer-bearing FT06-05 exposure became protected mastery evidence.");
         }
-        finally
-        {
-            TryDeleteDirectory(root);
-        }
+        finally { DeleteRoot(root); }
     }
 
-    private static void EvidenceFactsDoNotInventMasteryOrAdaptiveRoute()
+    private static void EvidenceFactsDoNotInventMasteryOrRoute()
     {
-        string root = NewTempRoot();
+        string root = NewRoot();
         try
         {
-            int sequence = 0;
+            int n = 0;
             var store = new LearnerCourseStateStore(root);
             var runtime = new GovernedGrammarA106Runtime(
                 store,
-                () => "ga106.facts." + (++sequence).ToString("D4"),
-                () => new DateTimeOffset(2026, 9, 13, 3, 33, sequence, TimeSpan.Zero));
-            GovernedGrammarAttemptDecision clean = runtime.RecordProtectedAttempt("FT06-05", correct: true);
-            Require(clean.MayContributeToAuthorizedMasteryDerivation,
-                "Clean no-hint FT06-05 evidence should remain available to an authorized mastery rule.");
-            LearnerCourseState persisted = store.Load();
-            Require(persisted.MasteryByObjectiveId.Count == 0,
-                "Governed activity facts must not synthesize mastery claims by themselves.");
-            Require(persisted.SkillLevelsBySkillId.Count == 0,
-                "Governed activity facts must not synthesize CEFR levels by themselves.");
-            Require(persisted.AdaptiveRouteByPathId.Count == 0,
-                "Governed activity facts must not synthesize a Fast Track/adaptive route by themselves.");
+                () => "ga106.facts." + (++n).ToString("D4"),
+                () => new DateTimeOffset(2026, 9, 13, 3, 33, n, TimeSpan.Zero));
+            runtime.RecordProtectedAttempt("FT06-05", correct: true);
+            LearnerCourseState state = store.Load();
+            Require(state.MasteryByObjectiveId.Count == 0,
+                "Activity facts synthesized mastery.");
+            Require(state.SkillLevelsBySkillId.Count == 0,
+                "Activity facts synthesized a CEFR level.");
+            Require(state.AdaptiveRouteByPathId.Count == 0,
+                "Activity facts synthesized an adaptive route.");
         }
-        finally
-        {
-            TryDeleteDirectory(root);
-        }
+        finally { DeleteRoot(root); }
     }
 
-    private static void S0604TypedFallbackCannotBecomeSpeechOrListeningMastery()
+    private static void TypedFallbackCannotBecomeSpeechOrListeningMastery()
     {
         Require(!GovernedGrammarA106Runtime.SupportsListeningEvidence("S06-04"),
-            "S06-04 must declare ListeningEvidence=NONE.");
+            "S06-04 must keep ListeningEvidence=NONE.");
         Require(GovernedGrammarA106Runtime.GetAudioAssetId("S06-04") is null,
-            "S06-04 must declare AudioAssetId=NONE.");
+            "S06-04 must keep AudioAssetId=NONE.");
 
         SpeechPracticeRequest request = GovernedGrammarA106Runtime.CreateS0604SpeechRequest(
             "Mina isn't writing a message; she's reading a message.",
             SpeechSubmissionKind.TypedFallback);
-        var speech = new SpeechPracticeRuntime(new NeverCaptureProvider(), new NeverJudgeProvider());
+        var speech = new SpeechPracticeRuntime(new NeverCapture(), new NeverJudge());
         SpeechPracticeOutcome outcome = speech.EvaluateAsync(request).GetAwaiter().GetResult();
         Require(outcome.CountsAsPractice && !outcome.MasteryEligible &&
                 outcome.ReasonCode == "TYPED_FALLBACK_PRACTICE_ONLY",
-            "S06-04 typed fallback was incorrectly promoted to spoken mastery evidence.");
+            "Typed fallback was promoted to spoken mastery.");
 
-        string root = NewTempRoot();
+        string root = NewRoot();
         try
         {
-            int sequence = 0;
+            int n = 0;
             var store = new LearnerCourseStateStore(root);
             var runtime = new GovernedGrammarA106Runtime(
                 store,
-                () => "ga106.speech." + (++sequence).ToString("D4"),
-                () => new DateTimeOffset(2026, 9, 13, 3, 34, sequence, TimeSpan.Zero));
+                () => "ga106.typed." + (++n).ToString("D4"),
+                () => new DateTimeOffset(2026, 9, 13, 3, 34, n, TimeSpan.Zero));
             runtime.RecordS0604TypedFallbackPractice(correct: true);
             LearnerEvidenceEvent evidence = store.Load().EvidenceHistory.Single();
-            Require(evidence.SkillId == "typed-fallback" && !evidence.IsProductivePerformance &&
-                    evidence.ActivityKind == LearnerActivityKind.Practice,
-                "S06-04 typed fallback persistence must remain explicit practice-only evidence.");
+            Require(evidence.ActivityKind == LearnerActivityKind.Practice &&
+                    evidence.SkillId == "typed-fallback" &&
+                    !evidence.IsProductivePerformance,
+                "Typed fallback persistence was mislabeled as productive evidence.");
         }
-        finally
-        {
-            TryDeleteDirectory(root);
-        }
+        finally { DeleteRoot(root); }
     }
 
-    private static string NewTempRoot()
+    private static GovernedGrammarA106Runtime NewRuntime(string root, string prefix, ref int counter)
+    {
+        var box = new CounterBox(counter);
+        GovernedGrammarA106Runtime runtime = new(
+            new LearnerCourseStateStore(root),
+            () => "ga106." + prefix + "." + (++box.Value).ToString("D4"),
+            () => new DateTimeOffset(2026, 9, 13, 3, 30, Math.Min(box.Value, 59), TimeSpan.Zero));
+        counter = box.Value;
+        return runtime;
+    }
+
+    private sealed class CounterBox
+    {
+        public CounterBox(int value) => Value = value;
+        public int Value;
+    }
+
+    private static string NewRoot()
     {
         string root = Path.Combine(Path.GetTempPath(), "WordDeck G-A1-06 " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         return root;
     }
 
-    private static void TryDeleteDirectory(string root)
+    private static void DeleteRoot(string root)
     {
         try { Directory.Delete(root, recursive: true); } catch { }
     }
@@ -634,16 +589,11 @@ internal static class GovernedGrammarA106RuntimeSelfTest
         if (!condition) throw new InvalidOperationException("GovernedGrammarA106RuntimeSelfTest: " + message);
     }
 
-    private sealed class NeverCaptureProvider : ISpeechCaptureProvider
+    private sealed class NeverCapture : ISpeechCaptureProvider
     {
         public SpeechProviderQualification Qualification { get; } = new(
-            "ga106-selftest-capture",
-            "1",
-            IsQualified: false,
-            QualificationId: "none",
-            QualificationRevision: "none",
-            SpeechProviderCapabilities.None,
-            SpeechRawAudioPolicy.EphemeralMemoryOnly);
+            "ga106-selftest-capture", "1", false, "none", "none",
+            SpeechProviderCapabilities.None, SpeechRawAudioPolicy.EphemeralMemoryOnly);
 
         public Task<SpeechCaptureResult> CaptureAsync(
             SpeechPracticeRequest request,
@@ -651,16 +601,11 @@ internal static class GovernedGrammarA106RuntimeSelfTest
             throw new InvalidOperationException("Typed fallback must not invoke microphone capture.");
     }
 
-    private sealed class NeverJudgeProvider : ISpeechJudge
+    private sealed class NeverJudge : ISpeechJudge
     {
         public SpeechProviderQualification Qualification { get; } = new(
-            "ga106-selftest-judge",
-            "1",
-            IsQualified: false,
-            QualificationId: "none",
-            QualificationRevision: "none",
-            SpeechProviderCapabilities.None,
-            SpeechRawAudioPolicy.EphemeralMemoryOnly);
+            "ga106-selftest-judge", "1", false, "none", "none",
+            SpeechProviderCapabilities.None, SpeechRawAudioPolicy.EphemeralMemoryOnly);
 
         public Task<SpeechJudgementResult> JudgeAsync(
             SpeechPracticeRequest request,
