@@ -328,23 +328,23 @@ internal sealed class StoryCourseRuntimeForm : Form
             RowCount = 17,
             AutoScroll = true
         };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 0 unit label
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 1 unit combo
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12)); // 2 unit info
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 3 context combo
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18)); // 4 context text
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 5 mark read
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 6 comprehension combo
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12)); // 7 comprehension prompt
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 8 answer
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 9 check
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 10 productive combo
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12)); // 11 productive prompt
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18)); // 12 productive response
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 13 productive submit
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 14 navigation
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 14)); // 15 status
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 16 mastery disclaimer
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 12));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 18));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 14));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         root.Controls.Add(new Label { Text = "&Розділ курсу:", AutoSize = true }, 0, 0);
         root.Controls.Add(_unitCombo, 0, 1);
@@ -502,7 +502,7 @@ internal sealed class StoryCourseRuntimeForm : Form
         PopulateContexts(selected.Unit);
         PopulateTasks(selected.Unit);
         PopulateProductiveTasks(selected.Unit);
-        string opened = "Розділ відкрито. Tab переходить між матеріалом, comprehension і productive practice.";
+        string opened = "Розділ відкрито. Tab переходить між матеріалом, comprehension і productive practice. Поетапні productive-завдання з answer-bearing support з'являються лише після потрібної попередньої required-channel submission.";
         if (!string.IsNullOrWhiteSpace(legacyProgressWarning)) opened += Environment.NewLine + legacyProgressWarning;
         if (!string.IsNullOrWhiteSpace(learnerStateWarning)) opened += Environment.NewLine + learnerStateWarning;
         UpdateProgressStatus(opened);
@@ -534,14 +534,34 @@ internal sealed class StoryCourseRuntimeForm : Form
         ShowTask();
     }
 
-    private void PopulateProductiveTasks(StoryCourseUnitContract unit)
+    private void PopulateProductiveTasks(StoryCourseUnitContract unit, string? preferredTaskId = null)
     {
         _changing = true;
         try
         {
             _productiveCombo.Items.Clear();
-            foreach (StoryCourseProductiveTaskContract task in unit.ProductiveTasks) _productiveCombo.Items.Add(new ProductiveChoice(task));
-            _productiveCombo.SelectedIndex = _productiveCombo.Items.Count == 0 ? -1 : 0;
+            LearnerCourseState learnerState = _learnerStore.Load();
+            IReadOnlyList<StoryCourseProductiveTaskContract> visible =
+                StoryCourseProductiveRevealPolicy.VisibleTasks(_manifest, unit, learnerState);
+            foreach (StoryCourseProductiveTaskContract task in visible)
+                _productiveCombo.Items.Add(new ProductiveChoice(task));
+
+            int preferred = -1;
+            if (!string.IsNullOrWhiteSpace(preferredTaskId))
+            {
+                for (int index = 0; index < _productiveCombo.Items.Count; index++)
+                {
+                    if (_productiveCombo.Items[index] is ProductiveChoice choice &&
+                        choice.Task.TaskId.Equals(preferredTaskId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        preferred = index;
+                        break;
+                    }
+                }
+            }
+            _productiveCombo.SelectedIndex = preferred >= 0
+                ? preferred
+                : (_productiveCombo.Items.Count == 0 ? -1 : 0);
         }
         finally { _changing = false; }
         ShowProductiveTask();
@@ -715,6 +735,7 @@ internal sealed class StoryCourseRuntimeForm : Form
             return;
         }
 
+        int visibleBefore = _productiveCombo.Items.Count;
         StoryCourseProductiveSubmissionKind submissionKind = SubmissionKindForCurrentUi(selected.Task.Channel);
         try
         {
@@ -732,16 +753,28 @@ internal sealed class StoryCourseRuntimeForm : Form
             return;
         }
 
+        PopulateProductiveTasks(unit.Unit, selected.Task.TaskId);
+        bool unlocked = _productiveCombo.Items.Count > visibleBefore;
+        string message;
         if (submissionKind == StoryCourseProductiveSubmissionKind.RequiredChannelPerformance)
         {
-            UpdateProgressStatus("Writing practice збережено як виконання потрібного каналу. Текст не отримав автоматичної оцінки правильності й не створив mastery.");
+            message = "Writing practice збережено як виконання потрібного каналу. Текст не отримав автоматичної оцінки правильності й не створив mastery.";
         }
         else
         {
-            UpdateProgressStatus("Текстову заміну збережено лише як typed-fallback practice. Вона НЕ є Speaking/Pronunciation evidence і не створює mastery.");
+            message = "Текстову заміну збережено лише як typed-fallback practice. Вона НЕ є Speaking/Pronunciation evidence і не створює mastery.";
         }
-        _productiveResponse.Focus();
-        _productiveResponse.SelectAll();
+        if (unlocked)
+            message += " Наступна поетапна productive-вправа тепер доступна у списку; answer-bearing support не розкривався до required-channel submission.";
+        UpdateProgressStatus(message);
+
+        if (unlocked)
+            _productiveCombo.Focus();
+        else
+        {
+            _productiveResponse.Focus();
+            _productiveResponse.SelectAll();
+        }
     }
 
     private int NextAttemptNumber(string itemId)
