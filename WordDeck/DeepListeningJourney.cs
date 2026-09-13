@@ -82,22 +82,33 @@ internal static class DeepListeningJourney
         //
         // A completed Listening review is durably evidenced twice in the existing
         // single ListeningCoachState: History contains the chronological record and
-        // StatsByDictionary records CompletedReviews for the same exercise. Use that
-        // durable completion evidence to reject synthetic/stale history without making
-        // current eligibility rewrite already-counted journey chronology.
-        var completedExerciseIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // StatsByDictionary records the aggregate CompletedReviews count for the same
+        // exercise. Reconcile each chronological history occurrence against that count
+        // so duplicate/stale rows cannot gain journey credit merely because their
+        // exercise has at least one legitimate completion. This keeps current
+        // eligibility out of already-counted chronology without adding another store.
+        var remainingCompletedByExercise = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (state.StatsByDictionary.TryGetValue(dictionaryId, out Dictionary<string, ListeningItemStats>? perDictionary))
         {
             foreach ((string exerciseId, ListeningItemStats stats) in perDictionary)
-                if (stats.CompletedReviews > 0) completedExerciseIds.Add(exerciseId);
+                if (stats.CompletedReviews > 0)
+                    remainingCompletedByExercise[exerciseId] = stats.CompletedReviews;
         }
 
-        List<ListeningHistoryRecord> relevant = state.History
-            .Where(record =>
-                string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) &&
-                record.Kind == ListeningExerciseKind.Word &&
-                completedExerciseIds.Contains(record.ExerciseId))
-            .ToList();
+        var relevant = new List<ListeningHistoryRecord>();
+        foreach (ListeningHistoryRecord record in state.History)
+        {
+            if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) ||
+                record.Kind != ListeningExerciseKind.Word ||
+                !remainingCompletedByExercise.TryGetValue(record.ExerciseId, out int remaining) ||
+                remaining <= 0)
+            {
+                continue;
+            }
+
+            relevant.Add(record);
+            remainingCompletedByExercise[record.ExerciseId] = remaining - 1;
+        }
 
         int inCycle = relevant.Count % TargetReviews;
         if (completionView && relevant.Count > 0 && inCycle == 0)
