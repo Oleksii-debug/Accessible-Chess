@@ -50,17 +50,40 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$CLAIM_BASE^{commit}"
-          git merge-base --is-ancestor "$CLAIM_BASE" HEAD
-          test "$(git merge-base "$CLAIM_BASE" HEAD)" = "$CLAIM_BASE"
-          git diff --check "$CLAIM_BASE" HEAD
-          changed="$(git diff --name-only "$CLAIM_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/p0f-lawful-starter-corpus.yml' \
-            'docs/P0F_STARTER_CONTENT_PROVENANCE.md' \
-            'tests/test_p0f_lawful_starter_bundle.py' \
-            'tools/p0f_lawful_starter_bundle.py' | sort)"
-          test "$changed" = "$expected"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            test "$(git merge-base "$base" HEAD)" = "$base"
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test -n "$changed"
+            while IFS= read -r path; do
+              case "$path" in
+                '.github/workflows/p0f-lawful-starter-corpus.yml'|\
+                'docs/P0F_STARTER_CONTENT_PROVENANCE.md'|\
+                'tests/test_p0f_lawful_starter_bundle.py'|\
+                'tools/p0f_lawful_starter_bundle.py')
+                  ;;
+                *)
+                  echo "Unexpected path outside P0-F starter-corpus lane: $path" >&2
+                  exit 1
+                  ;;
+              esac
+            done <<< "$changed"
+          else
+            git cat-file -e "$CLAIM_BASE^{commit}"
+            git merge-base --is-ancestor "$CLAIM_BASE" HEAD
+            test "$(git merge-base "$CLAIM_BASE" HEAD)" = "$CLAIM_BASE"
+            git diff --check "$CLAIM_BASE" HEAD
+            changed="$(git diff --name-only "$CLAIM_BASE" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/p0f-lawful-starter-corpus.yml' \
+              'docs/P0F_STARTER_CONTENT_PROVENANCE.md' \
+              'tests/test_p0f_lawful_starter_bundle.py' \
+              'tools/p0f_lawful_starter_bundle.py' | sort)"
+            test "$changed" = "$expected"
+          fi
 
       - name: Compile bounded repair
         run: >-
