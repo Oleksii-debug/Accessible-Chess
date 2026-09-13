@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "baseline_id": "tatoeba-en-uk-attributed-ccby-v1-physical-form-v1",
+  "purpose": "Deterministic semantic baseline after correcting token-only multiword matching so punctuation and hyphenation in Oxford physical forms must be present in the sentence.",
+  "input_sha256": {
+    "english_detailed": "40283f993461d457c9a2d7151f7ae50a0a6a9facb41e98911fd4714eb8d701a7",
+    "ukrainian_detailed": "6259f4dca3725445e1b1e7d617fe56d547a336a15af4e2824e223a6260e0448b",
+    "links": "9aa8305ad09f81d39686397be15935ceff678a2018c4ee2c85ee30b9de59b57a"
+  },
+  "legacy_provenance": {
+    "workflow_run_id": 34709934049,
+    "artifact_id": 10303156056,
+    "artifact_zip_sha256": "0d9bdbb060196505982e777f1d6a10d5bf5bc3a9afe3e80951bce570b06046b6",
+    "sqlite_sha256": "c121d67fcac89eabe51d70f020737cd88dc10752251e09db6a1780a7e780d91f",
+    "sentence_count": 208433,
+    "stable_tag_participation": {
+      "one_target": 4492,
+      "two_target": 4469,
+      "three_target": 4362
+    }
+  },
+  "corrected_physical_form_v1": {
+    "evidence_head_sha": "be8541ad7fd2b70e68c1165c518e8bd234c60bce",
+    "workflow_run_id": 34745895086,
+    "artifact_id": 10313728026,
+    "artifact_zip_sha256": "d2f0d8a6b434177da6aff2be4ecf13955e4d139be59e627eafbf5a1e090ba51c",
+    "sqlite_sha256": "bf9b36160d2d1af80ff26ab3d2aa8e7c962a6eb4e3fbde6b2aa7b971f200ccd3",
+    "sentence_count": 208433,
+    "dictionary_entry_count": 5446,
+    "stable_tag_participation": {
+      "one_target": 4488,
+      "two_target": 4465,
+      "three_target": 4358
+    },
+    "removed_false_positive_stable_ids": [
+      {
+        "entry_id": "ox5000-02b2b92d62fbdb8d9849",
+        "source": "full-time",
+        "part_of_speech": "adverb",
+        "level": "B2"
+      },
+      {
+        "entry_id": "ox5000-842908a0c1db6a162da8",
+        "source": "full-time",
+        "part_of_speech": "adjective",
+        "level": "B2"
+      },
+      {
+        "entry_id": "ox5000-dde9a1dd9b3f74a7a143",
+        "source": "line-up",
+        "part_of_speech": "noun",
+        "level": "C1"
+      },
+      {
+        "entry_id": "ox5000-4d766857ed9c061d385e",
+        "source": "long-time",
+        "part_of_speech": "adjective",
+        "level": "C1"
+      }
+    ],
+    "added_stable_ids": []
+  },
+  "supersession_contract": {
+    "legacy_values_remain_provenance": true,
+    "legacy_numeric_floor_is_not_reused_as_a_runtime_semantic_floor_after_physical_form_v1": true,
+    "future_same_input_runs_must_match_corrected_sqlite_sha256_exactly": true,
+    "future_changed_input_runs_are_observation_only_until_a_new_governed_baseline_is_qualified": true,
+    "homograph_resolution_is_not_relaxed": true,
+    "redistribution_is_not_approved": true
+  }
+}
