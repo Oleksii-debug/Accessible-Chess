@@ -7,6 +7,7 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
         IncorrectFormalOutcomeRoutesDeepPracticeAndPersists();
         CleanFormalOutcomePersistsEvidenceWithoutRoute();
         OwnedDeepPracticeClearsAfterCleanReassessment();
+        UnscoredReassessmentPreservesOwnedWeakness();
         UnscoredFormalOutcomeCannotCreateWeakness();
         IncompleteOrPracticeSessionCannotRoute();
         ForeignRouteOwnerFailsClosedBeforeMutation();
@@ -123,10 +124,10 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
                 Binding("diag-session-clean"),
                 new DateTimeOffset(2026, 9, 13, 13, 22, 0, TimeSpan.Zero));
 
-            Require(!cleanResult.HasDirectNeed && !cleanResult.DeepPracticePersisted,
-                "later clean formal reassessment must report no current direct need.");
+            Require(!cleanResult.HasDirectNeed && cleanResult.EvidenceStatus == AdaptiveEvidenceStatus.Scored && !cleanResult.DeepPracticePersisted,
+                "later clean scored formal reassessment must report no current direct need.");
             Require(!learner.AdaptiveRouteByPathId.ContainsKey(pathId),
-                "later clean formal reassessment must clear this bridge's stale DeepPractice recommendation.");
+                "later clean scored formal reassessment must clear this bridge's stale DeepPractice recommendation.");
             Require(learner.EvidenceHistory.Count == 3 &&
                     learner.EvidenceHistory.Any(item => item.EventId == "formal-assessment:weak-attempt-1") &&
                     learner.EvidenceHistory.Any(item => item.EventId == "formal-assessment:clean-attempt-1") &&
@@ -140,6 +141,57 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
                 "cleared bridge-owned DeepPractice and both sessions' evidence must survive close/reopen.");
             Require(reopened.MasteryByObjectiveId.Count == 0 && reopened.SkillLevelsBySkillId.Count == 0,
                 "reopen after clean supersession must still contain no mastery/SkillLevel/CEFR promotion.");
+        });
+    }
+
+    private static void UnscoredReassessmentPreservesOwnedWeakness()
+    {
+        WithStore((store, root) =>
+        {
+            var bridge = new AdaptiveDiagnosticStateBridge();
+            LearnerCourseState learner = LearnerCourseStateStore.NewEmpty();
+            string pathId = Binding().PathId;
+
+            AdaptiveDiagnosticStateResult weak = bridge.Apply(
+                CompleteState(
+                    "diag-session-unscored-weak",
+                    "unscored-weak-attempt",
+                    AssessmentMode.Assessment,
+                    AssessmentMark.Incorrect),
+                learner,
+                store,
+                Binding("diag-session-unscored-weak"),
+                new DateTimeOffset(2026, 9, 13, 13, 24, 0, TimeSpan.Zero));
+            Require(weak.HasDirectNeed && learner.AdaptiveRouteByPathId.ContainsKey(pathId),
+                "setup weakness must persist DeepPractice before exposure-only reassessment.");
+            AdaptiveRouteDecision prior = learner.AdaptiveRouteByPathId[pathId];
+
+            AdaptiveDiagnosticStateResult exposure = bridge.Apply(
+                CompleteState(
+                    "diag-session-unscored-followup",
+                    "unscored-followup-attempt",
+                    AssessmentMode.Assessment,
+                    AssessmentMark.Skipped,
+                    AssessmentMark.Unscored),
+                learner,
+                store,
+                Binding("diag-session-unscored-followup"),
+                new DateTimeOffset(2026, 9, 13, 13, 26, 0, TimeSpan.Zero));
+
+            Require(exposure.EvidenceStatus == AdaptiveEvidenceStatus.ExposureOnly && !exposure.HasDirectNeed,
+                "skipped/unscored follow-up must remain unknown exposure, not scored resolution.");
+            Require(learner.AdaptiveRouteByPathId.TryGetValue(pathId, out AdaptiveRouteDecision? retained) &&
+                    retained.RuleVersion == prior.RuleVersion &&
+                    retained.ReasonCode == prior.ReasonCode &&
+                    retained.Route == AdaptivePracticeRoute.DeepPractice &&
+                    retained.EvidenceEventIds.SequenceEqual(prior.EvidenceEventIds, StringComparer.OrdinalIgnoreCase),
+                "exposure-only follow-up must not erase or rewrite a prior scored bridge-owned weakness.");
+            Require(learner.EvidenceHistory.Count == 3 && learner.MasteryByObjectiveId.Count == 0 && learner.SkillLevelsBySkillId.Count == 0,
+                "preserving scored weakness across exposure-only evidence must retain all evidence without promotion.");
+
+            LearnerCourseState reopened = store.Load();
+            Require(reopened.AdaptiveRouteByPathId.ContainsKey(pathId) && reopened.EvidenceHistory.Count == 3,
+                "scored weakness preservation across exposure-only follow-up must survive close/reopen.");
         });
     }
 
@@ -268,10 +320,10 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
                 store,
                 Binding("diag-session-foreign-clean"),
                 new DateTimeOffset(2026, 9, 13, 13, 35, 0, TimeSpan.Zero));
-            Require(!clean.HasDirectNeed &&
+            Require(!clean.HasDirectNeed && clean.EvidenceStatus == AdaptiveEvidenceStatus.Scored &&
                     learner.AdaptiveRouteByPathId[binding.PathId].RuleVersion == "other-rule-v1" &&
                     learner.AdaptiveRouteByPathId[binding.PathId].Route == AdaptivePracticeRoute.FastTrack,
-                "clean formal evidence must never clear or replace a foreign owner's route.");
+                "clean scored formal evidence must never clear or replace a foreign owner's route.");
         });
     }
 
