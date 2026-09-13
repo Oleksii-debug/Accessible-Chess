@@ -6,6 +6,7 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
     {
         IncorrectFormalOutcomeRoutesDeepPracticeAndPersists();
         CleanFormalOutcomePersistsEvidenceWithoutRoute();
+        OwnedDeepPracticeClearsAfterCleanReassessment();
         UnscoredFormalOutcomeCannotCreateWeakness();
         IncompleteOrPracticeSessionCannotRoute();
         ForeignRouteOwnerFailsClosedBeforeMutation();
@@ -84,6 +85,61 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
                 "absence of direct need must not be converted into Standard or FastTrack state.");
             Require(learner.MasteryByObjectiveId.Count == 0 && learner.SkillLevelsBySkillId.Count == 0,
                 "clean assessment performance is not an automatic mastery/level promotion.");
+        });
+    }
+
+    private static void OwnedDeepPracticeClearsAfterCleanReassessment()
+    {
+        WithStore((store, root) =>
+        {
+            var bridge = new AdaptiveDiagnosticStateBridge();
+            LearnerCourseState learner = LearnerCourseStateStore.NewEmpty();
+            string pathId = Binding().PathId;
+
+            AssessmentRuntimeState weak = CompleteState(
+                "diag-session-weak",
+                "weak-attempt",
+                AssessmentMode.Assessment,
+                AssessmentMark.Incorrect);
+            AdaptiveDiagnosticStateResult weakResult = bridge.Apply(
+                weak,
+                learner,
+                store,
+                Binding("diag-session-weak"),
+                new DateTimeOffset(2026, 9, 13, 13, 12, 0, TimeSpan.Zero));
+            Require(weakResult.HasDirectNeed && learner.AdaptiveRouteByPathId.ContainsKey(pathId),
+                "weak formal session must establish bridge-owned DeepPractice before supersession is tested.");
+
+            AssessmentRuntimeState clean = CompleteState(
+                "diag-session-clean",
+                "clean-attempt",
+                AssessmentMode.Assessment,
+                AssessmentMark.Correct,
+                AssessmentMark.Correct);
+            AdaptiveDiagnosticStateResult cleanResult = bridge.Apply(
+                clean,
+                learner,
+                store,
+                Binding("diag-session-clean"),
+                new DateTimeOffset(2026, 9, 13, 13, 22, 0, TimeSpan.Zero));
+
+            Require(!cleanResult.HasDirectNeed && !cleanResult.DeepPracticePersisted,
+                "later clean formal reassessment must report no current direct need.");
+            Require(!learner.AdaptiveRouteByPathId.ContainsKey(pathId),
+                "later clean formal reassessment must clear this bridge's stale DeepPractice recommendation.");
+            Require(learner.EvidenceHistory.Count == 3 &&
+                    learner.EvidenceHistory.Any(item => item.EventId == "formal-assessment:weak-attempt-1") &&
+                    learner.EvidenceHistory.Any(item => item.EventId == "formal-assessment:clean-attempt-1") &&
+                    learner.EvidenceHistory.Any(item => item.EventId == "formal-assessment:clean-attempt-2"),
+                "superseding a remediation route must retain attributable evidence from both formal sessions.");
+            Require(learner.MasteryByObjectiveId.Count == 0 && learner.SkillLevelsBySkillId.Count == 0,
+                "clean reassessment supersession must not synthesize mastery or level state.");
+
+            LearnerCourseState reopened = store.Load();
+            Require(reopened.EvidenceHistory.Count == 3 && !reopened.AdaptiveRouteByPathId.ContainsKey(pathId),
+                "cleared bridge-owned DeepPractice and both sessions' evidence must survive close/reopen.");
+            Require(reopened.MasteryByObjectiveId.Count == 0 && reopened.SkillLevelsBySkillId.Count == 0,
+                "reopen after clean supersession must still contain no mastery/SkillLevel/CEFR promotion.");
         });
     }
 
@@ -200,6 +256,22 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
             Require(learner.EvidenceHistory.Count == 1 &&
                     learner.AdaptiveRouteByPathId[binding.PathId].RuleVersion == "other-rule-v1",
                 "foreign-route collision must fail before diagnostic state mutation.");
+
+            AdaptiveDiagnosticStateResult clean = new AdaptiveDiagnosticStateBridge().Apply(
+                CompleteState(
+                    "diag-session-foreign-clean",
+                    "foreign-clean-attempt",
+                    AssessmentMode.Assessment,
+                    AssessmentMark.Correct,
+                    AssessmentMark.Correct),
+                learner,
+                store,
+                Binding("diag-session-foreign-clean"),
+                new DateTimeOffset(2026, 9, 13, 13, 35, 0, TimeSpan.Zero));
+            Require(!clean.HasDirectNeed &&
+                    learner.AdaptiveRouteByPathId[binding.PathId].RuleVersion == "other-rule-v1" &&
+                    learner.AdaptiveRouteByPathId[binding.PathId].Route == AdaptivePracticeRoute.FastTrack,
+                "clean formal evidence must never clear or replace a foreign owner's route.");
         });
     }
 
@@ -247,7 +319,14 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
         });
     }
 
-    private static AssessmentRuntimeState CompleteState(AssessmentMode mode, params AssessmentMark[] marks)
+    private static AssessmentRuntimeState CompleteState(AssessmentMode mode, params AssessmentMark[] marks) =>
+        CompleteState("diag-session-1", "attempt", mode, marks);
+
+    private static AssessmentRuntimeState CompleteState(
+        string sessionId,
+        string attemptIdPrefix,
+        AssessmentMode mode,
+        params AssessmentMark[] marks)
     {
         DateTimeOffset start = new(2026, 9, 13, 12, 0, 0, TimeSpan.Zero);
         var keys = marks.Select((_, index) =>
@@ -255,7 +334,7 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
         var state = new AssessmentRuntimeState();
         state.Sessions.Add(new AssessmentSessionState
         {
-            SessionId = "diag-session-1",
+            SessionId = sessionId,
             PoolId = "formal-diagnostic-pool",
             PoolVersion = 1,
             Mode = mode,
@@ -271,8 +350,8 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
         {
             state.Attempts.Add(new AssessmentAttempt
             {
-                AttemptId = $"attempt-{i + 1}",
-                SessionId = "diag-session-1",
+                AttemptId = $"{attemptIdPrefix}-{i + 1}",
+                SessionId = sessionId,
                 Mode = mode,
                 ItemKey = keys[i],
                 SkillId = "grammar.tense.control",
@@ -324,10 +403,10 @@ internal static class AdaptiveDiagnosticStateBridgeSelfTest
         return state;
     }
 
-    private static AdaptiveDiagnosticBinding Binding() => new(
+    private static AdaptiveDiagnosticBinding Binding(string sessionId = "diag-session-1") => new(
         "complete-english:a1:adaptive",
         "complete-english:a1",
-        "diag-session-1",
+        sessionId,
         "grammar.tense.control",
         "formal-diagnostic",
         "grammar.tense.control",
