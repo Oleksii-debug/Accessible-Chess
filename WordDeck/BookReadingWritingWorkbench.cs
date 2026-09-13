@@ -12,8 +12,8 @@ internal sealed record BookReadingWritingResponse(
     DateTimeOffset UpdatedUtc);
 
 /// <summary>
-/// Persists learner writing beside the existing private Reading corpus. The store
-/// never uploads content and never turns a writing response into mastery evidence.
+/// Persists learner writing beside the existing private Reading corpus. This is
+/// practice evidence only: it never uploads content or grants mastery/CEFR credit.
 /// </summary>
 internal sealed class BookReadingWritingStore
 {
@@ -33,6 +33,7 @@ internal sealed class BookReadingWritingStore
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(sentence);
         document.Validate();
+
         string response = (responseText ?? string.Empty).Trim();
         string feedback = (feedbackText ?? string.Empty).Trim();
         if (response.Length == 0)
@@ -41,6 +42,7 @@ internal sealed class BookReadingWritingStore
             throw new InvalidDataException($"Writing response exceeds the {MaximumResponseCharacters:N0}-character local-practice limit.");
         if (feedback.Length == 0)
             throw new InvalidDataException("Deterministic feedback is required before Reading/Writing practice can be persisted.");
+
         bool belongs = document.Chapters
             .SelectMany(chapter => chapter.Sentences)
             .Any(candidate => candidate.SentenceId.Equals(sentence.SentenceId, StringComparison.OrdinalIgnoreCase));
@@ -70,6 +72,7 @@ internal sealed class BookReadingWritingStore
         string book = (bookId ?? string.Empty).Trim();
         string sentence = (sentenceId ?? string.Empty).Trim();
         if (book.Length == 0 || sentence.Length == 0) return null;
+
         using SqliteConnection connection = Open();
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
@@ -93,7 +96,7 @@ internal sealed class BookReadingWritingStore
     {
         string? directory = Path.GetDirectoryName(_databasePath);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-        using SqliteConnection connection = Open(createSchema: false);
+        using SqliteConnection connection = Open();
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS book_writing_response (
@@ -110,7 +113,7 @@ internal sealed class BookReadingWritingStore
         command.ExecuteNonQuery();
     }
 
-    private SqliteConnection Open(bool createSchema = true)
+    private SqliteConnection Open()
     {
         var builder = new SqliteConnectionStringBuilder
         {
@@ -130,7 +133,9 @@ internal sealed class BookReadingWritingStore
 
 internal static class BookReadingWritingFeedback
 {
-    private static readonly Regex WordRegex = new(@"[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex WordRegex = new(
+        @"[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public static string Build(BookSentenceRecord sentence, string responseText, DictionaryPackage dictionary)
     {
@@ -159,7 +164,7 @@ internal static class BookReadingWritingFeedback
                 reused.Add($"{entry.Source} [{entry.Id}]");
         }
 
-        bool startsWithLetter = response.EnumerateRunes().Any(rune => RuneIsLetter(rune.Value));
+        bool containsLetter = response.Any(char.IsLetter);
         bool terminalPunctuation = response.EndsWith('.') || response.EndsWith('!') || response.EndsWith('?');
         string vocabulary = reused.Count == 0
             ? "Mapped vocabulary reused from this sentence: none detected by exact written-form matching."
@@ -170,7 +175,7 @@ internal static class BookReadingWritingFeedback
             $"Response words: {responseWords.Length}; distinct response words: {responseSet.Count}.\r\n" +
             $"Exact lexical overlap with the source sentence: {overlapping}/{responseSet.Count} distinct response words ({overlapPercent:0.#}%). This is a description, not a quality score.\r\n" +
             vocabulary + "\r\n" +
-            $"Editing checks: contains a letter = {(startsWithLetter ? "yes" : "no")}; ends with . ! or ? = {(terminalPunctuation ? "yes" : "no")}.\r\n" +
+            $"Editing checks: contains a letter = {(containsLetter ? "yes" : "no")}; ends with . ! or ? = {(terminalPunctuation ? "yes" : "no")}.\r\n" +
             "Revision prompt: compare your response with the source sentence and revise anything you want to make clearer or more precise. Saving this practice does not change mastery or course progress.";
     }
 
@@ -196,10 +201,6 @@ internal static class BookReadingWritingFeedback
         }
         return false;
     }
-
-    private static bool RuneIsLetter(int scalar) =>
-        scalar <= char.MaxValue && char.IsLetter((char)scalar) ||
-        scalar > char.MaxValue;
 }
 
 internal static class BookReadingWritingEntryPoints
@@ -264,9 +265,10 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
     private readonly BookReadingProductService _service;
     private readonly BookReadingWritingStore _writingStore;
     private readonly Action _saveState;
+
     private readonly ComboBox _knownDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Known deck for Reading familiarity" };
     private readonly ComboBox _learningDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Learning deck for Reading vocabulary capture" };
-    private readonly ComboBox _books = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, AccessibleName = "Private imported book for Reading and Writing" };
+    private readonly ComboBox _books = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 500, AccessibleName = "Private imported book for Reading and Writing" };
     private readonly TextBox _sentence = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, TabStop = true, AccessibleName = "Current source sentence" };
     private readonly ListBox _vocabulary = new() { Dock = DockStyle.Fill, AccessibleName = "Mapped vocabulary and context from current sentence" };
     private readonly TextBox _response = new() { Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, AccessibleName = "Your writing response to the current sentence", AccessibleDescription = "Write a paraphrase, reaction, inference, or note. Ctrl+S saves and refreshes deterministic structural feedback." };
@@ -276,12 +278,17 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
     private readonly Button _next = new() { Text = "&Next sentence", AutoSize = true, AccessibleName = "Next source sentence" };
     private readonly Button _save = new() { Text = "&Save response + feedback", AutoSize = true, AccessibleName = "Save writing response and deterministic feedback locally" };
     private readonly Button _capture = new() { Text = "Add selected word to &Learning", AutoSize = true, AccessibleName = "Add selected mapped vocabulary item to Learning deck" };
+
     private BookDocument? _document;
     private List<BookSentenceRecord> _sentences = new();
     private int _sentenceIndex = -1;
     private string _loadedResponse = string.Empty;
 
-    public BookReadingWritingWorkbenchForm(AppState state, DictionaryPackage dictionary, BookReadingProductService service, Action saveState)
+    public BookReadingWritingWorkbenchForm(
+        AppState state,
+        DictionaryPackage dictionary,
+        BookReadingProductService service,
+        Action saveState)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
@@ -298,7 +305,14 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         AccessibleName = "WordDeck private Reading and Writing workbench";
         AccessibleDescription = "Sentence-grounded Reading and Writing practice. Private book text and responses stay local; feedback is deterministic and does not grant mastery.";
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 12, Padding = new Padding(10), AutoScroll = true };
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 12,
+            Padding = new Padding(10),
+            AutoScroll = true
+        };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -327,7 +341,14 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         policy.Controls.Add(_learningDeck);
         root.Controls.Add(policy, 0, 1);
 
-        root.Controls.Add(_books, 0, 2);
+        var bookPicker = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
+        bookPicker.Controls.Add(new Label { Text = "&Private book:", AutoSize = true });
+        bookPicker.Controls.Add(_books);
+        var openBook = new Button { Text = "&Open selected book", AutoSize = true, AccessibleName = "Open selected private book in Reading and Writing workbench" };
+        openBook.Click += (_, _) => OpenSelectedBook();
+        bookPicker.Controls.Add(openBook);
+        root.Controls.Add(bookPicker, 0, 2);
+
         root.Controls.Add(_sentence, 0, 3);
         root.Controls.Add(_vocabulary, 0, 4);
 
@@ -354,7 +375,6 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         Controls.Add(root);
 
         CancelButton = close;
-        _books.SelectedIndexChanged += (_, _) => OpenSelectedBook();
         _knownDeck.SelectedIndexChanged += (_, _) => RefreshSentenceContext();
         _learningDeck.SelectedIndexChanged += (_, _) => RefreshSentenceContext();
         _previous.Click += (_, _) => MoveSentence(-1);
@@ -369,7 +389,11 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         PopulateDeckSelectors();
         RefreshBooks();
         UpdateNavigation();
-        Shown += (_, _) => (_books.Items.Count > 0 ? _books : _status).Focus();
+        Shown += (_, _) =>
+        {
+            Control initialFocus = _books.Items.Count > 0 ? _books : _status;
+            initialFocus.Focus();
+        };
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -417,21 +441,27 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
             return;
         }
         _books.SelectedIndex = 0;
+        SetStatus("Choose a private book, then activate Open selected book. Existing Reading position will be restored.");
     }
 
     private void OpenSelectedBook()
     {
-        if (_books.SelectedItem is not BookOption selected) return;
+        if (_books.SelectedItem is not BookOption selected)
+        {
+            SetStatus("Choose a private book first.");
+            return;
+        }
         if (!ConfirmDiscardIfDirty()) return;
         try
         {
-            _document = _service.LoadDocument(selected.Item.BookId);
-            _sentences = _document.Chapters
+            BookDocument document = _service.LoadDocument(selected.Item.BookId);
+            _document = document;
+            _sentences = document.Chapters
                 .OrderBy(chapter => chapter.ChapterOrdinal)
                 .SelectMany(chapter => chapter.Sentences.OrderBy(sentence => sentence.SentenceOrdinal))
                 .ToList();
             _sentenceIndex = _sentences.Count == 0 ? -1 : 0;
-            BookReadingPosition? saved = _service.LoadPosition(_document.BookId);
+            BookReadingPosition? saved = _service.LoadPosition(document.BookId);
             if (!string.IsNullOrWhiteSpace(saved?.SentenceId))
             {
                 int found = _sentences.FindIndex(item => item.SentenceId.Equals(saved.SentenceId, StringComparison.OrdinalIgnoreCase));
@@ -474,7 +504,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
             BookReadingWritingResponse? saved = _writingStore.Load(_document.BookId, current.SentenceId);
             _response.Text = saved?.ResponseText ?? string.Empty;
             _feedback.Text = saved?.FeedbackText ?? "No saved writing response for this sentence yet. Write a response, then press Ctrl+S for deterministic structural feedback.";
-            _loadedResponse = _response.Text;
+            _loadedResponse = _response.Text.Trim();
             SetStatus(saved is null
                 ? "Sentence context loaded. Writing has not yet been saved for this sentence."
                 : $"Restored local writing practice saved {saved.UpdatedUtc.ToLocalTime():g}.");
@@ -496,7 +526,9 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
             {
                 DictionaryEntry? entry = _dictionary.Entries.FirstOrDefault(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
                 if (entry is null) continue;
-                string state = snapshot.KnownEntryIds.Contains(id) ? "Known" : snapshot.LearningEntryIds.Contains(id) ? "Learning" : "New or ambiguous";
+                string state = snapshot.KnownEntryIds.Contains(id)
+                    ? "Known"
+                    : snapshot.LearningEntryIds.Contains(id) ? "Learning" : "New or ambiguous";
                 _vocabulary.Items.Add(new VocabularyOption(id, $"{entry.Source} — {entry.Target} — {state} — [{entry.Id}]"));
             }
             if (_vocabulary.Items.Count == 0)
@@ -528,7 +560,11 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
     private void CaptureSelectedVocabulary()
     {
-        if (_document is null || _sentenceIndex < 0 || _sentenceIndex >= _sentences.Count || _vocabulary.SelectedItem is not VocabularyOption option || string.IsNullOrWhiteSpace(option.Id))
+        if (_document is null ||
+            _sentenceIndex < 0 ||
+            _sentenceIndex >= _sentences.Count ||
+            _vocabulary.SelectedItem is not VocabularyOption option ||
+            string.IsNullOrWhiteSpace(option.Id))
         {
             SetStatus("Select a mapped vocabulary item from the current sentence first.");
             return;
@@ -540,7 +576,13 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         }
         try
         {
-            _service.CaptureMappedOccurrenceToLearningDeck(_document, _sentences[_sentenceIndex], option.Id, _state, _dictionary, learning.Id);
+            _service.CaptureMappedOccurrenceToLearningDeck(
+                _document,
+                _sentences[_sentenceIndex],
+                option.Id,
+                _state,
+                _dictionary,
+                learning.Id);
             _saveState();
             RefreshSentenceContext();
             SetStatus($"Captured {option.Id} from the current sentence into Learning. Ambiguous written forms require the explicit stable ID you selected; capture does not imply mastery.");
@@ -550,10 +592,10 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
     private bool ConfirmDiscardIfDirty()
     {
-        if (_response.Text.Trim().Equals(_loadedResponse.Trim(), StringComparison.Ordinal)) return true;
+        if (_response.Text.Trim().Equals(_loadedResponse, StringComparison.Ordinal)) return true;
         DialogResult result = MessageBox.Show(
             this,
-            "This sentence has unsaved writing changes. Leave the sentence and discard those changes?",
+            "This sentence has unsaved writing changes. Leave the current sentence or book and discard those changes?",
             "Unsaved Reading + Writing response",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
