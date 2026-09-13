@@ -1,0 +1,68 @@
+name: WordDeck integrated Windows UIA pre-merge gate
+
+on:
+  pull_request:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-integrated-uia-pr.yml'
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-integrated-uia-pr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-integrated-uia-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integrated-uia:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact candidate checkout
+        shell: pwsh
+        run: |
+          $expected = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}".Trim().ToLowerInvariant()
+          $actual = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ([string]::IsNullOrWhiteSpace($expected) -or $actual -ne $expected) {
+            throw "Exact-head checkout mismatch: expected=$expected actual=$actual"
+          }
+          Write-Host "Exact-head checkout PASS: $actual"
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build and publish exact candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\release
+          & .\artifacts\release\WordDeck.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Published WordDeck self-test failed with exit code $LASTEXITCODE." }
+
+      - name: Setup WinApp CLI
+        uses: microsoft/setup-WinAppCli@v0.1
+
+      - name: Run integrated keyboard and UI Automation journey
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\WordDeck\scripts\worddeck-r3-uia-smoke.ps1 -ProjectPath .\WordDeck\WordDeck.csproj
