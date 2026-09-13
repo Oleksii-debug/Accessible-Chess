@@ -1,0 +1,96 @@
+name: WordDeck packaged Course Story UIA
+
+on:
+  pull_request:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-course-story-uia.yml'
+  push:
+    branches: [worddeck-bootstrap]
+    paths:
+      - 'WordDeck/**'
+      - '.github/workflows/worddeck-course-story-uia.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worddeck-course-story-uia-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packaged-course-story-uia:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+
+      - name: Record exact source identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:GITHUB_SHA) { throw "Checkout/source mismatch: HEAD=$actual GITHUB_SHA=$env:GITHUB_SHA" }
+          New-Item -ItemType Directory -Force .\artifacts\release | Out-Null
+          @(
+            "sha=$actual",
+            "ref=$env:GITHUB_REF",
+            "workflow_run=$env:GITHUB_RUN_ID"
+          ) | Set-Content .\artifacts\course-story-uia-source.txt -Encoding utf8
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore and build exact head
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet restore .\WordDeck\WordDeck.csproj
+          dotnet build .\WordDeck\WordDeck.csproj -c Release --no-restore -warnaserror
+
+      - name: Run exact-head integrated self-test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet run --project .\WordDeck\WordDeck.csproj -c Release --no-build -- --self-test
+
+      - name: Publish exact-head packaged EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet publish .\WordDeck\WordDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\release
+          $exe = (Resolve-Path .\artifacts\release\WordDeck.exe).Path
+          $self = Start-Process $exe -ArgumentList '--self-test' -WorkingDirectory (Split-Path -Parent $exe) -Wait -PassThru
+          if ($self.ExitCode -ne 0) { throw "Packaged exact-head self-test failed: $($self.ExitCode)" }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "worddeck_exe_sha256=$hash" | Add-Content .\artifacts\course-story-uia-source.txt -Encoding utf8
+          Write-Host "Exact-head packaged EXE SHA-256: $hash"
+
+      - name: Setup WinApp CLI for Windows UI Automation
+        uses: microsoft/setup-WinAppCli@v0.1
+
+      - name: Run packaged Course Story keyboard and restart UIA
+        shell: pwsh
+        env:
+          WORDDECK_ALLOW_MUTATING_UIA_STATE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\WordDeck\scripts\worddeck-course-story-uia-smoke.ps1 -CandidateExePath .\artifacts\release\WordDeck.exe
+          "uia_result=PASS" | Add-Content .\artifacts\course-story-uia-source.txt -Encoding utf8
+
+      - name: Upload exact-head Course Story UIA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordDeck-course-story-uia-${{ github.sha }}
+          path: .\artifacts\course-story-uia-source.txt
+          if-no-files-found: error
+          retention-days: 30
