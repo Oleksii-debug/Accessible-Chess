@@ -154,7 +154,8 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
     private const int CleanupAttempts = 3;
 
     private static readonly object QuarantineSync = new();
-    private static readonly List<(IWaveInApi Api, byte[] RawBuffer, GCHandle PinnedBuffer, nint HeaderPointer, nint WaveHandle)> QuarantinedLeases = new();
+    private static readonly List<(IWaveInApi Api, byte[] RawBuffer, GCHandle PinnedBuffer, nint HeaderPointer, nint WaveHandle, EventWaitHandle CallbackEvent)> QuarantinedLeases = new();
+    private static readonly List<(IWaveInApi Api, nint WaveHandle, EventWaitHandle CallbackEvent)> QuarantinedHandles = new();
 
     private readonly IWaveInApi _api;
     private readonly WindowsMicrophoneCaptureOptions _options;
@@ -244,8 +245,7 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
         nint waveHandle = nint.Zero;
         bool headerPrepared = false;
         uint headerSize = (uint)Marshal.SizeOf<WindowsWaveHeader>();
-
-        using var captureEvent = new EventWaitHandle(false, EventResetMode.AutoReset);
+        var captureEvent = new EventWaitHandle(false, EventResetMode.AutoReset);
 
         try
         {
@@ -324,7 +324,11 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
                 rawBuffer,
                 ref pinnedBuffer);
 
-            if (!cleanupSafe)
+            if (cleanupSafe)
+            {
+                captureEvent.Dispose();
+            }
+            else
             {
                 if (wavePayload is not null)
                     CryptographicOperations.ZeroMemory(wavePayload);
@@ -367,12 +371,12 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
         if (!headerReleased)
         {
             // Fail-safe ownership quarantine: the driver may still own the WAVEHDR/data.
-            // Keeping the handle, unmanaged header and pin alive is safer than a native
-            // use-after-free. Nothing is persisted; a fresh process clears this emergency
-            // state. Normal and recoverable cleanup paths never enter quarantine.
+            // Keep the callback event, native handle, unmanaged header and pin alive rather
+            // than risk a native use-after-free. Nothing is persisted. Normal and
+            // recoverable cleanup paths never enter quarantine.
             lock (QuarantineSync)
             {
-                QuarantinedLeases.Add((_api, rawBuffer, pinnedBuffer, headerPointer, waveHandle));
+                QuarantinedLeases.Add((_api, rawBuffer, pinnedBuffer, headerPointer, waveHandle, captureEvent));
             }
             pinnedBuffer = default;
             return false;
@@ -404,6 +408,17 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
         if (pinnedBuffer.IsAllocated)
             pinnedBuffer.Free();
         pinnedBuffer = default;
+
+        if (!closeSucceeded && waveHandle != nint.Zero)
+        {
+            // The data/header ownership is already released, but the native handle still
+            // owns the callback-handle lifetime until Close succeeds. Retain both as a
+            // process-local fail-safe rather than disposing the event behind WinMM.
+            lock (QuarantineSync)
+            {
+                QuarantinedHandles.Add((_api, waveHandle, captureEvent));
+            }
+        }
 
         return closeSucceeded;
     }
@@ -463,7 +478,7 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
         get
         {
             lock (QuarantineSync)
-                return QuarantinedLeases.Count;
+                return QuarantinedLeases.Count + QuarantinedHandles.Count;
         }
     }
 
