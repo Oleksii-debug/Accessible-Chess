@@ -424,8 +424,16 @@ internal static class StoryCourseContractValidator
             throw new InvalidDataException($"{unit.UnitId} task collections are required.");
         if (unit.ComprehensionTasks.Count == 0)
             throw new InvalidDataException($"{unit.UnitId} requires comprehension evidence.");
-        if (unit.ProductiveTasks.Count == 0)
+
+        // A full Complete English course contract still requires learner-generated
+        // production in every unit. A bounded, independently approved skill package
+        // (for example Reading-only production content) may intentionally contain no
+        // Speaking/Writing task; forcing a fabricated task would corrupt content truth.
+        if (unit.ProductiveTasks.Count == 0 &&
+            (claimsCompleteEnglishCourse || curriculumAuthority != StoryCourseCurriculumAuthority.ApprovedCurriculum))
+        {
             throw new InvalidDataException($"{unit.UnitId} requires a learner-generated productive task.");
+        }
 
         foreach (StoryCourseComprehensionTaskContract task in unit.ComprehensionTasks)
         {

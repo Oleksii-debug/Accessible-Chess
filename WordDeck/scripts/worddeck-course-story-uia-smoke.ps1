@@ -121,7 +121,30 @@ function Wait-ProcessExit([int]$processId, [int]$timeoutMs = 10000) {
     Fail "WordDeck process $processId did not exit normally within ${timeoutMs}ms."
 }
 
-function Open-GovernedCourseByKeyboard {
+function Select-GovernedCourseByKeyboard([string]$courseId) {
+    Wait-For 'Схвалений курс' 10000
+    Focus 'Схвалений курс'
+    Assert-Focus 'Схвалений курс' "course picker for $courseId"
+
+    # The chooser is a real DropDownList. Navigate it only with keyboard input and
+    # read the selected UIA value after every move, so the test is deterministic by
+    # stable course id rather than by a brittle hard-coded row number.
+    Send-Keys 'home' 'Схвалений курс'
+    $lastValue = ''
+    for ($i = 0; $i -lt 64; $i++) {
+        $lastValue = Get-Value 'Схвалений курс'
+        if ($lastValue.Contains($courseId, [StringComparison]::OrdinalIgnoreCase)) {
+            Send-Keys 'enter' 'Схвалений курс'
+            Wait-Gone 'Схвалений курс' 7000
+            return
+        }
+        Send-Keys 'down' 'Схвалений курс'
+    }
+
+    Fail "Course picker could not reach stable course id '$courseId' by keyboard. Last selected value: $lastValue"
+}
+
+function Open-GovernedCourseByKeyboard([string]$courseId) {
     Focus 'Current English word'
     Assert-Focus 'Current English word' 'before Tools menu'
 
@@ -132,6 +155,10 @@ function Open-GovernedCourseByKeyboard {
     Send-MenuKey 'home'
     for ($i = 0; $i -lt 4; $i++) { Send-MenuKey 'down' }
     Send-MenuKey 'enter'
+
+    # Multiple approved runtime courses now coexist. The chooser is intentionally
+    # part of the learner journey; do not bypass it with internal state or files.
+    Select-GovernedCourseByKeyboard $courseId
 
     Wait-For 'Розділ курсу' 10000
     foreach ($required in @(
@@ -146,14 +173,31 @@ function Open-GovernedCourseByKeyboard {
     }
 }
 
+function Close-Course {
+    Send-Keys 'alt+f4'
+    Wait-Gone 'Розділ курсу' 7000
+    Wait-For 'Current English word' 5000
+}
+
+function Close-AppNormally {
+    $pidToClose = [int]$script:appPid
+    Focus 'Current English word'
+    Send-Keys 'alt+f4' 'Current English word'
+    Wait-ProcessExit $pidToClose 10000
+    $script:appPid = $null
+}
+
 if ($env:WORDDECK_ALLOW_MUTATING_UIA_STATE -ne '1') {
     Fail 'Refusing to mutate learner Course/Story state outside an explicit disposable test profile. Set WORDDECK_ALLOW_MUTATING_UIA_STATE=1 only in an isolated CI/test user profile.'
 }
 
 try {
     $candidateExe = (Resolve-Path -LiteralPath $CandidateExePath).Path
+    $m07CourseId = 'ce-st-m07-msn-runtime'
+    $m08CourseId = 'ce-a1-m08-reading-runtime'
+
     Start-Candidate $candidateExe
-    Open-GovernedCourseByKeyboard
+    Open-GovernedCourseByKeyboard $m07CourseId
 
     # Verify semantic keyboard traversal in the real WinForms course surface.
     Focus 'Текст навчального матеріалу'
@@ -195,34 +239,63 @@ try {
     }
 
     # Close the course and the whole packaged app normally, then relaunch the same
-    # EXE and prove the learner evidence survived the real restart boundary.
-    Send-Keys 'alt+f4'
-    Wait-Gone 'Розділ курсу' 7000
-    Wait-For 'Current English word' 5000
-
-    $firstPid = [int]$script:appPid
-    Focus 'Current English word'
-    Send-Keys 'alt+f4' 'Current English word'
-    Wait-ProcessExit $firstPid 10000
-    $script:appPid = $null
+    # EXE and prove the M07 learner evidence survived the real restart boundary.
+    Close-Course
+    Close-AppNormally
 
     Start-Candidate $candidateExe
-    Open-GovernedCourseByKeyboard
+    Open-GovernedCourseByKeyboard $m07CourseId
     $reopenedPractice = Get-PracticeAttemptCount
     if ($reopenedPractice -ne $expectedPractice) {
-        Fail "Course/Story learner evidence did not survive packaged app restart: expected=$expectedPractice actual=$reopenedPractice."
+        Fail "Course/Story M07 learner evidence did not survive packaged app restart: expected=$expectedPractice actual=$reopenedPractice."
     }
 
-    Send-Keys 'alt+f4'
-    Wait-Gone 'Розділ курсу' 7000
-    Wait-For 'Current English word' 5000
-    $secondPid = [int]$script:appPid
-    Focus 'Current English word'
-    Send-Keys 'alt+f4' 'Current English word'
-    Wait-ProcessExit $secondPid 10000
-    $script:appPid = $null
+    # Switch through the same keyboard-only menu/chooser journey to the governed
+    # CE-A1-M08 Reading runtime. The exact first prompt proves that the intended
+    # stable course id, not M07 or another future course, was opened.
+    Close-Course
+    Open-GovernedCourseByKeyboard $m08CourseId
+    $m08Prompt = Wait-ValueContains 'Умова вправи на розуміння' 'What is the main purpose of the text?'
+    if (-not $m08Prompt.Contains('Enter A, B, or C.', [StringComparison]::Ordinal)) {
+        Fail "Governed M08 first task prompt was incomplete or wrong: $m08Prompt"
+    }
 
-    Write-Host "WordDeck packaged Course/Story UIA PASS: keyboard menu route, semantic Tab order, blank-submit fail-closed behavior, governed M07 feedback/practice evidence, truthful no-mastery boundary, normal close/reopen and persisted learner state verified. practice_attempts=$expectedPractice"
+    $m08BeforePractice = Get-PracticeAttemptCount
+    Focus 'Відповідь на вправу на розуміння'
+    Assert-Focus 'Відповідь на вправу на розуміння' 'M08 Reading comprehension answer'
+    Type-Text 'a' 'Відповідь на вправу на розуміння'
+    if ((Get-Value 'Відповідь на вправу на розуміння') -ne 'a') {
+        Fail 'Keyboard text entry did not reach the governed M08 Reading answer field.'
+    }
+    Send-Keys 'enter' 'Відповідь на вправу на розуміння'
+    $m08AcceptedStatus = Wait-ValueContains 'Результат і прогрес курсу' 'Правильно.'
+    if (-not $m08AcceptedStatus.Contains('Mastery не змінено.', [StringComparison]::Ordinal)) {
+        Fail "Accepted M08 Reading feedback lost the truthful no-mastery boundary: $m08AcceptedStatus"
+    }
+    $m08ExpectedPractice = $m08BeforePractice + 1
+    $m08AfterPractice = Get-PracticeAttemptCount
+    if ($m08AfterPractice -ne $m08ExpectedPractice) {
+        Fail "Accepted M08 Reading attempt was not recorded exactly once: expected=$m08ExpectedPractice actual=$m08AfterPractice."
+    }
+
+    # Reopen the packaged executable and select M08 again through the real chooser.
+    # This proves the newly integrated course has its own persisted learner evidence
+    # across the same close/restart boundary already proven for M07.
+    Close-Course
+    Close-AppNormally
+
+    Start-Candidate $candidateExe
+    Open-GovernedCourseByKeyboard $m08CourseId
+    $m08ReopenedPractice = Get-PracticeAttemptCount
+    if ($m08ReopenedPractice -ne $m08ExpectedPractice) {
+        Fail "Course/Story M08 learner evidence did not survive packaged app restart: expected=$m08ExpectedPractice actual=$m08ReopenedPractice."
+    }
+    Wait-ValueContains 'Умова вправи на розуміння' 'What is the main purpose of the text?' | Out-Null
+
+    Close-Course
+    Close-AppNormally
+
+    Write-Host "WordDeck packaged Course/Story UIA PASS: keyboard menu route, deterministic multi-course picker by stable id, semantic Tab order, blank-submit fail-closed behavior, governed M07 and M08 Reading feedback/practice evidence, truthful no-mastery boundary, normal close/reopen and per-course persisted learner state verified. M07_practice_attempts=$expectedPractice M08_practice_attempts=$m08ExpectedPractice"
 }
 finally {
     if ($null -ne $script:appPid -and $script:appPid -gt 0) {
