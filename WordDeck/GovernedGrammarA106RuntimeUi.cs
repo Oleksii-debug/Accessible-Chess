@@ -72,7 +72,7 @@ internal static class GovernedGrammarA106StudyCatalog
                 "After am/is/are, use the -ing form. Common final silent e drops before -ing: make → making.")
         };
 
-    public static IReadOnlyCollection<GovernedGrammarA106StudyItem> All => Items.Values;
+    public static IReadOnlyList<GovernedGrammarA106StudyItem> All { get; } = Items.Values.ToArray();
 
     public static GovernedGrammarA106StudyItem Get(string itemId)
     {
@@ -90,8 +90,7 @@ internal static class GovernedGrammarA106StudyCatalog
     public static GovernedGrammarA106StudyEvaluation Evaluate(string itemId, string? submitted)
     {
         GovernedGrammarA106StudyItem item = Get(itemId);
-        GrammarExercise exercise = ToGrammarExercise(item);
-        GrammarEvaluation evaluation = GrammarAnswerEvaluator.Evaluate(exercise, submitted);
+        GrammarEvaluation evaluation = GrammarAnswerEvaluator.Evaluate(ToGrammarExercise(item), submitted);
 
         if (evaluation.Correct)
         {
@@ -103,7 +102,8 @@ internal static class GovernedGrammarA106StudyCatalog
         }
 
         if (evaluation.ErrorKind == GrammarErrorKind.Blank)
-            return new(item.ItemId, false, "BLANK", "Type an answer before checking. No learning evidence was recorded.", evaluation.ExpectedAnswer, null);
+            return new(item.ItemId, false, "BLANK",
+                "Type an answer before checking. No learning evidence was recorded.", evaluation.ExpectedAnswer, null);
 
         if (!item.ItemId.Equals(PrimaryItemId, StringComparison.OrdinalIgnoreCase))
         {
@@ -213,9 +213,7 @@ internal sealed class GovernedGrammarA106StudyRuntime
     public GovernedGrammarA106PracticeSummary GetSummary()
     {
         LearnerCourseState state = _store.Load();
-        LearnerEvidenceEvent[] attempts = state.EvidenceHistory
-            .Where(IsThisModulePractice)
-            .ToArray();
+        LearnerEvidenceEvent[] attempts = state.EvidenceHistory.Where(IsThisModulePractice).ToArray();
         return new(
             attempts.Length,
             attempts.Count(e => e.Correct == true),
@@ -373,8 +371,8 @@ internal static class GovernedGrammarA106RuntimeUi
             AccessibleName = "Deep Grammar A1 Present Continuous practice",
             StartPosition = FormStartPosition.CenterParent,
             Width = 820,
-            Height = 660,
-            MinimumSize = new Size(680, 560),
+            Height = 700,
+            MinimumSize = new Size(680, 600),
             AutoScaleMode = AutoScaleMode.Font,
             KeyPreview = true
         };
@@ -385,13 +383,15 @@ internal static class GovernedGrammarA106RuntimeUi
             AutoScroll = true,
             Padding = new Padding(12),
             ColumnCount = 1,
-            RowCount = 8
+            RowCount = 9,
+            TabStop = false
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
         var heading = new Label
         {
             AutoSize = true,
+            TabStop = false,
             Text = "Deep Grammar A1 — G-A1-06 Present Continuous",
             AccessibleName = "Deep Grammar module heading"
         };
@@ -399,6 +399,7 @@ internal static class GovernedGrammarA106RuntimeUi
         var boundary = new Label
         {
             AutoSize = true,
+            TabStop = false,
             MaximumSize = new Size(760, 0),
             Text = "Цей екран зберігає звичайну практику та рекомендований наступний крок. Практика не дорівнює mastery, CEFR-рівню або Fast Track.",
             AccessibleName = "Grammar evidence boundary"
@@ -414,20 +415,22 @@ internal static class GovernedGrammarA106RuntimeUi
             TabStop = true,
             TabIndex = 0,
             AccessibleName = "Grammar task prompt",
-            AccessibleDescription = "Full learner-facing task text. Read with standard text navigation."
+            AccessibleDescription = "Повний текст поточного навчального завдання."
         };
 
         var answer = new TextBox
         {
             Dock = DockStyle.Top,
+            TabStop = true,
             TabIndex = 1,
             AccessibleName = AnswerAccessibleName,
-            AccessibleDescription = "Type the English answer for the current grammar practice task."
+            AccessibleDescription = "Введіть англійську відповідь для поточної граматичної вправи."
         };
 
         var check = new Button
         {
             AutoSize = true,
+            TabStop = true,
             Text = "Перевірити &відповідь",
             TabIndex = 2,
             AccessibleName = "Check grammar answer"
@@ -443,17 +446,18 @@ internal static class GovernedGrammarA106RuntimeUi
             TabStop = true,
             TabIndex = 3,
             AccessibleName = "Grammar feedback",
-            AccessibleDescription = "Text feedback and deficit-specific next-step explanation."
+            AccessibleDescription = "Текстовий результат і пояснення цільового наступного кроку."
         };
 
         var next = new Button
         {
             AutoSize = true,
+            TabStop = true,
             Text = "Відкрити &рекомендовану вправу",
             Enabled = false,
             TabIndex = 4,
             AccessibleName = "Open recommended grammar practice",
-            AccessibleDescription = "Opens the deterministic Deep Practice item selected from the current deficit."
+            AccessibleDescription = "Відкриває детерміновану Deep Practice вправу для виявленого дефіциту."
         };
 
         var progress = new TextBox
@@ -465,12 +469,13 @@ internal static class GovernedGrammarA106RuntimeUi
             TabStop = true,
             TabIndex = 5,
             AccessibleName = "Grammar practice progress",
-            AccessibleDescription = "Persisted practice-only history and resume position."
+            AccessibleDescription = "Збережена історія звичайної практики та точка відновлення."
         };
 
         var close = new Button
         {
             AutoSize = true,
+            TabStop = true,
             Text = "&Закрити",
             DialogResult = DialogResult.Cancel,
             TabIndex = 6,
@@ -550,28 +555,20 @@ internal static class GovernedGrammarA106RuntimeUi
         root.Controls.Add(boundary, 0, 1);
         root.Controls.Add(prompt, 0, 2);
         root.Controls.Add(answer, 0, 3);
-
-        var actionRow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        actionRow.Controls.Add(check);
-        actionRow.Controls.Add(next);
-        actionRow.Controls.Add(close);
-        root.Controls.Add(actionRow, 0, 4);
+        root.Controls.Add(check, 0, 4);
         root.Controls.Add(feedback, 0, 5);
-        root.Controls.Add(progress, 0, 6);
+        root.Controls.Add(next, 0, 6);
+        root.Controls.Add(progress, 0, 7);
+        root.Controls.Add(close, 0, 8);
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 100F));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 120F));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         form.Controls.Add(root);
         LoadItem(currentItemId, recordExposure: true);
@@ -604,7 +601,8 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
     private static void CatalogIsGovernedAndProtectedPoolsStayAbsent()
     {
         _ = GovernedGrammarA106Runtime.GetAtomicCeiling("present.continuous-form");
-        Require(GovernedGrammarA106StudyCatalog.All.Count == 4, "Unexpected learner-facing governed Study item count.");
+        Require(GovernedGrammarA106StudyCatalog.All.Count == 4,
+            "Unexpected learner-facing governed Study item count.");
         Require(GovernedGrammarA106StudyCatalog.All.All(item =>
                 !item.ItemId.StartsWith("FT", StringComparison.OrdinalIgnoreCase) &&
                 !item.ItemId.StartsWith("UT", StringComparison.OrdinalIgnoreCase)),
@@ -615,7 +613,8 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
     {
         GovernedGrammarA106StudyEvaluation accepted =
             GovernedGrammarA106StudyCatalog.Evaluate("P06-06", "Are you working now?");
-        Require(accepted.Correct && accepted.RecommendedItemId is null, "Canonical P06-06 answer did not pass cleanly.");
+        Require(accepted.Correct && accepted.RecommendedItemId is null,
+            "Canonical P06-06 answer did not pass cleanly.");
 
         GovernedGrammarA106StudyEvaluation extraDo =
             GovernedGrammarA106StudyCatalog.Evaluate("P06-06", "Do you are working?");
@@ -672,8 +671,9 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
 
             reopened.RecordPracticeAttempt(GovernedGrammarA106StudyCatalog.QuestionRepairItemId,
                 correct: true, GovernedGrammarA106StudyCatalog.PrimaryItemId, revealUses: 0);
-            Require(new GovernedGrammarA106StudyRuntime(new LearnerCourseStateStore(root),
-                    () => "unused", () => now).GetResumeItemId() == GovernedGrammarA106StudyCatalog.PrimaryItemId,
+            Require(new GovernedGrammarA106StudyRuntime(
+                    new LearnerCourseStateStore(root), () => "unused", () => now).GetResumeItemId() ==
+                    GovernedGrammarA106StudyCatalog.PrimaryItemId,
                 "Successful Deep Practice did not preserve the return-to-independent-practice resume point.");
         }
         finally
@@ -686,7 +686,8 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
     {
         IReadOnlyList<(string AccessibleName, int TabIndex)> contract = GovernedGrammarA106RuntimeUi.AccessibilityContract;
         Require(contract.Count == 7, "Accessibility contract control count drifted.");
-        Require(contract.All(x => !string.IsNullOrWhiteSpace(x.AccessibleName)), "Accessibility contract has a blank accessible name.");
+        Require(contract.All(x => !string.IsNullOrWhiteSpace(x.AccessibleName)),
+            "Accessibility contract has a blank accessible name.");
         Require(contract.Select(x => x.AccessibleName).Distinct(StringComparer.Ordinal).Count() == contract.Count,
             "Accessibility contract has duplicate accessible names.");
         Require(contract.Select(x => x.TabIndex).SequenceEqual(Enumerable.Range(0, contract.Count)),
