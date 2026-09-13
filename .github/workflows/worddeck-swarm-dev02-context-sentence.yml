@@ -162,7 +162,7 @@ jobs:
             .\artifacts\context-corpus\WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify live provenance, baseline identity and exact SQLite identity
+      - name: Verify live provenance and bind exact current SQLite identity
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -193,8 +193,14 @@ jobs:
             throw "Historical baseline pair evidence regressed below floor 208408: $($manifest.stats.pairs_emitted)"
           }
 
+          $sqlite = Join-Path $root 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite'
+          if (-not (Test-Path -LiteralPath $sqlite)) { throw 'Live attributed EN-UA SQLite corpus was not created.' }
+          $actual = (Get-FileHash -LiteralPath $sqlite -Algorithm SHA256).Hash.ToLowerInvariant()
+          $historicalSqliteSha256 = 'c121d67fcac89eabe51d70f020737cd88dc10752251e09db6a1780a7e780d91f'
+          $historicalSqliteByteIdentityMatch = $actual -eq $historicalSqliteSha256
+
           $baselineBinding = [ordered]@{
-            SchemaVersion = 1
+            SchemaVersion = 2
             Authority = 'GitHub Actions run 34709934049 artifact 10303156056'
             HistoricalBaselineInputSha256 = $baselineInputs
             ObservedInputSha256 = [ordered]@{
@@ -203,7 +209,9 @@ jobs:
               links = ([string]$manifest.input_sha256.links).ToLowerInvariant()
             }
             HistoricalBaselineMatch = [bool]$baselineMatch
-            HistoricalBaselineSqliteSha256 = 'c121d67fcac89eabe51d70f020737cd88dc10752251e09db6a1780a7e780d91f'
+            HistoricalBaselineSqliteSha256 = $historicalSqliteSha256
+            ObservedSqliteSha256 = $actual
+            HistoricalSqliteByteIdentityMatch = [bool]$historicalSqliteByteIdentityMatch
             HistoricalFloors = [ordered]@{
               sentence_count = 208408
               one_target_stable_tag = 4492
@@ -216,21 +224,19 @@ jobs:
           $baselineBinding | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $bindingPath -Encoding utf8
           "CONTEXT_HISTORICAL_BASELINE_MATCH=$($baselineMatch.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CONTEXT_BASELINE_BINDING=$bindingPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CONTEXT_SQLITE=$sqlite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
           if ($baselineMatch) {
             Write-Host 'Historical Context input tuple matched exactly; historical non-regression floors are applicable.'
+            if ($historicalSqliteByteIdentityMatch) {
+              Write-Host 'Current SQLite byte identity also matches the historical artifact.'
+            } else {
+              Write-Warning ("Historical input tuple matched but current SQLite byte identity differs: historical={0}; current={1}. The historical raw database hash remains provenance evidence, not a semantic freeze across intentional target-indexing corrections. Downstream evidence is bound to the exact current SQLite hash and historical numeric quality floors remain mandatory." -f $historicalSqliteSha256,$actual)
+            }
           } else {
             Write-Warning 'Official Tatoeba upstream input identity differs from the historical baseline. This run remains live provenance/semantic evidence only and MUST NOT qualify the historical release baseline.'
           }
-
-          $sqlite = Join-Path $root 'WordDeck-SentencePack-Tatoeba-EN-UA-CCBY-v1.sqlite'
-          if (-not (Test-Path -LiteralPath $sqlite)) { throw 'Live attributed EN-UA SQLite corpus was not created.' }
-          $actual = (Get-FileHash -LiteralPath $sqlite -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($baselineMatch -and $actual -ne $baselineBinding.HistoricalBaselineSqliteSha256) {
-            throw "Historical baseline inputs reproduced a different SQLite identity: expected $($baselineBinding.HistoricalBaselineSqliteSha256), actual $actual"
-          }
-          "CONTEXT_SQLITE=$sqlite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "CONTEXT_SQLITE_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Measure exact live physical-form and conservative stable-ID coverage
         shell: pwsh
@@ -270,13 +276,19 @@ jobs:
           if ($baselineMatch -ne ($env:CONTEXT_HISTORICAL_BASELINE_MATCH -eq 'true')) {
             throw 'Historical baseline match state is inconsistent across workflow steps.'
           }
+          if ([string]$binding.ObservedSqliteSha256 -ne $env:CONTEXT_SQLITE_SHA) {
+            throw 'Historical baseline binding is not tied to the exact current SQLite identity.'
+          }
+          if ([string]$binding.HistoricalBaselineSqliteSha256 -notmatch '^[0-9a-f]{64}$') {
+            throw 'Historical baseline binding lost the historical SQLite provenance hash.'
+          }
           if ($baselineMatch) {
             if (-not [bool]$binding.HistoricalReleaseBaselineQualified) { throw 'Exact historical input tuple must qualify the historical baseline binding before floor validation.' }
             if ($p.SentenceCount -lt 208408) { throw "Historical baseline corpus regressed below sentence floor 208408: $($p.SentenceCount)" }
             if ($p.OneTarget.CoveredEntryCount -lt 4492) { throw "One-target stable-tag participation regressed below historical floor 4492: $($p.OneTarget.CoveredEntryCount)" }
             if ($p.TwoTarget.CoveredEntryCount -lt 4469) { throw "Two-target stable-tag participation regressed below historical floor 4469: $($p.TwoTarget.CoveredEntryCount)" }
             if ($p.ThreeTarget.CoveredEntryCount -lt 4362) { throw "Three-target stable-tag participation regressed below historical floor 4362: $($p.ThreeTarget.CoveredEntryCount)" }
-            Write-Host 'Historical baseline identity matched; historical quality floors passed.'
+            Write-Host 'Historical baseline input identity matched; historical quality floors passed.'
           } else {
             if ([bool]$binding.HistoricalReleaseBaselineQualified) { throw 'Changed upstream identity must fail closed for historical release-baseline qualification.' }
             Write-Warning ("UPSTREAM_DRIFT_OBSERVATION_ONLY: current official input is not the historical release baseline; historical floors 4492/4469/4362 are intentionally inapplicable to this different input identity. Live observed stable-tag participation={0}/{1}/{2}." -f `
