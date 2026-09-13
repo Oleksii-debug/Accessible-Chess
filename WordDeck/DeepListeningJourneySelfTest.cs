@@ -25,23 +25,25 @@ internal static class DeepListeningJourneySelfTest
             .ToArray();
 
         var state = new ListeningCoachState();
-        state.History.Add(Record(dictionaryId, "word:e1", correct: true));
-        state.History.Add(Record("other-dict", "word:e1", correct: false, wrongAttempts: 9, replays: 9));
+        AddCompletedReview(state, dictionaryId, "word:e1", correct: true);
+        AddCompletedReview(state, "other-dict", "word:e1", correct: false, wrongAttempts: 9, replays: 9);
+        // A raw history row without matching durable completion stats is not a
+        // legitimate completed Listening review and must not create journey credit.
         state.History.Add(Record(dictionaryId, "word:not-available", correct: false, wrongAttempts: 9, replays: 9));
-        state.History.Add(Record(dictionaryId, "word:e2", correct: false, wrongAttempts: 1, replays: 2));
-        state.History.Add(Record(dictionaryId, "word:e3", correct: true));
+        AddCompletedReview(state, dictionaryId, "word:e2", correct: false, wrongAttempts: 1, replays: 2);
+        AddCompletedReview(state, dictionaryId, "word:e3", correct: true);
 
         DeepListeningJourney.Progress partial = DeepListeningJourney.ActiveProgress(state, dictionaryId, available);
-        Require(partial.CompletedReviews == 3, "Current eligible history did not produce 3/5 journey progress.");
+        Require(partial.CompletedReviews == 3, "Durably completed current-dictionary history did not produce 3/5 journey progress.");
         Require(partial.CorrectReviews == 2 && partial.NeedsReview == 1,
             "Partial journey feedback counted correct/needs-review incorrectly.");
         Require(partial.WrongAttempts == 1 && partial.Replays == 2,
-            "Partial journey feedback leaked foreign or unavailable history.");
+            "Partial journey feedback leaked foreign or unevidenced history.");
         Require(!partial.CycleCompleted && partial.Remaining == 2,
             "Partial journey was incorrectly treated as complete.");
 
-        state.History.Add(Record(dictionaryId, "word:e4", correct: true));
-        state.History.Add(Record(dictionaryId, "word:e5", correct: false, wrongAttempts: 2, replays: 1));
+        AddCompletedReview(state, dictionaryId, "word:e4", correct: true);
+        AddCompletedReview(state, dictionaryId, "word:e5", correct: false, wrongAttempts: 2, replays: 1);
 
         DeepListeningJourney.Progress complete = DeepListeningJourney.CompletionProgress(state, dictionaryId, available);
         Require(complete.CompletedReviews == 5 && complete.CycleCompleted,
@@ -59,12 +61,62 @@ internal static class DeepListeningJourneySelfTest
         Require(next.CompletedReviews == 0 && next.Remaining == 5 && !next.CycleCompleted,
             "Starting view after a completed five-review boundary did not roll to the next journey.");
 
-        state.History.Add(Record(dictionaryId, "word:e1", correct: true));
+        // Regression WD-G3-R01-F07-QA-001: hiding a word changes current
+        // selection/playback eligibility, but it must not rewrite already-counted
+        // chronology or move the durable five-review boundary on reopen.
+        ListeningExercise[] hiddenAfterFive = available
+            .Where(item => !string.Equals(item.ExerciseId, "word:e3", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        DeepListeningJourney.Progress hiddenBoundary = DeepListeningJourney.CompletionProgress(state, dictionaryId, hiddenAfterFive);
+        Require(hiddenBoundary.CompletedReviews == 5 && hiddenBoundary.CycleCompleted,
+            "Hiding a previously reviewed word rewrote the completed five-review boundary.");
+        DeepListeningJourney.Progress reopenedHidden = DeepListeningJourney.ActiveProgress(state, dictionaryId, hiddenAfterFive);
+        Require(reopenedHidden.CompletedReviews == 0 && reopenedHidden.Remaining == 5 && !reopenedHidden.CycleCompleted,
+            "Reopening after hiding a reviewed word shifted the next-journey boundary.");
+        DeepListeningJourney.Progress unhidden = DeepListeningJourney.ActiveProgress(state, dictionaryId, available);
+        Require(unhidden.CompletedReviews == 0 && unhidden.Remaining == 5 && !unhidden.CycleCompleted,
+            "Unhiding a reviewed word shifted the stable five-review boundary.");
+
+        AddCompletedReview(state, dictionaryId, "word:e1", correct: true);
         DeepListeningJourney.Progress resumed = DeepListeningJourney.ActiveProgress(state, dictionaryId, available);
         Require(resumed.CompletedReviews == 1 && resumed.CorrectReviews == 1 && resumed.Remaining == 4,
             "Journey progress was not reconstructable from durable history after the boundary.");
 
-        Console.WriteLine("WordDeck Deep Listening journey self-test passed: bounded five-review progress, deterministic feedback, scope filtering and history-derived resume continuity.");
+        ListeningExercise[] hiddenDuringNext = available
+            .Where(item => !string.Equals(item.ExerciseId, "word:e1", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        DeepListeningJourney.Progress hiddenResumed = DeepListeningJourney.ActiveProgress(state, dictionaryId, hiddenDuringNext);
+        Require(hiddenResumed.CompletedReviews == 1 && hiddenResumed.CorrectReviews == 1 && hiddenResumed.Remaining == 4,
+            "Current eligibility rewrote already-counted progress in the next journey.");
+
+        Console.WriteLine("WordDeck Deep Listening journey self-test passed: bounded five-review progress, deterministic feedback, durable completion evidence, hide/unhide-stable history boundaries and resume continuity.");
+    }
+
+    private static void AddCompletedReview(
+        ListeningCoachState state,
+        string dictionaryId,
+        string exerciseId,
+        bool correct,
+        int wrongAttempts = 0,
+        int replays = 0)
+    {
+        if (!state.StatsByDictionary.TryGetValue(dictionaryId, out Dictionary<string, ListeningItemStats>? perDictionary))
+        {
+            perDictionary = new Dictionary<string, ListeningItemStats>(StringComparer.OrdinalIgnoreCase);
+            state.StatsByDictionary[dictionaryId] = perDictionary;
+        }
+        if (!perDictionary.TryGetValue(exerciseId, out ListeningItemStats? stats))
+        {
+            stats = new ListeningItemStats();
+            perDictionary[exerciseId] = stats;
+        }
+
+        stats.CompletedReviews++;
+        if (correct) stats.CorrectReviews++;
+        stats.WrongAttempts += Math.Max(0, wrongAttempts);
+        stats.ReplayCount += Math.Max(0, replays);
+        stats.LastReviewedUtc = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        state.History.Add(Record(dictionaryId, exerciseId, correct, wrongAttempts, replays));
     }
 
     private static ListeningHistoryRecord Record(
