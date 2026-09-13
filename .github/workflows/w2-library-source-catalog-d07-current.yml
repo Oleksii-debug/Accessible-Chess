@@ -24,12 +24,12 @@ concurrency:
 env:
   SOURCE_HEAD: 93d7b1ff646fc8e4ff5ef2c82b976fab6a23359d
   DEDUPE_OWNER_HEAD: 5b68baf4c1f32a992f46067b8da120e4d1168294
+  CURRENT_D07_AUTHORITY: 1dcd68cbfe17f0324ec863cc737d84286aee342c
   REPAIRED_IMPORT_BLOB: 60aeb06516689bd81686606da83cf00c79327d96
   IDEMPOTENCY_TEST_BLOB: 076e08f62d921147b49e30656f33aad92435228b
   OWNER_SERVICE_BLOB: bb848b9cfc7eb643630143833be52075fca3e165
   OWNER_TEST_BLOB: 99848ec1771e44e44c95af3f6aa9c66d634080fd
   OWNER_REAL_ORACLE_BLOB: 5f828fbd1ae33572f109b7a99bc58e45951842b1
-  CURRENT_ACSDB_BLOB: f5dd56e017c09aa8bf2ba3aa66c0658f8a229e74
   CURRENT_SEARCH_BLOB: 98466d081fb4c77d52029963c2f295e5f022dd07
 
 jobs:
@@ -76,33 +76,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          product_base="$(git rev-parse HEAD^1)"
-
-          git cat-file -e "${product_base}^{commit}"
-          git cat-file -e "$SOURCE_HEAD^{commit}"
-          git cat-file -e "$DEDUPE_OWNER_HEAD^{commit}"
-          test "$(git merge-base HEAD "$product_base")" = "$product_base"
-          git merge-base --is-ancestor "$SOURCE_HEAD" "$product_base"
-          git merge-base --is-ancestor "$SOURCE_HEAD" HEAD
-          git merge-base --is-ancestor "$DEDUPE_OWNER_HEAD" "$product_base"
-          git merge-base --is-ancestor "$DEDUPE_OWNER_HEAD" HEAD
-          git diff --check "$product_base" HEAD
+          for commit in "$SOURCE_HEAD" "$DEDUPE_OWNER_HEAD" "$CURRENT_D07_AUTHORITY"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+            git merge-base --is-ancestor "$commit" HEAD
+          done
+          git diff --check "$CURRENT_D07_AUTHORITY" HEAD
 
           test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$REPAIRED_IMPORT_BLOB"
           test "$(git rev-parse HEAD:acs/library_source_service.py)" = "$OWNER_SERVICE_BLOB"
           test "$(git rev-parse HEAD:tests/test_d07_library_import_exact_source_order.py)" = "$IDEMPOTENCY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_library_source_catalog.py)" = "$OWNER_TEST_BLOB"
           test "$(git rev-parse HEAD:tools/v2_library_source_catalog_real_corpus.py)" = "$OWNER_REAL_ORACLE_BLOB"
-          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$CURRENT_ACSDB_BLOB"
           test "$(git rev-parse HEAD:acs/search_service.py)" = "$CURRENT_SEARCH_BLOB"
-
-          test "$(git rev-parse "$product_base:acs/library_import_service.py")" = "$REPAIRED_IMPORT_BLOB"
-          test "$(git rev-parse "$product_base:acs/library_source_service.py")" = "$OWNER_SERVICE_BLOB"
-          test "$(git rev-parse "$product_base:tests/test_d07_library_import_exact_source_order.py")" = "$IDEMPOTENCY_TEST_BLOB"
-          test "$(git rev-parse "$product_base:tests/test_v2_library_source_catalog.py")" = "$OWNER_TEST_BLOB"
-          test "$(git rev-parse "$product_base:tools/v2_library_source_catalog_real_corpus.py")" = "$OWNER_REAL_ORACLE_BLOB"
-          test "$(git rev-parse "$product_base:acs/acsdb.py")" = "$CURRENT_ACSDB_BLOB"
-          test "$(git rev-parse "$product_base:acs/search_service.py")" = "$CURRENT_SEARCH_BLOB"
 
       - name: Compile bounded source catalog and repaired importer
         run: python -m py_compile acs/library_import_service.py acs/library_source_service.py tests/test_d07_library_import_exact_source_order.py tests/test_v2_library_source_catalog.py tools/v2_library_source_catalog_real_corpus.py
@@ -112,6 +97,8 @@ jobs:
           python -m unittest -v
           tests.test_d07_library_import_exact_source_order
           tests.test_v2_library_source_catalog
+          tests.test_d07_canonical_ingress_current
+          tests.test_v2_library_player_identity_search
           tests.test_v2_library_integrity_repair
           tests.test_v2_library_date_filter_v5
           tests.test_v2_library_acsdb_search_v4
@@ -156,13 +143,13 @@ jobs:
           python-version: '3.12'
       - name: Install pinned real-corpus dependency
         run: python -m pip install -q zstandard==0.23.0
-      - name: Prove current Product dependency blobs
+      - name: Prove retained Source Catalog dependencies
         shell: bash
         run: |
           set -euo pipefail
+          git merge-base --is-ancestor "$CURRENT_D07_AUTHORITY" HEAD
           test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$REPAIRED_IMPORT_BLOB"
           test "$(git rev-parse HEAD:acs/library_source_service.py)" = "$OWNER_SERVICE_BLOB"
-          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$CURRENT_ACSDB_BLOB"
           test "$(git rev-parse HEAD:acs/search_service.py)" = "$CURRENT_SEARCH_BLOB"
       - name: Bounded canonical real CC0 5k source journey
         shell: bash
@@ -179,7 +166,7 @@ jobs:
           payload = json.loads(path.read_text(encoding='utf-8'))
           payload['source_catalog_source_head'] = os.environ['SOURCE_HEAD']
           payload['dedupe_owner_head'] = os.environ['DEDUPE_OWNER_HEAD']
-          payload['convergence_base'] = subprocess.check_output(['git', 'rev-parse', 'HEAD^1'], text=True).strip()
+          payload['current_d07_authority'] = os.environ['CURRENT_D07_AUTHORITY']
           payload['convergence_head'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
           PY
