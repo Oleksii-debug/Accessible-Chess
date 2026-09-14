@@ -17,6 +17,9 @@ concurrency:
   group: runtime-dependency-notices-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+
 jobs:
   focused:
     runs-on: ubuntu-22.04
@@ -42,3 +45,90 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
+  real-windows-qualified-stack:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install exact current package build and runtime stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check `
+            pywebview==6.2.1 `
+            pythonnet==3.1.0 `
+            clr-loader==0.3.1 `
+            cffi==2.1.1 `
+            pycparser==3.0 `
+            typing-extensions==4.16.0 `
+            "Nuitka @ $nuitkaUrl" `
+            ordered-set==4.1.0 `
+            zstandard==0.25.0
+          if($LASTEXITCODE -ne 0){throw 'Qualified Windows dependency installation failed'}
+
+      - name: Prove real installed dependency closure and notice bytes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json
+          from importlib.metadata import version
+          from pathlib import Path
+          from acs.runtime_dependency_notices import build_runtime_dependency_notice_bundle
+
+          expected = {
+              'pywebview': '6.2.1',
+              'pythonnet': '3.1.0',
+              'clr-loader': '0.3.1',
+              'cffi': '2.1.1',
+              'pycparser': '3.0',
+              'typing_extensions': '4.16.0',
+              'ordered-set': '4.1.0',
+              'zstandard': '0.25.0',
+              'proxy_tools': '0.1.0',
+              'bottle': '0.13.4',
+              'Nuitka': version('Nuitka'),
+          }
+          for distribution, wanted in expected.items():
+              actual = version(distribution)
+              print(f'QUALIFIED_NOTICE_DISTRIBUTION {distribution}={actual}')
+              if actual != wanted:
+                  raise SystemExit(f'QUALIFIED_NOTICE_VERSION_DRIFT {distribution} actual={actual} expected={wanted}')
+
+          bundle = build_runtime_dependency_notice_bundle(
+              tuple(expected),
+              Path('real-runtime-notices'),
+              expected_versions=expected,
+              python_version='3.12.10',
+          )
+          manifest = json.loads(bundle.manifest_path.read_text(encoding='utf-8'))
+          names = {row['distribution'] for row in manifest['distributions']}
+          if names != set(expected):
+              raise SystemExit(f'QUALIFIED_NOTICE_MANIFEST_INVENTORY_MISMATCH {sorted(names)}')
+          if manifest['python']['version'] != '3.12.10':
+              raise SystemExit('QUALIFIED_NOTICE_PYTHON_VERSION_MISMATCH')
+          if len(bundle.notice_files) < len(expected) + 2:
+              raise SystemExit('QUALIFIED_NOTICE_FILE_COUNT_TOO_SMALL')
+          print(f'QUALIFIED_RUNTIME_NOTICE_FILES={len(bundle.notice_files)}')
+          print('QUALIFIED_RUNTIME_DEPENDENCY_NOTICES=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Real qualified dependency notice proof failed'}
+
+      - name: Upload bounded real notice evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-runtime-dependency-notices
+          path: real-runtime-notices
+          if-no-files-found: warn
+          retention-days: 14
