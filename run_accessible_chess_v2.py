@@ -1,3 +1,10 @@
+# Nuitka standalone must carry the host-level .NET accessibility policy beside
+# AccessibleChess.exe. Source CPython can set AppContext before WinForms loads,
+# while a compiled Windows host also needs its application configuration bound
+# at process startup so the same modern ToolStrip UIA provider is selected.
+# nuitka-project-if: {OS} == "Windows":
+#    nuitka-project: --include-data-files={MAIN_DIRECTORY}/packaging/AccessibleChess.exe.config=AccessibleChess.exe.config
+
 import json
 from pathlib import Path
 import sys
