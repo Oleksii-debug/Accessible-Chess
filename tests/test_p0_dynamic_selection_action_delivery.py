@@ -16,12 +16,11 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         cls.final_release = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
 
     def test_shipping_final_product_loads_p0_runtime_last(self) -> None:
-        marker = '("P0 accessibility runtime", root / "p0_accessibility_runtime.js")'
-        self.assertIn(marker, self.final_release)
-        self.assertGreater(
-            self.final_release.index(marker),
-            self.final_release.index('(“V2 final-product bootstrap”'.replace('“', '"').replace('”', '"')),
-        )
+        bootstrap_marker = '("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js")'
+        runtime_marker = '("P0 accessibility runtime", root / "p0_accessibility_runtime.js")'
+        self.assertIn(bootstrap_marker, self.final_release)
+        self.assertIn(runtime_marker, self.final_release)
+        self.assertGreater(self.final_release.index(runtime_marker), self.final_release.index(bootstrap_marker))
 
     def test_dynamic_selection_guard_is_route_and_text_bounded(self) -> None:
         self.assertIn('new global.MutationObserver', self.runtime)
