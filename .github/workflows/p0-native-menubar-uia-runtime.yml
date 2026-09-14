@@ -12,6 +12,8 @@ on:
       - 'acs/version2_education_mutation_release.py'
       - 'acs/version2_upgrade_status_release.py'
       - 'scripts/p0_native_menubar_uia_oracle.py'
+      - 'scripts/p0_native_menubar_uia_probe.ps1'
+      - 'scripts/p0_native_menu_provider_ab.py'
       - 'tests/test_full_product_native_menu.py'
       - 'tests/test_windows_native_menu_smoke_contract.py'
       - '.github/workflows/p0-native-menubar-uia-runtime.yml'
@@ -55,6 +57,7 @@ jobs:
         run: >-
           python -m compileall -q
           scripts/p0_native_menubar_uia_oracle.py
+          scripts/p0_native_menu_provider_ab.py
           acs/ui_native_menu.py
           acs/full_product_native_menu.py
           acs/version2_release_ui.py
@@ -71,6 +74,62 @@ jobs:
           tests.test_version2_release_ui
           tests.test_version2_windows_composition_profile
 
+      - name: Classify MenuStrip versus MainMenu through external Windows UIA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $summary=[ordered]@{}
+          foreach($variant in @('menustrip','mainmenu')){
+            $ready=Join-Path $PWD "p0-provider-$variant-ready.json"
+            $uia=Join-Path $PWD "p0-provider-$variant-uia.json"
+            Remove-Item $ready,$uia -Force -ErrorAction SilentlyContinue
+            $process=Start-Process -FilePath python -ArgumentList @(
+              'scripts/p0_native_menu_provider_ab.py',
+              '--variant',$variant,
+              '--ready-file',$ready
+            ) -PassThru
+            try {
+              $deadline=[DateTime]::UtcNow.AddSeconds(20)
+              while(-not (Test-Path $ready) -and [DateTime]::UtcNow -lt $deadline){
+                if($process.HasExited){throw "Provider A/B $variant process exited early with code $($process.ExitCode)"}
+                Start-Sleep -Milliseconds 100
+                $process.Refresh()
+              }
+              if(-not (Test-Path $ready)){throw "Provider A/B $variant did not become ready"}
+              $state=Get-Content -Raw $ready | ConvertFrom-Json
+              & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                -File scripts/p0_native_menubar_uia_probe.ps1 `
+                -TargetProcessId $process.Id `
+                -MenuHandle ([long]$state.menu_handle) `
+                -OutputPath $uia `
+                -TimeoutSeconds 8
+              if($LASTEXITCODE -ne 0){throw "External UIA probe failed for $variant"}
+              $evidence=Get-Content -Raw $uia | ConvertFrom-Json
+              $summary[$variant]=[ordered]@{
+                process_id=$process.Id
+                form_handle=[long]$state.form_handle
+                menu_handle=[long]$state.menu_handle
+                same_process_menu_bars=@($evidence.same_process_menu_bars)
+                same_process_menu_bar_details=@($evidence.same_process_menu_bar_details)
+                menu_from_handle=$evidence.menu_from_handle
+              }
+            }
+            finally {
+              $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+              if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+            }
+          }
+          $summary | ConvertTo-Json -Depth 12 | Set-Content -Encoding utf8 p0-native-menu-provider-ab-summary.json
+          $stripCount=@($summary.menustrip.same_process_menu_bars).Count
+          $mainCount=@($summary.mainmenu.same_process_menu_bars).Count
+          Write-Host "PROVIDER_AB_MENustrip_MENU_BARS=$stripCount"
+          Write-Host "PROVIDER_AB_MAINMENU_MENU_BARS=$mainCount"
+          if($mainCount -gt 0){
+            $detail=@($summary.mainmenu.same_process_menu_bar_details)[0]
+            Write-Host "PROVIDER_AB_MAINMENU_NAMES=$(@($detail.top_level_names) -join '|')"
+            Write-Host "PROVIDER_AB_MAINMENU_EXPAND=$(@($detail.top_level_expand_collapse) -join '|')"
+          }
+
       - name: Prove shipping source MenuBar through process-scoped Windows UIA
         shell: pwsh
         run: |
@@ -84,6 +143,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: p0-native-menubar-uia-source-evidence
-          path: p0-native-menubar-uia-source-summary.json
+          path: |
+            p0-native-menubar-uia-source-summary.json
+            p0-native-menu-provider-ab-summary.json
           if-no-files-found: warn
           retention-days: 14
