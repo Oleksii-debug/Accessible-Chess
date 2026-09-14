@@ -179,11 +179,28 @@
     if (workspace) observer.observe(workspace, { subtree: true, childList: true, characterData: true });
   }
 
-  let announceTimer = null;
   let lastAnnouncement = "";
   let lastAnnouncementAt = 0;
   let lastAnnouncementDispatch = 0;
   let dispatchCounter = 0;
+  let announcementRunning = false;
+  const announcementQueue = [];
+
+  function pumpAnnouncements() {
+    if (announcementRunning || !announcementQueue.length) return;
+    const text = announcementQueue.shift();
+    announcementRunning = true;
+    live.setAttribute("aria-busy", "true");
+    live.textContent = "";
+    global.setTimeout(function () {
+      live.textContent = text;
+      live.setAttribute("aria-busy", "false");
+      global.setTimeout(function () {
+        announcementRunning = false;
+        pumpAnnouncements();
+      }, 35);
+    }, 30);
+  }
 
   function exposeAnnouncement(message, dispatchId) {
     if (!message) return false;
@@ -196,14 +213,8 @@
     lastAnnouncement = text;
     lastAnnouncementAt = now;
     lastAnnouncementDispatch = dispatch;
-    if (announceTimer !== null) global.clearTimeout(announceTimer);
-    live.setAttribute("aria-busy", "true");
-    live.textContent = "";
-    announceTimer = global.setTimeout(function () {
-      live.textContent = text;
-      live.setAttribute("aria-busy", "false");
-      announceTimer = null;
-    }, 30);
+    announcementQueue.push(text);
+    pumpAnnouncements();
     return true;
   }
 
