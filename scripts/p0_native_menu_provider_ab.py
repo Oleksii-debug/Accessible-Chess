@@ -66,6 +66,11 @@ def main() -> int:
         ToolStripMenuItem,
     )
 
+    # These process-wide WinForms settings must be established before the first
+    # control/window is constructed.
+    Application.EnableVisualStyles()
+    Application.SetCompatibleTextRenderingDefault(False)
+
     labels = ["&File", "&Game", "&Help"]
     form = Form()
     form.Text = f"Accessible Chess P0 provider probe - {args.variant}"
@@ -154,8 +159,6 @@ def main() -> int:
         )
 
     form.Shown += on_shown
-    Application.EnableVisualStyles()
-    Application.SetCompatibleTextRenderingDefault(False)
     Application.Run(form)
     _ = held
     return 0
