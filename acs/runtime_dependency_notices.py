@@ -113,6 +113,25 @@ def _looks_like_notice(path: PurePosixPath) -> bool:
     return any(stem == base or stem.startswith(base + "-") for base in _LICENSE_BASENAMES)
 
 
+def _inventory_notice_candidate(value: object) -> PurePosixPath | None:
+    """Filter arbitrary wheel inventory before applying strict notice-path rules.
+
+    ``Distribution.files`` contains every installed file, including records whose
+    spelling is irrelevant to release notices. Those records must not make notice
+    publication fail merely because they are not canonical relative notice paths.
+    Once a basename claims to be a license/notice, however, the strict path
+    boundary applies and traversal/absolute spellings still fail closed.
+    """
+
+    token = str(value or "").strip().replace("\\", "/")
+    if not token:
+        return None
+    observed = PurePosixPath(token)
+    if not _looks_like_notice(observed):
+        return None
+    return _safe_relative_notice(token)
+
+
 def _candidate_notice_paths(dist: Any) -> tuple[PurePosixPath, ...]:
     """Prefer real wheel inventory, then use PEP-639 metadata as fallback hints.
 
@@ -128,8 +147,8 @@ def _candidate_notice_paths(dist: Any) -> tuple[PurePosixPath, ...]:
     except Exception:
         files = ()
     for value in files:
-        path = _safe_relative_notice(str(value))
-        if _looks_like_notice(path):
+        path = _inventory_notice_candidate(value)
+        if path is not None:
             candidates.setdefault(path.as_posix().casefold(), path)
 
     for value in _metadata_values(dist, "License-File"):
