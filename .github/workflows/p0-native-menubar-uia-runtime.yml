@@ -84,16 +84,21 @@ jobs:
             $slug=$variant.Replace('-','_')
             $ready=Join-Path $PWD "p0-provider-$slug-ready.json"
             $uia=Join-Path $PWD "p0-provider-$slug-uia.json"
-            Remove-Item $ready,$uia -Force -ErrorAction SilentlyContinue
+            $stdout=Join-Path $PWD "p0-provider-$slug-stdout.txt"
+            $stderr=Join-Path $PWD "p0-provider-$slug-stderr.txt"
+            Remove-Item $ready,$uia,$stdout,$stderr -Force -ErrorAction SilentlyContinue
             $process=Start-Process -FilePath python -ArgumentList @(
               'scripts/p0_native_menu_provider_ab.py',
               '--variant',$variant,
               '--ready-file',$ready
-            ) -PassThru
+            ) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
             try {
               $deadline=[DateTime]::UtcNow.AddSeconds(20)
               while(-not (Test-Path $ready) -and [DateTime]::UtcNow -lt $deadline){
-                if($process.HasExited){throw "Provider probe $variant exited early with code $($process.ExitCode)"}
+                if($process.HasExited){
+                  $diagnostic=((Get-Content -Raw $stderr -ErrorAction SilentlyContinue) + ' ' + (Get-Content -Raw $stdout -ErrorAction SilentlyContinue)).Trim()
+                  throw "Provider probe $variant exited early with code $($process.ExitCode): $diagnostic"
+                }
                 Start-Sleep -Milliseconds 100
                 $process.Refresh()
               }
@@ -150,5 +155,7 @@ jobs:
           path: |
             p0-native-menubar-uia-source-summary.json
             p0-native-menu-provider-ab-summary.json
+            p0-provider-*-stderr.txt
+            p0-provider-*-stdout.txt
           if-no-files-found: warn
           retention-days: 14
