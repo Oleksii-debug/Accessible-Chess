@@ -19,6 +19,9 @@ concurrency:
 
 env:
   NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_SDIST_URL: https://files.pythonhosted.org/packages/4c/ca/bfac8bc689799bcca4157e0e0ced07e70ce125193fc2e166d2e685b7e2fe/ordered-set-4.1.0.tar.gz
+  ORDERED_SET_SDIST_SHA256: 694a8e44c87657c59292ede72891eb91d34131f6531463aab3009191c77364a8
+  ORDERED_SET_LICENSE_MEMBER: ordered-set-4.1.0/MIT-LICENSE
 
 jobs:
   focused:
@@ -76,15 +79,30 @@ jobs:
             zstandard==0.25.0
           if($LASTEXITCODE -ne 0){throw 'Qualified Windows dependency installation failed'}
 
+      - name: Download exact ordered-set source artifact for omitted wheel license
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-WebRequest -Uri $env:ORDERED_SET_SDIST_URL -OutFile ordered-set-4.1.0.tar.gz
+          $actual=(Get-FileHash -Algorithm SHA256 ordered-set-4.1.0.tar.gz).Hash.ToLowerInvariant()
+          if($actual -ne $env:ORDERED_SET_SDIST_SHA256){
+            throw "ordered-set source artifact SHA256 mismatch actual=$actual expected=$env:ORDERED_SET_SDIST_SHA256"
+          }
+          Write-Host "ORDERED_SET_SOURCE_ARTIFACT_SHA256=$actual"
+
       - name: Prove real installed dependency closure and notice bytes
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           @'
           import json
+          import os
           from importlib.metadata import version
           from pathlib import Path
-          from acs.runtime_dependency_notices import build_runtime_dependency_notice_bundle
+          from acs.runtime_dependency_notices import (
+              ExternalArchiveNoticeSource,
+              build_runtime_dependency_notice_bundle,
+          )
 
           expected = {
               'pywebview': '6.2.1',
@@ -105,11 +123,18 @@ jobs:
               if actual != wanted:
                   raise SystemExit(f'QUALIFIED_NOTICE_VERSION_DRIFT {distribution} actual={actual} expected={wanted}')
 
+          ordered_set_source = ExternalArchiveNoticeSource(
+              archive_path=Path('ordered-set-4.1.0.tar.gz'),
+              source_url=os.environ['ORDERED_SET_SDIST_URL'],
+              source_sha256=os.environ['ORDERED_SET_SDIST_SHA256'],
+              member_path=os.environ['ORDERED_SET_LICENSE_MEMBER'],
+          )
           bundle = build_runtime_dependency_notice_bundle(
               tuple(expected),
               Path('real-runtime-notices'),
               expected_versions=expected,
               python_version='3.12.10',
+              external_notice_sources={'ordered-set': ordered_set_source},
           )
           manifest = json.loads(bundle.manifest_path.read_text(encoding='utf-8'))
           names = {row['distribution'] for row in manifest['distributions']}
@@ -117,9 +142,20 @@ jobs:
               raise SystemExit(f'QUALIFIED_NOTICE_MANIFEST_INVENTORY_MISMATCH {sorted(names)}')
           if manifest['python']['version'] != '3.12.10':
               raise SystemExit('QUALIFIED_NOTICE_PYTHON_VERSION_MISMATCH')
+          ordered = next(row for row in manifest['distributions'] if row['distribution'] == 'ordered-set')
+          if len(ordered['notice_files']) != 1:
+              raise SystemExit('ORDERED_SET_NOTICE_COUNT_MISMATCH')
+          ordered_notice = ordered['notice_files'][0]
+          if ordered_notice.get('source_kind') != 'verified_source_archive':
+              raise SystemExit('ORDERED_SET_NOTICE_SOURCE_KIND_MISMATCH')
+          if ordered_notice.get('source_artifact_sha256') != os.environ['ORDERED_SET_SDIST_SHA256']:
+              raise SystemExit('ORDERED_SET_NOTICE_SOURCE_SHA_MISMATCH')
+          if ordered_notice.get('source_path') != os.environ['ORDERED_SET_LICENSE_MEMBER']:
+              raise SystemExit('ORDERED_SET_NOTICE_MEMBER_MISMATCH')
           if len(bundle.notice_files) < len(expected) + 2:
               raise SystemExit('QUALIFIED_NOTICE_FILE_COUNT_TOO_SMALL')
           print(f'QUALIFIED_RUNTIME_NOTICE_FILES={len(bundle.notice_files)}')
+          print('ORDERED_SET_EXACT_SOURCE_LICENSE_FALLBACK=PASS')
           print('QUALIFIED_RUNTIME_DEPENDENCY_NOTICES=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Real qualified dependency notice proof failed'}
