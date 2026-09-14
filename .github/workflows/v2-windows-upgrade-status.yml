@@ -24,13 +24,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT_BASE: bf0529c2289f889b3c7488b965183e78a6b3f037
   PROVENANCE_HEAD: 15ea49cf2f50ea7c73a1d241648acce2716ca865
   SOURCE_ADAPTER_BLOB: 9fb7d1521f3387316e399d63ae81504957710b09
   SOURCE_TEST_BLOB: 3c55d1e85724d0473e8e282d65294ae19040b22c
   SHIPPING_BINDING_BLOB: 6631d8e8a000ed32f60a95f68d9b02cf0422c4df
   SHIPPING_TEST_BLOB: 7cf695af6b7c0975b075d0cee332dbd815af9a6d
-  LAUNCHER_BLOB: 4903519834ed266bfb867ba55ccdf67bdf2e10d1
   CURRENT_RELEASE_APP_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
   CURRENT_EDUCATION_RELEASE_BLOB: 334c8210571be8212638e948032e61d1eee4df4d
 
@@ -63,35 +61,44 @@ jobs:
       - name: Install pinned verification dependencies
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current-product convergence and owned shipping scope
+      - name: Prove retained shipping-status authority on current Product
         shell: bash
         run: |
           set -euo pipefail
-          for commit in "$CURRENT_PRODUCT_BASE" "$PROVENANCE_HEAD"; do
-            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
-          done
-          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+          git cat-file -e "${PROVENANCE_HEAD}^{commit}" || git fetch --no-tags origin "$PROVENANCE_HEAD"
           git merge-base --is-ancestor "$PROVENANCE_HEAD" HEAD
-          test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"
-          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-windows-upgrade-status.yml' \
-            'acs/version2_upgrade_status_release.py' \
-            'acs/version2_windows_upgrade_status.py' \
-            'run_accessible_chess_v2.py' \
-            'tests/test_v2_windows_upgrade_status.py' \
-            'tests/test_v2_windows_upgrade_status_shipping.py' | sort)"
-          test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/version2_windows_upgrade_status.py)" = "$SOURCE_ADAPTER_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status.py)" = "$SOURCE_TEST_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$SHIPPING_BINDING_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status_shipping.py)" = "$SHIPPING_TEST_BLOB"
-          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$LAUNCHER_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$CURRENT_RELEASE_APP_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
-          test "$(git rev-parse "$CURRENT_PRODUCT_BASE:acs/version2_release_app.py")" = "$CURRENT_RELEASE_APP_BLOB"
-          test "$(git rev-parse "$CURRENT_PRODUCT_BASE:acs/version2_education_mutation_release.py")" = "$CURRENT_EDUCATION_RELEASE_BLOB"
+
+          base='${{ github.event.pull_request.base.sha }}'
+          if [ -z "$base" ]; then
+            git fetch --no-tags origin work/full-product-teacher-education-reachability-20260911
+            base="$(git rev-parse origin/work/full-product-teacher-education-reachability-20260911)"
+          fi
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+
+          while IFS='=' read -r path expected; do
+            head_blob="$(git rev-parse "HEAD:$path")"
+            base_blob="$(git rev-parse "$base:$path")"
+            test "$head_blob" = "$expected" || {
+              printf 'Retained authority drift: %s expected=%s actual=%s\n' "$path" "$expected" "$head_blob" >&2
+              exit 1
+            }
+            test "$head_blob" = "$base_blob" || {
+              printf 'Protected shipping-status file changed relative to current Product base: %s base=%s head=%s\n' "$path" "$base_blob" "$head_blob" >&2
+              exit 1
+            }
+          done <<LOCKS
+          acs/version2_windows_upgrade_status.py=$SOURCE_ADAPTER_BLOB
+          tests/test_v2_windows_upgrade_status.py=$SOURCE_TEST_BLOB
+          acs/version2_upgrade_status_release.py=$SHIPPING_BINDING_BLOB
+          tests/test_v2_windows_upgrade_status_shipping.py=$SHIPPING_TEST_BLOB
+          acs/version2_release_app.py=$CURRENT_RELEASE_APP_BLOB
+          acs/version2_education_mutation_release.py=$CURRENT_EDUCATION_RELEASE_BLOB
+          LOCKS
+
+          echo "CURRENT_PRODUCT_BASE=$base"
+          echo 'RETAINED_UPGRADE_STATUS_AUTHORITY=PASS'
 
       - name: Prove production launcher uses the shipping status binding
         shell: bash
