@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - work/w6-v2-package-assembler-current-preflight-20260910
+      - fix/w6-v2-package-assembler-current-composition-20260912
   pull_request:
-    branches:
-      - codex/v2-runtime-completion-20260907
     paths:
       - 'acs/version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_package_assembler.py'
       - '.github/workflows/w6-v2-package-assembler.yml'
   workflow_dispatch:
@@ -21,8 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_RUNTIME_PREFLIGHT_PARENT: daf045295bdc9f7eefb40dfa16b74c8089cfbb4f
-  PREFLIGHT_BLOB: 8d0f050ef9354d3141ef624449e78482eea85535
+  CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
+  CURRENT_ASSEMBLER_BLOB: 0a365844b491cb4e0978a595debac56453ff4240
+  CURRENT_PREFLIGHT_BLOB: c66c41257b82bacce8af4b5d09ffd8db2893a666
+  CURRENT_ASSEMBLER_TEST_BLOB: 40fc718d65afd8f90fd8bd021c462bfc287d406e
 
 jobs:
   focused:
@@ -41,21 +43,31 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Exact current-runtime preflight parent and narrow assembler scope
+      - name: Exact current assembler identity and convergence-safe scope
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
-          test "$(git rev-parse "$CURRENT_RUNTIME_PREFLIGHT_PARENT":acs/version2_package_preflight.py)" = "$PREFLIGHT_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PREFLIGHT_BLOB"
-          git diff --check "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD
-          changed="$(git diff --name-only "$CURRENT_RUNTIME_PREFLIGHT_PARENT" HEAD | sort)"
+          git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
+          git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+
+          changed="$(git diff --name-only "$CURRENT_ASSEMBLER_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w6-v2-package-assembler.yml' \
             'acs/version2_package_assembler.py' \
             'tests/test_version2_package_assembler.py' | sort)"
-          test "$changed" = "$expected"
-          echo 'CURRENT RUNTIME + CANONICAL PREFLIGHT / SINGLE ASSEMBLER SCOPE PASS'
+
+          if [ "$changed" = "$expected" ]; then
+            echo 'W6_ASSEMBLER_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
+          else
+            # After this assembler lineage is composed into the Full Product,
+            # later accepted runtime/preflight/content changes are expected.
+            # Fail closed on the release components this gate actually owns
+            # instead of requiring the whole Product to equal an old ancestor.
+            test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$CURRENT_PREFLIGHT_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_TEST_BLOB"
+            echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
+          fi
 
       - name: Compile assembler and canonical preflight
         run: >-

@@ -25,6 +25,9 @@ _REQUIRED_WEB_FILES = (
     "full_product_pgn.js",
     "full_product_library.js",
     "full_product_books_training.js",
+    "full_product_teacher.js",
+    "full_product_education.js",
+    "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
 )
 

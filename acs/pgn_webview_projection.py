@@ -19,9 +19,15 @@ from .full_product_ui_shell import UILanguage, concise_user_error
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 GameCountProvider = Callable[[], int]
 
-_WINDOWS_LOCAL_PATH = re.compile(r"(?i)(?<![\w])([a-z]:[\\/][^\r\n\t]*)")
+_WINDOWS_LOCAL_PATH = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:"
+    r"[a-z]:(?:[\\/]|(?=[^:\s]{1,160}(?:[\\/]|$)))[^\r\n\t]*"
+    r"|\\\\(?:\?\\)?[^\\\s]+\\[^\r\n\t]*"
+    r")"
+)
+_FILE_LOCAL_URI = re.compile(r"(?i)(?<![\w])file:///[^\r\n\t ]*")
 _POSIX_LOCAL_PATH = re.compile(
-    r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var/tmp|private/tmp)/[^\r\n\t ]*)"
+    r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var|private|opt|usr|etc|srv|run|root|Applications)(?:/|\b)[^\r\n\t ]*)"
 )
 
 _LABELS = {
@@ -80,6 +86,7 @@ _LABELS = {
 
 def _scrub_local_paths(text: str, language: UILanguage) -> str:
     replacement = _LABELS[language]["local_path"]
+    text = _FILE_LOCAL_URI.sub(replacement, text)
     text = _WINDOWS_LOCAL_PATH.sub(replacement, text)
     return _POSIX_LOCAL_PATH.sub(replacement, text)
 

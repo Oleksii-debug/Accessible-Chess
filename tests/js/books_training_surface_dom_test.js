@@ -143,6 +143,23 @@ function bookSnapshot(index, text) {
   };
 }
 
+function withStarterMaterials(snapshot, currentId) {
+  snapshot.starter_materials = {
+    heading: "Offline starter materials",
+    label: "Material",
+    open_label: "Open material",
+    description: "All bundled and offline.",
+    current_id: currentId,
+    booklet_count: 2,
+    items: [
+      { material_id: "starter-course", title: "Starter course" },
+      { material_id: "starter-booklet-01", title: "Booklet one" },
+      { material_id: "starter-booklet-02", title: "<img onerror=bad()>" }
+    ]
+  };
+  return snapshot;
+}
+
 async function flushPromises() {
   await Promise.resolve();
   await Promise.resolve();
@@ -244,7 +261,43 @@ async function run() {
   check(list.children[1].textContent === "<img onerror=bad()>", "list content must remain literal text");
   check(document.activeElement === list, "list reading focus lost");
 
-  console.log("Books/Training DOM focus and editing contract PASS");
+  let openedMaterial = "";
+  const starterInvoke = (command, payload) => {
+    check(command === "book.open_starter_material", "unexpected starter material command");
+    check(payload && Object.keys(payload).length === 1, "starter material payload is not bounded");
+    openedMaterial = String(payload.material_id || "");
+    return {
+      kind: "render",
+      payload: {
+        snapshot: withStarterMaterials(bookSnapshot(0, "Opened booklet"), openedMaterial),
+        focus_target: "book-block-0",
+        announcement: "Opened material"
+      }
+    };
+  };
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    withStarterMaterials(bookSnapshot(0, "Starter course"), "starter-course"),
+    starterInvoke,
+    announce,
+    "book-block-0",
+    "Action failed"
+  );
+  const selector = bookRoot.querySelector("#book-starter-material");
+  check(selector !== null && selector.tagName === "SELECT", "starter material selector missing");
+  check(selector.children.length === 3, "starter material selector inventory incomplete");
+  check(selector.children.every((item) => item.tagName === "OPTION"), "starter inventory lacks native option semantics");
+  check(selector.children[2].textContent === "<img onerror=bad()>", "starter title must remain literal text");
+  selector.value = "starter-booklet-02";
+  const openMaterial = find(bookRoot, "BUTTON", "Open material");
+  check(openMaterial !== null, "starter material open button missing");
+  openMaterial.listeners.click();
+  await flushPromises();
+  check(openedMaterial === "starter-booklet-02", "selected starter material was not sent to host");
+  check(document.activeElement && document.activeElement.id === "book-block-0", "opened material reading focus missing");
+  check(announcements.includes("Opened material"), "starter material result was not announced");
+
+  console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
 
 run().catch(function (error) {

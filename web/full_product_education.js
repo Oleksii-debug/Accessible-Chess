@@ -29,6 +29,24 @@
     }
   }
 
+  function renderDetail(detail) {
+    const wrapper = node("section");
+    wrapper.id = "education-detail";
+    wrapper.setAttribute("aria-labelledby", "education-detail-heading");
+    if (!detail || typeof detail !== "object") {
+      wrapper.setAttribute("hidden", "hidden");
+      return wrapper;
+    }
+
+    const heading = node("h2", detail.heading || "");
+    heading.id = "education-detail-heading";
+    heading.tabIndex = -1;
+    wrapper.appendChild(heading);
+    if (detail.secondary) wrapper.appendChild(node("p", detail.secondary));
+    if (detail.status) wrapper.appendChild(node("p", detail.status));
+    return wrapper;
+  }
+
   function applyEducationEvent(root, result, invoke, announce, fallbackMessage) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
@@ -36,6 +54,12 @@
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
       if (previous && typeof previous.replaceWith === "function") {
         previous.replaceWith(renderSection(payload.snapshot, invoke, announce, fallbackMessage));
+      }
+    }
+    if (result.kind === "delegated" && payload.detail && typeof payload.detail === "object") {
+      const previousDetail = root.querySelector("#education-detail");
+      if (previousDetail && typeof previousDetail.replaceWith === "function") {
+        previousDetail.replaceWith(renderDetail(payload.detail));
       }
     }
     if (payload.announcement) announce(String(payload.announcement));
@@ -177,6 +201,7 @@
     sections.forEach(function (section) {
       main.appendChild(renderSection(section || {}, invoke, announce, fallbackMessage));
     });
+    main.appendChild(renderDetail(snapshot.detail || null));
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     focusTarget(root, requestedFocus || "");

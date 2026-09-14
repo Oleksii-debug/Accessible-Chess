@@ -19,6 +19,7 @@ on:
       - 'tests/test_dev1_pgn_webview_atomicity.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_v2_board_analysis_hotkey_feedback.py'
       - 'web/full_product_pgn.js'
       - 'web/index.html'
       - 'run_accessible_chess.py'
@@ -46,6 +47,7 @@ jobs:
       P1_PARENT: fe249c24cad049f77a998ff305fbad0ace77c6ac
       P1_REPAIR: 48b0aeabd485d9f9e26e335f232209e86debeb7a
       D06_WORKSPACE_BLOB: 346f31f828191e76d57b372bb6c84a4a90568594
+      D06_BOUNDED_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
       PR_BASE: ${{ github.event.pull_request.base.sha }}
     steps:
@@ -151,11 +153,23 @@ jobs:
           acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
-          acs/stage1_release_ui.py=16e78af6219c8c36f0c4026942ef1d02875a370a
           acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
           web/index.html=17803443a815843be3aa1b8c6be1c5abb7e7c888
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
+
+          # The Stage1 release facade is a shared keyboard-routing boundary.
+          # Accept only the prior canonical blob or the exact P0-G facade that
+          # adds board->analysis fallback while preserving the frozen core.
+          stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
+          case "$stage1_facade_actual" in
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # The shell is a shared D01 presentation boundary. Accept only the
           # exact pre-sanitizer blob or the canonical #456/#609 sanitizer blob
@@ -181,9 +195,7 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/pgn_workspace.py=346f31f828191e76d57b372bb6c84a4a90568594
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_webview_projection.py=45049519527cda3d9c9f3c4de8e4244afc9fc614
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
@@ -192,12 +204,34 @@ jobs:
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
-          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$D06_WORKSPACE_BLOB"
+
+          # Presentation privacy is an intentional successor of the exact D01
+          # projection. Accept only the prior projection or the reviewed privacy
+          # successor; every third identity remains fail-closed.
+          projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
+          case "$projection_actual" in
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
+          case "$workspace_actual" in
+            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB")
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_workspace.py actual=%s\n' "$workspace_actual" >&2
+              exit 1
+              ;;
+          esac
           test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$D06_WORKSPACE_TEST_BLOB"
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_board_analysis_hotkey_feedback.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
@@ -219,6 +253,7 @@ jobs:
           tests.test_pgn_concurrent_save
           tests.test_whole_product_user_journey
           tests.test_keybindings
+          tests.test_v2_board_analysis_hotkey_feedback
 
       - name: Prove exact current PgnWorkspace to one D01 action path
         shell: bash

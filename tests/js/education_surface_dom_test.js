@@ -145,8 +145,8 @@ function initialSnapshot() {
         item_key: "c".repeat(64),
         dom_id: "education-" + kind + "-" + "c".repeat(64),
         label: kind,
-        secondary: "",
-        status: "",
+        secondary: kind + " secondary",
+        status: kind + " status",
         selected: true
       }], { open_enabled: ["student", "lesson", "assignment"].includes(kind) });
     })
@@ -196,7 +196,23 @@ async function run() {
         }
       };
     }
-    if (command === "education.open" || command === "education.new_class") {
+    if (command === "education.open") {
+      return {
+        kind: "delegated",
+        payload: {
+          action: command,
+          detail: {
+            kind: payload.kind,
+            heading: payload.kind + " detail",
+            secondary: payload.kind + " secondary",
+            status: payload.kind + " status"
+          },
+          focus_target: "education-detail-heading",
+          announcement: "Opened"
+        }
+      };
+    }
+    if (command === "education.new_class") {
       return { kind: "delegated", payload: { action: command } };
     }
     throw new Error("unexpected command " + command);
@@ -214,6 +230,7 @@ async function run() {
   const renderedSections = root.descendants().filter((element) => element.getAttribute("data-education-kind"));
   check(renderedSections.length === 11, "not all education collections rendered");
   check(document.activeElement.id === "education-class-" + "a".repeat(64), "initial focus missing");
+  check(root.querySelector("#education-detail").getAttribute("hidden") === "hidden", "empty detail region must start hidden");
 
   const wholeRenders = root.replaceChildrenCalls;
   root.querySelector("#education-class-" + keyB).listeners.click();
@@ -231,12 +248,28 @@ async function run() {
   await flushPromises();
   check(calls[1][0] === "education.open", "open action missing");
   check(Object.keys(calls[1][1]).join(",") === "kind", "open leaked a raw record id");
+  check(calls[1][1].kind === "class", "class open kind changed");
+  check(root.querySelector("#education-detail-heading").textContent === "class detail", "read-only detail heading missing");
+  check(document.activeElement.id === "education-detail-heading", "opened detail did not receive semantic focus");
+  check(root.replaceChildrenCalls === wholeRenders, "open rerendered the whole Education surface");
 
   const next = classSection.descendants().find((element) => element.getAttribute("data-command") === "education.page.next");
   next.listeners.click();
   await flushPromises();
   check(calls[2][0] === "education.page" && calls[2][1].direction === 1, "bounded next page command missing");
   check(document.activeElement.id === "education-class-" + keyD, "page focus not restored");
+
+  for (const kind of ["student", "lesson", "assignment"]) {
+    const option = root.descendants().find((element) => element.id.startsWith("education-" + kind + "-"));
+    const beforeOpen = calls.length;
+    option.listeners.keydown({ key: "Enter", preventDefault: function () {} });
+    await flushPromises();
+    check(calls.length === beforeOpen + 1, kind + " Enter did not invoke open");
+    check(calls[calls.length - 1][0] === "education.open", kind + " used wrong open command");
+    check(Object.keys(calls[calls.length - 1][1]).join(",") === "kind", kind + " leaked authority fields");
+    check(calls[calls.length - 1][1].kind === kind, kind + " open kind changed");
+    check(document.activeElement.id === "education-detail-heading", kind + " detail focus missing");
+  }
 
   const courseOption = root.descendants().find((element) => element.id.startsWith("education-course-"));
   const beforeEnter = calls.length;
@@ -246,7 +279,7 @@ async function run() {
   check(!calls.some((call) => Object.prototype.hasOwnProperty.call(call[1], "record_id") || Object.prototype.hasOwnProperty.call(call[1], "student_id")), "browser sent raw education identity");
   check(!calls.some((call) => /submit|update|delete|move$/.test(call[0])), "education view gained mutation authority");
 
-  console.log("Education collections paging/privacy DOM contract PASS");
+  console.log("Education collections paging/privacy/open-selected DOM contract PASS");
 }
 
 run().catch(function (error) {

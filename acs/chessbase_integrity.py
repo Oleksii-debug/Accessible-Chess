@@ -3,13 +3,11 @@ from __future__ import annotations
 """Evidence-backed integrity snapshots for read-only ChessBase-family sources."""
 
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 from typing import Iterable
-import os
-import stat
 
 from .chessbase_adapter import ChessBaseSourceProbe, probe_chessbase_source
+from .import_contract import fingerprint as _canonical_fingerprint
 from .report_paths import report_safe_name
 
 
@@ -51,65 +49,36 @@ class ChessBaseIntegrityIOError(RuntimeError):
     """Raised when integrity evidence cannot be observed safely."""
 
 
-def _is_reparse_point(st: os.stat_result) -> bool:
-    attrs = getattr(st, "st_file_attributes", 0)
-    marker = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return bool(attrs & marker)
-
-
 def _fingerprint(path: Path, extension: str, role: str) -> SourceFileEvidence:
+    """Capture one member through the canonical identity-bound file reader.
+
+    Classic ChessBase integrity must not maintain a second pathname-open hashing
+    implementation.  ``import_contract.fingerprint`` already rejects symlink /
+    reparse indirection, binds the opened descriptor to the validated pathname,
+    double-hashes the exact inode to catch same-size concurrent mutation, and
+    revalidates the public path before provenance publication.
+
+    The integrity snapshot deliberately retains the probe's submitted path
+    spelling.  On Windows the canonical fingerprint may expand an 8.3 alias while
+    validating/publicizing provenance; replacing the probe path with that spelling
+    would change the ChessBase family identity even though the exact file object
+    and bytes are unchanged.  Safety comes from the canonical fingerprint's
+    descriptor binding and digest, not from rewriting this API-visible path.
+    """
+
     safe_name = report_safe_name(path)
     try:
-        before = path.lstat()
-    except OSError as exc:
+        source = _canonical_fingerprint(path)
+    except (OSError, ValueError) as exc:
         raise ChessBaseIntegrityIOError(
-            f"ChessBase source evidence is unavailable for {safe_name}"
+            f"ChessBase source evidence is unavailable or changed for {safe_name}"
         ) from exc
-    if stat.S_ISLNK(before.st_mode) or _is_reparse_point(before):
-        raise ChessBaseIntegrityIOError(
-            "ChessBase source evidence must not follow filesystem indirection"
-        )
-    if not stat.S_ISREG(before.st_mode):
-        raise ChessBaseIntegrityIOError(
-            "ChessBase source evidence must be a regular file"
-        )
-
-    digest = sha256()
-    size = 0
-    try:
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                size += len(chunk)
-                digest.update(chunk)
-    except OSError as exc:
-        raise ChessBaseIntegrityIOError(
-            f"ChessBase source evidence is unavailable for {safe_name}"
-        ) from exc
-
-    try:
-        after = path.lstat()
-    except OSError as exc:
-        raise ChessBaseIntegrityIOError(
-            f"ChessBase source evidence disappeared for {safe_name}"
-        ) from exc
-    if (
-        before.st_dev != after.st_dev
-        or before.st_ino != after.st_ino
-        or before.st_size != after.st_size
-        or before.st_mtime_ns != after.st_mtime_ns
-        or stat.S_ISLNK(after.st_mode)
-        or _is_reparse_point(after)
-    ):
-        raise ChessBaseSourceChangedError(
-            "ChessBase source changed while integrity evidence was being collected"
-        )
-
     return SourceFileEvidence(
-        path=Path(os.path.abspath(os.fspath(path))),
+        path=path,
         extension=extension,
         role=role,
-        size_bytes=size,
-        sha256=digest.hexdigest(),
+        size_bytes=source.size,
+        sha256=source.sha256,
     )
 
 
