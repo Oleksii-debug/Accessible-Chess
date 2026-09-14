@@ -6,6 +6,7 @@ on:
       - 'acs/education_webview_bridge.py'
       - 'acs/education_webview_projection.py'
       - 'acs/version2_education_mutation_application.py'
+      - 'acs/version2_education_mutation_release.py'
       - 'acs/version2_final_product_profile.py'
       - 'tests/js/education_surface_dom_test.js'
       - 'tests/test_education_webview_bridge.py'
@@ -32,7 +33,7 @@ env:
   WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
   OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
   CURRENT_SHARED_EDUCATION_TEST_BLOB: 92ef5d96eda599bdb4db66e8ebe263a693532227
-  CURRENT_EDUCATION_RELEASE_BLOB: 334c8210571be8212638e948032e61d1eee4df4d
+  CURRENT_EDUCATION_RELEASE_BLOB: 55956329c1fe2dc9417ae4082fba821667c9ec13
 
 jobs:
   verify:
@@ -103,6 +104,7 @@ jobs:
           acs/education_webview_bridge.py
           acs/education_webview_projection.py
           acs/version2_education_mutation_application.py
+          acs/version2_education_mutation_release.py
           acs/version2_final_product_profile.py
           tests/test_education_webview_bridge.py
           tests/test_education_webview_projection.py
