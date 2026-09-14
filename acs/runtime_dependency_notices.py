@@ -2,15 +2,11 @@ from __future__ import annotations
 
 """Deterministic third-party notice bundle for the Windows build/runtime stack.
 
-The release payload already publishes Stockfish and sound provenance. This module
-covers the Python/native dependency side without guessing license text: every
-listed distribution must expose at least one real installed license/notice file,
-and the exact bytes copied into release evidence are SHA-256 inventoried.
-
-This is a build-time boundary only. It does not decide which dependencies are
-redistributed; callers provide the exact distribution inventory established by
-the qualified build. Missing metadata, missing license files, unsafe names, or
-version drift fail closed before publication.
+Installed wheel notice bytes remain the preferred authority. Some upstream wheels
+omit the license file even though the exact source release contains it. For that
+bounded case callers may provide an exact source archive, cryptographic digest,
+and exact regular-file member. The collector verifies and reads those bytes itself;
+it never invents or downloads license text.
 """
 
 from dataclasses import dataclass
@@ -21,14 +17,18 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import sys
+import tarfile
 import tempfile
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
+from urllib.parse import urlparse
 
 
-_NOTICE_SCHEMA_VERSION = 1
+_NOTICE_SCHEMA_VERSION = 2
 _LICENSE_BASENAMES = ("license", "licence", "copying", "notice", "copyright")
 _SAFE_DISTRIBUTION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]{0,127}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MAX_EXTERNAL_NOTICE_BYTES = 2 * 1024 * 1024
 
 
 class RuntimeDependencyNoticeError(RuntimeError):
@@ -40,6 +40,16 @@ class RuntimeDependencyNoticeBundle:
     root: Path
     manifest_path: Path
     notice_files: tuple[Path, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalArchiveNoticeSource:
+    """Exact upstream source artifact used only when an installed wheel omits notice bytes."""
+
+    archive_path: str | Path
+    source_url: str
+    source_sha256: str
+    member_path: str
 
 
 def _sha256(path: Path) -> str:
@@ -114,15 +124,6 @@ def _looks_like_notice(path: PurePosixPath) -> bool:
 
 
 def _inventory_notice_candidate(value: object) -> PurePosixPath | None:
-    """Filter arbitrary wheel inventory before applying strict notice-path rules.
-
-    ``Distribution.files`` contains every installed file, including records whose
-    spelling is irrelevant to release notices. Those records must not make notice
-    publication fail merely because they are not canonical relative notice paths.
-    Once a basename claims to be a license/notice, however, the strict path
-    boundary applies and traversal/absolute spellings still fail closed.
-    """
-
     token = str(value or "").strip().replace("\\", "/")
     if not token:
         return None
@@ -133,14 +134,6 @@ def _inventory_notice_candidate(value: object) -> PurePosixPath | None:
 
 
 def _candidate_notice_paths(dist: Any) -> tuple[PurePosixPath, ...]:
-    """Prefer real wheel inventory, then use PEP-639 metadata as fallback hints.
-
-    ``License-File`` values may be source-relative while a wheel installs the bytes
-    below ``.dist-info/licenses``. Therefore metadata is not by itself proof that
-    ``Distribution.locate_file(value)`` exists. The installed file inventory is
-    authoritative when available.
-    """
-
     candidates: dict[str, PurePosixPath] = {}
     try:
         files = tuple(getattr(dist, "files", None) or ())
@@ -217,6 +210,70 @@ def _project_urls(dist: Any) -> tuple[str, ...]:
     return tuple(values)
 
 
+def _validated_external_sources(
+    sources: Mapping[str, ExternalArchiveNoticeSource] | None,
+    inventory: set[str],
+) -> dict[str, ExternalArchiveNoticeSource]:
+    result: dict[str, ExternalArchiveNoticeSource] = {}
+    for raw_name, source in (sources or {}).items():
+        name = _clean_distribution_name(raw_name).casefold()
+        if name not in inventory:
+            raise RuntimeDependencyNoticeError("external notice source is outside dependency inventory")
+        if name in result:
+            raise RuntimeDependencyNoticeError("external notice source inventory contains duplicates")
+        if not isinstance(source, ExternalArchiveNoticeSource):
+            raise RuntimeDependencyNoticeError("external notice source contract is invalid")
+        digest = str(source.source_sha256 or "").strip().casefold()
+        if not _SHA256.fullmatch(digest):
+            raise RuntimeDependencyNoticeError("external notice source sha256 is invalid")
+        parsed = urlparse(str(source.source_url or "").strip())
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+            raise RuntimeDependencyNoticeError("external notice source URL is invalid")
+        member = _safe_relative_notice(source.member_path)
+        if not _looks_like_notice(member):
+            raise RuntimeDependencyNoticeError("external notice archive member is not a license/notice")
+        result[name] = ExternalArchiveNoticeSource(
+            archive_path=source.archive_path,
+            source_url=parsed.geturl(),
+            source_sha256=digest,
+            member_path=member.as_posix(),
+        )
+    return result
+
+
+def _read_external_notice(source: ExternalArchiveNoticeSource) -> bytes:
+    try:
+        archive = Path(source.archive_path).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RuntimeDependencyNoticeError("external notice source archive is unavailable") from exc
+    try:
+        if not archive.is_file() or archive.is_symlink() or archive.stat().st_size <= 0:
+            raise RuntimeDependencyNoticeError("external notice source archive is invalid")
+    except OSError as exc:
+        raise RuntimeDependencyNoticeError("external notice source archive is invalid") from exc
+    if _sha256(archive) != source.source_sha256:
+        raise RuntimeDependencyNoticeError("external notice source archive sha256 mismatch")
+
+    try:
+        with tarfile.open(archive, mode="r:gz") as package:
+            member = package.getmember(source.member_path)
+            if not member.isfile() or member.issym() or member.islnk():
+                raise RuntimeDependencyNoticeError("external notice archive member is not a regular file")
+            if member.size <= 0 or member.size > _MAX_EXTERNAL_NOTICE_BYTES:
+                raise RuntimeDependencyNoticeError("external notice archive member size is invalid")
+            handle = package.extractfile(member)
+            if handle is None:
+                raise RuntimeDependencyNoticeError("external notice archive member cannot be read")
+            data = handle.read(_MAX_EXTERNAL_NOTICE_BYTES + 1)
+    except RuntimeDependencyNoticeError:
+        raise
+    except (tarfile.TarError, KeyError, OSError) as exc:
+        raise RuntimeDependencyNoticeError("external notice source archive cannot be inspected") from exc
+    if not data or len(data) > _MAX_EXTERNAL_NOTICE_BYTES:
+        raise RuntimeDependencyNoticeError("external notice archive member bytes are invalid")
+    return data
+
+
 def build_runtime_dependency_notice_bundle(
     distributions: Iterable[str],
     output_root: str | Path,
@@ -225,13 +282,9 @@ def build_runtime_dependency_notice_bundle(
     distribution_loader: Callable[[str], Any] = metadata.distribution,
     python_license_path: str | Path | None = None,
     python_version: str | None = None,
+    external_notice_sources: Mapping[str, ExternalArchiveNoticeSource] | None = None,
 ) -> RuntimeDependencyNoticeBundle:
-    """Publish deterministic exact-byte license evidence for a qualified stack.
-
-    ``expected_versions`` is optional for reusable source tests, but release
-    callers should provide it. Keys are matched case-insensitively after the
-    distribution names themselves pass the bounded filename-safe contract.
-    """
+    """Publish deterministic exact-byte license evidence for a qualified stack."""
 
     root = Path(output_root)
     if root.exists():
@@ -259,6 +312,7 @@ def build_runtime_dependency_notice_bundle(
         expected[folded] = version
     if expected and set(expected) != seen:
         raise RuntimeDependencyNoticeError("expected dependency versions must match the notice inventory")
+    external = _validated_external_sources(external_notice_sources, seen)
 
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{root.name}.dependency-notices-", dir=root.parent))
@@ -276,21 +330,16 @@ def build_runtime_dependency_notice_bundle(
             try:
                 dist = distribution_loader(name)
             except Exception as exc:
-                raise RuntimeDependencyNoticeError(
-                    f"installed distribution is unavailable: {name}"
-                ) from exc
+                raise RuntimeDependencyNoticeError(f"installed distribution is unavailable: {name}") from exc
             version = _clean_version(getattr(dist, "version", ""))
             wanted = expected.get(name.casefold())
             if wanted is not None and version != wanted:
-                raise RuntimeDependencyNoticeError(
-                    f"installed distribution version mismatch: {name}"
-                )
+                raise RuntimeDependencyNoticeError(f"installed distribution version mismatch: {name}")
 
-            candidates = _candidate_notice_paths(dist)
             rows: list[dict[str, str]] = []
             seen_sources: set[Path] = set()
             prefix = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-._")
-            for relative in candidates:
+            for relative in _candidate_notice_paths(dist):
                 source = _try_locate_notice(dist, relative)
                 if source is None or source in seen_sources:
                     continue
@@ -301,28 +350,42 @@ def build_runtime_dependency_notice_bundle(
                 target = staging / target_name
                 shutil.copyfile(source, target, follow_symlinks=False)
                 published_names.append(target.name)
-                rows.append(
-                    {
-                        "source_path": relative.as_posix(),
-                        "packaged_file": target.name,
-                        "sha256": _sha256(target),
-                    }
-                )
+                rows.append({
+                    "source_kind": "installed_distribution",
+                    "source_path": relative.as_posix(),
+                    "packaged_file": target.name,
+                    "sha256": _sha256(target),
+                })
+
+            if not rows and name.casefold() in external:
+                source = external[name.casefold()]
+                data = _read_external_notice(source)
+                target_name = f"{prefix}-{version}-NOTICE-01.txt"
+                target = staging / target_name
+                target.write_bytes(data)
+                published_names.append(target.name)
+                rows.append({
+                    "source_kind": "verified_source_archive",
+                    "source_path": source.member_path,
+                    "source_url": source.source_url,
+                    "source_artifact_sha256": source.source_sha256,
+                    "packaged_file": target.name,
+                    "sha256": _sha256(target),
+                })
+
             if not rows:
                 raise RuntimeDependencyNoticeError(
                     f"installed distribution has no real license/notice file: {name}"
                 )
 
-            manifest_rows.append(
-                {
-                    "distribution": name,
-                    "version": version,
-                    "license_expression": _metadata_value(dist, "License-Expression"),
-                    "license_metadata": _metadata_value(dist, "License"),
-                    "project_urls": list(_project_urls(dist)),
-                    "notice_files": rows,
-                }
-            )
+            manifest_rows.append({
+                "distribution": name,
+                "version": version,
+                "license_expression": _metadata_value(dist, "License-Expression"),
+                "license_metadata": _metadata_value(dist, "License"),
+                "project_urls": list(_project_urls(dist)),
+                "notice_files": rows,
+            })
 
         manifest = {
             "schema_version": _NOTICE_SCHEMA_VERSION,
@@ -349,15 +412,15 @@ def build_runtime_dependency_notice_bundle(
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    final_files = tuple(root / name for name in published_names)
     return RuntimeDependencyNoticeBundle(
         root=root,
         manifest_path=root / "PYTHON_RUNTIME_DEPENDENCIES.json",
-        notice_files=final_files,
+        notice_files=tuple(root / name for name in published_names),
     )
 
 
 __all__ = [
+    "ExternalArchiveNoticeSource",
     "RuntimeDependencyNoticeBundle",
     "RuntimeDependencyNoticeError",
     "build_runtime_dependency_notice_bundle",
