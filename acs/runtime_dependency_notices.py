@@ -2,14 +2,14 @@ from __future__ import annotations
 
 """Deterministic third-party notice bundle for the Windows build/runtime stack.
 
-The release payload already publishes Stockfish and sound provenance.  This module
+The release payload already publishes Stockfish and sound provenance. This module
 covers the Python/native dependency side without guessing license text: every
 listed distribution must expose at least one real installed license/notice file,
-and the exact bytes copied into the release evidence are SHA-256 inventoried.
+and the exact bytes copied into release evidence are SHA-256 inventoried.
 
-This is a build-time boundary only.  It does not decide which dependencies are
+This is a build-time boundary only. It does not decide which dependencies are
 redistributed; callers provide the exact distribution inventory established by
-the qualified build.  Missing metadata, missing license files, unsafe names, or
+the qualified build. Missing metadata, missing license files, unsafe names, or
 version drift fail closed before publication.
 """
 
@@ -26,7 +26,7 @@ from typing import Any, Callable, Iterable
 
 
 _NOTICE_SCHEMA_VERSION = 1
-_LICENSE_BASENAMES = ("license", "copying", "notice", "copyright")
+_LICENSE_BASENAMES = ("license", "licence", "copying", "notice", "copyright")
 _SAFE_DISTRIBUTION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]{0,127}$")
 
@@ -114,43 +114,55 @@ def _looks_like_notice(path: PurePosixPath) -> bool:
 
 
 def _candidate_notice_paths(dist: Any) -> tuple[PurePosixPath, ...]:
-    candidates: list[PurePosixPath] = []
-    for value in _metadata_values(dist, "License-File"):
-        path = _safe_relative_notice(value)
-        if path not in candidates:
-            candidates.append(path)
+    """Prefer real wheel inventory, then use PEP-639 metadata as fallback hints.
 
-    # Older wheels may omit License-File metadata while still shipping a license
-    # under dist-info.  Fall back only to real installed files with conventional
-    # notice names; never synthesize license text from metadata classifiers.
+    ``License-File`` values may be source-relative while a wheel installs the bytes
+    below ``.dist-info/licenses``. Therefore metadata is not by itself proof that
+    ``Distribution.locate_file(value)`` exists. The installed file inventory is
+    authoritative when available.
+    """
+
+    candidates: dict[str, PurePosixPath] = {}
     try:
         files = tuple(getattr(dist, "files", None) or ())
     except Exception:
         files = ()
     for value in files:
         path = _safe_relative_notice(str(value))
-        if _looks_like_notice(path) and path not in candidates:
-            candidates.append(path)
-    return tuple(candidates)
+        if _looks_like_notice(path):
+            candidates.setdefault(path.as_posix().casefold(), path)
+
+    for value in _metadata_values(dist, "License-File"):
+        path = _safe_relative_notice(value)
+        candidates.setdefault(path.as_posix().casefold(), path)
+
+    return tuple(candidates[key] for key in sorted(candidates))
 
 
-def _locate_notice(dist: Any, relative: PurePosixPath) -> Path:
+def _try_locate_notice(dist: Any, relative: PurePosixPath) -> Path | None:
     locator = getattr(dist, "locate_file", None)
     if not callable(locator):
         raise RuntimeDependencyNoticeError("distribution cannot locate license files")
     try:
         located = Path(locator(str(relative)))
         resolved = located.resolve(strict=True)
+    except FileNotFoundError:
+        return None
     except (OSError, RuntimeError, ValueError) as exc:
-        raise RuntimeDependencyNoticeError("distribution license file is unavailable") from exc
-    if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
-        raise RuntimeDependencyNoticeError("distribution license file is not a regular non-empty file")
+        raise RuntimeDependencyNoticeError("distribution license file cannot be inspected") from exc
+    try:
+        if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
+            return None
+    except OSError as exc:
+        raise RuntimeDependencyNoticeError("distribution license file cannot be inspected") from exc
     return resolved
 
 
 def _python_license_path(explicit: str | Path | None) -> Path:
     candidates = (
-        (Path(explicit),) if explicit is not None else (
+        (Path(explicit),)
+        if explicit is not None
+        else (
             Path(sys.base_prefix) / "LICENSE.txt",
             Path(sys.base_prefix) / "LICENSE",
             Path(sys.prefix) / "LICENSE.txt",
@@ -162,13 +174,16 @@ def _python_license_path(explicit: str | Path | None) -> Path:
             resolved = candidate.resolve(strict=True)
         except (OSError, RuntimeError, ValueError):
             continue
-        if resolved.is_file() and not resolved.is_symlink() and resolved.stat().st_size > 0:
-            return resolved
+        try:
+            if resolved.is_file() and not resolved.is_symlink() and resolved.stat().st_size > 0:
+                return resolved
+        except OSError:
+            continue
     raise RuntimeDependencyNoticeError("Python license file is unavailable")
 
 
 def _project_urls(dist: Any) -> tuple[str, ...]:
-    values = []
+    values: list[str] = []
     for entry in _metadata_values(dist, "Project-URL"):
         if "," in entry:
             _label, raw = entry.split(",", 1)
@@ -195,7 +210,7 @@ def build_runtime_dependency_notice_bundle(
     """Publish deterministic exact-byte license evidence for a qualified stack.
 
     ``expected_versions`` is optional for reusable source tests, but release
-    callers should provide it.  Keys are matched case-insensitively after the
+    callers should provide it. Keys are matched case-insensitively after the
     distribution names themselves pass the bounded filename-safe contract.
     """
 
@@ -228,13 +243,13 @@ def build_runtime_dependency_notice_bundle(
 
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{root.name}.dependency-notices-", dir=root.parent))
-    published_files: list[Path] = []
+    published_names: list[str] = []
     manifest_rows: list[dict[str, object]] = []
     try:
         python_license = _python_license_path(python_license_path)
         python_notice = staging / "Python-LICENSE.txt"
         shutil.copyfile(python_license, python_notice, follow_symlinks=False)
-        published_files.append(python_notice)
+        published_names.append(python_notice.name)
         resolved_python_version = python_version or ".".join(str(value) for value in sys.version_info[:3])
         resolved_python_version = _clean_version(resolved_python_version)
 
@@ -253,25 +268,30 @@ def build_runtime_dependency_notice_bundle(
                 )
 
             candidates = _candidate_notice_paths(dist)
-            if not candidates:
-                raise RuntimeDependencyNoticeError(
-                    f"installed distribution has no real license/notice file: {name}"
-                )
             rows: list[dict[str, str]] = []
+            seen_sources: set[Path] = set()
             prefix = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-._")
-            for index, relative in enumerate(candidates, start=1):
-                source = _locate_notice(dist, relative)
-                suffix = source.suffix if len(source.suffix) <= 16 else ".txt"
-                target_name = f"{prefix}-{version}-NOTICE-{index:02d}{suffix or '.txt'}"
+            for relative in candidates:
+                source = _try_locate_notice(dist, relative)
+                if source is None or source in seen_sources:
+                    continue
+                seen_sources.add(source)
+                index = len(rows) + 1
+                suffix = source.suffix if 0 < len(source.suffix) <= 16 else ".txt"
+                target_name = f"{prefix}-{version}-NOTICE-{index:02d}{suffix}"
                 target = staging / target_name
                 shutil.copyfile(source, target, follow_symlinks=False)
-                published_files.append(target)
+                published_names.append(target.name)
                 rows.append(
                     {
                         "source_path": relative.as_posix(),
                         "packaged_file": target.name,
                         "sha256": _sha256(target),
                     }
+                )
+            if not rows:
+                raise RuntimeDependencyNoticeError(
+                    f"installed distribution has no real license/notice file: {name}"
                 )
 
             manifest_rows.append(
@@ -301,13 +321,16 @@ def build_runtime_dependency_notice_bundle(
             encoding="utf-8",
             newline="\n",
         )
-        published_files.append(manifest_path)
-        staging.replace(root)
+        published_names.append(manifest_path.name)
+
+        if root.exists():
+            raise RuntimeDependencyNoticeError("dependency notice output appeared during publication")
+        staging.rename(root)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    final_files = tuple(root / path.name for path in published_files)
+    final_files = tuple(root / name for name in published_names)
     return RuntimeDependencyNoticeBundle(
         root=root,
         manifest_path=root / "PYTHON_RUNTIME_DEPENDENCIES.json",
