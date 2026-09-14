@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from pathlib import Path
+import tarfile
 import tempfile
 import unittest
 
 from acs.runtime_dependency_notices import (
+    ExternalArchiveNoticeSource,
     RuntimeDependencyNoticeError,
     build_runtime_dependency_notice_bundle,
 )
@@ -74,6 +77,14 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
             license_files=(f"{name}.dist-info/LICENSE.txt",),
         )
 
+    def _source_archive(self, member: str, data: bytes) -> Path:
+        archive = self.root / "source.tar.gz"
+        with tarfile.open(archive, "w:gz") as package:
+            info = tarfile.TarInfo(member)
+            info.size = len(data)
+            package.addfile(info, io.BytesIO(data))
+        return archive
+
     def test_builds_exact_byte_deterministic_manifest_and_python_license(self) -> None:
         pywebview = self._distribution("pywebview", "6.2.1", "BSD 3-Clause fixture\n")
         pythonnet = self._distribution("pythonnet", "3.1.0", "MIT fixture\n")
@@ -94,7 +105,7 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
         self.assertEqual(packaged_python.read_bytes(), self.python_license.read_bytes())
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
         self.assertEqual(manifest["python"]["version"], "3.12.10")
         self.assertEqual(manifest["python"]["sha256"], self._digest(packaged_python))
         rows = manifest["distributions"]
@@ -108,6 +119,7 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
             )
             self.assertEqual(len(row["notice_files"]), 1)
             notice = row["notice_files"][0]
+            self.assertEqual(notice["source_kind"], "installed_distribution")
             packaged = bundle.root / notice["packaged_file"]
             self.assertTrue(packaged.is_file())
             self.assertEqual(notice["sha256"], self._digest(packaged))
@@ -169,6 +181,91 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["source_path"], "demo.dist-info/LICENSE.txt")
 
+    def test_exact_source_archive_fallback_is_hash_bound_and_manifested(self) -> None:
+        dist_root = self.root / "installed-ordered-set"
+        dist_root.mkdir()
+        dist = _Distribution(
+            dist_root,
+            version="4.1.0",
+            license_files=(),
+            metadata_license_files=(),
+        )
+        member = "ordered-set-4.1.0/MIT-LICENSE"
+        license_bytes = b"Exact upstream MIT license bytes\n"
+        archive = self._source_archive(member, license_bytes)
+        archive_sha = self._digest(archive)
+
+        bundle = build_runtime_dependency_notice_bundle(
+            ("ordered-set",),
+            self.root / "notices",
+            expected_versions={"ordered-set": "4.1.0"},
+            distribution_loader=lambda _name: dist,
+            python_license_path=self.python_license,
+            python_version="3.12.10",
+            external_notice_sources={
+                "ordered-set": ExternalArchiveNoticeSource(
+                    archive,
+                    "https://files.example.test/ordered-set-4.1.0.tar.gz",
+                    archive_sha,
+                    member,
+                )
+            },
+        )
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        notice = manifest["distributions"][0]["notice_files"][0]
+        self.assertEqual(notice["source_kind"], "verified_source_archive")
+        self.assertEqual(notice["source_path"], member)
+        self.assertEqual(notice["source_artifact_sha256"], archive_sha)
+        self.assertEqual((bundle.root / notice["packaged_file"]).read_bytes(), license_bytes)
+
+    def test_external_source_hash_mismatch_and_link_member_fail_closed(self) -> None:
+        dist_root = self.root / "installed-demo"
+        dist_root.mkdir()
+        dist = _Distribution(dist_root, version="1.0", license_files=(), metadata_license_files=())
+        member = "demo-1.0/LICENSE"
+        archive = self._source_archive(member, b"license\n")
+        for suffix, expected_hash, expected_error in (
+            ("hash", "0" * 64, "sha256 mismatch"),
+        ):
+            with self.subTest(suffix=suffix):
+                with self.assertRaisesRegex(RuntimeDependencyNoticeError, expected_error):
+                    build_runtime_dependency_notice_bundle(
+                        ("demo",),
+                        self.root / f"notices-{suffix}",
+                        distribution_loader=lambda _name: dist,
+                        python_license_path=self.python_license,
+                        external_notice_sources={
+                            "demo": ExternalArchiveNoticeSource(
+                                archive,
+                                "https://files.example.test/demo.tar.gz",
+                                expected_hash,
+                                member,
+                            )
+                        },
+                    )
+
+        linked = self.root / "linked.tar.gz"
+        with tarfile.open(linked, "w:gz") as package:
+            info = tarfile.TarInfo(member)
+            info.type = tarfile.SYMTYPE
+            info.linkname = "../elsewhere"
+            package.addfile(info)
+        with self.assertRaisesRegex(RuntimeDependencyNoticeError, "not a regular file"):
+            build_runtime_dependency_notice_bundle(
+                ("demo",),
+                self.root / "notices-link",
+                distribution_loader=lambda _name: dist,
+                python_license_path=self.python_license,
+                external_notice_sources={
+                    "demo": ExternalArchiveNoticeSource(
+                        linked,
+                        "https://files.example.test/demo.tar.gz",
+                        self._digest(linked),
+                        member,
+                    )
+                },
+            )
+
     def test_version_drift_fails_without_publishing_output(self) -> None:
         dist = self._distribution("pywebview", "6.2.0")
         output = self.root / "notices"
@@ -185,11 +282,7 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
     def test_missing_real_license_file_fails_closed(self) -> None:
         dist_root = self.root / "installed-demo"
         dist_root.mkdir()
-        dist = _Distribution(
-            dist_root,
-            version="1.0",
-            license_files=(),
-        )
+        dist = _Distribution(dist_root, version="1.0", license_files=())
         output = self.root / "notices"
         with self.assertRaisesRegex(RuntimeDependencyNoticeError, "no real license"):
             build_runtime_dependency_notice_bundle(
@@ -239,11 +332,7 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
     def test_unsafe_license_metadata_path_is_rejected(self) -> None:
         dist_root = self.root / "installed-demo"
         dist_root.mkdir()
-        dist = _Distribution(
-            dist_root,
-            version="1.0",
-            license_files=("../LICENSE.txt",),
-        )
+        dist = _Distribution(dist_root, version="1.0", license_files=("../LICENSE.txt",))
         with self.assertRaisesRegex(RuntimeDependencyNoticeError, "license path is unsafe"):
             build_runtime_dependency_notice_bundle(
                 ("demo",),
