@@ -139,6 +139,36 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
         self.assertEqual(packaged.read_bytes(), installed_path.read_bytes())
         self.assertEqual(notice["sha256"], self._digest(installed_path))
 
+    def test_non_notice_wheel_inventory_does_not_trigger_notice_path_rejection(self) -> None:
+        dist_root = self.root / "installed-inventory"
+        license_path = dist_root / "demo.dist-info" / "LICENSE.txt"
+        license_path.parent.mkdir(parents=True)
+        license_path.write_text("MIT fixture\n", encoding="utf-8")
+        dist = _Distribution(
+            dist_root,
+            version="1.0",
+            license_files=(
+                "demo/__pycache__/module.cpython-312.pyc",
+                "../ordinary-module.py",
+                "C:\\temporary\\ordinary-module.py",
+                "demo.dist-info/LICENSE.txt",
+            ),
+            metadata_license_files=(),
+        )
+
+        bundle = build_runtime_dependency_notice_bundle(
+            ("demo",),
+            self.root / "notices",
+            expected_versions={"demo": "1.0"},
+            distribution_loader=lambda _name: dist,
+            python_license_path=self.python_license,
+            python_version="3.12.10",
+        )
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        rows = manifest["distributions"][0]["notice_files"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source_path"], "demo.dist-info/LICENSE.txt")
+
     def test_version_drift_fails_without_publishing_output(self) -> None:
         dist = self._distribution("pywebview", "6.2.0")
         output = self.root / "notices"
@@ -172,7 +202,7 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
 
     def test_missing_python_license_fails_closed(self) -> None:
         dist = self._distribution("demo", "1.0")
-        output = self.root / "notices"
+        output = self.root / "payload"
         with self.assertRaisesRegex(RuntimeDependencyNoticeError, "Python license"):
             build_runtime_dependency_notice_bundle(
                 ("demo",),
