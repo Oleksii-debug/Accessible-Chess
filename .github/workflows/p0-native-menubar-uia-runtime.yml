@@ -74,14 +74,16 @@ jobs:
           tests.test_version2_release_ui
           tests.test_version2_windows_composition_profile
 
-      - name: Classify MenuStrip versus MainMenu through external Windows UIA
+      - name: Classify WinForms native menu provider variants through external Windows UIA
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $summary=[ordered]@{}
-          foreach($variant in @('menustrip','mainmenu')){
-            $ready=Join-Path $PWD "p0-provider-$variant-ready.json"
-            $uia=Join-Path $PWD "p0-provider-$variant-uia.json"
+          $variants=@('menustrip','menustrip-modern','menustrip-accessibility-object','mainmenu')
+          foreach($variant in $variants){
+            $slug=$variant.Replace('-','_')
+            $ready=Join-Path $PWD "p0-provider-$slug-ready.json"
+            $uia=Join-Path $PWD "p0-provider-$slug-uia.json"
             Remove-Item $ready,$uia -Force -ErrorAction SilentlyContinue
             $process=Start-Process -FilePath python -ArgumentList @(
               'scripts/p0_native_menu_provider_ab.py',
@@ -91,11 +93,11 @@ jobs:
             try {
               $deadline=[DateTime]::UtcNow.AddSeconds(20)
               while(-not (Test-Path $ready) -and [DateTime]::UtcNow -lt $deadline){
-                if($process.HasExited){throw "Provider A/B $variant process exited early with code $($process.ExitCode)"}
+                if($process.HasExited){throw "Provider probe $variant exited early with code $($process.ExitCode)"}
                 Start-Sleep -Milliseconds 100
                 $process.Refresh()
               }
-              if(-not (Test-Path $ready)){throw "Provider A/B $variant did not become ready"}
+              if(-not (Test-Path $ready)){throw "Provider probe $variant did not become ready"}
               $state=Get-Content -Raw $ready | ConvertFrom-Json
               & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
                 -File scripts/p0_native_menubar_uia_probe.ps1 `
@@ -109,6 +111,8 @@ jobs:
                 process_id=$process.Id
                 form_handle=[long]$state.form_handle
                 menu_handle=[long]$state.menu_handle
+                accessibility_switches=$state.accessibility_switches
+                accessibility=$state.accessibility
                 same_process_menu_bars=@($evidence.same_process_menu_bars)
                 same_process_menu_bar_details=@($evidence.same_process_menu_bar_details)
                 menu_from_handle=$evidence.menu_from_handle
@@ -119,15 +123,15 @@ jobs:
               if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
             }
           }
-          $summary | ConvertTo-Json -Depth 12 | Set-Content -Encoding utf8 p0-native-menu-provider-ab-summary.json
-          $stripCount=@($summary.menustrip.same_process_menu_bars).Count
-          $mainCount=@($summary.mainmenu.same_process_menu_bars).Count
-          Write-Host "PROVIDER_AB_MENustrip_MENU_BARS=$stripCount"
-          Write-Host "PROVIDER_AB_MAINMENU_MENU_BARS=$mainCount"
-          if($mainCount -gt 0){
-            $detail=@($summary.mainmenu.same_process_menu_bar_details)[0]
-            Write-Host "PROVIDER_AB_MAINMENU_NAMES=$(@($detail.top_level_names) -join '|')"
-            Write-Host "PROVIDER_AB_MAINMENU_EXPAND=$(@($detail.top_level_expand_collapse) -join '|')"
+          $summary | ConvertTo-Json -Depth 14 | Set-Content -Encoding utf8 p0-native-menu-provider-ab-summary.json
+          foreach($variant in $variants){
+            $bars=@($summary[$variant].same_process_menu_bars)
+            Write-Host "PROVIDER_AB_$($variant.ToUpper().Replace('-','_'))_MENU_BARS=$($bars.Count)"
+            if($bars.Count -gt 0){
+              $detail=@($summary[$variant].same_process_menu_bar_details)[0]
+              Write-Host "PROVIDER_AB_$($variant.ToUpper().Replace('-','_'))_NAMES=$(@($detail.top_level_names) -join '|')"
+              Write-Host "PROVIDER_AB_$($variant.ToUpper().Replace('-','_'))_EXPAND=$(@($detail.top_level_expand_collapse) -join '|')"
+            }
           }
 
       - name: Prove shipping source MenuBar through process-scoped Windows UIA
