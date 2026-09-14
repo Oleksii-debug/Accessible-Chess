@@ -120,7 +120,13 @@ def _safe_relative_notice(value: object) -> PurePosixPath:
 def _looks_like_notice(path: PurePosixPath) -> bool:
     name = path.name.casefold()
     stem = name.split(".", 1)[0]
-    return any(stem == base or stem.startswith(base + "-") for base in _LICENSE_BASENAMES)
+    if any(stem == base or stem.startswith(base + "-") for base in _LICENSE_BASENAMES):
+        return True
+    # Some upstream source archives use SPDX-style prefixes such as
+    # ``MIT-LICENSE``. Accept only whole separator-delimited notice tokens; do
+    # not use a substring test that would misclassify names such as LICENSEE.
+    tokens = tuple(token for token in re.split(r"[-_]+", stem) if token)
+    return any(token in _LICENSE_BASENAMES for token in tokens)
 
 
 def _inventory_notice_candidate(value: object) -> PurePosixPath | None:
