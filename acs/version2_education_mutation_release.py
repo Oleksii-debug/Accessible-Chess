@@ -35,6 +35,7 @@ def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Teacher surface", root / "full_product_teacher.js"),
         ("V2 Education surface", root / "full_product_education.js"),
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
+        ("P0 accessibility runtime", root / "p0_accessibility_runtime.js"),
     )
     output: list[tuple[str, str]] = []
     for label, path in resources:
