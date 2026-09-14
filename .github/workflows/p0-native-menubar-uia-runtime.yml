@@ -1,0 +1,89 @@
+name: P0 Native MenuBar UIA Runtime
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/full_product_native_menu.py'
+      - 'acs/ui_native_menu.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'scripts/p0_native_menubar_uia_oracle.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_windows_native_menu_smoke_contract.py'
+      - '.github/workflows/p0-native-menubar-uia-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-native-menubar-uia-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-final-product-uia:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install exact Windows host dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install -q `
+            pywebview==6.2.1 `
+            pythonnet==3.1.0 `
+            clr-loader==0.3.1 `
+            cffi==2.1.1 `
+            pycparser==3.0 `
+            typing-extensions==4.16.0
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows host dependency installation failed'}
+
+      - name: Compile native MenuBar runtime oracle and composition
+        run: >-
+          python -m compileall -q
+          scripts/p0_native_menubar_uia_oracle.py
+          acs/ui_native_menu.py
+          acs/full_product_native_menu.py
+          acs/version2_release_ui.py
+          acs/version2_final_product_profile.py
+          acs/version2_education_mutation_release.py
+          acs/version2_upgrade_status_release.py
+
+      - name: Preserve source menu contract tests
+        run: >-
+          python -m unittest -v
+          tests.test_full_product_native_menu
+          tests.test_ui_native_menu_recovery
+          tests.test_windows_native_menu_smoke_contract
+          tests.test_version2_release_ui
+          tests.test_version2_windows_composition_profile
+
+      - name: Prove shipping source MenuBar through process-scoped Windows UIA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          python scripts/p0_native_menubar_uia_oracle.py
+          if($LASTEXITCODE -ne 0){throw 'Source final-product native MenuBar UIA oracle failed'}
+
+      - name: Upload bounded MenuBar source evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p0-native-menubar-uia-source-evidence
+          path: p0-native-menubar-uia-source-summary.json
+          if-no-files-found: warn
+          retention-days: 14
