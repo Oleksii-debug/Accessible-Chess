@@ -28,11 +28,13 @@ class _Distribution:
         *,
         version: str,
         license_files: tuple[str, ...] = ("demo.dist-info/LICENSE.txt",),
+        metadata_license_files: tuple[str, ...] | None = None,
         license_expression: str = "MIT",
     ) -> None:
         self.root = root
         self.version = version
         self.files = tuple(license_files)
+        declared = license_files if metadata_license_files is None else metadata_license_files
         self.metadata = _Metadata(
             {
                 "License-Expression": license_expression,
@@ -40,7 +42,7 @@ class _Distribution:
                 "Home-page": "https://example.test/project",
             },
             multi={
-                "License-File": license_files,
+                "License-File": declared,
                 "Project-URL": ("Source, https://example.test/source",),
             },
         )
@@ -109,6 +111,33 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
             packaged = bundle.root / notice["packaged_file"]
             self.assertTrue(packaged.is_file())
             self.assertEqual(notice["sha256"], self._digest(packaged))
+
+    def test_pep639_source_relative_metadata_uses_real_installed_wheel_license(self) -> None:
+        dist_root = self.root / "installed-pep639"
+        installed_path = dist_root / "demo.dist-info" / "licenses" / "LICENSE.txt"
+        installed_path.parent.mkdir(parents=True)
+        installed_path.write_text("PEP 639 installed license bytes\n", encoding="utf-8")
+        dist = _Distribution(
+            dist_root,
+            version="2.0",
+            license_files=("demo.dist-info/licenses/LICENSE.txt",),
+            metadata_license_files=("LICENSE.txt",),
+        )
+
+        bundle = build_runtime_dependency_notice_bundle(
+            ("demo",),
+            self.root / "notices",
+            expected_versions={"demo": "2.0"},
+            distribution_loader=lambda _name: dist,
+            python_license_path=self.python_license,
+            python_version="3.12.10",
+        )
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        notice = manifest["distributions"][0]["notice_files"][0]
+        self.assertEqual(notice["source_path"], "demo.dist-info/licenses/LICENSE.txt")
+        packaged = bundle.root / notice["packaged_file"]
+        self.assertEqual(packaged.read_bytes(), installed_path.read_bytes())
+        self.assertEqual(notice["sha256"], self._digest(installed_path))
 
     def test_version_drift_fails_without_publishing_output(self) -> None:
         dist = self._distribution("pywebview", "6.2.0")
