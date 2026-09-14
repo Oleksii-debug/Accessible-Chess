@@ -21,6 +21,10 @@ $menuTypeCondition = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
     [System.Windows.Automation.ControlType]::MenuBar
 )
+$itemTypeCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::MenuItem
+)
 $idCondition = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
     'AccessibleChessFullProductMenu'
@@ -56,6 +60,30 @@ function Convert-UiaCollection([System.Windows.Automation.AutomationElementColle
     return @($rows)
 }
 
+function Convert-MenuBarDetail([System.Windows.Automation.AutomationElement]$MenuBar) {
+    $top = $MenuBar.FindAll([System.Windows.Automation.TreeScope]::Children, $itemTypeCondition)
+    $names = @()
+    $patterns = @()
+    for($index = 0; $index -lt $top.Count; $index++) {
+        $entry = $top.Item($index)
+        $names += ([string]$entry.Current.Name).Replace('&', '').Trim()
+        $hasPattern = $false
+        try {
+            $pattern = $entry.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+            $hasPattern = $null -ne $pattern
+        }
+        catch {
+            $hasPattern = $false
+        }
+        $patterns += $hasPattern
+    }
+    return [ordered]@{
+        menu = Convert-UiaRow $MenuBar
+        top_level_names = @($names)
+        top_level_expand_collapse = @($patterns)
+    }
+}
+
 $bars = $null
 $exact = $null
 $anyId = $null
@@ -64,7 +92,7 @@ do {
     $bars = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)
     $exact = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $exactCondition)
     $anyId = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $anyIdCondition)
-    if($exact.Count -eq 1){ break }
+    if($exact.Count -eq 1 -or $bars.Count -gt 0){ break }
     Start-Sleep -Milliseconds 200
 } while([DateTime]::UtcNow -lt $deadline)
 
@@ -80,31 +108,22 @@ if($MenuHandle -ne 0) {
     }
 }
 
+$barDetails = @()
+for($index = 0; $index -lt $bars.Count; $index++) {
+    $barDetails += ,(Convert-MenuBarDetail $bars.Item($index))
+}
+
 $topNames = @()
 $topPatterns = @()
 if($exact.Count -eq 1) {
-    $itemCondition = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [System.Windows.Automation.ControlType]::MenuItem
-    )
-    $top = $exact.Item(0).FindAll([System.Windows.Automation.TreeScope]::Children, $itemCondition)
-    for($index = 0; $index -lt $top.Count; $index++) {
-        $entry = $top.Item($index)
-        $topNames += ([string]$entry.Current.Name).Replace('&', '').Trim()
-        $hasPattern = $false
-        try {
-            $pattern = $entry.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
-            $hasPattern = $null -ne $pattern
-        }
-        catch {
-            $hasPattern = $false
-        }
-        $topPatterns += $hasPattern
-    }
+    $detail = Convert-MenuBarDetail $exact.Item(0)
+    $topNames = @($detail.top_level_names)
+    $topPatterns = @($detail.top_level_expand_collapse)
 }
 
 $result = [ordered]@{
     same_process_menu_bars = @(Convert-UiaCollection $bars)
+    same_process_menu_bar_details = @($barDetails)
     same_process_elements_with_exact_automation_id = @(Convert-UiaCollection $anyId)
     exact_menu_bars = @(Convert-UiaCollection $exact)
     exact_menu_bar_count = [int]$exact.Count
@@ -114,4 +133,4 @@ $result = [ordered]@{
     top_level_expand_collapse = @($topPatterns)
 }
 
-$result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+$result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $OutputPath -Encoding utf8
