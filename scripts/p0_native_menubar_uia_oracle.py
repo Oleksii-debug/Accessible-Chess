@@ -1,25 +1,23 @@
 """Windows source-runtime oracle for the shipping V2 native MenuBar.
 
-This is machine evidence only. It launches the same final-product composition used
-by ``run_accessible_chess_v2.py`` and compares two independent views of the menu:
-WinForms ownership/handle state inside the process and process-scoped Windows UIA
-from the desktop root. It does not substitute for packaged qualification or human
-NVDA verification.
+This launches the same final-product composition used by ``run_accessible_chess_v2.py``
+and compares in-process WinForms ownership/handle state with an independent
+process-scoped Windows UIA probe. It is machine evidence only; it does not replace
+packaged qualification or human NVDA verification.
 """
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
-import time
 from typing import Any
 
 
-# Direct ``python scripts/...`` execution puts scripts/ at sys.path[0].  Make the
-# repository root explicit so this durable oracle works both locally and in CI.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -49,7 +47,7 @@ def _winforms_snapshot(api: Any, window: Any) -> dict[str, Any]:
 
         host = getattr(window, "_accessible_chess_native_menu_host", None)
         menu = getattr(window, "_accessible_chess_native_menu", None)
-        controls = []
+        controls: list[dict[str, Any]] = []
         if host is not None:
             try:
                 controls = [
@@ -95,96 +93,60 @@ def _uia_snapshot(
     pid: int,
     *,
     menu_handle: int = 0,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: int = 30,
 ) -> dict[str, Any]:
-    import clr  # type: ignore
+    """Probe UIA out-of-process so pywebview/pythonnet CLR binding cannot mask UIA."""
 
-    clr.AddReference("UIAutomationClient")
-    clr.AddReference("UIAutomationTypes")
-    from System import IntPtr  # type: ignore
-    from System.Windows.Automation import (  # type: ignore
-        AndCondition,
-        AutomationElement,
-        ControlType,
-        ExpandCollapsePattern,
-        PropertyCondition,
-        TreeScope,
-    )
+    shell = shutil.which("pwsh") or shutil.which("powershell.exe") or shutil.which("powershell")
+    if not shell:
+        raise RuntimeError("PowerShell is unavailable for the independent UIA probe")
+    probe = _REPO_ROOT / "scripts" / "p0_native_menubar_uia_probe.ps1"
+    if not probe.is_file():
+        raise RuntimeError("external UIA probe script is missing")
 
-    desktop = AutomationElement.RootElement
-    if desktop is None:
-        raise RuntimeError("UIA desktop root is unavailable")
-    pid_condition = PropertyCondition(AutomationElement.ProcessIdProperty, pid)
-    menu_type_condition = PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuBar)
-    menu_condition = AndCondition(pid_condition, menu_type_condition)
-    id_condition = PropertyCondition(
-        AutomationElement.AutomationIdProperty,
-        "AccessibleChessFullProductMenu",
-    )
-    exact_condition = AndCondition(pid_condition, menu_type_condition, id_condition)
-    any_id_condition = AndCondition(pid_condition, id_condition)
-
-    all_bars = []
-    exact = []
-    any_id = []
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        all_bars = list(desktop.FindAll(TreeScope.Descendants, menu_condition))
-        exact = list(desktop.FindAll(TreeScope.Descendants, exact_condition))
-        any_id = list(desktop.FindAll(TreeScope.Descendants, any_id_condition))
-        if exact:
-            break
-        time.sleep(0.20)
-
-    def row(element: Any) -> dict[str, Any]:
-        return {
-            "automation_id": str(element.Current.AutomationId),
-            "name": str(element.Current.Name),
-            "control_type": str(element.Current.ControlType.ProgrammaticName),
-            "process_id": int(element.Current.ProcessId),
-            "enabled": bool(element.Current.IsEnabled),
-            "offscreen": bool(element.Current.IsOffscreen),
-            "native_window_handle": int(element.Current.NativeWindowHandle),
-        }
-
-    bars = [row(element) for element in all_bars]
-    exact_rows = [row(element) for element in exact]
-    any_id_rows = [row(element) for element in any_id]
-    from_handle: dict[str, Any] | None = None
-    from_handle_error = ""
-    if menu_handle:
-        try:
-            element = AutomationElement.FromHandle(IntPtr(menu_handle))
-            from_handle = row(element) if element is not None else None
-        except Exception as exc:
-            from_handle_error = type(exc).__name__ + ": " + str(exc)
-
-    top_names: list[str] = []
-    top_patterns: list[bool] = []
-    if len(exact) == 1:
-        item_condition = PropertyCondition(
-            AutomationElement.ControlTypeProperty,
-            ControlType.MenuItem,
+    with tempfile.TemporaryDirectory(prefix="acs-p0-uia-probe-") as raw:
+        output = Path(raw) / "uia.json"
+        completed = subprocess.run(
+            [
+                shell,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(probe),
+                "-TargetProcessId",
+                str(pid),
+                "-MenuHandle",
+                str(menu_handle),
+                "-OutputPath",
+                str(output),
+                "-TimeoutSeconds",
+                str(timeout_seconds),
+            ],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds + 20,
+            check=False,
         )
-        top = list(exact[0].FindAll(TreeScope.Children, item_condition))
-        for entry in top:
-            top_names.append(str(entry.Current.Name).replace("&", "").strip())
-            try:
-                pattern = entry.GetCurrentPattern(ExpandCollapsePattern.Pattern)
-                top_patterns.append(pattern is not None)
-            except Exception:
-                top_patterns.append(False)
-
-    return {
-        "same_process_menu_bars": bars,
-        "same_process_elements_with_exact_automation_id": any_id_rows,
-        "exact_menu_bars": exact_rows,
-        "exact_menu_bar_count": len(exact),
-        "menu_from_handle": from_handle,
-        "menu_from_handle_error": from_handle_error,
-        "top_level_names": top_names,
-        "top_level_expand_collapse": top_patterns,
-    }
+        if completed.returncode != 0:
+            stderr = completed.stderr.strip().replace("\r", " ").replace("\n", " ")
+            stdout = completed.stdout.strip().replace("\r", " ").replace("\n", " ")
+            detail = (stderr or stdout or "no diagnostic output")[:2000]
+            raise RuntimeError(f"external UIA probe failed ({completed.returncode}): {detail}")
+        if not output.is_file():
+            raise RuntimeError("external UIA probe produced no evidence file")
+        try:
+            value = json.loads(output.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("external UIA probe evidence is unreadable") from exc
+        if not isinstance(value, dict):
+            raise RuntimeError("external UIA probe evidence root is invalid")
+        return value
 
 
 def main() -> int:
@@ -246,10 +208,9 @@ def main() -> int:
                 def inspect() -> None:
                     try:
                         result["winforms"] = _winforms_snapshot(api, window)
-                        menu_handle = int(result["winforms"].get("menu_handle") or 0)
                         result["uia"] = _uia_snapshot(
                             os.getpid(),
-                            menu_handle=menu_handle,
+                            menu_handle=int(result["winforms"].get("menu_handle") or 0),
                         )
                         result["winforms_after_uia"] = _winforms_snapshot(api, window)
                     except Exception as exc:
@@ -289,6 +250,7 @@ def main() -> int:
     winforms = result.get("winforms_after_uia") or result.get("winforms") or {}
     uia = result.get("uia") or {}
     names = uia.get("top_level_names") or []
+    patterns = uia.get("top_level_expand_collapse") or []
     checks = {
         "host_handle_created": bool(winforms.get("host_is_handle_created")),
         "menu_parent_is_host": bool(winforms.get("menu_parent_is_host")),
@@ -298,13 +260,12 @@ def main() -> int:
         "winforms_top_level_count_13": int(winforms.get("menu_item_count") or 0) == 13,
         "uia_exact_menu_bar_count_1": int(uia.get("exact_menu_bar_count") or 0) == 1,
         "uia_top_level_profile_13": names in (expected_ua, expected_en),
-        "uia_expand_collapse_all": len(uia.get("top_level_expand_collapse") or []) == 13
-        and all(uia.get("top_level_expand_collapse") or []),
+        "uia_expand_collapse_all": len(patterns) == 13 and all(patterns),
     }
     passed = not errors and all(checks.values())
     summary = {
         "status": "PASS" if passed else "FAIL",
-        "machine_scope": "Windows source final-product WinForms plus process-scoped UIA",
+        "machine_scope": "Windows source final-product WinForms plus external process-scoped UIA",
         "checks": checks,
         "winforms": result.get("winforms"),
         "uia": result.get("uia"),
@@ -317,7 +278,8 @@ def main() -> int:
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(json.dumps(summary, ensure_ascii=False))
+    # Keep CI console output ASCII-safe; the artifact preserves the original Unicode.
+    print(json.dumps(summary, ensure_ascii=True))
     return 0 if passed else 1
 
 
