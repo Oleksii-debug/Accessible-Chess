@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/full_product_native_menu.py'
       - 'acs/ui_native_menu.py'
+      - 'acs/webview2_accessibility.py'
       - 'acs/version2_release_ui.py'
       - 'acs/version2_final_product_profile.py'
       - 'acs/version2_education_mutation_release.py'
@@ -15,6 +16,7 @@ on:
       - 'scripts/p0_native_menubar_uia_probe.ps1'
       - 'scripts/p0_native_menu_provider_ab.py'
       - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_webview2_modern_winforms_accessibility.py'
       - 'tests/test_windows_native_menu_smoke_contract.py'
       - '.github/workflows/p0-native-menubar-uia-runtime.yml'
   workflow_dispatch:
@@ -60,16 +62,19 @@ jobs:
           scripts/p0_native_menu_provider_ab.py
           acs/ui_native_menu.py
           acs/full_product_native_menu.py
+          acs/webview2_accessibility.py
           acs/version2_release_ui.py
           acs/version2_final_product_profile.py
           acs/version2_education_mutation_release.py
           acs/version2_upgrade_status_release.py
+          tests/test_webview2_modern_winforms_accessibility.py
 
       - name: Preserve source menu contract tests
         run: >-
           python -m unittest -v
           tests.test_full_product_native_menu
           tests.test_ui_native_menu_recovery
+          tests.test_webview2_modern_winforms_accessibility
           tests.test_windows_native_menu_smoke_contract
           tests.test_version2_release_ui
           tests.test_version2_windows_composition_profile
