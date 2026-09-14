@@ -9,12 +9,20 @@ NVDA verification.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 from typing import Any
+
+
+# Direct ``python scripts/...`` execution puts scripts/ at sys.path[0].  Make the
+# repository root explicit so this durable oracle works both locally and in CI.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 
 def _managed_type(value: Any) -> str:
@@ -50,6 +58,7 @@ def _winforms_snapshot(api: Any, window: Any) -> dict[str, Any]:
                         "name": str(getattr(control, "Name", "")),
                         "visible": bool(getattr(control, "Visible", False)),
                         "enabled": bool(getattr(control, "Enabled", False)),
+                        "created": bool(getattr(control, "Created", False)),
                         "is_handle_created": bool(getattr(control, "IsHandleCreated", False)),
                         "handle": _handle(control),
                     }
@@ -82,15 +91,20 @@ def _winforms_snapshot(api: Any, window: Any) -> dict[str, Any]:
     return api._invoke_ui(collect)
 
 
-def _uia_snapshot(pid: int, *, timeout_seconds: float = 30.0) -> dict[str, Any]:
+def _uia_snapshot(
+    pid: int,
+    *,
+    menu_handle: int = 0,
+    timeout_seconds: float = 30.0,
+) -> dict[str, Any]:
     import clr  # type: ignore
 
     clr.AddReference("UIAutomationClient")
     clr.AddReference("UIAutomationTypes")
+    from System import IntPtr  # type: ignore
     from System.Windows.Automation import (  # type: ignore
         AndCondition,
         AutomationElement,
-        Condition,
         ControlType,
         ExpandCollapsePattern,
         PropertyCondition,
@@ -102,16 +116,22 @@ def _uia_snapshot(pid: int, *, timeout_seconds: float = 30.0) -> dict[str, Any]:
         raise RuntimeError("UIA desktop root is unavailable")
     pid_condition = PropertyCondition(AutomationElement.ProcessIdProperty, pid)
     menu_type_condition = PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuBar)
-    menu_condition = AndCondition([pid_condition, menu_type_condition])
-    id_condition = PropertyCondition(AutomationElement.AutomationIdProperty, "AccessibleChessFullProductMenu")
-    exact_condition = AndCondition([pid_condition, menu_type_condition, id_condition])
+    menu_condition = AndCondition(pid_condition, menu_type_condition)
+    id_condition = PropertyCondition(
+        AutomationElement.AutomationIdProperty,
+        "AccessibleChessFullProductMenu",
+    )
+    exact_condition = AndCondition(pid_condition, menu_type_condition, id_condition)
+    any_id_condition = AndCondition(pid_condition, id_condition)
 
     all_bars = []
     exact = []
+    any_id = []
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         all_bars = list(desktop.FindAll(TreeScope.Descendants, menu_condition))
         exact = list(desktop.FindAll(TreeScope.Descendants, exact_condition))
+        any_id = list(desktop.FindAll(TreeScope.Descendants, any_id_condition))
         if exact:
             break
         time.sleep(0.20)
@@ -129,10 +149,23 @@ def _uia_snapshot(pid: int, *, timeout_seconds: float = 30.0) -> dict[str, Any]:
 
     bars = [row(element) for element in all_bars]
     exact_rows = [row(element) for element in exact]
+    any_id_rows = [row(element) for element in any_id]
+    from_handle: dict[str, Any] | None = None
+    from_handle_error = ""
+    if menu_handle:
+        try:
+            element = AutomationElement.FromHandle(IntPtr(menu_handle))
+            from_handle = row(element) if element is not None else None
+        except Exception as exc:
+            from_handle_error = type(exc).__name__ + ": " + str(exc)
+
     top_names: list[str] = []
     top_patterns: list[bool] = []
     if len(exact) == 1:
-        item_condition = PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)
+        item_condition = PropertyCondition(
+            AutomationElement.ControlTypeProperty,
+            ControlType.MenuItem,
+        )
         top = list(exact[0].FindAll(TreeScope.Children, item_condition))
         for entry in top:
             top_names.append(str(entry.Current.Name).replace("&", "").strip())
@@ -144,8 +177,11 @@ def _uia_snapshot(pid: int, *, timeout_seconds: float = 30.0) -> dict[str, Any]:
 
     return {
         "same_process_menu_bars": bars,
+        "same_process_elements_with_exact_automation_id": any_id_rows,
         "exact_menu_bars": exact_rows,
         "exact_menu_bar_count": len(exact),
+        "menu_from_handle": from_handle,
+        "menu_from_handle_error": from_handle_error,
         "top_level_names": top_names,
         "top_level_expand_collapse": top_patterns,
     }
@@ -210,7 +246,11 @@ def main() -> int:
                 def inspect() -> None:
                     try:
                         result["winforms"] = _winforms_snapshot(api, window)
-                        result["uia"] = _uia_snapshot(__import__("os").getpid())
+                        menu_handle = int(result["winforms"].get("menu_handle") or 0)
+                        result["uia"] = _uia_snapshot(
+                            os.getpid(),
+                            menu_handle=menu_handle,
+                        )
                         result["winforms_after_uia"] = _winforms_snapshot(api, window)
                     except Exception as exc:
                         errors.append(type(exc).__name__ + ": " + str(exc))
@@ -221,7 +261,11 @@ def main() -> int:
                         except Exception as exc:
                             errors.append("destroy " + type(exc).__name__ + ": " + str(exc))
 
-                threading.Thread(target=inspect, name="p0-menubar-uia-oracle", daemon=True).start()
+                threading.Thread(
+                    target=inspect,
+                    name="p0-menubar-uia-oracle",
+                    daemon=True,
+                ).start()
 
             release_ui.run_version2_release_window(
                 api,
