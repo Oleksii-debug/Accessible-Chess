@@ -22,9 +22,10 @@ env:
   ORDERED_SET_SDIST_URL: https://files.pythonhosted.org/packages/4c/ca/bfac8bc689799bcca4157e0e0ced07e70ce125193fc2e166d2e685b7e2fe/ordered-set-4.1.0.tar.gz
   ORDERED_SET_SDIST_SHA256: 694a8e44c87657c59292ede72891eb91d34131f6531463aab3009191c77364a8
   ORDERED_SET_LICENSE_MEMBER: ordered-set-4.1.0/MIT-LICENSE
-  PROXY_TOOLS_SDIST_URL: https://files.pythonhosted.org/packages/f2/cf/77d3e19b7fabd03895caca7857ef51e4c409e0ca6b37ee6e9f7daa50b642/proxy_tools-0.1.0.tar.gz
-  PROXY_TOOLS_SDIST_SHA256: ccb3751f529c047e2d8a58440d86b205303cf0fe8146f784d1cbcd94f0a28010
-  PROXY_TOOLS_LICENSE_MEMBER: proxy_tools-0.1.0/LICENSE.txt
+  PROXY_TOOLS_UPSTREAM_COMMIT: db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6
+  PROXY_TOOLS_LICENSE_BLOB_SHA1: 078411c7399fbc0454f36cbe8c8cdbaaba7ebc95
+  PROXY_TOOLS_SETUP_BLOB_SHA1: 535151fdbc592b63c999d27de54f16905db09eb3
+  PROXY_TOOLS_ARCHIVE_URL: https://github.com/jtushman/proxy_tools/archive/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6.tar.gz
 
 jobs:
   focused:
@@ -91,27 +92,62 @@ jobs:
           if($orderedActual -ne $env:ORDERED_SET_SDIST_SHA256){
             throw "ordered-set source artifact SHA256 mismatch actual=$orderedActual expected=$env:ORDERED_SET_SDIST_SHA256"
           }
-          Invoke-WebRequest -Uri $env:PROXY_TOOLS_SDIST_URL -OutFile proxy_tools-0.1.0.tar.gz
-          $proxyActual=(Get-FileHash -Algorithm SHA256 proxy_tools-0.1.0.tar.gz).Hash.ToLowerInvariant()
-          if($proxyActual -ne $env:PROXY_TOOLS_SDIST_SHA256){
-            throw "proxy_tools source artifact SHA256 mismatch actual=$proxyActual expected=$env:PROXY_TOOLS_SDIST_SHA256"
-          }
+
+          Invoke-WebRequest -Uri $env:PROXY_TOOLS_ARCHIVE_URL -OutFile proxy_tools-upstream.tar.gz
+          $proxyArchiveSha=(Get-FileHash -Algorithm SHA256 proxy_tools-upstream.tar.gz).Hash.ToLowerInvariant()
+          @'
+          import hashlib, os, tarfile
+          archive = 'proxy_tools-upstream.tar.gz'
+          commit = os.environ['PROXY_TOOLS_UPSTREAM_COMMIT']
+          root = f'proxy_tools-{commit}'
+          license_member = f'{root}/LICENSE.txt'
+          setup_member = f'{root}/setup.py'
+          def git_blob_sha(data: bytes) -> str:
+              return hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\0' + data).hexdigest()
+          with tarfile.open(archive, 'r:gz') as package:
+              names = set(package.getnames())
+              for member in (license_member, setup_member):
+                  if member not in names:
+                      raise SystemExit(f'proxy_tools immutable upstream member missing: {member!r}')
+              license_bytes = package.extractfile(license_member).read()
+              setup_bytes = package.extractfile(setup_member).read()
+          license_blob = git_blob_sha(license_bytes)
+          setup_blob = git_blob_sha(setup_bytes)
+          if license_blob != os.environ['PROXY_TOOLS_LICENSE_BLOB_SHA1']:
+              raise SystemExit(f'proxy_tools LICENSE git blob mismatch actual={license_blob}')
+          if setup_blob != os.environ['PROXY_TOOLS_SETUP_BLOB_SHA1']:
+              raise SystemExit(f'proxy_tools setup.py git blob mismatch actual={setup_blob}')
+          setup_text = setup_bytes.decode('utf-8')
+          if "version='0.1.0'" not in setup_text:
+              raise SystemExit('proxy_tools immutable source is not version 0.1.0')
+          if "license='MIT'" not in setup_text:
+              raise SystemExit('proxy_tools setup metadata license declaration drifted')
+          if not license_bytes.startswith(b'The BSD License (BSD)'):
+              raise SystemExit('proxy_tools immutable LICENSE text is not the expected BSD notice')
+          print(f'PROXY_TOOLS_LICENSE_MEMBER={license_member}')
+          print(f'PROXY_TOOLS_LICENSE_BLOB_SHA1={license_blob}')
+          print(f'PROXY_TOOLS_SETUP_BLOB_SHA1={setup_blob}')
+          print('PROXY_TOOLS_METADATA_VS_LICENSE_TEXT_DISCREPANCY=PRESERVED')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              env.write(f'PROXY_TOOLS_LICENSE_MEMBER={license_member}\n')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'proxy_tools immutable upstream provenance proof failed'}
+          "PROXY_TOOLS_ARCHIVE_SHA256=$proxyArchiveSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
           @'
           import os, tarfile
-          for archive, member, label in (
-              ('ordered-set-4.1.0.tar.gz', os.environ['ORDERED_SET_LICENSE_MEMBER'], 'ordered-set'),
-              ('proxy_tools-0.1.0.tar.gz', os.environ['PROXY_TOOLS_LICENSE_MEMBER'], 'proxy_tools'),
-          ):
-              with tarfile.open(archive, 'r:gz') as package:
-                  names = set(package.getnames())
-                  if member not in names:
-                      candidates = sorted(name for name in names if 'licen' in name.casefold() or 'copying' in name.casefold() or 'notice' in name.casefold())
-                      raise SystemExit(f'{label} exact license member missing: expected={member!r} candidates={candidates!r}')
-          print('EXACT_SOURCE_LICENSE_MEMBERS=PASS')
+          archive = 'ordered-set-4.1.0.tar.gz'
+          member = os.environ['ORDERED_SET_LICENSE_MEMBER']
+          with tarfile.open(archive, 'r:gz') as package:
+              names = set(package.getnames())
+              if member not in names:
+                  candidates = sorted(name for name in names if 'licen' in name.casefold() or 'copying' in name.casefold() or 'notice' in name.casefold())
+                  raise SystemExit(f'ordered-set exact license member missing: expected={member!r} candidates={candidates!r}')
+          print('ORDERED_SET_EXACT_SOURCE_LICENSE_MEMBER=PASS')
           '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'Exact source license member proof failed'}
+          if($LASTEXITCODE -ne 0){throw 'ordered-set exact source license member proof failed'}
           Write-Host "ORDERED_SET_SOURCE_ARTIFACT_SHA256=$orderedActual"
-          Write-Host "PROXY_TOOLS_SOURCE_ARTIFACT_SHA256=$proxyActual"
+          Write-Host "PROXY_TOOLS_IMMUTABLE_UPSTREAM_ARCHIVE_SHA256=$proxyArchiveSha"
 
       - name: Prove real installed dependency closure and notice bytes
         shell: pwsh
@@ -154,9 +190,9 @@ jobs:
                   member_path=os.environ['ORDERED_SET_LICENSE_MEMBER'],
               ),
               'proxy_tools': ExternalArchiveNoticeSource(
-                  archive_path=Path('proxy_tools-0.1.0.tar.gz'),
-                  source_url=os.environ['PROXY_TOOLS_SDIST_URL'],
-                  source_sha256=os.environ['PROXY_TOOLS_SDIST_SHA256'],
+                  archive_path=Path('proxy_tools-upstream.tar.gz'),
+                  source_url=os.environ['PROXY_TOOLS_ARCHIVE_URL'],
+                  source_sha256=os.environ['PROXY_TOOLS_ARCHIVE_SHA256'],
                   member_path=os.environ['PROXY_TOOLS_LICENSE_MEMBER'],
               ),
           }
@@ -173,25 +209,38 @@ jobs:
               raise SystemExit(f'QUALIFIED_NOTICE_MANIFEST_INVENTORY_MISMATCH {sorted(names)}')
           if manifest['python']['version'] != '3.12.10':
               raise SystemExit('QUALIFIED_NOTICE_PYTHON_VERSION_MISMATCH')
-          for distribution, digest, member in (
-              ('ordered-set', os.environ['ORDERED_SET_SDIST_SHA256'], os.environ['ORDERED_SET_LICENSE_MEMBER']),
-              ('proxy_tools', os.environ['PROXY_TOOLS_SDIST_SHA256'], os.environ['PROXY_TOOLS_LICENSE_MEMBER']),
-          ):
-              row = next(item for item in manifest['distributions'] if item['distribution'] == distribution)
-              if len(row['notice_files']) != 1:
-                  raise SystemExit(f'{distribution} notice count mismatch')
-              notice = row['notice_files'][0]
-              if notice.get('source_kind') != 'verified_source_archive':
-                  raise SystemExit(f'{distribution} notice source kind mismatch')
-              if notice.get('source_artifact_sha256') != digest:
-                  raise SystemExit(f'{distribution} notice source sha mismatch')
-              if notice.get('source_path') != member:
-                  raise SystemExit(f'{distribution} notice member mismatch')
+
+          ordered = next(item for item in manifest['distributions'] if item['distribution'] == 'ordered-set')
+          ordered_notice = ordered['notice_files'][0]
+          if ordered_notice.get('source_kind') != 'verified_source_archive':
+              raise SystemExit('ordered-set notice source kind mismatch')
+          if ordered_notice.get('source_artifact_sha256') != os.environ['ORDERED_SET_SDIST_SHA256']:
+              raise SystemExit('ordered-set notice source sha mismatch')
+          if ordered_notice.get('source_path') != os.environ['ORDERED_SET_LICENSE_MEMBER']:
+              raise SystemExit('ordered-set notice member mismatch')
+
+          proxy = next(item for item in manifest['distributions'] if item['distribution'] == 'proxy_tools')
+          proxy_notice = proxy['notice_files'][0]
+          if proxy_notice.get('source_kind') != 'verified_source_archive':
+              raise SystemExit('proxy_tools notice source kind mismatch')
+          if proxy_notice.get('source_artifact_sha256') != os.environ['PROXY_TOOLS_ARCHIVE_SHA256']:
+              raise SystemExit('proxy_tools notice source sha mismatch')
+          if proxy_notice.get('source_path') != os.environ['PROXY_TOOLS_LICENSE_MEMBER']:
+              raise SystemExit('proxy_tools notice member mismatch')
+          proxy_notice_bytes = (bundle.root / proxy_notice['packaged_file']).read_bytes()
+          if not proxy_notice_bytes.startswith(b'The BSD License (BSD)'):
+              raise SystemExit('proxy_tools packaged notice did not preserve immutable upstream BSD text')
+          # Preserve, do not conceal, the upstream discrepancy: setup.py for 0.1.0
+          # says MIT while immutable LICENSE.txt contains BSD terms.
+          if str(proxy.get('license_metadata') or '').strip().upper() != 'MIT':
+              raise SystemExit(f"proxy_tools installed metadata license drifted: {proxy.get('license_metadata')!r}")
+
           if len(bundle.notice_files) < len(expected) + 2:
               raise SystemExit('QUALIFIED_NOTICE_FILE_COUNT_TOO_SMALL')
           print(f'QUALIFIED_RUNTIME_NOTICE_FILES={len(bundle.notice_files)}')
           print('ORDERED_SET_EXACT_SOURCE_LICENSE_FALLBACK=PASS')
-          print('PROXY_TOOLS_EXACT_SOURCE_LICENSE_FALLBACK=PASS')
+          print('PROXY_TOOLS_IMMUTABLE_UPSTREAM_LICENSE_FALLBACK=PASS')
+          print('PROXY_TOOLS_LICENSE_METADATA_TEXT_DISCREPANCY=PRESERVED')
           print('QUALIFIED_RUNTIME_DEPENDENCY_NOTICES=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Real qualified dependency notice proof failed'}
