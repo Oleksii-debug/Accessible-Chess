@@ -1,0 +1,287 @@
+name: P0 Packaged MenuBar Identity Delta
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - '.github/workflows/p0-packaged-menubar-identity-delta.yml'
+      - 'scripts/p0_native_menubar_uia_probe.ps1'
+      - 'packaging/AccessibleChess.exe.config'
+      - 'run_accessible_chess_v2.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/webview2_accessibility.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-packaged-menubar-identity-delta-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+
+jobs:
+  compare-standalone-and-fresh-package:
+    runs-on: windows-2025
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Prove unchanged source app-config and package contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m unittest -v tests.test_packaged_winforms_appconfig tests.test_webview2_modern_winforms_accessibility tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight
+          if($LASTEXITCODE -ne 0){throw 'Source package/app-config regression failed'}
+
+      - name: Install exact qualification compiler stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check `
+            "pywebview==$env:PYWEBVIEW_VERSION" `
+            "pythonnet==$env:PYTHONNET_VERSION" `
+            "clr-loader==$env:CLR_LOADER_VERSION" `
+            "cffi==$env:CFFI_VERSION" `
+            "pycparser==$env:PYCPARSER_VERSION" `
+            "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" `
+            "Nuitka @ $nuitkaUrl" `
+            "ordered-set==$env:ORDERED_SET_VERSION" `
+            "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'Exact compiler stack installation failed'}
+
+      - name: Build exact shipping standalone
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m nuitka `
+            --standalone `
+            --assume-yes-for-downloads `
+            --windows-console-mode=disable `
+            --output-filename=AccessibleChess.exe `
+            --include-data-dir=web=web `
+            run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'Shipping standalone build failed'}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          foreach($name in @('AccessibleChess.exe','AccessibleChess.exe.config')){
+            $path=Join-Path $dist $name
+            if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw "Standalone missing $name"}
+            Write-Host "STANDALONE_$($name.Replace('.','_').ToUpperInvariant())_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant())"
+          }
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath 'packaging\AccessibleChess.exe.config').Hash.ToLowerInvariant()
+          $distHash=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dist 'AccessibleChess.exe.config')).Hash.ToLowerInvariant()
+          if($sourceHash -ne $distHash){throw 'Standalone config differs from source config'}
+          Write-Host 'STANDALONE_BYTES_READY=PASS'
+
+      - name: Probe standalone MenuBar identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $root=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
+          $out=(Join-Path $PWD 'p0-menubar-standalone.json')
+          $process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try {
+            & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+              -File scripts/p0_native_menubar_uia_probe.ps1 `
+              -TargetProcessId $process.Id `
+              -MenuHandle 0 `
+              -OutputPath $out `
+              -TimeoutSeconds 45
+            if($LASTEXITCODE -ne 0){throw 'Standalone external UIA probe failed'}
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+          $uia=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          $bars=@($uia.same_process_menu_bars)
+          if($bars.Count -eq 0){throw 'Standalone exposed no process-scoped MenuBar'}
+          Write-Host "STANDALONE_MENUBARS=$(@($bars|ForEach-Object {"id='$($_.automation_id)' name='$($_.name)' type='$($_.control_type)' class='$($_.class_name)' framework='$($_.framework_id)' hwnd='$($_.native_window_handle)'"}) -join ' | ')"
+
+      - name: Build deterministic sound input and exact Stockfish
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import hashlib, json, math, struct, wave
+          from pathlib import Path
+          from acs.sound_events import SoundEvent
+          root = Path('release-inputs/sounds')
+          root.mkdir(parents=True, exist_ok=False)
+          frequencies = (330, 220, 660, 440, 550, 140, 392, 196, 880)
+          files, provenance = {}, {}
+          for event, frequency in zip(SoundEvent, frequencies, strict=True):
+              name = f'{event.value}.wav'
+              path = root / name
+              sample_rate = 22050
+              duration = 0.12 if event.value == 'tick' else 0.18
+              count = int(sample_rate * duration)
+              frames = [struct.pack('<h', int(9000 * max(0.0, 1.0 - i / count) * math.sin(2 * math.pi * frequency * i / sample_rate))) for i in range(count)]
+              with wave.open(str(path), 'wb') as writer:
+                  writer.setnchannels(1); writer.setsampwidth(2); writer.setframerate(sample_rate); writer.writeframes(b''.join(frames))
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              files[event.value] = name
+              provenance[event.value] = {'file': name, 'sha256': digest, 'license_id': 'CC0-1.0', 'source': f'urn:accessible-chess:generated-tone:v1:{event.value}', 'creator': 'Accessible Chess deterministic tone generator'}
+          (root / 'manifest.json').write_text(json.dumps({'schema_version': 1, 'files': files}, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          (root / 'provenance.json').write_text(json.dumps({'schema_version': 1, 'events': provenance}, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          assert len(files) == len(tuple(SoundEvent)) == 9
+          print('DETERMINISTIC_SOUND_INPUT=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Sound generation failed'}
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          Invoke-WebRequest -Uri $env:STOCKFISH_URL -OutFile 'release-inputs\stockfish.zip'
+          $digest=(Get-FileHash -Algorithm SHA256 -LiteralPath 'release-inputs\stockfish.zip').Hash.ToLowerInvariant()
+          if($digest -ne $env:STOCKFISH_SHA256){throw "STOCKFISH_SHA256_MISMATCH $digest"}
+          Write-Host "STOCKFISH_RELEASE_SHA256=$digest"
+
+      - name: Canonical payload assemble deterministic ZIP and fresh extract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import hashlib
+          from pathlib import Path
+          from acs.version2_release_payload import prepare_version2_release_payload
+          from acs.version2_package_assembler import assemble_version2_package_tree, write_version2_package_zip
+          out = Path('p0-identity-delta')
+          prepared = prepare_version2_release_payload(
+              Path('run_accessible_chess_v2.dist'),
+              Path('release-inputs/stockfish.zip'),
+              Path('release-inputs/sounds'),
+              out / 'prepared',
+          )
+          assembled = assemble_version2_package_tree(
+              prepared.product_dir,
+              prepared.notices_dir,
+              out / 'package',
+              integration_sha='bd849204bf0ce0d510815a7525ff2cec59ee16d7',
+          )
+          archive = out / 'candidate.zip'
+          write_version2_package_zip(
+              assembled.package_root,
+              archive,
+              expected_integration_sha='bd849204bf0ce0d510815a7525ff2cec59ee16d7',
+          )
+          print('CANONICAL_DELTA_ZIP_SHA256=' + hashlib.sha256(archive.read_bytes()).hexdigest())
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Canonical payload/package assembly failed'}
+          New-Item -ItemType Directory -Path p0-identity-fresh | Out-Null
+          Expand-Archive -LiteralPath 'p0-identity-delta\candidate.zip' -DestinationPath p0-identity-fresh
+          Write-Host 'CANONICAL_FRESH_EXTRACTION=PASS'
+
+      - name: Prove standalone payload and fresh bytes are identical
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $roots=[ordered]@{
+            standalone=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+            prepared=(Resolve-Path 'p0-identity-delta\prepared\AccessibleChess').Path
+            packaged=(Resolve-Path 'p0-identity-delta\package\AccessibleChess').Path
+            fresh=(Resolve-Path 'p0-identity-fresh\AccessibleChess').Path
+          }
+          $summary=[ordered]@{}
+          foreach($entry in $roots.GetEnumerator()){
+            $exe=Join-Path $entry.Value 'AccessibleChess.exe'
+            $cfg=Join-Path $entry.Value 'AccessibleChess.exe.config'
+            if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw "$($entry.Key) missing AccessibleChess.exe"}
+            if(-not (Test-Path -LiteralPath $cfg -PathType Leaf)){throw "$($entry.Key) missing AccessibleChess.exe.config"}
+            $summary[$entry.Key]=[ordered]@{
+              exe_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+              config_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $cfg).Hash.ToLowerInvariant()
+            }
+          }
+          $exeHashes=@($summary.Values|ForEach-Object {$_.exe_sha256}|Select-Object -Unique)
+          $cfgHashes=@($summary.Values|ForEach-Object {$_.config_sha256}|Select-Object -Unique)
+          if($exeHashes.Count -ne 1){throw "EXE_BYTES_DRIFT $($summary|ConvertTo-Json -Compress)"}
+          if($cfgHashes.Count -ne 1){throw "CONFIG_BYTES_DRIFT $($summary|ConvertTo-Json -Compress)"}
+          $summary['exe_bytes_identical']=$true
+          $summary['config_bytes_identical']=$true
+          $summary|ConvertTo-Json -Depth 5|Set-Content -LiteralPath p0-menubar-byte-identity.json -Encoding UTF8
+          Write-Host "EXE_BYTE_IDENTITY=PASS sha256=$($exeHashes[0])"
+          Write-Host "CONFIG_BYTE_IDENTITY=PASS sha256=$($cfgHashes[0])"
+
+      - name: Probe fresh canonical package MenuBar identity and classify delta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $root=(Resolve-Path 'p0-identity-fresh\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
+          $out=(Join-Path $PWD 'p0-menubar-fresh.json')
+          $process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try {
+            & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+              -File scripts/p0_native_menubar_uia_probe.ps1 `
+              -TargetProcessId $process.Id `
+              -MenuHandle 0 `
+              -OutputPath $out `
+              -TimeoutSeconds 45
+            if($LASTEXITCODE -ne 0){throw 'Fresh-package external UIA probe failed'}
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+          $standalone=Get-Content -LiteralPath p0-menubar-standalone.json -Raw | ConvertFrom-Json
+          $fresh=Get-Content -LiteralPath p0-menubar-fresh.json -Raw | ConvertFrom-Json
+          $s=@($standalone.same_process_menu_bars)
+          $f=@($fresh.same_process_menu_bars)
+          if($s.Count -eq 0 -or $f.Count -eq 0){throw "MenuBar missing standalone=$($s.Count) fresh=$($f.Count)"}
+          $sCanonical=@($s|Where-Object {[string]$_.automation_id -eq 'AccessibleChessFullProductMenu'})
+          $fCanonical=@($f|Where-Object {[string]$_.automation_id -eq 'AccessibleChessFullProductMenu'})
+          $classification = if($sCanonical.Count -eq 1 -and $fCanonical.Count -eq 1){'SEMANTIC_ID_STABLE'} elseif($sCanonical.Count -eq 1 -and $fCanonical.Count -eq 0){'IDENTICAL_BYTES_LAUNCH_CONTEXT_IDENTITY_DRIFT'} else {'UNEXPECTED_IDENTITY_STATE'}
+          $combined=[ordered]@{
+            classification=$classification
+            standalone_menu_bars=$s
+            fresh_menu_bars=$f
+            byte_identity=(Get-Content -LiteralPath p0-menubar-byte-identity.json -Raw | ConvertFrom-Json)
+            human_tested=$false
+            nvda_verified=$false
+          }
+          $combined|ConvertTo-Json -Depth 10|Set-Content -LiteralPath p0-menubar-identity-delta-summary.json -Encoding UTF8
+          Write-Host "P0_MENUBAR_IDENTITY_DELTA_CLASSIFICATION=$classification"
+          Write-Host "STANDALONE_IDS=$(@($s|ForEach-Object {$_.automation_id}) -join '|')"
+          Write-Host "FRESH_IDS=$(@($f|ForEach-Object {$_.automation_id}) -join '|')"
+          if($classification -ne 'SEMANTIC_ID_STABLE'){
+            throw "Native MenuBar semantic identity is not stable across canonical packaging: $classification"
+          }
+          Write-Host 'P0_CANONICAL_PACKAGE_MENUBAR_IDENTITY=PASS'
+
+      - name: Upload bounded A-B identity evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p0-packaged-menubar-identity-delta
+          path: |
+            p0-menubar-standalone.json
+            p0-menubar-fresh.json
+            p0-menubar-byte-identity.json
+            p0-menubar-identity-delta-summary.json
+          if-no-files-found: warn
+          retention-days: 14
