@@ -97,33 +97,6 @@ jobs:
           if($sourceHash -ne $distHash){throw 'Standalone config differs from source config'}
           Write-Host 'STANDALONE_BYTES_READY=PASS'
 
-      - name: Probe standalone MenuBar identity
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
-          $root=(Resolve-Path 'run_accessible_chess_v2.dist').Path
-          $exe=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
-          $out=(Join-Path $PWD 'p0-menubar-standalone.json')
-          $process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
-          try {
-            & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-              -File scripts/p0_native_menubar_uia_probe.ps1 `
-              -TargetProcessId $process.Id `
-              -MenuHandle 0 `
-              -OutputPath $out `
-              -TimeoutSeconds 45
-            if($LASTEXITCODE -ne 0){throw 'Standalone external UIA probe failed'}
-          }
-          finally {
-            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
-            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
-          }
-          $uia=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
-          $bars=@($uia.same_process_menu_bars)
-          if($bars.Count -eq 0){throw 'Standalone exposed no process-scoped MenuBar'}
-          Write-Host "STANDALONE_MENUBARS=$(@($bars|ForEach-Object {"id='$($_.automation_id)' name='$($_.name)' type='$($_.control_type)' class='$($_.class_name)' framework='$($_.framework_id)' hwnd='$($_.native_window_handle)'"}) -join ' | ')"
-
       - name: Build deterministic sound input and exact Stockfish
         shell: pwsh
         run: |
@@ -165,7 +138,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           @'
-          import hashlib
+          import hashlib, json
           from pathlib import Path
           from acs.version2_release_payload import prepare_version2_release_payload
           from acs.version2_package_assembler import assemble_version2_package_tree, write_version2_package_zip
@@ -188,6 +161,14 @@ jobs:
               archive,
               expected_integration_sha='bd849204bf0ce0d510815a7525ff2cec59ee16d7',
           )
+          paths = {
+              'prepared_product_dir': str(prepared.product_dir.resolve()),
+              'package_product_dir': str((assembled.package_root / 'AccessibleChess').resolve()),
+              'archive': str(archive.resolve()),
+          }
+          (out / 'canonical-paths.json').write_text(json.dumps(paths, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          print('CANONICAL_PREPARED_PRODUCT_DIR=' + paths['prepared_product_dir'])
+          print('CANONICAL_PACKAGE_PRODUCT_DIR=' + paths['package_product_dir'])
           print('CANONICAL_DELTA_ZIP_SHA256=' + hashlib.sha256(archive.read_bytes()).hexdigest())
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Canonical payload/package assembly failed'}
@@ -195,81 +176,175 @@ jobs:
           Expand-Archive -LiteralPath 'p0-identity-delta\candidate.zip' -DestinationPath p0-identity-fresh
           Write-Host 'CANONICAL_FRESH_EXTRACTION=PASS'
 
-      - name: Prove standalone payload and fresh bytes are identical
+      - name: Collect byte and bounded UIA evidence then classify
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+
+          $canonicalPaths=Get-Content -LiteralPath 'p0-identity-delta\canonical-paths.json' -Raw | ConvertFrom-Json
           $roots=[ordered]@{
             standalone=(Resolve-Path 'run_accessible_chess_v2.dist').Path
-            prepared=(Resolve-Path 'p0-identity-delta\prepared\AccessibleChess').Path
-            packaged=(Resolve-Path 'p0-identity-delta\package\AccessibleChess').Path
+            prepared=(Resolve-Path ([string]$canonicalPaths.prepared_product_dir)).Path
+            packaged=(Resolve-Path ([string]$canonicalPaths.package_product_dir)).Path
             fresh=(Resolve-Path 'p0-identity-fresh\AccessibleChess').Path
           }
-          $summary=[ordered]@{}
+
+          $hashSummary=[ordered]@{}
           foreach($entry in $roots.GetEnumerator()){
             $exe=Join-Path $entry.Value 'AccessibleChess.exe'
             $cfg=Join-Path $entry.Value 'AccessibleChess.exe.config'
             if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw "$($entry.Key) missing AccessibleChess.exe"}
             if(-not (Test-Path -LiteralPath $cfg -PathType Leaf)){throw "$($entry.Key) missing AccessibleChess.exe.config"}
-            $summary[$entry.Key]=[ordered]@{
+            $hashSummary[$entry.Key]=[ordered]@{
+              root=$entry.Value
               exe_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
               config_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $cfg).Hash.ToLowerInvariant()
             }
           }
-          $exeHashes=@($summary.Values|ForEach-Object {$_.exe_sha256}|Select-Object -Unique)
-          $cfgHashes=@($summary.Values|ForEach-Object {$_.config_sha256}|Select-Object -Unique)
-          if($exeHashes.Count -ne 1){throw "EXE_BYTES_DRIFT $($summary|ConvertTo-Json -Compress)"}
-          if($cfgHashes.Count -ne 1){throw "CONFIG_BYTES_DRIFT $($summary|ConvertTo-Json -Compress)"}
-          $summary['exe_bytes_identical']=$true
-          $summary['config_bytes_identical']=$true
-          $summary|ConvertTo-Json -Depth 5|Set-Content -LiteralPath p0-menubar-byte-identity.json -Encoding UTF8
-          Write-Host "EXE_BYTE_IDENTITY=PASS sha256=$($exeHashes[0])"
-          Write-Host "CONFIG_BYTE_IDENTITY=PASS sha256=$($cfgHashes[0])"
+          $exeHashes=@($hashSummary.Values|ForEach-Object {$_.exe_sha256}|Select-Object -Unique)
+          $cfgHashes=@($hashSummary.Values|ForEach-Object {$_.config_sha256}|Select-Object -Unique)
+          $hashSummary['exe_bytes_identical']=($exeHashes.Count -eq 1)
+          $hashSummary['config_bytes_identical']=($cfgHashes.Count -eq 1)
+          $hashSummary|ConvertTo-Json -Depth 6|Set-Content -LiteralPath p0-menubar-byte-identity.json -Encoding UTF8
+          Write-Host "EXE_BYTE_IDENTITY=$($hashSummary['exe_bytes_identical']) unique=$($exeHashes.Count)"
+          Write-Host "CONFIG_BYTE_IDENTITY=$($hashSummary['config_bytes_identical']) unique=$($cfgHashes.Count)"
 
-      - name: Probe fresh canonical package MenuBar identity and classify delta
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
-          $root=(Resolve-Path 'p0-identity-fresh\AccessibleChess').Path
-          $exe=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
-          $out=(Join-Path $PWD 'p0-menubar-fresh.json')
-          $process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
-          try {
-            & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-              -File scripts/p0_native_menubar_uia_probe.ps1 `
-              -TargetProcessId $process.Id `
-              -MenuHandle 0 `
-              -OutputPath $out `
-              -TimeoutSeconds 45
-            if($LASTEXITCODE -ne 0){throw 'Fresh-package external UIA probe failed'}
+          function Invoke-BoundedMenuBarProbe {
+            param(
+              [Parameter(Mandatory=$true)][string]$Label,
+              [Parameter(Mandatory=$true)][string]$Root,
+              [Parameter(Mandatory=$true)][string]$OutputPath,
+              [Parameter(Mandatory=$true)][string]$TracePath
+            )
+            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+            $exe=(Resolve-Path (Join-Path $Root 'AccessibleChess.exe')).Path
+            Remove-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $TracePath -Force -ErrorAction SilentlyContinue
+            $process=$null
+            $observations=@()
+            $canonical=@()
+            $finalBars=@()
+            $infrastructureError=$null
+            try {
+              $process=Start-Process -FilePath $exe -WorkingDirectory $Root -PassThru
+            }
+            catch {
+              $infrastructureError="$Label process launch failed: $($_.Exception.Message)"
+            }
+            if($process){
+              try {
+                $deadline=[DateTime]::UtcNow.AddSeconds(45)
+                do {
+                  $process.Refresh()
+                  if($process.HasExited){
+                    $infrastructureError="$Label process exited before bounded MenuBar proof code=$($process.ExitCode)"
+                    break
+                  }
+                  $probeLog=& pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                    -File scripts/p0_native_menubar_uia_probe.ps1 `
+                    -TargetProcessId $process.Id `
+                    -MenuHandle 0 `
+                    -OutputPath $OutputPath `
+                    -TimeoutSeconds 2
+                  $probeExit=$LASTEXITCODE
+                  @($probeLog)|ForEach-Object { Write-Host "$Label probe: $_" }
+                  if($probeExit -ne 0){
+                    $infrastructureError="$Label external UIA probe failed exit=$probeExit"
+                    break
+                  }
+                  if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){
+                    $infrastructureError="$Label external UIA probe produced no evidence file"
+                    break
+                  }
+                  try {
+                    $uia=Get-Content -LiteralPath $OutputPath -Raw | ConvertFrom-Json
+                  }
+                  catch {
+                    $infrastructureError="$Label UIA evidence parse failed: $($_.Exception.Message)"
+                    break
+                  }
+                  $bars=@($uia.same_process_menu_bars)
+                  $finalBars=$bars
+                  $observations += [pscustomobject]@{
+                    utc=[DateTime]::UtcNow.ToString('o')
+                    menu_bars=$bars
+                  }
+                  $canonical=@($bars|Where-Object {[string]$_.automation_id -eq 'AccessibleChessFullProductMenu'})
+                  $last=(@($bars|ForEach-Object {
+                    "id='$([string]$_.automation_id)' name='$([string]$_.name)' type='$([string]$_.control_type)'"
+                  }) -join ' | ')
+                  Write-Host "$($Label.ToUpperInvariant())_OBSERVATION=$last"
+                  if($canonical.Count -eq 1){break}
+                  Start-Sleep -Milliseconds 250
+                } while([DateTime]::UtcNow -lt $deadline)
+              }
+              finally {
+                $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+                if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+              }
+            }
+            $result=[ordered]@{
+              label=$Label
+              canonical_count=$canonical.Count
+              infrastructure_error=$infrastructureError
+              observations=$observations
+              final_menu_bars=$finalBars
+            }
+            $result|ConvertTo-Json -Depth 10|Set-Content -LiteralPath $TracePath -Encoding UTF8
+            return [pscustomobject]$result
           }
-          finally {
-            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
-            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+
+          $standalone=Invoke-BoundedMenuBarProbe `
+            -Label 'standalone' `
+            -Root $roots['standalone'] `
+            -OutputPath (Join-Path $PWD 'p0-menubar-standalone.json') `
+            -TracePath (Join-Path $PWD 'p0-menubar-standalone-observations.json')
+
+          $fresh=Invoke-BoundedMenuBarProbe `
+            -Label 'fresh' `
+            -Root $roots['fresh'] `
+            -OutputPath (Join-Path $PWD 'p0-menubar-fresh.json') `
+            -TracePath (Join-Path $PWD 'p0-menubar-fresh-observations.json')
+
+          $exeIdentical=[bool]$hashSummary['exe_bytes_identical']
+          $cfgIdentical=[bool]$hashSummary['config_bytes_identical']
+          $sCanonical=[int]$standalone.canonical_count
+          $fCanonical=[int]$fresh.canonical_count
+
+          if(-not $exeIdentical -and -not $cfgIdentical){
+            $classification='EXE_AND_CONFIG_BYTES_DRIFT'
+          } elseif(-not $exeIdentical){
+            $classification='EXE_BYTES_DRIFT'
+          } elseif(-not $cfgIdentical){
+            $classification='CONFIG_BYTES_DRIFT'
+          } elseif($standalone.infrastructure_error -or $fresh.infrastructure_error){
+            $classification='UIA_PROBE_INFRASTRUCTURE_ERROR'
+          } elseif($sCanonical -eq 1 -and $fCanonical -eq 1){
+            $classification='SEMANTIC_ID_STABLE'
+          } elseif($sCanonical -eq 1 -and $fCanonical -eq 0){
+            $classification='IDENTICAL_BYTES_LAUNCH_CONTEXT_IDENTITY_DRIFT'
+          } elseif($sCanonical -eq 0 -and $fCanonical -eq 1){
+            $classification='IDENTICAL_BYTES_STANDALONE_IDENTITY_MISSING'
+          } elseif($sCanonical -eq 0 -and $fCanonical -eq 0){
+            $classification='IDENTICAL_BYTES_CANONICAL_ID_MISSING_BOTH'
+          } else {
+            $classification='UNEXPECTED_IDENTITY_STATE'
           }
-          $standalone=Get-Content -LiteralPath p0-menubar-standalone.json -Raw | ConvertFrom-Json
-          $fresh=Get-Content -LiteralPath p0-menubar-fresh.json -Raw | ConvertFrom-Json
-          $s=@($standalone.same_process_menu_bars)
-          $f=@($fresh.same_process_menu_bars)
-          if($s.Count -eq 0 -or $f.Count -eq 0){throw "MenuBar missing standalone=$($s.Count) fresh=$($f.Count)"}
-          $sCanonical=@($s|Where-Object {[string]$_.automation_id -eq 'AccessibleChessFullProductMenu'})
-          $fCanonical=@($f|Where-Object {[string]$_.automation_id -eq 'AccessibleChessFullProductMenu'})
-          $classification = if($sCanonical.Count -eq 1 -and $fCanonical.Count -eq 1){'SEMANTIC_ID_STABLE'} elseif($sCanonical.Count -eq 1 -and $fCanonical.Count -eq 0){'IDENTICAL_BYTES_LAUNCH_CONTEXT_IDENTITY_DRIFT'} else {'UNEXPECTED_IDENTITY_STATE'}
+
           $combined=[ordered]@{
             classification=$classification
-            standalone_menu_bars=$s
-            fresh_menu_bars=$f
-            byte_identity=(Get-Content -LiteralPath p0-menubar-byte-identity.json -Raw | ConvertFrom-Json)
+            byte_identity=$hashSummary
+            standalone=$standalone
+            fresh=$fresh
             human_tested=$false
             nvda_verified=$false
           }
-          $combined|ConvertTo-Json -Depth 10|Set-Content -LiteralPath p0-menubar-identity-delta-summary.json -Encoding UTF8
+          $combined|ConvertTo-Json -Depth 12|Set-Content -LiteralPath p0-menubar-identity-delta-summary.json -Encoding UTF8
           Write-Host "P0_MENUBAR_IDENTITY_DELTA_CLASSIFICATION=$classification"
-          Write-Host "STANDALONE_IDS=$(@($s|ForEach-Object {$_.automation_id}) -join '|')"
-          Write-Host "FRESH_IDS=$(@($f|ForEach-Object {$_.automation_id}) -join '|')"
+          Write-Host "STANDALONE_CANONICAL_COUNT=$sCanonical"
+          Write-Host "FRESH_CANONICAL_COUNT=$fCanonical"
           if($classification -ne 'SEMANTIC_ID_STABLE'){
-            throw "Native MenuBar semantic identity is not stable across canonical packaging: $classification"
+            throw "Native MenuBar semantic identity diagnostic classified RED: $classification"
           }
           Write-Host 'P0_CANONICAL_PACKAGE_MENUBAR_IDENTITY=PASS'
 
@@ -279,8 +354,11 @@ jobs:
         with:
           name: p0-packaged-menubar-identity-delta
           path: |
+            p0-identity-delta/canonical-paths.json
             p0-menubar-standalone.json
+            p0-menubar-standalone-observations.json
             p0-menubar-fresh.json
+            p0-menubar-fresh-observations.json
             p0-menubar-byte-identity.json
             p0-menubar-identity-delta-summary.json
           if-no-files-found: warn
