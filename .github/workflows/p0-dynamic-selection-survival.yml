@@ -1,0 +1,97 @@
+name: P0 Dynamic Semantic Selection Survival
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'web/p0_accessibility_runtime.js'
+      - 'web/index.html'
+      - 'web/full_product_pgn.js'
+      - 'web/full_product_teacher.js'
+      - 'acs/version2_education_mutation_release.py'
+      - 'tests/js/p0_dynamic_selection_survival_test.js'
+      - 'tests/test_p0_dynamic_selection_survival.py'
+      - 'tests/test_p0_semantic_document_copy.py'
+      - 'tests/test_p0_dynamic_selection_action_delivery.py'
+      - '.github/workflows/p0-dynamic-selection-survival.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-dynamic-selection-survival-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_FULL_PRODUCT_BASE: bd849204bf0ce0d510815a7525ff2cec59ee16d7
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact current Product ancestry and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$CURRENT_FULL_PRODUCT_BASE^{commit}"
+          test "$(git merge-base "$CURRENT_FULL_PRODUCT_BASE" HEAD)" = "$CURRENT_FULL_PRODUCT_BASE"
+          git diff --check "$CURRENT_FULL_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_FULL_PRODUCT_BASE" HEAD | sort)"
+          printf '%s\n' "$changed"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/p0-dynamic-selection-survival.yml' \
+            'tests/js/p0_dynamic_selection_survival_test.js' \
+            'tests/test_p0_dynamic_selection_survival.py' | sort)"
+          test "$changed" = "$allowed"
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Parse and execute dynamic-selection browser oracle
+        run: |
+          node --check web/p0_accessibility_runtime.js
+          node --check web/full_product_pgn.js
+          node --check tests/js/p0_dynamic_selection_survival_test.js
+          node tests/js/p0_dynamic_selection_survival_test.js
+
+      - name: Focused P0 semantic-copy and action-result regression
+        run: >-
+          python -m pytest -q
+          tests/test_p0_semantic_document_copy.py
+          tests/test_p0_dynamic_selection_action_delivery.py
+          tests/test_p0_dynamic_selection_survival.py
+
+      - name: Final-product production diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Full unittest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Full pytest regression on Windows
+        if: matrix.os == 'windows-2025'
+        run: python -m pytest -q tests
