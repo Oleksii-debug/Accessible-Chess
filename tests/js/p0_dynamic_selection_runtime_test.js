@@ -2,94 +2,133 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const path = require("path");
 const vm = require("vm");
 
-const source = fs.readFileSync(
-  path.join(__dirname, "..", "..", "web", "p0_accessibility_runtime.js"),
-  "utf8"
-);
-
-class FakeText {
+class FakeTextNode {
   constructor(data) {
     this.nodeType = 3;
     this.data = String(data || "");
     this.parentNode = null;
   }
+  get textContent() { return this.data; }
+  set textContent(value) { this.data = String(value || ""); }
+}
+
+let selection = null;
+const observerRegistrations = [];
+
+function textNodes(root) {
+  if (!root) return [];
+  if (root.nodeType === 3) return [root];
+  const result = [];
+  for (const child of root.children || []) result.push(...textNodes(child));
+  return result;
+}
+
+function nearestSemanticRoot(node) {
+  let current = node;
+  while (current) {
+    if (current.id === "v2-workspace" || current.id === "main-content") return current;
+    current = current.parentNode;
+  }
+  return null;
+}
+
+function notifyMutation(target) {
+  if (selection) selection.collapseForMutation(target);
+  for (const registration of observerRegistrations) {
+    if (registration.roots.some(root => root === target || root.contains(target))) {
+      registration.callback([{ target }]);
+    }
+  }
 }
 
 class FakeElement {
-  constructor(id) {
+  constructor(tagName) {
     this.nodeType = 1;
-    this.id = id || "";
-    this.hidden = false;
+    this.tagName = String(tagName || "div").toUpperCase();
+    this.children = [];
     this.parentNode = null;
-    this.childNodes = [];
-    this.attributes = new Map();
+    this.attributes = {};
+    this.listeners = {};
+    this.dataset = {};
+    this.style = {};
+    this.id = "";
+    this.hidden = false;
+    this.disabled = false;
+    this.tabIndex = 0;
+    this.value = "";
+    this.type = "";
+    this.open = false;
   }
-
-  appendChild(node) {
-    node.parentNode = this;
-    this.childNodes.push(node);
-    return node;
+  appendChild(child) {
+    if (child && child.tagName === "FRAGMENT") {
+      const moving = [...child.children];
+      child.children = [];
+      for (const item of moving) this.appendChild(item);
+      return child;
+    }
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
   }
-
-  replaceChildren() {
-    this.childNodes.forEach(node => { node.parentNode = null; });
-    this.childNodes = [];
-    Array.from(arguments).forEach(node => this.appendChild(node));
+  replaceChildren(child) {
+    for (const item of this.children) item.parentNode = null;
+    this.children = [];
+    if (child) this.appendChild(child);
+    notifyMutation(this);
   }
-
+  replaceWith(replacement) {
+    if (!this.parentNode) return;
+    const parent = this.parentNode;
+    const index = parent.children.indexOf(this);
+    replacement.parentNode = parent;
+    parent.children[index] = replacement;
+    this.parentNode = null;
+    notifyMutation(parent);
+  }
   contains(node) {
     if (node === this) return true;
-    return this.childNodes.some(child =>
-      child === node || (child && typeof child.contains === "function" && child.contains(node))
-    );
+    return this.children.some(child => child === node || (child.nodeType === 1 && child.contains(node)));
   }
-
-  setAttribute(name, value) {
-    this.attributes.set(String(name), String(value));
-  }
-
-  get textContent() {
-    return this.childNodes.map(node =>
-      node && node.nodeType === 3 ? node.data : String(node && node.textContent || "")
-    ).join("");
-  }
-
-  set textContent(value) {
-    this.replaceChildren(new FakeText(value));
-  }
-}
-
-function textNodes(root) {
-  const out = [];
-  function walk(node) {
-    if (!node) return;
-    if (node.nodeType === 3) {
-      out.push(node);
-      return;
+  descendants() {
+    const result = [];
+    for (const child of this.children) {
+      result.push(child);
+      if (child.nodeType === 1) result.push(...child.descendants());
     }
-    (node.childNodes || []).forEach(walk);
+    return result;
   }
-  walk(root);
-  return out;
-}
-
-function rootOf(node) {
-  let current = node;
-  while (current && current.parentNode) current = current.parentNode;
-  return current;
-}
-
-function absoluteOffset(root, container, offset) {
-  if (container === root) return Math.max(0, Number(offset) || 0);
-  let total = 0;
-  for (const node of textNodes(root)) {
-    if (node === container) return total + Math.max(0, Math.min(Number(offset) || 0, node.data.length));
-    total += node.data.length;
+  querySelector(selector) {
+    if (String(selector).startsWith("#")) {
+      const id = String(selector).slice(1);
+      return this.descendants().find(item => item.nodeType === 1 && item.id === id) || null;
+    }
+    return null;
   }
-  throw new Error("container is outside root");
+  querySelectorAll(selector) {
+    if (selector === '[role="treeitem"]') {
+      return this.descendants().filter(item => item.nodeType === 1 && item.getAttribute("role") === "treeitem");
+    }
+    if (selector === "[id]") return this.descendants().filter(item => item.nodeType === 1 && item.id);
+    return [];
+  }
+  setAttribute(name, value) { this.attributes[String(name)] = String(value); }
+  getAttribute(name) { return this.attributes[String(name)] || ""; }
+  removeAttribute(name) { delete this.attributes[String(name)]; }
+  addEventListener(name, listener) { this.listeners[String(name)] = listener; }
+  focus() { documentRef.activeElement = this; }
+  showModal() { this.open = true; }
+  close() { this.open = false; }
+  get firstElementChild() { return this.children.find(item => item.nodeType === 1) || null; }
+  get textContent() { return this.children.map(child => child.textContent).join(""); }
+  set textContent(value) {
+    for (const item of this.children) item.parentNode = null;
+    const text = new FakeTextNode(value);
+    text.parentNode = this;
+    this.children = [text];
+    notifyMutation(this);
+  }
 }
 
 class FakeRange {
@@ -100,103 +139,100 @@ class FakeRange {
     this.endContainer = null;
     this.endOffset = 0;
   }
-
   selectNodeContents(root) {
     this.root = root;
-    this.startContainer = root;
+    const nodes = textNodes(root);
+    this.startContainer = nodes[0] || root;
     this.startOffset = 0;
-    this.endContainer = root;
-    this.endOffset = String(root.textContent || "").length;
+    this.endContainer = nodes[nodes.length - 1] || root;
+    this.endOffset = nodes.length ? this.endContainer.data.length : 0;
   }
-
-  setStart(container, offset) {
-    this.startContainer = container;
+  setStart(node, offset) {
+    this.startContainer = node;
     this.startOffset = Number(offset) || 0;
-    if (!this.root) this.root = rootOf(container);
+    if (!this.root) this.root = nearestSemanticRoot(node);
   }
-
-  setEnd(container, offset) {
-    this.endContainer = container;
+  setEnd(node, offset) {
+    this.endContainer = node;
     this.endOffset = Number(offset) || 0;
-    if (!this.root) this.root = rootOf(container);
+    if (!this.root) this.root = nearestSemanticRoot(node);
   }
-
   toString() {
-    const root = this.root || rootOf(this.startContainer) || rootOf(this.endContainer);
+    const root = this.root || nearestSemanticRoot(this.startContainer) || nearestSemanticRoot(this.endContainer);
     if (!root) return "";
-    const full = String(root.textContent || "");
-    const start = this.startContainer === root
-      ? Math.max(0, Number(this.startOffset) || 0)
-      : absoluteOffset(root, this.startContainer, this.startOffset);
-    const end = this.endContainer === root
-      ? Math.max(start, Number(this.endOffset) || 0)
-      : absoluteOffset(root, this.endContainer, this.endOffset);
-    return full.slice(start, end);
+    const nodes = textNodes(root);
+    const offsetFor = (node, offset) => {
+      let total = 0;
+      for (const candidate of nodes) {
+        if (candidate === node) return total + Math.max(0, Math.min(Number(offset) || 0, candidate.data.length));
+        total += candidate.data.length;
+      }
+      return total;
+    };
+    const start = offsetFor(this.startContainer, this.startOffset);
+    const end = offsetFor(this.endContainer, this.endOffset);
+    return root.textContent.slice(start, end);
   }
 }
 
 class FakeSelection {
-  constructor() {
-    this.ranges = [];
-  }
-
-  get isCollapsed() {
-    return this.ranges.length === 0 || this.toString().length === 0;
-  }
-
-  get rangeCount() {
-    return this.ranges.length;
-  }
-
-  getRangeAt(index) {
-    return this.ranges[index];
-  }
-
-  removeAllRanges() {
-    this.ranges = [];
-  }
-
-  addRange(range) {
-    this.ranges = [range];
-  }
-
-  toString() {
-    return this.ranges.length ? this.ranges[0].toString() : "";
+  constructor() { this.range = null; }
+  get rangeCount() { return this.range ? 1 : 0; }
+  get isCollapsed() { return !this.range || this.range.toString().length === 0; }
+  getRangeAt(index) { if (index !== 0 || !this.range) throw new Error("selection range unavailable"); return this.range; }
+  removeAllRanges() { this.range = null; }
+  addRange(range) { this.range = range; }
+  toString() { return this.range ? this.range.toString() : ""; }
+  collapseForMutation(target) {
+    if (!this.range) return;
+    const start = this.range.startContainer;
+    const end = this.range.endContainer;
+    if ((target.contains && (target.contains(start) || target.contains(end))) || target === start || target === end) {
+      this.range = null;
+    }
   }
 }
 
-const listeners = new Map();
-const observers = [];
-let currentRoute = null;
-const selection = new FakeSelection();
+class FakeMutationObserver {
+  constructor(callback) {
+    this.registration = { callback, roots: [] };
+    observerRegistrations.push(this.registration);
+  }
+  observe(root) { this.registration.roots.push(root); }
+  disconnect() { this.registration.roots = []; }
+}
 
-const main = new FakeElement("main-content");
-const workspace = new FakeElement("v2-workspace");
-const live = new FakeElement("live");
+const listeners = {};
+const main = new FakeElement("main");
+main.id = "main-content";
+const workspace = new FakeElement("section");
+workspace.id = "v2-workspace";
 workspace.hidden = true;
-
-const elements = new Map([
-  ["main-content", main],
-  ["v2-workspace", workspace],
-  ["live", live]
-]);
+const engineStatus = new FakeElement("p");
+engineStatus.id = "engine-status";
+engineStatus.textContent = "Engine selected status";
+main.appendChild(engineStatus);
+main.appendChild(workspace);
+const live = new FakeElement("div");
+live.id = "live";
+main.appendChild(live);
+let currentRoute = null;
 
 const documentRef = {
+  activeElement: null,
   getElementById(id) {
-    return elements.get(String(id)) || null;
+    if (main.id === id) return main;
+    return main.descendants().find(item => item.nodeType === 1 && item.id === id) || null;
   },
   querySelector(selector) {
-    if (selector === "#v2-navigation-list [aria-current='page']" && currentRoute) {
-      return { id: "v2-nav-" + currentRoute };
-    }
+    if (selector === "#v2-navigation-list [aria-current='page']") return currentRoute;
     return null;
   },
-  addEventListener(name, callback) {
-    listeners.set(String(name), callback);
-  },
-  createRange() {
-    return new FakeRange();
-  },
+  addEventListener(name, listener) { listeners[String(name)] = listener; },
+  createElement(tagName) { return new FakeElement(tagName); },
+  createTextNode(text) { return new FakeTextNode(text); },
+  createDocumentFragment() { return new FakeElement("fragment"); },
+  createRange() { return new FakeRange(); },
   createTreeWalker(root) {
     const nodes = textNodes(root);
     let index = -1;
@@ -212,140 +248,139 @@ const documentRef = {
   }
 };
 
-class FakeMutationObserver {
-  constructor(callback) {
-    this.callback = callback;
-    this.roots = [];
-    observers.push(this);
-  }
-
-  observe(root, options) {
-    this.roots.push({ root, options });
-  }
-}
-
+selection = new FakeSelection();
 const fakeWindow = {
   document: documentRef,
-  MutationObserver: FakeMutationObserver,
   NodeFilter: { SHOW_TEXT: 4 },
+  MutationObserver: FakeMutationObserver,
   getSelection() { return selection; },
   setTimeout,
   clearTimeout,
-  apiAction: async function () {},
+  pywebview: { api: {} },
   render: async function () {},
+  apiAction: async function () {},
   announce: function () {}
 };
 
-vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math }, {
-  filename: "p0_accessibility_runtime.js"
+const context = vm.createContext({
+  window: fakeWindow,
+  document: documentRef,
+  console,
+  Date,
+  Object,
+  Array,
+  Number,
+  String,
+  Math,
+  Promise,
+  setTimeout,
+  clearTimeout
 });
 
-assert.ok(fakeWindow.AccessibleChessP0Runtime, "P0 runtime was not installed");
-assert.strictEqual(observers.length, 1, "one shared mutation observer is required");
+const runtimeSource = fs.readFileSync("web/p0_accessibility_runtime.js", "utf8");
+vm.runInContext(runtimeSource, context, { filename: "p0_accessibility_runtime.js" });
+assert.ok(fakeWindow.AccessibleChessP0Runtime, "P0 accessibility runtime did not install");
 
-function fireSelectionChange() {
-  const callback = listeners.get("selectionchange");
-  assert.ok(callback, "selectionchange listener is required");
-  callback();
-}
-
-function notify(records) {
-  observers[0].callback(records);
-}
-
-function selectText(textNode, selectedText) {
-  const start = textNode.data.indexOf(selectedText);
-  assert.ok(start >= 0, "test selection text must exist");
-  const range = documentRef.createRange();
-  range.setStart(textNode, start);
-  range.setEnd(textNode, start + selectedText.length);
+function selectSubstring(root, text) {
+  const node = textNodes(root).find(item => item.data.includes(text));
+  assert.ok(node, "selection text not found: " + text);
+  const start = node.data.indexOf(text);
+  const range = new FakeRange();
+  range.root = nearestSemanticRoot(node);
+  range.setStart(node, start);
+  range.setEnd(node, start + text.length);
   selection.removeAllRanges();
   selection.addRange(range);
-  assert.strictEqual(selection.toString(), selectedText);
-  fireSelectionChange();
+  if (listeners.selectionchange) listeners.selectionchange();
+  assert.strictEqual(selection.toString(), text, "test selection setup failed");
 }
 
-function stage1PollingSelectionSurvives() {
+async function proveStage1RefreshAnalysis() {
   currentRoute = null;
-  main.hidden = false;
   workspace.hidden = true;
+  engineStatus.textContent = "Engine selected status";
+  selectSubstring(engineStatus, "selected");
 
-  const status = new FakeElement("engine-status");
-  const oldText = new FakeText("Depth 16. Selected line: knight f3.");
-  status.appendChild(oldText);
-  main.replaceChildren(status);
+  const indexSource = fs.readFileSync("web/index.html", "utf8");
+  const start = indexSource.indexOf("async function refreshAnalysis()");
+  const end = indexSource.indexOf("\nfunction applyUiLanguage", start);
+  assert.ok(start >= 0 && end > start, "shipping refreshAnalysis function was not found");
+  const refreshSource = indexSource.slice(start, end);
+  assert.ok(refreshSource.includes("setText('engine-status',s.engineStatus)"), "refreshAnalysis no longer updates engine status through setText");
 
-  selectText(oldText, "Selected line: knight f3");
-
-  const newText = new FakeText("Depth 18. Evaluation +0.20. Selected line: knight f3.");
-  status.replaceChildren(newText);
-
-  // Simulate the browser losing the active range when a dynamic text node is replaced.
-  selection.removeAllRanges();
-  notify([{ target: status }]);
-
-  assert.strictEqual(
-    selection.toString(),
-    "Selected line: knight f3",
-    "Stage1 analysis/status refresh must restore the surviving semantic selection"
-  );
+  const nextState = {
+    analysis: {},
+    engineEnabled: true,
+    engineStatus: "Engine selected status updated",
+    engineGame: { active: false },
+    engineGameStatus: ""
+  };
+  context.state = { engineEnabled: true, engineGame: { active: false } };
+  context.api = function () { return { get_state: async function () { return nextState; } }; };
+  context.setText = function (id, text) {
+    const node = documentRef.getElementById(id);
+    if (node) node.textContent = text || "";
+  };
+  context.renderEngineGame = function () {};
+  context.renderAnalysis = function () {};
+  const refreshAnalysis = vm.runInContext(refreshSource + "\nrefreshAnalysis", context, { filename: "index.refreshAnalysis.js" });
+  await refreshAnalysis();
+  assert.strictEqual(selection.toString(), "selected", "Stage1 refreshAnalysis lost a surviving semantic selection");
+  console.log("P0_STAGE1_REFRESH_SELECTION_SURVIVES=PASS");
 }
 
-function v2LocalReplacementSelectionSurvives() {
-  currentRoute = "books";
-  main.hidden = true;
+function emptyPgnSnapshot(message) {
+  return { status: "empty", empty_message: message };
+}
+
+function provePgnLocalRerender() {
   workspace.hidden = false;
+  currentRoute = { id: "v2-nav-pgn" };
+  const pgnRoot = new FakeElement("div");
+  pgnRoot.id = "pgn-surface";
+  workspace.replaceChildren(pgnRoot);
 
-  const before = new FakeElement("book-section");
-  const oldText = new FakeText("Before. Selected paragraph for copy. After.");
-  before.appendChild(oldText);
-  workspace.replaceChildren(before);
-
-  selectText(oldText, "Selected paragraph for copy");
-
-  const after = new FakeElement("book-section");
-  const newText = new FakeText("Updated prefix. Selected paragraph for copy. Updated suffix.");
-  after.appendChild(newText);
-  workspace.replaceChildren(after);
-
-  selection.removeAllRanges();
-  notify([{ target: workspace }]);
-
-  assert.strictEqual(
-    selection.toString(),
-    "Selected paragraph for copy",
-    "V2 surface-local replaceChildren must restore the surviving semantic selection"
+  const pgnSource = fs.readFileSync("web/full_product_pgn.js", "utf8");
+  vm.runInContext(pgnSource, context, { filename: "full_product_pgn.js" });
+  const invoke = function () {};
+  const announce = function () {};
+  fakeWindow.AccessibleChessPgnSurface.render(
+    pgnRoot,
+    emptyPgnSnapshot("Persistent semantic PGN sentence"),
+    invoke,
+    announce,
+    ""
   );
+  selectSubstring(pgnRoot, "semantic PGN");
+
+  fakeWindow.AccessibleChessPgnSurface.render(
+    pgnRoot,
+    emptyPgnSnapshot("Persistent semantic PGN sentence with update"),
+    invoke,
+    announce,
+    ""
+  );
+  assert.strictEqual(selection.toString(), "semantic PGN", "PGN local replaceChildren rerender lost a surviving selection");
+
+  selectSubstring(pgnRoot, "semantic PGN");
+  currentRoute = { id: "v2-nav-library" };
+  fakeWindow.AccessibleChessPgnSurface.render(
+    pgnRoot,
+    emptyPgnSnapshot("Persistent semantic PGN sentence with second update"),
+    invoke,
+    announce,
+    ""
+  );
+  assert.strictEqual(selection.toString(), "", "selection was incorrectly restored across a V2 route change");
+  console.log("P0_V2_LOCAL_RERENDER_SELECTION_SURVIVES=PASS");
+  console.log("P0_ROUTE_CHANGE_SELECTION_NOT_RESTORED=PASS");
 }
 
-function routeChangeDoesNotRestoreStaleSelection() {
-  currentRoute = "books";
-  main.hidden = true;
-  workspace.hidden = false;
-
-  const before = new FakeElement("book-section");
-  const oldText = new FakeText("Book selected text");
-  before.appendChild(oldText);
-  workspace.replaceChildren(before);
-  selectText(oldText, "selected text");
-
-  currentRoute = "training";
-  const after = new FakeElement("training-section");
-  after.appendChild(new FakeText("Training selected text"));
-  workspace.replaceChildren(after);
-
-  selection.removeAllRanges();
-  notify([{ target: workspace }]);
-
-  assert.strictEqual(
-    selection.toString(),
-    "",
-    "route changes must not resurrect a stale semantic selection"
-  );
-}
-
-stage1PollingSelectionSurvives();
-v2LocalReplacementSelectionSurvives();
-routeChangeDoesNotRestoreStaleSelection();
-
-console.log("P0_DYNAMIC_SELECTION_RUNTIME=PASS");
+(async function run() {
+  await proveStage1RefreshAnalysis();
+  provePgnLocalRerender();
+  console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
+})().catch(error => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exitCode = 1;
+});
