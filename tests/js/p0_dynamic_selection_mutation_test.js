@@ -230,6 +230,7 @@ const documentRef = {
   },
   addEventListener(name, listener) { listeners[String(name)] = listener; },
   createElement(tagName) { return new FakeElement(tagName); },
+  createElementNS(_namespace, tagName) { return new FakeElement(tagName); },
   createTextNode(text) { return new FakeTextNode(text); },
   createDocumentFragment() { return new FakeElement("fragment"); },
   createRange() { return new FakeRange(); },
@@ -376,9 +377,70 @@ function provePgnLocalRerender() {
   console.log("P0_ROUTE_CHANGE_SELECTION_NOT_RESTORED=PASS");
 }
 
+
+function teacherSnapshot(summary) {
+  return {
+    board: {
+      orientation: "white",
+      coordinates_visible: true,
+      permission: "select_only",
+      engine_visibility: "hidden"
+    },
+    pieces: [],
+    pointer: null,
+    highlights: [],
+    arrows: [],
+    accessible_summary: summary,
+    feedback: []
+  };
+}
+
+function proveTeacherPartialReplacement() {
+  currentRoute = { id: "v2-nav-teacher" };
+  workspace.hidden = false;
+  const teacherRoot = new FakeElement("div");
+  teacherRoot.id = "teacher-surface";
+  workspace.replaceChildren(teacherRoot);
+
+  const teacherSource = fs.readFileSync("web/full_product_teacher.js", "utf8");
+  vm.runInContext(teacherSource, context, { filename: "full_product_teacher.js" });
+  const invoke = function () {};
+  const announce = function () {};
+  fakeWindow.AccessibleChessTeacherSurface.render(
+    teacherRoot,
+    teacherSnapshot("Teacher persistent selected summary"),
+    invoke,
+    announce,
+    "",
+    "Action failed"
+  );
+  selectSubstring(teacherRoot, "selected summary");
+
+  fakeWindow.AccessibleChessTeacherSurface.apply(
+    teacherRoot,
+    {
+      kind: "render-visual",
+      payload: {
+        snapshot: teacherSnapshot("Teacher updated persistent selected summary"),
+        announcement: ""
+      }
+    },
+    invoke,
+    announce,
+    "Action failed"
+  );
+  assert.strictEqual(
+    selection.toString(),
+    "selected summary",
+    "Teacher partial visual replacement lost a surviving semantic selection"
+  );
+  console.log("P0_TEACHER_PARTIAL_REPLACEMENT_SELECTION_SURVIVES=PASS");
+}
+
 (async function run() {
   await proveStage1RefreshAnalysis();
   provePgnLocalRerender();
+  proveTeacherPartialReplacement();
   console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
 })().catch(error => {
   console.error(error && error.stack ? error.stack : String(error));
