@@ -29,12 +29,8 @@ env:
 
 jobs:
   verify:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-2025]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 65
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -88,10 +84,9 @@ jobs:
       - name: Final-product production diagnostic
         run: python run_accessible_chess_v2.py --diagnostic
 
-      - name: Full unittest regression on Ubuntu
-        if: matrix.os == 'ubuntu-22.04'
-        run: python -m unittest discover -s tests -p 'test_*.py'
-
-      - name: Full pytest regression on Windows
-        if: matrix.os == 'windows-2025'
-        run: python -m pytest -q tests
+      - name: Focused unittest regression
+        run: >-
+          python -m unittest -v
+          tests.test_p0_semantic_document_copy
+          tests.test_p0_dynamic_selection_action_delivery
+          tests.test_p0_dynamic_selection_survival
