@@ -140,6 +140,33 @@ class EntitlementTests(unittest.TestCase):
                 self.assertEqual(unavailable.reason, "always_available_local")
                 self.assertEqual(revoked.reason, "always_available_local")
 
+    def test_always_available_local_floor_survives_all_subscription_failures(self):
+        snapshots = (
+            None,
+            self.snapshot(EntitlementState.REVOKED),
+            self.snapshot(EntitlementState.EXPIRED),
+            self.snapshot(EntitlementState.UPDATE_REQUIRED),
+            self.snapshot(expires_at=NOW - timedelta(days=30)),
+        )
+        for feature in ALWAYS_AVAILABLE_FEATURE_IDS:
+            for snapshot in snapshots:
+                with self.subTest(feature=feature, snapshot=snapshot):
+                    decision = self.gate().evaluate(feature, snapshot, now=NOW)
+                    self.assertTrue(decision.allowed)
+                    self.assertEqual(decision.reason, "always_available_local")
+
+    def test_always_available_floor_does_not_unlock_commercial_features(self):
+        revoked = EntitlementSnapshot(EntitlementState.REVOKED, frozenset())
+        for feature in (
+            FeatureId.ANALYSIS_ADVANCED,
+            FeatureId.TEACHER_LOCAL,
+            FeatureId.ORGANIZATION_ADMIN,
+        ):
+            with self.subTest(feature=feature):
+                decision = self.gate().evaluate(feature, revoked, now=NOW)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(decision.reason, "revoked")
+
     def test_economic_feature_tiers_are_disjoint_and_provider_neutral(self):
         paid_sets = (
             PROFESSIONAL_FEATURE_IDS,
