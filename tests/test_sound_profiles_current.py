@@ -124,11 +124,21 @@ class SoundPackManifestContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.make_pack(files=wrong_type)
 
-    def test_pack_rejects_unknown_event_and_missing_legal_metadata(self) -> None:
-        unknown = {event: f"{event}.wav" for event in CORE_SOUND_EVENTS}
-        unknown["arbitrary.future"] = "future.wav"
+    def test_pack_supports_alternate_sound_ids_but_rejects_invalid_ids(self) -> None:
+        sounds = {event: f"{event}.wav" for event in CORE_SOUND_EVENTS}
+        sounds["wood.capture"] = "alternate/wood-capture.wav"
+        pack = self.make_pack(files=sounds)
+        self.assertEqual(
+            pack.sound_path("wood.capture"),
+            "alternate/wood-capture.wav",
+        )
+
+        invalid = dict(sounds)
+        invalid["bad/id"] = "alternate/bad.wav"
         with self.assertRaises(ValueError):
-            self.make_pack(files=unknown)
+            self.make_pack(files=invalid)
+
+    def test_pack_requires_legal_metadata(self) -> None:
         for field in ("license_id", "author", "provenance"):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.make_pack(**{field: ""})
