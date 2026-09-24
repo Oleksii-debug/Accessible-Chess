@@ -16,6 +16,7 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         cls.stage1_release = (ROOT / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
         cls.release_ui = (ROOT / "acs" / "version2_release_ui.py").read_text(encoding="utf-8")
         cls.final_release = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
+        cls.p0_runtime = (ROOT / "web" / "p0_accessibility_runtime.js").read_text(encoding="utf-8")
 
     def test_both_shipping_windows_enable_native_document_text_selection(self) -> None:
         for source in (self.stage1_release, self.release_ui):
@@ -90,6 +91,21 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
     def test_selection_restore_never_crosses_product_routes(self) -> None:
         self.assertIn("routeId: currentRouteId", self.v2_bootstrap)
         self.assertIn("snapshot.routeId !== routeId", self.v2_bootstrap)
+
+
+    def test_final_product_loads_p0_runtime_after_final_bootstrap(self) -> None:
+        bootstrap = self.final_release.index('root / "version2_final_product_bootstrap.js"')
+        runtime = self.final_release.index('root / "p0_accessibility_runtime.js"')
+        self.assertLess(bootstrap, runtime)
+
+    def test_p0_runtime_covers_dynamic_stage1_and_v2_mutations(self) -> None:
+        self.assertIn('observer.observe(main, { subtree: true, childList: true, characterData: true });', self.p0_runtime)
+        self.assertIn('observer.observe(workspace, { subtree: true, childList: true, characterData: true });', self.p0_runtime)
+        self.assertIn('documentRef.addEventListener("selectionchange", rememberSelection);', self.p0_runtime)
+        self.assertIn('retainedSelection.route !== routeToken()', self.p0_runtime)
+        self.assertIn('restoreSemanticSelection(retainedSelection)', self.p0_runtime)
+        self.assertNotIn("navigator.clipboard", self.p0_runtime)
+        self.assertNotIn("execCommand", self.p0_runtime)
 
 
 if __name__ == "__main__":
