@@ -38,6 +38,15 @@ class FeatureId(str, Enum):
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
 
+# Local data-safety capabilities are never paywalled. They remain available when
+# entitlement state is missing, expired, revoked, or requires an update so a
+# user can always take their own data out of Accessible Chess.
+ALWAYS_AVAILABLE_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.DATA_EXPORT.value,
+    }
+)
+
 
 ACTIVE_STATES = frozenset(
     {
@@ -216,6 +225,14 @@ class FeatureGate:
     ) -> AccessDecision:
         feature = _normalize_feature_id(feature_id)
         current_time = _utc_now(now)
+
+        if feature in ALWAYS_AVAILABLE_FEATURE_IDS:
+            return AccessDecision(
+                True,
+                snapshot.state if snapshot is not None else EntitlementState.EXPIRED,
+                "local_data_safety",
+                feature,
+            )
 
         if snapshot is None:
             return AccessDecision(
