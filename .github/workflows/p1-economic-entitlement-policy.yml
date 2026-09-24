@@ -8,6 +8,8 @@ on:
     paths:
       - 'acs/entitlements.py'
       - 'tests/test_entitlements.py'
+      - 'docs/COMMERCIAL_ENTITLEMENT_POLICY.md'
+      - 'docs/ECONOMIC_MODEL_UA.md'
       - '.github/workflows/p1-economic-entitlement-policy.yml'
   workflow_dispatch:
 
@@ -58,7 +60,12 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/p1-economic-entitlement-policy.yml'             'acs/entitlements.py'             'tests/test_entitlements.py' | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/p1-economic-entitlement-policy.yml' \
+            'acs/entitlements.py' \
+            'docs/COMMERCIAL_ENTITLEMENT_POLICY.md' \
+            'docs/ECONOMIC_MODEL_UA.md' \
+            'tests/test_entitlements.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected economic entitlement scope:\n%s\n' "$changed" >&2
             exit 1
