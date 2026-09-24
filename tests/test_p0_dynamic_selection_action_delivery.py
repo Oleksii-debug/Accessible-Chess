@@ -41,25 +41,38 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         self.assertIn('dispatchId = ++dispatchCounter', self.runtime)
         self.assertIn('dispatch === lastAnnouncementDispatch', self.runtime)
 
-    def test_runtime_parses_and_repeated_action_oracle_passes(self) -> None:
+    def _run_node_oracle(self, relative_path: str, success_marker: str) -> None:
         node = shutil.which("node")
         if node is None:
             self.skipTest("Node.js is unavailable")
+        script = ROOT / relative_path
         subprocess.run(
-            [node, "--check", str(ROOT / "web" / "p0_accessibility_runtime.js")],
+            [node, "--check", str(script)],
             cwd=ROOT,
             check=True,
             capture_output=True,
             text=True,
         )
         completed = subprocess.run(
-            [node, str(ROOT / "tests" / "js" / "p0_accessibility_runtime_test.js")],
+            [node, str(script)],
             cwd=ROOT,
             check=True,
             capture_output=True,
             text=True,
         )
-        self.assertIn("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS", completed.stdout)
+        self.assertIn(success_marker, completed.stdout)
+
+    def test_runtime_parses_and_repeated_action_oracle_passes(self) -> None:
+        self._run_node_oracle(
+            "tests/js/p0_accessibility_runtime_test.js",
+            "P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS",
+        )
+
+    def test_shipping_dynamic_selection_mutation_oracle_passes(self) -> None:
+        self._run_node_oracle(
+            "tests/js/p0_dynamic_selection_mutation_test.js",
+            "P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS",
+        )
 
 
 if __name__ == "__main__":
