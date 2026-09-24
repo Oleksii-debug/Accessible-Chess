@@ -22,6 +22,13 @@ internal static class DeepListeningJourney
         public int Remaining => Math.Max(0, TargetReviews - CompletedReviews);
     }
 
+    private sealed class CompletionBudget
+    {
+        public int Remaining { get; set; }
+        public int Correct { get; set; }
+        public int Incorrect { get; set; }
+    }
+
     internal static Progress ActiveProgress(
         ListeningCoachState state,
         string dictionaryId,
@@ -82,33 +89,59 @@ internal static class DeepListeningJourney
         //
         // A completed Listening review is durably evidenced twice in the existing
         // single ListeningCoachState: History contains the chronological record and
-        // StatsByDictionary records the aggregate CompletedReviews count for the same
-        // exercise. Reconcile each chronological history occurrence against that count
-        // so duplicate/stale rows cannot gain journey credit merely because their
-        // exercise has at least one legitimate completion. This keeps current
-        // eligibility out of already-counted chronology without adding another store.
-        var remainingCompletedByExercise = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        // StatsByDictionary records aggregate completion/outcome counts for the same
+        // exercise. Reconcile each history occurrence against those counts so a stale
+        // duplicate cannot steal credit from a later corroborated completion. The
+        // persisted history is chronological and retention drops its oldest rows, so
+        // reconciliation deliberately consumes the newest corroborated rows first and
+        // restores chronological order afterwards. Correct/incorrect budgets also
+        // prevent a contradictory stale outcome from replacing durable learner truth.
+        var budgets = new Dictionary<string, CompletionBudget>(StringComparer.OrdinalIgnoreCase);
         if (state.StatsByDictionary.TryGetValue(dictionaryId, out Dictionary<string, ListeningItemStats>? perDictionary))
         {
             foreach ((string exerciseId, ListeningItemStats stats) in perDictionary)
-                if (stats.CompletedReviews > 0)
-                    remainingCompletedByExercise[exerciseId] = stats.CompletedReviews;
+            {
+                int completed = Math.Max(0, stats.CompletedReviews);
+                if (completed == 0) continue;
+
+                int correct = Math.Clamp(stats.CorrectReviews, 0, completed);
+                budgets[exerciseId] = new CompletionBudget
+                {
+                    Remaining = completed,
+                    Correct = correct,
+                    Incorrect = completed - correct
+                };
+            }
         }
 
-        var relevant = new List<ListeningHistoryRecord>();
-        foreach (ListeningHistoryRecord record in state.History)
+        var relevantReverse = new List<ListeningHistoryRecord>();
+        for (int index = state.History.Count - 1; index >= 0; index--)
         {
+            ListeningHistoryRecord record = state.History[index];
             if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) ||
                 record.Kind != ListeningExerciseKind.Word ||
-                !remainingCompletedByExercise.TryGetValue(record.ExerciseId, out int remaining) ||
-                remaining <= 0)
+                !budgets.TryGetValue(record.ExerciseId, out CompletionBudget? budget) ||
+                budget.Remaining <= 0)
             {
                 continue;
             }
 
-            relevant.Add(record);
-            remainingCompletedByExercise[record.ExerciseId] = remaining - 1;
+            if (record.Correct)
+            {
+                if (budget.Correct <= 0) continue;
+                budget.Correct--;
+            }
+            else
+            {
+                if (budget.Incorrect <= 0) continue;
+                budget.Incorrect--;
+            }
+
+            budget.Remaining--;
+            relevantReverse.Add(record);
         }
+        relevantReverse.Reverse();
+        List<ListeningHistoryRecord> relevant = relevantReverse;
 
         int inCycle = relevant.Count % TargetReviews;
         if (completionView && relevant.Count > 0 && inCycle == 0)
