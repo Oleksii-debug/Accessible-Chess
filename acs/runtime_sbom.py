@@ -62,6 +62,8 @@ def _duplicate_rejecting_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _read_manifest(path: Path) -> tuple[dict[str, Any], str]:
+    if path.is_symlink():
+        raise RuntimeSbomError("runtime dependency manifest must not be a symlink")
     try:
         resolved = path.resolve(strict=True)
     except (OSError, RuntimeError, ValueError) as exc:
@@ -185,6 +187,8 @@ def _https_url(value: Any, label: str) -> str:
 
 def _verify_notice_file(root: Path, filename: str, digest: str) -> None:
     candidate = root / filename
+    if candidate.is_symlink():
+        raise RuntimeSbomError("packaged notice evidence must not be a symlink")
     try:
         resolved_root = root.resolve(strict=True)
         resolved = candidate.resolve(strict=True)
