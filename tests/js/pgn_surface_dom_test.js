@@ -1,7 +1,6 @@
 "use strict";
 const fs = require("fs");
 const vm = require("vm");
-const childProcess = require("child_process");
 
 class FakeElement {
   constructor(tagName) {
@@ -160,11 +159,6 @@ async function run() {
   check(document.activeElement === dialogText, "rejected comment save did not retain editor focus");
   check(dialogAnnouncements.length === 1, "rejected comment save did not announce exactly once");
   check(dialogAnnouncements[0] === "The action could not be completed.", "rejected comment save leaked its error");
-  childProcess.execFileSync(
-    process.execPath,
-    ["tests/js/p0_dynamic_selection_mutation_test.js"],
-    { stdio: "inherit" }
-  );
   console.log("PGN workspace keyboard/privacy DOM contract PASS");
 }
 run().catch((error) => { console.error(error); process.exitCode = 1; });
