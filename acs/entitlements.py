@@ -65,9 +65,12 @@ class FeatureId(str, Enum):
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
 
-# These capabilities remain available regardless of subscription/account state.
-# They protect accessibility, user-owned data, and the useful local chess floor.
-ALWAYS_AVAILABLE_FEATURE_IDS: FrozenSet[str] = frozenset(
+# Pricing policy and safety escape hatches are intentionally distinct.
+#
+# NON_PAYWALLED_LOCAL_FEATURE_IDS defines the useful local floor that a future
+# paid policy must grant without charging for accessibility itself. These
+# features still respect security states such as UPDATE_REQUIRED or REVOKED.
+NON_PAYWALLED_LOCAL_FEATURE_IDS: FrozenSet[str] = frozenset(
     {
         FeatureId.ACCESSIBILITY_CORE.value,
         FeatureId.DATA_EXPORT.value,
@@ -75,6 +78,18 @@ ALWAYS_AVAILABLE_FEATURE_IDS: FrozenSet[str] = frozenset(
         FeatureId.CHESS_LOCAL.value,
         FeatureId.PGN_BASIC.value,
         FeatureId.ENGINE_BASIC.value,
+    }
+)
+
+# These capabilities must remain available even when entitlement data is
+# unavailable/expired/revoked or a security update is required, so the user can
+# understand the state and take/recover their own local data. This is deliberately
+# narrower than the free local product floor.
+ALWAYS_AVAILABLE_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.ACCESSIBILITY_CORE.value,
+        FeatureId.DATA_EXPORT.value,
+        FeatureId.DATA_RECOVERY.value,
     }
 )
 
@@ -292,8 +307,8 @@ class FeatureGate:
         if feature in ALWAYS_AVAILABLE_FEATURE_IDS:
             return AccessDecision(
                 True,
-                snapshot.state if snapshot is not None else EntitlementState.FREE_BETA,
-                "always_available_local",
+                snapshot.state if snapshot is not None else EntitlementState.EXPIRED,
+                "always_available_safety",
                 feature,
             )
 
