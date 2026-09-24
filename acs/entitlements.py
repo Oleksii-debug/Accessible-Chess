@@ -313,6 +313,13 @@ class FeatureGate:
             )
 
         if snapshot is None:
+            if feature in NON_PAYWALLED_LOCAL_FEATURE_IDS:
+                return AccessDecision(
+                    True,
+                    EntitlementState.EXPIRED,
+                    "non_paywalled_local",
+                    feature,
+                )
             return AccessDecision(
                 False,
                 EntitlementState.EXPIRED,
@@ -341,6 +348,14 @@ class FeatureGate:
 
         if snapshot.state is EntitlementState.REVOKED:
             return AccessDecision(False, snapshot.state, "revoked", feature)
+
+        if feature in NON_PAYWALLED_LOCAL_FEATURE_IDS:
+            return AccessDecision(
+                True,
+                snapshot.state,
+                "non_paywalled_local",
+                feature,
+            )
 
         entitled = feature in snapshot.feature_ids or "*" in snapshot.feature_ids
         if not entitled:

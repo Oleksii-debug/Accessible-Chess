@@ -196,6 +196,72 @@ class EntitlementTests(unittest.TestCase):
                     )
                     self.assertFalse(decision.allowed)
 
+    def test_free_local_floor_survives_offline_and_subscription_expiry(self):
+        for feature in (
+            FeatureId.CHESS_LOCAL,
+            FeatureId.PGN_BASIC,
+            FeatureId.ENGINE_BASIC,
+        ):
+            with self.subTest(feature=feature, case="offline"):
+                decision = self.gate().evaluate(feature, None, now=NOW)
+                self.assertTrue(decision.allowed)
+                self.assertEqual(decision.reason, "non_paywalled_local")
+
+            with self.subTest(feature=feature, case="expired_state"):
+                decision = self.gate().evaluate(
+                    feature,
+                    EntitlementSnapshot(EntitlementState.EXPIRED, frozenset()),
+                    now=NOW,
+                )
+                self.assertTrue(decision.allowed)
+                self.assertEqual(decision.reason, "non_paywalled_local")
+
+            with self.subTest(feature=feature, case="expired_timestamp"):
+                decision = self.gate().evaluate(
+                    feature,
+                    EntitlementSnapshot(
+                        EntitlementState.PAID_YEARLY,
+                        frozenset(),
+                        expires_at=NOW - timedelta(days=30),
+                    ),
+                    now=NOW,
+                )
+                self.assertTrue(decision.allowed)
+                self.assertEqual(decision.reason, "non_paywalled_local")
+
+    def test_free_local_floor_still_respects_known_security_blocks(self):
+        for feature in (
+            FeatureId.CHESS_LOCAL,
+            FeatureId.PGN_BASIC,
+            FeatureId.ENGINE_BASIC,
+        ):
+            required = self.gate("0.4.0").evaluate(
+                feature,
+                EntitlementSnapshot(
+                    EntitlementState.PAID_YEARLY,
+                    frozenset(),
+                    policy=RemotePolicy(
+                        minimum_supported_version=ProductVersion.parse("0.5.0")
+                    ),
+                ),
+                now=NOW,
+            )
+            self.assertFalse(required.allowed)
+            self.assertTrue(required.requires_update)
+            self.assertEqual(required.reason, "minimum_supported_version")
+
+            for state in (
+                EntitlementState.UPDATE_REQUIRED,
+                EntitlementState.REVOKED,
+            ):
+                with self.subTest(feature=feature, state=state):
+                    decision = self.gate().evaluate(
+                        feature,
+                        EntitlementSnapshot(state, frozenset()),
+                        now=NOW,
+                    )
+                    self.assertFalse(decision.allowed)
+
     def test_always_available_floor_does_not_unlock_commercial_features(self):
         revoked = EntitlementSnapshot(EntitlementState.REVOKED, frozenset())
         for feature in (
