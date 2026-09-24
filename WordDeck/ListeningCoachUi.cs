@@ -77,7 +77,7 @@ internal sealed class ListeningCoachForm : Form
         _answer.AccessibleName = "Type English listening answer";
         _answer.AccessibleDescription = "The answer is not displayed before checking. Type what you heard and press Enter.";
         _status.AccessibleName = "Listening status";
-        _status.AccessibleDescription = "Current Listening trainer status and feedback.";
+        _status.AccessibleDescription = "Current Listening trainer status, Deep Listening journey progress and deterministic feedback.";
         _replay.AccessibleName = "Replay listening audio";
         _check.AccessibleName = "Check listening answer";
         _show.AccessibleName = "Show listening answer";
@@ -133,7 +133,7 @@ internal sealed class ListeningCoachForm : Form
         {
             _answer.Clear();
             _answer.ReadOnly = false;
-            SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. Resumed unfinished listening item. {ListeningCoachPresentation.BeforeCheck(exercise)}");
+            SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. Resumed unfinished listening item. {ListeningCoachPresentation.BeforeCheck(exercise)} {DeepJourneyActiveStatus()}");
             _answer.Focus();
             BeginInvoke(new Action(() => PlayCurrent(countReplay: false)));
             return;
@@ -164,7 +164,7 @@ internal sealed class ListeningCoachForm : Form
             _answer.Clear();
             _answer.ReadOnly = false;
             string prompt = ListeningCoachPresentation.BeforeCheck(exercise);
-            SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. {prompt}");
+            SetStatus($"{StudyScopeIds.DisplayName(_state.ActiveScopeId)}. {prompt} {DeepJourneyActiveStatus()}");
             if (!TryCommitOrRollback(before, "Starting the next Listening item")) return;
             _answer.Focus();
             if (autoPlay) BeginInvoke(new Action(() => PlayCurrent(countReplay: false)));
@@ -190,7 +190,7 @@ internal sealed class ListeningCoachForm : Form
         if (countReplay)
         {
             if (!TryCommitOrRollback(before, "Recording the Listening replay")) return;
-            SetStatus("Audio replayed. The answer remains hidden.");
+            SetStatus($"Audio replayed. The answer remains hidden. {DeepJourneyActiveStatus()}");
         }
     }
 
@@ -205,12 +205,12 @@ internal sealed class ListeningCoachForm : Form
         }
         if (!result.Completed)
         {
-            SetStatus($"{result.Message} Replay: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningReplay))}; show answer: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer))}.");
+            SetStatus($"{result.Message} Replay: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningReplay))}; show answer: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer))}. {DeepJourneyActiveStatus()}");
             _answer.Focus();
         }
         else
         {
-            SetStatus($"{result.Message} Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
+            SetStatus($"{result.Message} {DeepJourneyCompletionStatus()} Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
             _next.Focus();
         }
     }
@@ -222,7 +222,7 @@ internal sealed class ListeningCoachForm : Form
         {
             _ = _engine.ShowAnswer();
             if (!TryCommitOrRollback(before, "Recording the Listening answer reveal")) return;
-            SetStatus($"{ListeningCoachPresentation.AfterShow(_engine.Current!)}. This review is recorded as needing more listening practice. Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
+            SetStatus($"{ListeningCoachPresentation.AfterShow(_engine.Current!)}. This review is recorded as needing more listening practice. {DeepJourneyCompletionStatus()} Next: {ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext))}.");
             _next.Focus();
         }
         catch (Exception ex)
@@ -292,8 +292,8 @@ internal sealed class ListeningCoachForm : Form
             SyncScopeSelectorFromState();
             StartOrResume();
             SetStatus(backup is null
-                ? "Listening progress imported. There was no earlier Listening state to back up."
-                : "Listening progress imported. A recovery backup of the previous Listening state was created.");
+                ? $"Listening progress imported. There was no earlier Listening state to back up. {DeepJourneyActiveStatus()}"
+                : $"Listening progress imported. A recovery backup of the previous Listening state was created. {DeepJourneyActiveStatus()}");
         }
         catch (Exception ex) { SetStatus($"Listening import failed; existing progress was preserved: {ex.Message}"); }
     }
@@ -337,7 +337,7 @@ internal sealed class ListeningCoachForm : Form
         string show = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningShowAnswer));
         string next = ShortcutFormatter.Format(_shortcuts.Get(ActionIds.ListeningNext));
         MessageBox.Show(this,
-            $"Listening and Dictation uses installed offline British audio. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. The Progress menu contains current-scope statistics and profile import/export. An unfinished item resumes after restart when its audio is still available. Listening progress is separate from Recall and Spelling.",
+            $"Listening and Dictation uses installed offline British audio. Deep Listening groups the current eligible word-audio reviews into deterministic five-review journeys; progress is reconstructed from durable Listening history, so restart and profile import preserve it without a second state store. The written answer is hidden until Enter checks it or the explicit Show answer command reveals it. Replay: {replay}. Show answer: {show}. Next: {next}. These commands can be changed in Training keyboard shortcuts. The Progress menu contains current-scope statistics and profile import/export. An unfinished item resumes after restart when its audio is still available. Listening progress is separate from Recall and Spelling.",
             "Listening and Dictation help", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
@@ -386,6 +386,12 @@ internal sealed class ListeningCoachForm : Form
         try { _scope.SelectedIndex = Math.Max(0, activeIndex); }
         finally { _synchronizingScope = false; }
     }
+
+    private string DeepJourneyActiveStatus() =>
+        DeepListeningJourney.DescribeActive(_state, _package.Id, _engine.Available());
+
+    private string DeepJourneyCompletionStatus() =>
+        DeepListeningJourney.DescribeAfterCompletion(_state, _package.Id, _engine.Available());
 
     private void SetStatus(string message)
     {

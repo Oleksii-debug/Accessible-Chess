@@ -83,6 +83,18 @@ internal static class BookReadingWritingSelfTest
             Require(after?.SentenceId == sentence.SentenceId, "Reading position no longer shares restart-safe persistence with the sentence-linked writing journey.");
             Require(new BookReadingWritingStore(service.DatabasePath).Load(imported.Document.BookId, sentence.SentenceId)?.ResponseText == revisedResponse,
                 "Writing response was lost after the Reading product service restarted.");
+
+            Require(BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", "BOOK-A"),
+                "Active-book guard rejected the same stable book identity with case-only differences.");
+            Require(!BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", "book-b"),
+                "Active-book guard allowed a different selected candidate to operate on the active book.");
+            Require(!BookReadingWritingSelectionPolicy.CanUseActiveBook(null, "book-a") &&
+                    !BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", null),
+                "Active-book guard allowed actions without both authoritative active and selected book identities.");
+            Require(BookReadingWritingSelectionPolicy.DescribeActiveBook("  Example Book ") == "Active private book: Example Book.",
+                "Accessible active-book identity is not deterministic and explicit.");
+            Require(BookReadingWritingSelectionPolicy.DescribeActiveBook(null) == "Active private book: none.",
+                "Accessible active-book identity did not fail closed when no book is open.");
             _ = before;
         }
         finally
@@ -90,7 +102,7 @@ internal static class BookReadingWritingSelfTest
             try { Directory.Delete(root, recursive: true); } catch { }
         }
 
-        Console.WriteLine("BookReading writing self-test PASS: sentence grounding, deterministic non-mastery feedback, bounded input, local SQLite persistence, revision upsert and restart continuity verified.");
+        Console.WriteLine("BookReading writing self-test PASS: sentence grounding, deterministic non-mastery feedback, bounded input, local SQLite persistence, revision upsert, restart continuity and active-book identity guarding verified.");
     }
 
     private static DictionaryPackage BuildDictionary() => new()

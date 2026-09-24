@@ -203,6 +203,19 @@ internal static class BookReadingWritingFeedback
     }
 }
 
+internal static class BookReadingWritingSelectionPolicy
+{
+    public static bool CanUseActiveBook(string? activeBookId, string? selectedBookId) =>
+        !string.IsNullOrWhiteSpace(activeBookId) &&
+        !string.IsNullOrWhiteSpace(selectedBookId) &&
+        activeBookId.Equals(selectedBookId, StringComparison.OrdinalIgnoreCase);
+
+    public static string DescribeActiveBook(string? displayName) =>
+        string.IsNullOrWhiteSpace(displayName)
+            ? "Active private book: none."
+            : $"Active private book: {displayName.Trim()}.";
+}
+
 internal static class BookReadingWritingEntryPoints
 {
     public static void Install(MainForm main)
@@ -268,7 +281,22 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
     private readonly ComboBox _knownDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Known deck for Reading familiarity" };
     private readonly ComboBox _learningDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Learning deck for Reading vocabulary capture" };
-    private readonly ComboBox _books = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 500, AccessibleName = "Private imported book for Reading and Writing" };
+    private readonly ComboBox _books = new()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = 500,
+        AccessibleName = "Private book to open in Reading and Writing",
+        AccessibleDescription = "This is the candidate book to open. The separate Active private book field is authoritative for the current sentence, saving, navigation, and vocabulary capture."
+    };
+    private readonly TextBox _activeBook = new()
+    {
+        ReadOnly = true,
+        Width = 500,
+        TabStop = true,
+        AccessibleName = "Active private book",
+        AccessibleDescription = "Authoritative private book used by the current sentence, writing persistence, navigation, and vocabulary capture.",
+        Text = "Active private book: none."
+    };
     private readonly TextBox _sentence = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, TabStop = true, AccessibleName = "Current source sentence" };
     private readonly ListBox _vocabulary = new() { Dock = DockStyle.Fill, AccessibleName = "Mapped vocabulary and context from current sentence" };
     private readonly TextBox _response = new() { Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, AccessibleName = "Your writing response to the current sentence", AccessibleDescription = "Write a paraphrase, reaction, inference, or note. Ctrl+S saves and refreshes deterministic structural feedback." };
@@ -342,11 +370,12 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         root.Controls.Add(policy, 0, 1);
 
         var bookPicker = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
-        bookPicker.Controls.Add(new Label { Text = "&Private book:", AutoSize = true });
+        bookPicker.Controls.Add(new Label { Text = "&Book to open:", AutoSize = true });
         bookPicker.Controls.Add(_books);
         var openBook = new Button { Text = "&Open selected book", AutoSize = true, AccessibleName = "Open selected private book in Reading and Writing workbench" };
         openBook.Click += (_, _) => OpenSelectedBook();
         bookPicker.Controls.Add(openBook);
+        bookPicker.Controls.Add(_activeBook);
         root.Controls.Add(bookPicker, 0, 2);
 
         root.Controls.Add(_sentence, 0, 3);
@@ -377,6 +406,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         CancelButton = close;
         _knownDeck.SelectedIndexChanged += (_, _) => RefreshSentenceContext();
         _learningDeck.SelectedIndexChanged += (_, _) => RefreshSentenceContext();
+        _books.SelectedIndexChanged += (_, _) => OnBookCandidateChanged();
         _previous.Click += (_, _) => MoveSentence(-1);
         _next.Click += (_, _) => MoveSentence(1);
         _save.Click += (_, _) => SaveWriting();
@@ -437,11 +467,12 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         foreach (BookCatalogItem item in _service.ListBooks()) _books.Items.Add(new BookOption(item));
         if (_books.Items.Count == 0)
         {
+            _activeBook.Text = BookReadingWritingSelectionPolicy.DescribeActiveBook(null);
             SetStatus("No private books are available. Open Tools > Reading / book study first and import a TXT, HTML, EPUB, or explicitly PDF-derived text file. This workbench intentionally reuses that Reading engine instead of creating another importer.");
             return;
         }
         _books.SelectedIndex = 0;
-        SetStatus("Choose a private book, then activate Open selected book. Existing Reading position will be restored.");
+        SetStatus("Choose a private book to open, then activate Open selected book. Existing Reading position will be restored. The Active private book field is authoritative for current sentence actions.");
     }
 
     private void OpenSelectedBook()
@@ -456,6 +487,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         {
             BookDocument document = _service.LoadDocument(selected.Item.BookId);
             _document = document;
+            _activeBook.Text = BookReadingWritingSelectionPolicy.DescribeActiveBook(selected.Item.DisplayName);
             _sentences = document.Chapters
                 .OrderBy(chapter => chapter.ChapterOrdinal)
                 .SelectMany(chapter => chapter.Sentences.OrderBy(sentence => sentence.SentenceOrdinal))
@@ -472,8 +504,34 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         catch (Exception ex) { ShowError("Could not open the private book", ex); }
     }
 
+    private string? SelectedCandidateBookId() =>
+        _books.SelectedItem is BookOption selected ? selected.Item.BookId : null;
+
+    private bool CandidateMatchesActiveBook() =>
+        BookReadingWritingSelectionPolicy.CanUseActiveBook(_document?.BookId, SelectedCandidateBookId());
+
+    private void OnBookCandidateChanged()
+    {
+        UpdateNavigation();
+        if (_document is null || CandidateMatchesActiveBook() || _books.SelectedItem is not BookOption selected) return;
+        SetStatus($"Book to open changed to {selected.Item.DisplayName}. {_activeBook.Text} Activate Open selected book before navigating, saving, or capturing vocabulary.");
+    }
+
+    private bool EnsureCandidateMatchesActiveBook()
+    {
+        if (_document is null)
+        {
+            SetStatus("Choose and open a private book first.");
+            return false;
+        }
+        if (CandidateMatchesActiveBook()) return true;
+        SetStatus($"{_activeBook.Text} The current book-to-open selection is different. Activate Open selected book or reselect the active book before navigating, saving, or capturing vocabulary.");
+        return false;
+    }
+
     private void MoveSentence(int delta)
     {
+        if (!EnsureCandidateMatchesActiveBook()) return;
         if (_document is null || _sentences.Count == 0) return;
         if (!ConfirmDiscardIfDirty()) return;
         int next = Math.Clamp(_sentenceIndex + delta, 0, _sentences.Count - 1);
@@ -506,8 +564,8 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
             _feedback.Text = saved?.FeedbackText ?? "No saved writing response for this sentence yet. Write a response, then press Ctrl+S for deterministic structural feedback.";
             _loadedResponse = _response.Text.Trim();
             SetStatus(saved is null
-                ? "Sentence context loaded. Writing has not yet been saved for this sentence."
-                : $"Restored local writing practice saved {saved.UpdatedUtc.ToLocalTime():g}.");
+                ? $"{_activeBook.Text} Sentence context loaded. Writing has not yet been saved for this sentence."
+                : $"{_activeBook.Text} Restored local writing practice saved {saved.UpdatedUtc.ToLocalTime():g}.");
         }
         catch (Exception ex) { ShowError("Could not load Reading + Writing context", ex); }
         UpdateNavigation();
@@ -540,6 +598,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
     private void SaveWriting()
     {
+        if (!EnsureCandidateMatchesActiveBook()) return;
         if (_document is null || _sentenceIndex < 0 || _sentenceIndex >= _sentences.Count)
         {
             SetStatus("Choose a private book and sentence before writing.");
@@ -552,7 +611,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
             _writingStore.Save(_document, current, _response.Text, feedback);
             _feedback.Text = feedback;
             _loadedResponse = _response.Text.Trim();
-            SetStatus("Writing response and deterministic feedback saved locally in the private Reading store. No mastery, CEFR, assessment, or course-progress credit was granted.");
+            SetStatus($"{_activeBook.Text} Writing response and deterministic feedback saved locally in the private Reading store. No mastery, CEFR, assessment, or course-progress credit was granted.");
             _feedback.Focus();
         }
         catch (Exception ex) { ShowError("Writing response was not saved", ex); }
@@ -560,6 +619,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
     private void CaptureSelectedVocabulary()
     {
+        if (!EnsureCandidateMatchesActiveBook()) return;
         if (_document is null ||
             _sentenceIndex < 0 ||
             _sentenceIndex >= _sentences.Count ||
@@ -585,7 +645,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
                 learning.Id);
             _saveState();
             RefreshSentenceContext();
-            SetStatus($"Captured {option.Id} from the current sentence into Learning. Ambiguous written forms require the explicit stable ID you selected; capture does not imply mastery.");
+            SetStatus($"{_activeBook.Text} Captured {option.Id} from the current sentence into Learning. Ambiguous written forms require the explicit stable ID you selected; capture does not imply mastery.");
         }
         catch (Exception ex) { ShowError("Vocabulary capture failed safely", ex); }
     }
@@ -605,17 +665,18 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
     private void UpdateNavigation()
     {
-        _previous.Enabled = _sentenceIndex > 0;
-        _next.Enabled = _sentenceIndex >= 0 && _sentenceIndex < _sentences.Count - 1;
-        _save.Enabled = _sentenceIndex >= 0;
-        _capture.Enabled = _sentenceIndex >= 0;
+        bool activeSelection = CandidateMatchesActiveBook();
+        _previous.Enabled = activeSelection && _sentenceIndex > 0;
+        _next.Enabled = activeSelection && _sentenceIndex >= 0 && _sentenceIndex < _sentences.Count - 1;
+        _save.Enabled = activeSelection && _sentenceIndex >= 0;
+        _capture.Enabled = activeSelection && _sentenceIndex >= 0;
     }
 
     private void ShowHelp()
     {
         MessageBox.Show(
             this,
-            "Reading + Writing reuses your private local Reading books. The current sentence is the semantic context; the vocabulary list uses mapped stable dictionary IDs. Write a paraphrase, reaction, inference, or note. Ctrl+S saves the response and deterministic structural feedback in the same local Reading SQLite store. Ctrl+PageUp/PageDown changes sentence. Ctrl+L captures the selected mapped stable ID to Learning. Feedback does not judge semantic correctness or grant mastery/CEFR/assessment credit. Automated accessibility is not physical NVDA verification.",
+            "Reading + Writing reuses your private local Reading books. The Book to open selector is only a candidate; the separate Active private book field is authoritative for the current sentence and all persistence. If they differ, navigation, saving, and vocabulary capture are blocked until you open the selected book or reselect the active book. The current sentence is the semantic context; the vocabulary list uses mapped stable dictionary IDs. Write a paraphrase, reaction, inference, or note. Ctrl+S saves the response and deterministic structural feedback in the same local Reading SQLite store. Ctrl+PageUp/PageDown changes sentence. Ctrl+L captures the selected mapped stable ID to Learning. Feedback does not judge semantic correctness or grant mastery/CEFR/assessment credit. Automated accessibility is not physical NVDA verification.",
             "Reading + Writing keyboard help",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
