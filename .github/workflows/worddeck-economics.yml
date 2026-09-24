@@ -1,0 +1,32 @@
+name: WordDeck economics model gate
+
+on:
+  pull_request:
+    paths:
+      - 'WordDeck/tools/worddeck_economics.py'
+      - 'WordDeck/tools/test_worddeck_economics.py'
+      - 'WordDeck/QA/economics_planning_baseline.json'
+      - 'WordDeck/ECONOMIC_MODEL_UK.md'
+      - '.github/workflows/worddeck-economics.yml'
+  push:
+    branches:
+      - worddeck-bootstrap
+    paths:
+      - 'WordDeck/tools/worddeck_economics.py'
+      - 'WordDeck/tools/test_worddeck_economics.py'
+      - 'WordDeck/QA/economics_planning_baseline.json'
+      - '.github/workflows/worddeck-economics.yml'
+
+jobs:
+  economics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run economics regression tests
+        run: python -m unittest WordDeck/tools/test_worddeck_economics.py -v
+      - name: Reproduce baseline calculation
+        run: python WordDeck/tools/worddeck_economics.py WordDeck/QA/economics_planning_baseline.json --compact
