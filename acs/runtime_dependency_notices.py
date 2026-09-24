@@ -163,13 +163,15 @@ def _try_locate_notice(dist: Any, relative: PurePosixPath) -> Path | None:
         raise RuntimeDependencyNoticeError("distribution cannot locate license files")
     try:
         located = Path(locator(str(relative)))
+        if located.is_symlink():
+            return None
         resolved = located.resolve(strict=True)
     except FileNotFoundError:
         return None
     except (OSError, RuntimeError, ValueError) as exc:
         raise RuntimeDependencyNoticeError("distribution license file cannot be inspected") from exc
     try:
-        if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
+        if not resolved.is_file() or resolved.stat().st_size <= 0:
             return None
     except OSError as exc:
         raise RuntimeDependencyNoticeError("distribution license file cannot be inspected") from exc
@@ -189,11 +191,13 @@ def _python_license_path(explicit: str | Path | None) -> Path:
     )
     for candidate in candidates:
         try:
+            if candidate.is_symlink():
+                continue
             resolved = candidate.resolve(strict=True)
         except (OSError, RuntimeError, ValueError):
             continue
         try:
-            if resolved.is_file() and not resolved.is_symlink() and resolved.stat().st_size > 0:
+            if resolved.is_file() and resolved.stat().st_size > 0:
                 return resolved
         except OSError:
             continue
@@ -249,11 +253,16 @@ def _validated_external_sources(
 
 def _read_external_notice(source: ExternalArchiveNoticeSource) -> bytes:
     try:
-        archive = Path(source.archive_path).resolve(strict=True)
+        archive_path = Path(source.archive_path)
+        if archive_path.is_symlink():
+            raise RuntimeDependencyNoticeError("external notice source archive is invalid")
+        archive = archive_path.resolve(strict=True)
+    except RuntimeDependencyNoticeError:
+        raise
     except (OSError, RuntimeError, ValueError) as exc:
         raise RuntimeDependencyNoticeError("external notice source archive is unavailable") from exc
     try:
-        if not archive.is_file() or archive.is_symlink() or archive.stat().st_size <= 0:
+        if not archive.is_file() or archive.stat().st_size <= 0:
             raise RuntimeDependencyNoticeError("external notice source archive is invalid")
     except OSError as exc:
         raise RuntimeDependencyNoticeError("external notice source archive is invalid") from exc
