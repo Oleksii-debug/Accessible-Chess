@@ -7,6 +7,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.runtime_dependency_notices import (
     ExternalArchiveNoticeSource,
@@ -340,6 +341,110 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
                 distribution_loader=lambda _name: dist,
                 python_license_path=self.python_license,
             )
+
+    def test_symlinked_installed_notice_fails_closed_without_publication(self) -> None:
+        dist = self._distribution("demo", "1.0")
+        output = self.root / "notices-symlink"
+        real_is_symlink = Path.is_symlink
+
+        def classify(path: Path) -> bool:
+            if path.name == "LICENSE.txt":
+                return True
+            return real_is_symlink(path)
+
+        with mock.patch.object(Path, "is_symlink", autospec=True, side_effect=classify):
+            with self.assertRaisesRegex(RuntimeDependencyNoticeError, "must not be a symlink"):
+                build_runtime_dependency_notice_bundle(
+                    ("demo",),
+                    output,
+                    distribution_loader=lambda _name: dist,
+                    python_license_path=self.python_license,
+                )
+        self.assertFalse(output.exists())
+
+    def test_distribution_locator_cannot_escape_distribution_root(self) -> None:
+        dist_root = self.root / "installed-escape"
+        dist_root.mkdir()
+        outside = self.root / "outside-license.txt"
+        outside.write_text("outside bytes\n", encoding="utf-8")
+
+        class EscapingDistribution(_Distribution):
+            def locate_file(self, relative):
+                if str(relative) == "":
+                    return self.root
+                return outside
+
+        dist = EscapingDistribution(
+            dist_root,
+            version="1.0",
+            license_files=("demo.dist-info/LICENSE.txt",),
+        )
+        output = self.root / "notices-escape"
+        with self.assertRaisesRegex(RuntimeDependencyNoticeError, "escapes distribution root"):
+            build_runtime_dependency_notice_bundle(
+                ("demo",),
+                output,
+                distribution_loader=lambda _name: dist,
+                python_license_path=self.python_license,
+            )
+        self.assertFalse(output.exists())
+
+    def test_symlinked_python_license_fails_closed_without_publication(self) -> None:
+        dist = self._distribution("demo", "1.0")
+        output = self.root / "notices-python-symlink"
+        real_is_symlink = Path.is_symlink
+
+        def classify(path: Path) -> bool:
+            if path == self.python_license:
+                return True
+            return real_is_symlink(path)
+
+        with mock.patch.object(Path, "is_symlink", autospec=True, side_effect=classify):
+            with self.assertRaisesRegex(RuntimeDependencyNoticeError, "Python license"):
+                build_runtime_dependency_notice_bundle(
+                    ("demo",),
+                    output,
+                    distribution_loader=lambda _name: dist,
+                    python_license_path=self.python_license,
+                )
+        self.assertFalse(output.exists())
+
+    def test_symlinked_external_archive_fails_closed_without_publication(self) -> None:
+        dist_root = self.root / "installed-external"
+        dist_root.mkdir()
+        dist = _Distribution(
+            dist_root,
+            version="1.0",
+            license_files=(),
+            metadata_license_files=(),
+        )
+        member = "demo-1.0/LICENSE"
+        archive = self._source_archive(member, b"license bytes\n")
+        output = self.root / "notices-external-symlink"
+        real_is_symlink = Path.is_symlink
+
+        def classify(path: Path) -> bool:
+            if path == archive:
+                return True
+            return real_is_symlink(path)
+
+        with mock.patch.object(Path, "is_symlink", autospec=True, side_effect=classify):
+            with self.assertRaisesRegex(RuntimeDependencyNoticeError, "must not be a symlink"):
+                build_runtime_dependency_notice_bundle(
+                    ("demo",),
+                    output,
+                    distribution_loader=lambda _name: dist,
+                    python_license_path=self.python_license,
+                    external_notice_sources={
+                        "demo": ExternalArchiveNoticeSource(
+                            archive,
+                            "https://files.example.test/demo.tar.gz",
+                            self._digest(archive),
+                            member,
+                        )
+                    },
+                )
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
