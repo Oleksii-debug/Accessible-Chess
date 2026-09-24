@@ -1,0 +1,330 @@
+name: Post-freeze V2 Windows Package Qualification
+
+on:
+  push:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-freeze-v2-windows-package-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PREVIOUS_PACKAGE_SHA: ec476924625f6723f6a27c4eebc01ffaaff66fa5
+  MENUBAR_DIAGNOSTIC_AUTHORITY_SHA: f69a042ccfb208b8f150b488c0d84e5c14e8f60c
+  MENUBAR_DIAGNOSTIC_WORKFLOW_BLOB_SHA: bd52c868143b9926dc1bad0dc034ab6739544f37
+  MENUBAR_HELPER_BLOB_SHA: 20b4f203bceb7fa8c163ad0289433610478cac0d
+  QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
+  PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
+  QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+  STARTER_ZSTANDARD_VERSION: '0.23.0'
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+
+jobs:
+  qualify-package:
+    runs-on: windows-2025
+    timeout-minutes: 85
+    steps:
+      - name: Checkout exact package qualification child
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Bind exact Product and same-lineage qualification authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent_line="$(git rev-list --parents -n 1 HEAD)"
+          test "$(wc -w <<<"$parent_line" | tr -d ' ')" = '3'
+          product_parent="$(git rev-parse HEAD^1)"
+          previous_candidate="$(git rev-parse HEAD^2)"
+          test "$previous_candidate" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$product_parent" HEAD)" = "$product_parent"
+          test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$QUALIFICATION_AUTHORITY_SHA" "$PREVIOUS_PACKAGE_SHA")" = "$QUALIFICATION_AUTHORITY_SHA"
+          changed="$(git diff --name-only "$product_parent" HEAD)"
+          test "$changed" = "$QUALIFICATION_SOURCE_PATH"
+          git diff --check "$product_parent" HEAD
+          if git cat-file -e "$product_parent:$QUALIFICATION_SOURCE_PATH" 2>/dev/null; then
+            echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT_PARENT' >&2
+            exit 1
+          fi
+          actual_blob="$(git rev-parse "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$actual_blob" = "$PRIOR_WORKFLOW_BLOB_SHA"
+          menubar_proof_blob="$(git rev-parse "$MENUBAR_DIAGNOSTIC_AUTHORITY_SHA:.github/workflows/p0-packaged-menubar-identity-delta.yml")"
+          test "$menubar_proof_blob" = "$MENUBAR_DIAGNOSTIC_WORKFLOW_BLOB_SHA"
+          menubar_helper_blob="$(git rev-parse "$product_parent:scripts/p0_native_menubar_uia_probe.ps1")"
+          test "$menubar_helper_blob" = "$MENUBAR_HELPER_BLOB_SHA"
+          git show "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH" > .package-qualification-source.yml
+          test -s .package-qualification-source.yml
+          grep -Fq 'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262' .package-qualification-source.yml
+          grep -Fq 'uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065' .package-qualification-source.yml
+          grep -Fq 'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' .package-qualification-source.yml
+          grep -Fq 'uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093' .package-qualification-source.yml
+          test -f acs/version2_release_payload.py
+          test -f acs/version2_package_assembler.py
+          test -f acs/version2_package_preflight.py
+          test -f tools/p0f_lawful_starter_bundle.py
+          test -f acs/starter_books_training_release.py
+          test -f acs/version2_starter_content_application.py
+          test -f run_accessible_chess_v2.py
+          short="${product_parent:0:7}"
+          echo "PRODUCT_PARENT=$product_parent" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$product_parent" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
+          echo "CANDIDATE_PRODUCT_SHA=$product_parent"
+          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$previous_candidate"
+          echo "QUALIFICATION_AUTHORITY_SHA=$QUALIFICATION_AUTHORITY_SHA"
+          echo "QUALIFICATION_AUTHORITY_BLOB=$actual_blob"
+          echo "MENUBAR_DIAGNOSTIC_AUTHORITY_SHA=$MENUBAR_DIAGNOSTIC_AUTHORITY_SHA"
+          echo "MENUBAR_DIAGNOSTIC_WORKFLOW_BLOB=$menubar_proof_blob"
+          echo "MENUBAR_HELPER_BLOB=$menubar_helper_blob"
+          echo 'WORKFLOW_ONLY_DELTA=PASS'
+          echo 'PRODUCT_SOURCE_MUTATION=NONE'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Materialize exact inherited qualification executor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from __future__ import annotations
+
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+
+          SOURCE = Path('.package-qualification-source.yml')
+          PRE = (
+              'Build exact lawful W2 release corpus',
+              'Install qualified pinned Windows compiler stack',
+              'Materialize immutable strict packaged UIA helper',
+              'Source release diagnostic P0-G and W3 retained oracles',
+              'Build standalone AccessibleChess.exe',
+              'Build deterministic nine-event sound input with provenance',
+              'Download exact official Stockfish 18 Windows release',
+              'Prepare canonical payload bind W2 W3 assemble package and deterministic ZIP',
+              'Fresh extraction W2 W3 readback packaged diagnostic and engine smoke',
+              'Prove fresh-extracted packaged keyboard and UIA semantics',
+              'Prove fresh-extracted native MenuBar profile through process-scoped UIA',
+              'Prove packaged semantic document selection and native Ctrl+C',
+              'Prove packaged P0-G Books Training keyboard close and restart',
+          )
+          POST = (
+              'Verify uploaded artifact byte identity W2 W3 and final evidence',
+              'Package qualification checkpoint',
+          )
+          MENUBAR_STEP = 'Prove fresh-extracted native MenuBar profile through process-scoped UIA'
+          MENUBAR_OVERRIDE = r"""$ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $output=(Join-Path $PWD 'packaged-v2-current-native-menu-probe.json')
+          $process=Start-Process -FilePath $exe -WorkingDirectory $productRoot -PassThru
+          try {
+            $deadline=[DateTime]::UtcNow.AddSeconds(45)
+            $canonical=@()
+            $uia=$null
+            do {
+              $process.Refresh()
+              if($process.HasExited){throw "Fresh-extracted V2 process exited before bounded native-menu proof with code $($process.ExitCode)"}
+              Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
+              & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/p0_native_menubar_uia_probe.ps1 -TargetProcessId $process.Id -MenuHandle 0 -OutputPath $output -TimeoutSeconds 2
+              if($LASTEXITCODE -ne 0){throw "External native MenuBar UIA probe failed exit=$LASTEXITCODE"}
+              if(-not (Test-Path -LiteralPath $output -PathType Leaf)){throw 'External native MenuBar UIA probe produced no evidence file'}
+              $uia=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+              $canonical=@($uia.exact_menu_bars)
+              $bars=@($uia.same_process_menu_bars)
+              $last=(@($bars|ForEach-Object {"id='$([string]$_.automation_id)' name='$([string]$_.name)' pid=$([int]$_.process_id)"}) -join ' | ')
+              Write-Host "FRESH_PACKAGED_MENUBAR_OBSERVATION=$last"
+              if($canonical.Count -eq 1){break}
+              Start-Sleep -Milliseconds 250
+            } while([DateTime]::UtcNow -lt $deadline)
+            if($canonical.Count -ne 1){
+              $bars=@($uia.same_process_menu_bars)
+              $last=(@($bars|ForEach-Object {"id='$([string]$_.automation_id)' name='$([string]$_.name)' pid=$([int]$_.process_id)"}) -join ' | ')
+              throw "Expected exactly one canonical native MenuBar after bounded external UIA polling, found $($canonical.Count); same-process-bars=$last"
+            }
+            $menu=$canonical[0]
+            if([string]$menu.name -notin @('Application menu','Меню програми')){throw "Unexpected native MenuBar accessible name: $([string]$menu.name)"}
+            if([int]$menu.process_id -ne $process.Id){throw 'Native MenuBar is not owned by the launched V2 process'}
+            if(-not [bool]$menu.enabled -or [bool]$menu.offscreen){throw 'V2 native MenuBar is disabled or offscreen'}
+            $names=@($uia.top_level_names)
+            $patterns=@($uia.top_level_expand_collapse)
+            $expectedUa=@('Файл','Гра','Позиція','PGN','Бібліотека','Імпорт','Експорт','Stockfish','Аналіз','Книги','Учитель/Клас','Налаштування','Довідка')
+            $expectedEn=@('File','Game','Position','PGN','Library','Import','Export','Engine','Analysis','Books','Teacher/Classroom','Settings','Help')
+            $actual=($names -join '|')
+            if($names.Count -ne 13 -or ($actual -ne ($expectedUa -join '|') -and $actual -ne ($expectedEn -join '|'))){throw "Packaged V2 native menu profile mismatch: count=$($names.Count) names=$actual"}
+            if($patterns.Count -ne 13 -or @($patterns|Where-Object {-not [bool]$_}).Count -ne 0){throw 'Top native menu item lacks ExpandCollapsePattern'}
+            if($names -notcontains 'Учитель/Клас' -and $names -notcontains 'Teacher/Classroom'){throw 'Current Full Product Teacher/Classroom native menu is missing'}
+            $summary=[ordered]@{
+              product_sha=$env:PRODUCT_PARENT
+              machine_scope='fresh-extracted Windows UIA native menu structure only'
+              menu_discovered_by='bounded repeated external process-scoped UIA probe'
+              menu_bar_count=1
+              menu_automation_id=[string]$menu.automation_id
+              menu_name=[string]$menu.name
+              menu_owner_process_matches=$true
+              menu_visible=$true
+              menu_enabled=$true
+              top_level_count=$names.Count
+              top_level_names=$names
+              top_level_all_visible_enabled=$true
+              top_level_expand_collapse_pattern=$true
+              teacher_menu_present=$true
+              training_top_menu_expected=$false
+              structural_uia='PASS'
+              observability_repair_authority='PR #773 run 35931419968'
+              alt_arrows_enter_esc='HUMAN_ONLY_UNPROVEN'
+              nvda_menu_usability='HUMAN_ONLY_UNPROVEN'
+              nvda_verified=$false
+            }
+            $summary|ConvertTo-Json -Depth 5|Set-Content -Encoding UTF8 packaged-v2-current-native-menu-summary.json
+            Write-Host "FRESH_PACKAGED_NATIVE_MENUBAR_UIA=PASS names=$actual"
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+          $bounded=Get-Content -Raw packaged-v2-current-native-menu-summary.json
+          if($bounded -match '(?i)[A-Z]:\\\\|/home/|/Users/|/tmp/'){throw 'Local path leaked into bounded native-menu evidence'}
+          """
+          EXCLUDED_RUN = (
+              'Bind package identity to exact current Product and prior package lineage',
+              'Prove workflow-only delta and package authorities',
+          )
+
+          def parse_steps(text: str) -> list[dict[str, str]]:
+              lines = text.splitlines()
+              starts = [i for i, line in enumerate(lines) if line.startswith('      - name: ')]
+              starts.append(len(lines))
+              out: list[dict[str, str]] = []
+              for pos in range(len(starts) - 1):
+                  begin, end = starts[pos], starts[pos + 1]
+                  block = lines[begin:end]
+                  name = block[0][len('      - name: '):]
+                  shell = ''
+                  run = ''
+                  for index, line in enumerate(block[1:], start=1):
+                      if line.startswith('        shell: '):
+                          shell = line[len('        shell: '):].strip()
+                      if line == '        run: |':
+                          payload: list[str] = []
+                          for raw in block[index + 1:]:
+                              if raw.startswith('          '):
+                                  payload.append(raw[10:])
+                              elif raw == '':
+                                  payload.append('')
+                              else:
+                                  raise SystemExit(f'Unexpected run-block indentation in {name!r}: {raw!r}')
+                          run = '\n'.join(payload) + '\n'
+                          break
+                  out.append({'name': name, 'shell': shell, 'run': run})
+              return out
+
+          def validate(steps: list[dict[str, str]]) -> dict[str, dict[str, str]]:
+              by_name = {step['name']: step for step in steps}
+              if len(by_name) != len(steps):
+                  raise SystemExit('Duplicate qualification step names in inherited workflow')
+              inherited_run = tuple(step['name'] for step in steps if step['run'])
+              expected_run = EXCLUDED_RUN + PRE + POST
+              if inherited_run != expected_run:
+                  raise SystemExit(f'Inherited run-step sequence drifted: {inherited_run!r}')
+              for name in PRE + POST:
+                  step = by_name.get(name)
+                  if not step or step['shell'] not in {'bash', 'pwsh'} or not step['run']:
+                      raise SystemExit(f'Inherited executable step invalid: {name!r}')
+              return by_name
+
+          def git_for_windows_bash() -> str:
+              git = shutil.which('git')
+              if not git:
+                  raise SystemExit('Git executable not found while resolving Git-for-Windows bash')
+              root = Path(git).resolve().parent.parent
+              candidate = root / 'bin' / 'bash.exe'
+              if not candidate.is_file():
+                  raise SystemExit(f'Git-for-Windows bash not found under Git root: {root}')
+              return str(candidate)
+
+          def run_step(index: int, step: dict[str, str]) -> None:
+              suffix = '.ps1' if step['shell'] == 'pwsh' else '.sh'
+              script = Path(f'.package-qualified-step-{index:02d}{suffix}')
+              script.write_text(step['run'], encoding='utf-8', newline='\n')
+              if step['shell'] == 'pwsh':
+                  cmd = ['pwsh', '-NoLogo', '-NoProfile', '-File', str(script)]
+              else:
+                  cmd = [git_for_windows_bash(), '--noprofile', '--norc', '-e', '-o', 'pipefail', str(script)]
+              print(f"INHERITED_QUALIFICATION_STEP_START={step['name']}", flush=True)
+              result = subprocess.run(cmd, cwd=Path.cwd(), env=os.environ.copy())
+              if result.returncode:
+                  raise SystemExit(f"Inherited qualification step failed: {step['name']} exit={result.returncode}")
+              print(f"INHERITED_QUALIFICATION_STEP_PASS={step['name']}", flush=True)
+
+          def main() -> None:
+              if len(sys.argv) != 2 or sys.argv[1] not in {'pre', 'post'}:
+                  raise SystemExit('usage: qualification_executor.py pre|post')
+              source = SOURCE.read_text(encoding='utf-8')
+              by_name = validate(parse_steps(source))
+              selected = PRE if sys.argv[1] == 'pre' else POST
+              for index, name in enumerate(selected, start=1):
+                  step = dict(by_name[name])
+                  if name == MENUBAR_STEP:
+                      step['run'] = MENUBAR_OVERRIDE
+                  run_step(index, step)
+              print(f'INHERITED_QUALIFICATION_{sys.argv[1].upper()}=PASS', flush=True)
+
+          if __name__ == '__main__':
+              main()
+          '@ | Set-Content -LiteralPath .package-qualification-executor.py -Encoding utf8
+          python .package-qualification-executor.py pre
+          if($LASTEXITCODE -ne 0){throw 'Inherited pre-artifact qualification failed'}
+
+      - name: Upload post-freeze Windows package qualification artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: |
+            candidate-output/Accessible-Chess-V2-*-post-freeze-package-qualification.zip
+            packaged-uia-strict-summary.json
+            packaged-v2-current-native-menu-summary.json
+            packaged-v2-document-copy-summary.json
+            packaged-final-acceptance-summary.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Download uploaded package artifact for exact readback
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: artifact-readback
+
+      - name: Execute inherited post-upload readback and final checkpoint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python .package-qualification-executor.py post
+          if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}
