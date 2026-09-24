@@ -1,0 +1,43 @@
+name: P1 Entitlement Export Safety
+
+on:
+  push:
+    branches:
+      - work/economic-export-safety-20260924
+  pull_request:
+    paths:
+      - 'acs/entitlements.py'
+      - 'tests/test_entitlements.py'
+      - '.github/workflows/p1-entitlement-export-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD
+      - name: Compile entitlement boundary
+        run: python -m compileall -q acs/entitlements.py tests/test_entitlements.py
+      - name: Focused entitlement regressions
+        run: python -m unittest -v tests.test_entitlements
+      - name: Full unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest on Windows
+        if: matrix.os == 'windows-2025'
+        run: python -m pytest -q tests
