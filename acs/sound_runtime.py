@@ -18,9 +18,10 @@ from .sound_profiles import SoundProfile, canonical_sound_event_id, canonical_so
 class SoundPlaybackPort(Protocol):
     """Presentation-neutral playback port implemented by infrastructure.
 
-    ``play`` is an acceptance boundary: implementations must return only after
-    the event has been accepted/played in order, or raise an exception. This
-    gives deterministic capture->check->end sequencing without Core threads.
+    ``play`` is an acceptance boundary: implementations return only after the
+    event has been accepted/played in order, return ``False`` for intentional
+    downstream suppression, or raise an exception. This preserves deterministic
+    capture->check->end sequencing without Core threads.
     """
 
     def play(self, event: SoundEvent, *, volume: int) -> bool | None: ...
@@ -249,7 +250,6 @@ class _ProfiledPlaybackBridge:
     def preview(self, event_id: str) -> SoundPreviewResult:
         event_id = canonical_sound_event_id(event_id)
         profile = self._current_profile()
-        preference = profile.preference_for(event_id)
         volume = profile.effective_volume(event_id)
         if volume == 0:
             return SoundPreviewResult(None, False)
