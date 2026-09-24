@@ -75,7 +75,7 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertIn("P0_DYNAMIC_SELECTION_RUNTIME=PASS", dynamic.stdout)
+        self.assertIn("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS", dynamic.stdout)
 
 
 if __name__ == "__main__":
