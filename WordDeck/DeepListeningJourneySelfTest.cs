@@ -146,7 +146,7 @@ internal static class DeepListeningJourneySelfTest
             AddCompletedReview(
                 trailingBoundaryDuplicateState,
                 dictionaryId,
-                $"word:e{index}",
+                $"word:safe{index}",
                 correct: index != 5,
                 wrongAttempts: index == 5 ? 1 : 0,
                 replays: index == 5 ? 1 : 0);
