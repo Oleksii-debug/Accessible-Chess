@@ -162,14 +162,25 @@ def _try_locate_notice(dist: Any, relative: PurePosixPath) -> Path | None:
     if not callable(locator):
         raise RuntimeDependencyNoticeError("distribution cannot locate license files")
     try:
+        base = Path(locator("")).resolve(strict=True)
         located = Path(locator(str(relative)))
+        if located.is_symlink():
+            raise RuntimeDependencyNoticeError("distribution license file must not be a symlink")
         resolved = located.resolve(strict=True)
+        try:
+            resolved.relative_to(base)
+        except ValueError as exc:
+            raise RuntimeDependencyNoticeError(
+                "distribution license file escapes distribution root"
+            ) from exc
     except FileNotFoundError:
         return None
+    except RuntimeDependencyNoticeError:
+        raise
     except (OSError, RuntimeError, ValueError) as exc:
         raise RuntimeDependencyNoticeError("distribution license file cannot be inspected") from exc
     try:
-        if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
+        if not resolved.is_file() or resolved.stat().st_size <= 0:
             return None
     except OSError as exc:
         raise RuntimeDependencyNoticeError("distribution license file cannot be inspected") from exc
@@ -189,11 +200,13 @@ def _python_license_path(explicit: str | Path | None) -> Path:
     )
     for candidate in candidates:
         try:
+            if candidate.is_symlink():
+                continue
             resolved = candidate.resolve(strict=True)
         except (OSError, RuntimeError, ValueError):
             continue
         try:
-            if resolved.is_file() and not resolved.is_symlink() and resolved.stat().st_size > 0:
+            if resolved.is_file() and resolved.stat().st_size > 0:
                 return resolved
         except OSError:
             continue
@@ -249,11 +262,18 @@ def _validated_external_sources(
 
 def _read_external_notice(source: ExternalArchiveNoticeSource) -> bytes:
     try:
-        archive = Path(source.archive_path).resolve(strict=True)
+        source_path = Path(source.archive_path)
+        if source_path.is_symlink():
+            raise RuntimeDependencyNoticeError(
+                "external notice source archive must not be a symlink"
+            )
+        archive = source_path.resolve(strict=True)
+    except RuntimeDependencyNoticeError:
+        raise
     except (OSError, RuntimeError, ValueError) as exc:
         raise RuntimeDependencyNoticeError("external notice source archive is unavailable") from exc
     try:
-        if not archive.is_file() or archive.is_symlink() or archive.stat().st_size <= 0:
+        if not archive.is_file() or archive.stat().st_size <= 0:
             raise RuntimeDependencyNoticeError("external notice source archive is invalid")
     except OSError as exc:
         raise RuntimeDependencyNoticeError("external notice source archive is invalid") from exc
