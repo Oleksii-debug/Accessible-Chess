@@ -13,6 +13,14 @@ const pgnSource = fs.readFileSync(
   path.join(__dirname, "..", "..", "web", "full_product_pgn.js"),
   "utf8"
 );
+const stage1Source = fs.readFileSync(
+  path.join(__dirname, "..", "..", "web", "index.html"),
+  "utf8"
+);
+const refreshStart = stage1Source.indexOf("async function refreshAnalysis()");
+const refreshEnd = stage1Source.indexOf("function applyUiLanguage", refreshStart);
+assert.ok(refreshStart >= 0 && refreshEnd > refreshStart, "shipping refreshAnalysis source must be extractable");
+const refreshAnalysisSource = stage1Source.slice(refreshStart, refreshEnd);
 
 let routeId = null;
 const selectionListeners = [];
@@ -398,52 +406,94 @@ function renderPgn(message) {
   );
 }
 
-const stagePhrase = "Evaluation +0.42";
-const stageStatus = resetStage1("Engine depth 18. " + stagePhrase + " stable.");
-selectText(main, stagePhrase);
-stageStatus.textContent = "Engine depth 19. " + stagePhrase + " stable.";
-assert.strictEqual(
-  selection.toString(),
-  stagePhrase,
-  "Stage1 dynamic textContent refresh must preserve meaningful document selection"
-);
+async function executeShippingRefreshAnalysis(statusNode, nextStatus) {
+  const refreshContext = {
+    state: {
+      engineEnabled: true,
+      engineGame: { active: false }
+    },
+    api: function () {
+      return {
+        get_state: async function () {
+          return {
+            analysis: {},
+            engineEnabled: true,
+            engineStatus: nextStatus,
+            engineGame: { active: false },
+            engineGameStatus: ""
+          };
+        }
+      };
+    },
+    setText: function (id, text) {
+      if (id === "engine-status") statusNode.textContent = text || "";
+    },
+    renderEngineGame: function () {},
+    renderAnalysis: function () {}
+  };
+  vm.runInNewContext(refreshAnalysisSource, refreshContext, {
+    filename: "shipping-refreshAnalysis.js"
+  });
+  await refreshContext.refreshAnalysis();
+}
 
-main.hidden = true;
-workspace.hidden = false;
-routeId = "route-pgn";
-renderPgn("Before Selected dynamic PGN line After");
-selectText(workspace, "Selected dynamic PGN line");
-renderPgn("Changed prefix Selected dynamic PGN line Changed suffix");
-assert.strictEqual(
-  selection.toString(),
-  "Selected dynamic PGN line",
-  "real PGN root.replaceChildren rerender must preserve surviving same-route selection"
-);
+async function run() {
+  const stagePhrase = "Evaluation +0.42";
+  const stageStatus = resetStage1("Engine depth 18. " + stagePhrase + " stable.");
+  stageStatus.id = "engine-status";
+  selectText(main, stagePhrase);
+  await executeShippingRefreshAnalysis(
+    stageStatus,
+    "Engine depth 19. " + stagePhrase + " stable."
+  );
+  assert.strictEqual(
+    selection.toString(),
+    stagePhrase,
+    "shipping refreshAnalysis must preserve meaningful document selection"
+  );
 
-routeId = "route-pgn";
-renderPgn("Route guard Selected route text");
-selectText(workspace, "Selected route text");
-routeId = "route-library";
-renderPgn("Route guard Selected route text");
-assert.strictEqual(
-  selection.toString(),
-  "",
-  "route changes must not restore stale semantic selection"
-);
+  main.hidden = true;
+  workspace.hidden = false;
+  routeId = "route-pgn";
+  renderPgn("Before Selected dynamic PGN line After");
+  selectText(workspace, "Selected dynamic PGN line");
+  renderPgn("Changed prefix Selected dynamic PGN line Changed suffix");
+  assert.strictEqual(
+    selection.toString(),
+    "Selected dynamic PGN line",
+    "real PGN root.replaceChildren rerender must preserve surviving same-route selection"
+  );
 
-routeId = "route-pgn";
-renderPgn("Disappearance Selected doomed text");
-selectText(workspace, "Selected doomed text");
-renderPgn("Disappearance replacement without prior phrase");
-assert.strictEqual(
-  selection.toString(),
-  "",
-  "disappeared text must not be fabricated or reselected"
-);
+  routeId = "route-pgn";
+  renderPgn("Route guard Selected route text");
+  selectText(workspace, "Selected route text");
+  routeId = "route-library";
+  renderPgn("Route guard Selected route text");
+  assert.strictEqual(
+    selection.toString(),
+    "",
+    "route changes must not restore stale semantic selection"
+  );
 
-assert.ok(
-  !runtimeSource.includes("navigator.clipboard") && !runtimeSource.includes("execCommand"),
-  "dynamic preservation must not create a scripted clipboard subsystem"
-);
+  routeId = "route-pgn";
+  renderPgn("Disappearance Selected doomed text");
+  selectText(workspace, "Selected doomed text");
+  renderPgn("Disappearance replacement without prior phrase");
+  assert.strictEqual(
+    selection.toString(),
+    "",
+    "disappeared text must not be fabricated or reselected"
+  );
 
-console.log("P0_DYNAMIC_SELECTION_SURVIVAL=PASS");
+  assert.ok(
+    !runtimeSource.includes("navigator.clipboard") && !runtimeSource.includes("execCommand"),
+    "dynamic preservation must not create a scripted clipboard subsystem"
+  );
+
+  console.log("P0_DYNAMIC_SELECTION_SURVIVAL=PASS");
+}
+
+run().catch(error => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exitCode = 1;
+});
