@@ -13,6 +13,7 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.runtime = (ROOT / "web" / "p0_accessibility_runtime.js").read_text(encoding="utf-8")
+        cls.index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         cls.final_release = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
 
     def test_shipping_final_product_loads_p0_runtime_last(self) -> None:
@@ -33,6 +34,12 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         self.assertNotIn('Element.prototype.replaceChildren', self.runtime)
         self.assertNotIn('navigator.clipboard', self.runtime)
         self.assertNotIn('execCommand', self.runtime)
+
+    def test_stage1_polling_and_v2_local_mutations_share_the_runtime_guard(self) -> None:
+        self.assertIn("setInterval(refreshAnalysis,700)", self.index)
+        self.assertIn("setText('engine-status',s.engineStatus)", self.index)
+        self.assertIn('observer.observe(main, { subtree: true, childList: true, characterData: true })', self.runtime)
+        self.assertIn('observer.observe(workspace, { subtree: true, childList: true, characterData: true })', self.runtime)
 
     def test_action_result_delivery_reuses_single_existing_live_region(self) -> None:
         self.assertIn('documentRef.getElementById("live")', self.runtime)
@@ -60,6 +67,15 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
             text=True,
         )
         self.assertIn("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS", completed.stdout)
+
+        dynamic = subprocess.run(
+            [node, str(ROOT / "tests" / "js" / "p0_dynamic_selection_runtime_test.js")],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS", dynamic.stdout)
 
 
 if __name__ == "__main__":
