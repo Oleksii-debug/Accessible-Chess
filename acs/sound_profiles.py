@@ -141,10 +141,10 @@ class SoundPackManifest:
             raise TypeError("sound pack files must be an object")
         normalized: dict[str, str] = {}
         for raw_id, raw_path in self.files.items():
-            event_id = canonical_sound_event_id(raw_id)
-            if event_id in normalized:
-                raise ValueError(f"duplicate sound event id: {event_id}")
-            normalized[event_id] = safe_sound_asset_path(raw_path)
+            sound_id = canonical_sound_id(raw_id, label="sound id")
+            if sound_id in normalized:
+                raise ValueError(f"duplicate sound id: {sound_id}")
+            normalized[sound_id] = safe_sound_asset_path(raw_path)
         missing = [event for event in CORE_SOUND_EVENTS if event not in normalized]
         if missing:
             raise ValueError(
@@ -159,13 +159,13 @@ class SoundPackManifest:
         object.__setattr__(self, "provenance", self.provenance.strip())
         object.__setattr__(self, "files", MappingProxyType(normalized))
 
-    def sound_path(self, event_id: str) -> str:
-        key = canonical_sound_event_id(event_id)
+    def sound_path(self, sound_id: str) -> str:
+        key = canonical_sound_id(sound_id, label="sound id")
         try:
             return self.files[key]
         except KeyError as exc:
             raise KeyError(
-                f"sound pack {self.pack_id} does not define event {key}"
+                f"sound pack {self.pack_id} does not define sound {key}"
             ) from exc
 
     def to_mapping(self) -> dict[str, object]:
