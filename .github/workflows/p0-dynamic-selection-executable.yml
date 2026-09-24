@@ -6,7 +6,9 @@ on:
       - 'web/p0_accessibility_runtime.js'
       - 'web/index.html'
       - 'tests/js/p0_dynamic_selection_runtime_test.js'
+      - 'tests/js/p0_accessibility_partial_replacement_test.js'
       - 'tests/test_p0_dynamic_selection_action_delivery.py'
+      - 'tests/test_p0_dynamic_selection_partial_replacement.py'
       - 'tests/test_p0_semantic_document_copy.py'
       - '.github/workflows/p0-dynamic-selection-executable.yml'
   workflow_dispatch:
@@ -55,27 +57,30 @@ jobs:
           git cat-file -e "${base}^{commit}"
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/p0-dynamic-selection-executable.yml'             'tests/js/p0_dynamic_selection_runtime_test.js'             'tests/test_p0_dynamic_selection_action_delivery.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/p0-dynamic-selection-executable.yml'             'tests/js/p0_dynamic_selection_runtime_test.js'             'tests/js/p0_accessibility_partial_replacement_test.js'             'tests/test_p0_dynamic_selection_action_delivery.py'             'tests/test_p0_dynamic_selection_partial_replacement.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected P0 dynamic-selection scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
       - name: Compile focused regression
-        run: python -m compileall -q tests/test_p0_dynamic_selection_action_delivery.py tests/test_p0_semantic_document_copy.py
+        run: python -m compileall -q tests/test_p0_dynamic_selection_action_delivery.py tests/test_p0_dynamic_selection_partial_replacement.py tests/test_p0_semantic_document_copy.py
 
       - name: Execute browser selection regressions
         run: |
           node --check web/p0_accessibility_runtime.js
           node --check tests/js/p0_accessibility_runtime_test.js
           node --check tests/js/p0_dynamic_selection_runtime_test.js
+          node --check tests/js/p0_accessibility_partial_replacement_test.js
           node tests/js/p0_accessibility_runtime_test.js
           node tests/js/p0_dynamic_selection_runtime_test.js
+          node tests/js/p0_accessibility_partial_replacement_test.js
 
       - name: Focused P0 copy and selection tests
         run: >-
           python -m pytest -q
           tests/test_p0_dynamic_selection_action_delivery.py
+          tests/test_p0_dynamic_selection_partial_replacement.py
           tests/test_p0_semantic_document_copy.py
 
       - name: Final-product diagnostic
