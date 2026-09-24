@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 from acs.entitlements import (
     AccountSession,
+    ALWAYS_AVAILABLE_FEATURE_IDS,
+    COACH_FEATURE_IDS,
     CORE_FEATURE_IDS,
     EntitlementSnapshot,
     EntitlementState,
@@ -10,6 +12,8 @@ from acs.entitlements import (
     FeatureId,
     FreeBetaLicensePolicy,
     LicensePolicy,
+    ORGANIZATION_FEATURE_IDS,
+    PROFESSIONAL_FEATURE_IDS,
     ProductVersion,
     RemotePolicy,
 )
@@ -109,14 +113,59 @@ class EntitlementTests(unittest.TestCase):
         )
         self.assertTrue(self.gate().evaluate("future.feature", snapshot, now=NOW).allowed)
 
-    def test_revocation_always_wins_over_feature_claim(self):
-        decision = self.gate().evaluate(
-            "data.export",
-            self.snapshot(EntitlementState.REVOKED),
-            now=NOW,
+    def test_revocation_wins_for_commercial_feature_claim(self):
+        snapshot = EntitlementSnapshot(
+            EntitlementState.REVOKED,
+            frozenset({FeatureId.ANALYSIS_ADVANCED.value}),
         )
+        decision = self.gate().evaluate(FeatureId.ANALYSIS_ADVANCED, snapshot, now=NOW)
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "revoked")
+
+    def test_accessibility_and_user_data_safety_are_never_paywalled(self):
+        for feature in (
+            FeatureId.ACCESSIBILITY_CORE,
+            FeatureId.DATA_EXPORT,
+            FeatureId.DATA_RECOVERY,
+        ):
+            with self.subTest(feature=feature):
+                unavailable = self.gate().evaluate(feature, None, now=NOW)
+                revoked = self.gate().evaluate(
+                    feature,
+                    EntitlementSnapshot(EntitlementState.REVOKED, frozenset()),
+                    now=NOW,
+                )
+                self.assertTrue(unavailable.allowed)
+                self.assertTrue(revoked.allowed)
+                self.assertEqual(unavailable.reason, "always_available_local")
+                self.assertEqual(revoked.reason, "always_available_local")
+
+    def test_economic_feature_tiers_are_disjoint_and_provider_neutral(self):
+        paid_sets = (
+            PROFESSIONAL_FEATURE_IDS,
+            COACH_FEATURE_IDS,
+            ORGANIZATION_FEATURE_IDS,
+        )
+        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.isdisjoint(PROFESSIONAL_FEATURE_IDS))
+        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.isdisjoint(COACH_FEATURE_IDS))
+        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.isdisjoint(ORGANIZATION_FEATURE_IDS))
+        for index, left in enumerate(paid_sets):
+            for right in paid_sets[index + 1 :]:
+                self.assertTrue(left.isdisjoint(right))
+        for feature in ALWAYS_AVAILABLE_FEATURE_IDS.union(*paid_sets):
+            self.assertIn(feature, CORE_FEATURE_IDS)
+            self.assertNotIn("stripe", feature)
+            self.assertNotIn("paddle", feature)
+
+    def test_free_beta_remains_permissive_across_future_tier_catalog(self):
+        snapshot = FreeBetaLicensePolicy().entitlement_for()
+        for feature in (
+            *PROFESSIONAL_FEATURE_IDS,
+            *COACH_FEATURE_IDS,
+            *ORGANIZATION_FEATURE_IDS,
+        ):
+            with self.subTest(feature=feature):
+                self.assertTrue(self.gate().evaluate(feature, snapshot, now=NOW).allowed)
 
     def test_minimum_supported_version_forces_update(self):
         snapshot = self.snapshot(
