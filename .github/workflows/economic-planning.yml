@@ -1,0 +1,32 @@
+name: Economic Planning Gate
+
+on:
+  pull_request:
+    paths:
+      - "acs/economic_planning.py"
+      - "tests/test_economic_planning.py"
+      - ".github/workflows/economic-planning.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  economic-planning:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile
+        run: python -m py_compile acs/economic_planning.py tests/test_economic_planning.py
+
+      - name: Economic planning regressions
+        run: python -m unittest tests.test_economic_planning -v
