@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from acs.entitlements import (
+    ALWAYS_AVAILABLE_FEATURE_IDS,
     AccountSession,
     CORE_FEATURE_IDS,
     EntitlementSnapshot,
@@ -109,14 +110,48 @@ class EntitlementTests(unittest.TestCase):
         )
         self.assertTrue(self.gate().evaluate("future.feature", snapshot, now=NOW).allowed)
 
-    def test_revocation_always_wins_over_feature_claim(self):
+    def test_revocation_still_blocks_protected_feature(self):
         decision = self.gate().evaluate(
-            "data.export",
+            "play.engine",
             self.snapshot(EntitlementState.REVOKED),
             now=NOW,
         )
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "revoked")
+
+    def test_local_data_export_is_never_blocked_by_entitlement_state(self):
+        self.assertEqual(
+            ALWAYS_AVAILABLE_FEATURE_IDS,
+            frozenset({FeatureId.DATA_EXPORT.value}),
+        )
+        snapshots = (
+            None,
+            self.snapshot(EntitlementState.REVOKED),
+            self.snapshot(EntitlementState.EXPIRED),
+            self.snapshot(EntitlementState.UPDATE_REQUIRED),
+            self.snapshot(
+                EntitlementState.PAID_MONTHLY,
+                expires_at=NOW - timedelta(days=30),
+            ),
+        )
+        for snapshot in snapshots:
+            with self.subTest(snapshot=snapshot):
+                decision = self.gate().evaluate(
+                    FeatureId.DATA_EXPORT,
+                    snapshot,
+                    now=NOW,
+                )
+                self.assertTrue(decision.allowed)
+                self.assertEqual(decision.reason, "local_data_safety")
+
+    def test_local_data_safety_exception_does_not_unlock_other_features(self):
+        revoked = self.snapshot(EntitlementState.REVOKED)
+        self.assertFalse(
+            self.gate().evaluate(FeatureId.PLAY_ENGINE, revoked, now=NOW).allowed
+        )
+        self.assertFalse(
+            self.gate().evaluate("cloud.sync", revoked, now=NOW).allowed
+        )
 
     def test_minimum_supported_version_forces_update(self):
         snapshot = self.snapshot(
