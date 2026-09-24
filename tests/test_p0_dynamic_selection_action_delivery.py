@@ -61,6 +61,27 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         )
         self.assertIn("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS", completed.stdout)
 
+    def test_dynamic_selection_executable_oracle_passes(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is unavailable")
+        oracle = ROOT / "tests" / "js" / "p0_dynamic_selection_runtime_test.js"
+        subprocess.run(
+            [node, "--check", str(oracle)],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        completed = subprocess.run(
+            [node, str(oracle)],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("P0_DYNAMIC_SELECTION_EXECUTABLE=PASS", completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
