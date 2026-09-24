@@ -15,7 +15,9 @@ internal static class SpeechPracticeRuntimeSelfTest
     {
         TypedFallbackNeverCreatesMasteryOrCallsProviders();
         CaptureFailureIsTechnicalInvalid();
+        NullCaptureResultFailsClosed();
         JudgeFailureIsTechnicalInvalidAndAudioIsZeroed();
+        NullJudgeResultFailsClosedAndAudioIsZeroed();
         UnqualifiedJudgeCannotCreateMasteryOrAdaptiveDeficits();
         QualifiedEvidenceCanBecomeMasteryEligible();
         QualifiedDeficitsRemainExactAndDeterministic();
@@ -54,6 +56,18 @@ internal static class SpeechPracticeRuntimeSelfTest
         Assert(judge.Calls == 0, "judge must not run after capture failure");
     }
 
+    private static void NullCaptureResultFailsClosed()
+    {
+        var capture = new NullCaptureProvider(QualifiedCapture());
+        var judge = new FakeJudge(QualifiedJudge(), GoodJudgement(mastery: true));
+        SpeechPracticeOutcome outcome = Evaluate(capture, judge, Request());
+
+        Assert(outcome.Status == SpeechPracticeStatus.TechnicalInvalid, "null capture result status");
+        Assert(outcome.ReasonCode == "CAPTURE_RESULT_INVALID", "null capture result reason");
+        Assert(!outcome.CountsAsPractice && !outcome.MasteryEligible, "null capture result must be non-penalizing");
+        Assert(judge.Calls == 0, "judge must not run after null capture result");
+    }
+
     private static void JudgeFailureIsTechnicalInvalidAndAudioIsZeroed()
     {
         var capture = new FakeCaptureProvider(QualifiedCapture());
@@ -64,6 +78,19 @@ internal static class SpeechPracticeRuntimeSelfTest
         Assert(!outcome.CountsAsPractice && !outcome.MasteryEligible, "judge failure must be non-penalizing");
         Assert(capture.LastOwnedBuffer is not null, "test capture buffer should exist");
         Assert(capture.LastOwnedBuffer!.All(value => value == 0), "runtime must zero captured audio after judgement");
+    }
+
+    private static void NullJudgeResultFailsClosedAndAudioIsZeroed()
+    {
+        var capture = new FakeCaptureProvider(QualifiedCapture());
+        var judge = new NullJudge(QualifiedJudge());
+        SpeechPracticeOutcome outcome = Evaluate(capture, judge, Request());
+
+        Assert(outcome.Status == SpeechPracticeStatus.TechnicalInvalid, "null judge result status");
+        Assert(outcome.ReasonCode == "JUDGE_RESULT_INVALID", "null judge result reason");
+        Assert(!outcome.CountsAsPractice && !outcome.MasteryEligible, "null judge result must be non-penalizing");
+        Assert(capture.LastOwnedBuffer is not null, "null judge test capture buffer should exist");
+        Assert(capture.LastOwnedBuffer!.All(value => value == 0), "runtime must zero captured audio after null judgement");
     }
 
     private static void UnqualifiedJudgeCannotCreateMasteryOrAdaptiveDeficits()
@@ -188,8 +215,8 @@ internal static class SpeechPracticeRuntimeSelfTest
     }
 
     private static SpeechPracticeOutcome Evaluate(
-        FakeCaptureProvider capture,
-        FakeJudge judge,
+        ISpeechCaptureProvider capture,
+        ISpeechJudge judge,
         SpeechPracticeRequest request) =>
         new SpeechPracticeRuntime(capture, judge)
             .EvaluateAsync(request)
@@ -292,6 +319,24 @@ internal static class SpeechPracticeRuntimeSelfTest
         }
     }
 
+    private sealed class NullCaptureProvider : ISpeechCaptureProvider
+    {
+        public NullCaptureProvider(SpeechProviderQualification qualification)
+        {
+            Qualification = qualification;
+        }
+
+        public SpeechProviderQualification Qualification { get; }
+
+        public Task<SpeechCaptureResult> CaptureAsync(
+            SpeechPracticeRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<SpeechCaptureResult>(null!);
+        }
+    }
+
     private sealed class FakeJudge : ISpeechJudge
     {
         private readonly SpeechJudgementResult _result;
@@ -317,6 +362,27 @@ internal static class SpeechPracticeRuntimeSelfTest
             if (audio.IsEmpty)
                 throw new InvalidOperationException("Fake judge received empty audio.");
             return Task.FromResult(_result);
+        }
+    }
+
+    private sealed class NullJudge : ISpeechJudge
+    {
+        public NullJudge(SpeechProviderQualification qualification)
+        {
+            Qualification = qualification;
+        }
+
+        public SpeechProviderQualification Qualification { get; }
+
+        public Task<SpeechJudgementResult> JudgeAsync(
+            SpeechPracticeRequest request,
+            ReadOnlyMemory<byte> audio,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (audio.IsEmpty)
+                throw new InvalidOperationException("Null judge received empty audio.");
+            return Task.FromResult<SpeechJudgementResult>(null!);
         }
     }
 }
