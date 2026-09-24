@@ -12,6 +12,7 @@ from acs.entitlements import (
     FeatureId,
     FreeBetaLicensePolicy,
     LicensePolicy,
+    NON_PAYWALLED_LOCAL_FEATURE_IDS,
     ORGANIZATION_FEATURE_IDS,
     PROFESSIONAL_FEATURE_IDS,
     ProductVersion,
@@ -137,10 +138,10 @@ class EntitlementTests(unittest.TestCase):
                 )
                 self.assertTrue(unavailable.allowed)
                 self.assertTrue(revoked.allowed)
-                self.assertEqual(unavailable.reason, "always_available_local")
-                self.assertEqual(revoked.reason, "always_available_local")
+                self.assertEqual(unavailable.reason, "always_available_safety")
+                self.assertEqual(revoked.reason, "always_available_safety")
 
-    def test_always_available_local_floor_survives_all_subscription_failures(self):
+    def test_safety_escape_rights_survive_all_entitlement_failures(self):
         snapshots = (
             None,
             self.snapshot(EntitlementState.REVOKED),
@@ -148,12 +149,52 @@ class EntitlementTests(unittest.TestCase):
             self.snapshot(EntitlementState.UPDATE_REQUIRED),
             self.snapshot(expires_at=NOW - timedelta(days=30)),
         )
+        self.assertEqual(
+            ALWAYS_AVAILABLE_FEATURE_IDS,
+            frozenset(
+                {
+                    FeatureId.ACCESSIBILITY_CORE.value,
+                    FeatureId.DATA_EXPORT.value,
+                    FeatureId.DATA_RECOVERY.value,
+                }
+            ),
+        )
         for feature in ALWAYS_AVAILABLE_FEATURE_IDS:
             for snapshot in snapshots:
                 with self.subTest(feature=feature, snapshot=snapshot):
                     decision = self.gate().evaluate(feature, snapshot, now=NOW)
                     self.assertTrue(decision.allowed)
-                    self.assertEqual(decision.reason, "always_available_local")
+                    self.assertEqual(decision.reason, "always_available_safety")
+
+    def test_free_local_floor_is_non_paywalled_but_not_security_bypass(self):
+        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.issubset(NON_PAYWALLED_LOCAL_FEATURE_IDS))
+        for feature in (
+            FeatureId.CHESS_LOCAL,
+            FeatureId.PGN_BASIC,
+            FeatureId.ENGINE_BASIC,
+        ):
+            self.assertIn(feature.value, NON_PAYWALLED_LOCAL_FEATURE_IDS)
+            self.assertTrue(
+                self.gate().evaluate(
+                    feature,
+                    FreeBetaLicensePolicy().entitlement_for(),
+                    now=NOW,
+                ).allowed
+            )
+            for blocked_state in (
+                EntitlementState.REVOKED,
+                EntitlementState.UPDATE_REQUIRED,
+            ):
+                with self.subTest(feature=feature, state=blocked_state):
+                    decision = self.gate().evaluate(
+                        feature,
+                        EntitlementSnapshot(
+                            blocked_state,
+                            frozenset({feature.value}),
+                        ),
+                        now=NOW,
+                    )
+                    self.assertFalse(decision.allowed)
 
     def test_always_available_floor_does_not_unlock_commercial_features(self):
         revoked = EntitlementSnapshot(EntitlementState.REVOKED, frozenset())
@@ -173,13 +214,14 @@ class EntitlementTests(unittest.TestCase):
             COACH_FEATURE_IDS,
             ORGANIZATION_FEATURE_IDS,
         )
-        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.isdisjoint(PROFESSIONAL_FEATURE_IDS))
-        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.isdisjoint(COACH_FEATURE_IDS))
-        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.isdisjoint(ORGANIZATION_FEATURE_IDS))
+        self.assertTrue(ALWAYS_AVAILABLE_FEATURE_IDS.issubset(NON_PAYWALLED_LOCAL_FEATURE_IDS))
+        self.assertTrue(NON_PAYWALLED_LOCAL_FEATURE_IDS.isdisjoint(PROFESSIONAL_FEATURE_IDS))
+        self.assertTrue(NON_PAYWALLED_LOCAL_FEATURE_IDS.isdisjoint(COACH_FEATURE_IDS))
+        self.assertTrue(NON_PAYWALLED_LOCAL_FEATURE_IDS.isdisjoint(ORGANIZATION_FEATURE_IDS))
         for index, left in enumerate(paid_sets):
             for right in paid_sets[index + 1 :]:
                 self.assertTrue(left.isdisjoint(right))
-        for feature in ALWAYS_AVAILABLE_FEATURE_IDS.union(*paid_sets):
+        for feature in NON_PAYWALLED_LOCAL_FEATURE_IDS.union(*paid_sets):
             self.assertIn(feature, CORE_FEATURE_IDS)
             self.assertNotIn("stripe", feature)
             self.assertNotIn("paddle", feature)
