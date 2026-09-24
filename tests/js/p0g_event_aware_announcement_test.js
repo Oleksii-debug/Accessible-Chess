@@ -32,6 +32,15 @@ const apiAction = shippingLine(
   line => line.startsWith('async function apiAction('),
   'apiAction'
 );
+const executeAction = shippingLine(
+  line => line.startsWith('function executeAction('),
+  'executeAction'
+);
+assert(
+  executeAction.includes("'board.current':()=>announce(") &&
+    executeAction.includes("nextAnnouncementEvent())"),
+  'direct board.current user feedback must carry a fresh event identity'
+);
 
 const writes = [];
 const attributes = {};
