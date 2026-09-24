@@ -390,8 +390,27 @@ function provePgnLocalRerender() {
     ""
   );
   assert.strictEqual(selection.toString(), "", "selection was incorrectly restored across a V2 route change");
+
+  currentRoute = "books";
+  const stable = new FakeElement("book-section");
+  const stableText = new FakeText("Persistent semantic PGN sentence");
+  stable.appendChild(stableText);
+  workspace.replaceChildren(stable);
+  selectText(stableText, "semantic PGN");
+  const replacement = new FakeElement("book-section");
+  replacement.appendChild(new FakeText("Completely different semantic content"));
+  workspace.replaceChildren(replacement);
+  selection.removeAllRanges();
+  notify([{ target: workspace }]);
+  assert.strictEqual(
+    selection.toString(),
+    "",
+    "disappearing semantic text must not be restored to a different location"
+  );
+
   console.log("P0_V2_LOCAL_RERENDER_SELECTION_SURVIVES=PASS");
   console.log("P0_ROUTE_CHANGE_SELECTION_NOT_RESTORED=PASS");
+  console.log("P0_DISAPPEARING_SELECTION_NOT_RESTORED=PASS");
 }
 
 (async function run() {
