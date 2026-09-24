@@ -255,7 +255,7 @@ internal sealed class SpeechPracticeRuntime
             return SpeechPracticeOutcome.TechnicalInvalid("PROTECTED_ASSESSMENT_PROVIDER_UNQUALIFIED");
         }
 
-        SpeechCaptureResult captureResult;
+        SpeechCaptureResult? captureResult;
         try
         {
             captureResult = await _capture.CaptureAsync(request, cancellationToken).ConfigureAwait(false);
@@ -268,6 +268,9 @@ internal sealed class SpeechPracticeRuntime
         {
             return SpeechPracticeOutcome.TechnicalInvalid("CAPTURE_EXCEPTION");
         }
+
+        if (captureResult is null)
+            return SpeechPracticeOutcome.TechnicalInvalid("CAPTURE_RESULT_INVALID");
 
         if (!captureResult.Success || captureResult.Sample is null)
         {
@@ -282,7 +285,7 @@ internal sealed class SpeechPracticeRuntime
         if (sample.Audio.IsEmpty)
             return SpeechPracticeOutcome.TechnicalInvalid("CAPTURE_EMPTY");
 
-        SpeechJudgementResult judgement;
+        SpeechJudgementResult? judgement;
         try
         {
             judgement = await _judge
@@ -297,6 +300,9 @@ internal sealed class SpeechPracticeRuntime
         {
             return SpeechPracticeOutcome.TechnicalInvalid("JUDGE_EXCEPTION");
         }
+
+        if (judgement is null)
+            return SpeechPracticeOutcome.TechnicalInvalid("JUDGE_RESULT_INVALID");
 
         if (!judgement.TechnicalSuccess)
         {
