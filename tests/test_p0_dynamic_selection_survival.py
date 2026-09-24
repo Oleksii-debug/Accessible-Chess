@@ -23,7 +23,8 @@ class P0DynamicSelectionSurvivalTests(unittest.TestCase):
     def test_stage1_shipping_polling_uses_dynamic_text_mutation(self) -> None:
         self.assertIn("function refreshAnalysis()", self.stage1)
         self.assertIn("setInterval(refreshAnalysis,700)", self.stage1)
-        self.assertIn("function setText(id,text)", self.stage1)
+        self.assertIn("setText=(id,text)=>", self.stage1)
+        self.assertIn("n.textContent=text||''", self.stage1)
         self.assertIn(".textContent", self.stage1)
 
     def test_shipping_v2_local_replacement_paths_are_observed(self) -> None:
