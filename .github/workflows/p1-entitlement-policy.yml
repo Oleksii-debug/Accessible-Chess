@@ -1,0 +1,58 @@
+name: P1 Entitlement Policy
+
+on:
+  push:
+    branches:
+      - work/economic-entitlement-policy-20260924
+  pull_request:
+    paths:
+      - 'acs/entitlements.py'
+      - 'tests/test_entitlements.py'
+      - '.github/workflows/p1-entitlement-policy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p1-entitlement-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove bounded policy scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="bd849204bf0ce0d510815a7525ff2cec59ee16d7"
+          git cat-file -e "${base}^{commit}"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/p1-entitlement-policy.yml' \
+            'acs/entitlements.py' \
+            'tests/test_entitlements.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected entitlement-policy scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile policy boundary
+        run: python -m compileall -q acs/entitlements.py tests/test_entitlements.py
+
+      - name: Focused entitlement regressions
+        run: python -m unittest -v tests.test_entitlements
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
