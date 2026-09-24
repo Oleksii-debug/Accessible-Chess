@@ -34,9 +34,11 @@ internal static class DeepListeningJourney
             Math.Min(CorrectHistory, CorrectBudget) +
             Math.Min(IncorrectHistory, IncorrectBudget);
 
-        public bool FeedbackAmbiguous =>
-            (CorrectBudget > 0 && CorrectHistory > CorrectBudget) ||
-            (IncorrectBudget > 0 && IncorrectHistory > IncorrectBudget);
+        public bool CorrectFeedbackAmbiguous =>
+            CorrectBudget > 0 && CorrectHistory > CorrectBudget;
+
+        public bool IncorrectFeedbackAmbiguous =>
+            IncorrectBudget > 0 && IncorrectHistory > IncorrectBudget;
     }
 
     internal static Progress ActiveProgress(
@@ -117,8 +119,8 @@ internal static class DeepListeningJourney
         // same exercise. Aggregate outcome counts can prove how many rows may receive
         // journey credit, but they cannot identify which one is genuine if history is
         // over-represented by a stale duplicate with the same outcome. In that case we
-        // preserve the durable journey count/boundary while failing closed on row-level
-        // current-cycle feedback instead of guessing oldest-versus-newest chronology.
+        // preserve the durable journey count/boundary while failing closed only while
+        // that ambiguity can still reach the current five-review feedback window.
         var evidenceByExercise = new Dictionary<string, CompletionEvidence>(StringComparer.OrdinalIgnoreCase);
         if (state.StatsByDictionary.TryGetValue(dictionaryId, out Dictionary<string, ListeningItemStats>? perDictionary))
         {
@@ -152,37 +154,47 @@ internal static class DeepListeningJourney
         }
 
         int creditedReviews = evidenceByExercise.Values.Sum(evidence => evidence.CreditedReviews);
-        bool feedbackAmbiguous = evidenceByExercise.Values.Any(evidence => evidence.FeedbackAmbiguous);
-
         int inCycle = creditedReviews % TargetReviews;
         if (completionView && creditedReviews > 0 && inCycle == 0)
             inCycle = TargetReviews;
 
-        List<ListeningHistoryRecord> cycle = new();
-        if (!feedbackAmbiguous && inCycle > 0)
+        // Keep only unambiguously corroborated rows after the last ambiguous candidate.
+        // If that suffix is large enough to cover the current feedback window, older
+        // ambiguity is safely behind the active cycle and normal detailed feedback can
+        // resume. Zero-budget rows are provably stale and never create ambiguity.
+        var safeSuffix = new List<ListeningHistoryRecord>();
+        bool sawAmbiguousCandidate = false;
+        foreach (ListeningHistoryRecord record in state.History)
         {
-            var relevant = new List<ListeningHistoryRecord>();
-            foreach (ListeningHistoryRecord record in state.History)
+            if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) ||
+                record.Kind != ListeningExerciseKind.Word ||
+                !evidenceByExercise.TryGetValue(record.ExerciseId, out CompletionEvidence? evidence))
             {
-                if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) ||
-                    record.Kind != ListeningExerciseKind.Word ||
-                    !evidenceByExercise.TryGetValue(record.ExerciseId, out CompletionEvidence? evidence))
-                {
-                    continue;
-                }
-
-                // With no positive-budget over-representation, every observed row in
-                // a positive outcome bucket is corroborated. Rows in zero-budget
-                // buckets are provably stale/unevidenced and are excluded.
-                if ((record.Correct && evidence.CorrectBudget > 0) ||
-                    (!record.Correct && evidence.IncorrectBudget > 0))
-                {
-                    relevant.Add(record);
-                }
+                continue;
             }
 
-            cycle = relevant.Skip(Math.Max(0, relevant.Count - inCycle)).ToList();
+            int budget = record.Correct ? evidence.CorrectBudget : evidence.IncorrectBudget;
+            if (budget <= 0)
+                continue;
+
+            bool ambiguousCandidate = record.Correct
+                ? evidence.CorrectFeedbackAmbiguous
+                : evidence.IncorrectFeedbackAmbiguous;
+
+            if (ambiguousCandidate)
+            {
+                sawAmbiguousCandidate = true;
+                safeSuffix.Clear();
+                continue;
+            }
+
+            safeSuffix.Add(record);
         }
+
+        bool feedbackAmbiguous = inCycle > 0 && sawAmbiguousCandidate && safeSuffix.Count < inCycle;
+        List<ListeningHistoryRecord> cycle = feedbackAmbiguous || inCycle == 0
+            ? new List<ListeningHistoryRecord>()
+            : safeSuffix.Skip(Math.Max(0, safeSuffix.Count - inCycle)).ToList();
 
         return new Progress(
             CompletedReviews: inCycle,
