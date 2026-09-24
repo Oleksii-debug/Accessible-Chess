@@ -363,6 +363,24 @@ function provePgnLocalRerender() {
   assert.strictEqual(selection.toString(), "semantic PGN", "PGN local replaceChildren rerender lost a surviving selection");
 
   selectSubstring(pgnRoot, "semantic PGN");
+  fakeWindow.AccessibleChessPgnSurface.render(
+    pgnRoot,
+    emptyPgnSnapshot("Replacement text no longer contains the prior phrase"),
+    invoke,
+    announce,
+    ""
+  );
+  assert.strictEqual(selection.toString(), "", "selection was incorrectly restored after selected text disappeared");
+  console.log("P0_DISAPPEARING_TEXT_SELECTION_NOT_RESTORED=PASS");
+
+  fakeWindow.AccessibleChessPgnSurface.render(
+    pgnRoot,
+    emptyPgnSnapshot("Persistent semantic PGN sentence restored for route test"),
+    invoke,
+    announce,
+    ""
+  );
+  selectSubstring(pgnRoot, "semantic PGN");
   currentRoute = { id: "v2-nav-library" };
   fakeWindow.AccessibleChessPgnSurface.render(
     pgnRoot,
