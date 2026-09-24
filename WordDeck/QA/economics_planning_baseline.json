@@ -1,0 +1,17 @@
+{
+  "scenario_name": "planning-baseline-not-market-fact",
+  "currency": "EUR",
+  "monthly_price_gross": 9.99,
+  "annual_price_gross": 69.99,
+  "monthly_plan_share": 0.35,
+  "annual_plan_share": 0.65,
+  "indirect_tax_rate": 0.20,
+  "payment_fee_rate": 0.15,
+  "refund_rate": 0.03,
+  "variable_infra_per_active_month": 0.20,
+  "support_per_active_month": 0.30,
+  "monthly_fixed_cost": 1500,
+  "customer_acquisition_cost": 20,
+  "expected_paid_lifetime_months": 14,
+  "active_paid_customers": 500
+}
