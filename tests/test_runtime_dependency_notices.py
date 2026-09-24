@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import json
 from pathlib import Path
 import tarfile
@@ -65,6 +66,12 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
     @staticmethod
     def _digest(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _symlink_or_skip(self, target: Path, link: Path) -> None:
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symbolic links are unavailable in this environment: {exc}")
 
     def _distribution(self, name: str, version: str, text: str = "MIT License\n"):
         dist_root = self.root / f"installed-{name}"
@@ -265,6 +272,75 @@ class RuntimeDependencyNoticeTests(unittest.TestCase):
                     )
                 },
             )
+
+    def test_installed_notice_symlink_is_not_followed(self) -> None:
+        outside = self.root / "outside-license.txt"
+        outside.write_text("outside license bytes\n", encoding="utf-8")
+        dist_root = self.root / "installed-demo"
+        link = dist_root / "demo.dist-info" / "LICENSE.txt"
+        link.parent.mkdir(parents=True)
+        self._symlink_or_skip(outside, link)
+        dist = _Distribution(
+            dist_root,
+            version="1.0",
+            license_files=("demo.dist-info/LICENSE.txt",),
+        )
+        output = self.root / "notices-symlink-installed"
+        with self.assertRaisesRegex(RuntimeDependencyNoticeError, "no real license"):
+            build_runtime_dependency_notice_bundle(
+                ("demo",),
+                output,
+                distribution_loader=lambda _name: dist,
+                python_license_path=self.python_license,
+            )
+        self.assertFalse(output.exists())
+
+    def test_explicit_python_license_symlink_is_not_followed(self) -> None:
+        real_python_license = self.root / "real-python-license.txt"
+        real_python_license.write_text("Python license bytes\n", encoding="utf-8")
+        linked_python_license = self.root / "linked-python-license.txt"
+        self._symlink_or_skip(real_python_license, linked_python_license)
+        dist = self._distribution("demo", "1.0")
+        output = self.root / "notices-symlink-python"
+        with self.assertRaisesRegex(RuntimeDependencyNoticeError, "Python license file is unavailable"):
+            build_runtime_dependency_notice_bundle(
+                ("demo",),
+                output,
+                distribution_loader=lambda _name: dist,
+                python_license_path=linked_python_license,
+            )
+        self.assertFalse(output.exists())
+
+    def test_external_notice_archive_symlink_is_not_followed(self) -> None:
+        dist_root = self.root / "installed-external"
+        dist_root.mkdir()
+        dist = _Distribution(
+            dist_root,
+            version="1.0",
+            license_files=(),
+            metadata_license_files=(),
+        )
+        member = "demo-1.0/LICENSE"
+        archive = self._source_archive(member, b"external license bytes\n")
+        linked_archive = self.root / "linked-source.tar.gz"
+        self._symlink_or_skip(archive, linked_archive)
+        output = self.root / "notices-symlink-archive"
+        with self.assertRaisesRegex(RuntimeDependencyNoticeError, "source archive is invalid"):
+            build_runtime_dependency_notice_bundle(
+                ("demo",),
+                output,
+                distribution_loader=lambda _name: dist,
+                python_license_path=self.python_license,
+                external_notice_sources={
+                    "demo": ExternalArchiveNoticeSource(
+                        linked_archive,
+                        "https://files.example.test/demo.tar.gz",
+                        self._digest(archive),
+                        member,
+                    )
+                },
+            )
+        self.assertFalse(output.exists())
 
     def test_version_drift_fails_without_publishing_output(self) -> None:
         dist = self._distribution("pywebview", "6.2.0")
