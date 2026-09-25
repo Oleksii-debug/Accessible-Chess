@@ -67,6 +67,56 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(settings.get("volume"), 42)
             self.assertEqual(path.read_text(encoding="utf-8"), persisted)
 
+    def test_failed_reset_rolls_back_all_in_memory_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("language", "en")
+            settings.set("volume", 42)
+            persisted = path.read_text(encoding="utf-8")
+
+            with patch.object(settings, "save", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    settings.reset()
+
+            self.assertEqual(settings.get("language"), "en")
+            self.assertEqual(settings.get("volume"), 42)
+            self.assertEqual(path.read_text(encoding="utf-8"), persisted)
+
+    def test_failed_import_persist_rolls_back_data_and_warning(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("language", "en")
+            settings.warning = "existing warning"
+            before = dict(settings.data)
+            persisted = path.read_text(encoding="utf-8")
+            payload = json.dumps({"schema_version": 1, "values": {"volume": 25}})
+
+            with patch.object(settings, "save", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    settings.import_json(payload, persist=True)
+
+            self.assertEqual(settings.data, before)
+            self.assertEqual(settings.warning, "existing warning")
+            self.assertEqual(path.read_text(encoding="utf-8"), persisted)
+
+    def test_failed_atomic_replace_removes_temporary_file_and_preserves_existing_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 42)
+            persisted = path.read_text(encoding="utf-8")
+            tmp = path.with_suffix(".json.tmp")
+
+            with patch.object(Path, "replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    settings.set("volume", 25)
+
+            self.assertEqual(settings.get("volume"), 42)
+            self.assertEqual(path.read_text(encoding="utf-8"), persisted)
+            self.assertFalse(tmp.exists())
+
     def test_malformed_file_recovers_to_defaults_with_warning(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
