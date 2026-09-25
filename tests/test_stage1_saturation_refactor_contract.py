@@ -97,6 +97,57 @@ class _Runtime:
 
 
 class Stage1SaturationRefactorContractTests(unittest.TestCase):
+    def test_blob_helper_hashes_current_file_through_git_path_filter(self) -> None:
+        target = ROOT / "acs" / "stage1_release_ui_core.py"
+        expected = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=expected + "\n",
+            stderr="",
+        )
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            self.assertEqual(_git_blob_sha(target), expected)
+
+        args, kwargs = run.call_args
+        self.assertEqual(
+            args[0],
+            [
+                "git",
+                "hash-object",
+                "--path=acs/stage1_release_ui_core.py",
+                str(target),
+            ],
+        )
+        self.assertEqual(kwargs["cwd"], ROOT)
+        self.assertTrue(kwargs["capture_output"])
+        self.assertTrue(kwargs["text"])
+        self.assertFalse(kwargs["check"])
+
+    def test_blob_helper_fails_closed_on_git_or_digest_errors(self) -> None:
+        target = ROOT / "acs" / "stage1_release_ui_core.py"
+        with self.subTest("git failure"):
+            failed = subprocess.CompletedProcess(
+                args=[],
+                returncode=128,
+                stdout="",
+                stderr="hash failed",
+            )
+            with mock.patch("subprocess.run", return_value=failed):
+                with self.assertRaisesRegex(RuntimeError, "git hash-object failed"):
+                    _git_blob_sha(target)
+
+        with self.subTest("invalid digest"):
+            malformed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="not-a-sha\n",
+                stderr="",
+            )
+            with mock.patch("subprocess.run", return_value=malformed):
+                with self.assertRaisesRegex(RuntimeError, "invalid SHA"):
+                    _git_blob_sha(target)
+
     def test_extracted_core_files_are_byte_identical_to_frozen_git_blobs(self) -> None:
         self.assertEqual(
             _git_blob_sha(ROOT / "acs" / "stage1_release_ui_core.py"),
