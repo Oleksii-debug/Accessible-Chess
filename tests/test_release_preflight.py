@@ -12,7 +12,12 @@ from acs.release_preflight import ReleasePreflightError, inspect_release_package
 
 
 EVENTS = ("move", "capture", "check", "castle", "promotion", "illegal", "start", "end", "tick")
-WEB_RESOURCES = ("index.html", "stage1_release_bootstrap.js", "stage1_board_actions.js")
+WEB_RESOURCES = (
+    "index.html",
+    "stage1_release_bootstrap.js",
+    "stage1_board_actions.js",
+    "p0_accessibility_runtime.js",
+)
 
 
 class ReleasePreflightTests(unittest.TestCase):
