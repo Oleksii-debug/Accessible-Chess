@@ -29,7 +29,10 @@ env:
   INTEGRATED_SATURATION_BLOB: 3ad2ec97def951f67237cc788ee3606bc5b404bf
   INTEGRATED_RELEASE_PREFLIGHT_BLOB: 214c0487f65997d59dd6469a7f6424addb066396
   INTEGRATED_RELEASE_PREFLIGHT_TEST_BLOB: 361cb62f8e9b16462dca967beaaa458a3f8cf269
-  SETTINGS_BLOB: ade34140fe0500abe2c7bced0e310201ff2ba58c
+  P795_SETTINGS_BLOB: 3976f061aa2eaf93760d9629236b14ebb2d4a6e1
+  P795_SETTINGS_TEST_BLOB: 53ff44b7ecfdc95848fc5ad0a24823d77de343fa
+  P795_SOUND_TEST_BLOB: 6c8dfd857a43ea42283998e458c5b290d1dd82d7
+  P795_RELEASE_COMPOSITION_TEST_BLOB: 9e11a0dd7e42f2f646e862496b5eade597e03bea
   KEYBINDINGS_BLOB: b222f0d625999d8119cb3bb7cebffc961217f610
   UI_KEYMAP_SERVICE_BLOB: cceaa7e01cca28cec7e169c8dd00d85e17beccb9
   SOUND_RUNTIME_BLOB: c2b850ef66d19631d1579b815b7ee0aaef64c650
@@ -86,7 +89,10 @@ jobs:
           test "$(git rev-parse HEAD:acs/release_preflight.py)" = "$INTEGRATED_RELEASE_PREFLIGHT_BLOB"
           test "$(git rev-parse HEAD:tests/test_release_preflight.py)" = "$INTEGRATED_RELEASE_PREFLIGHT_TEST_BLOB"
 
-          test "$(git rev-parse HEAD:acs/settings.py)" = "$SETTINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/settings.py)" = "$P795_SETTINGS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_settings.py)" = "$P795_SETTINGS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_sound_runtime.py)" = "$P795_SOUND_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_stage1_release_composition_ui.py)" = "$P795_RELEASE_COMPOSITION_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/keybindings.py)" = "$KEYBINDINGS_BLOB"
           test "$(git rev-parse HEAD:acs/ui_keymap_service.py)" = "$UI_KEYMAP_SERVICE_BLOB"
           test "$(git rev-parse HEAD:acs/sound_runtime.py)" = "$SOUND_RUNTIME_BLOB"
