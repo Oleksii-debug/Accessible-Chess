@@ -39,6 +39,17 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         self.assertIn("if(shortcut){const b=document.createElement('button')", HTML)
         self.assertNotIn("if(item.binding){const b=document.createElement('button')", HTML)
 
+    def test_keymap_editor_controls_have_action_specific_accessible_names(self) -> None:
+        self.assertIn("const token=String(item.id).replace(/[^A-Za-z0-9_-]/g,'-')", HTML)
+        self.assertIn("h.id='binding-label-'+token", HTML)
+        self.assertIn("inp.setAttribute('aria-labelledby',h.id)", HTML)
+        self.assertIn("status.id='binding-status-'+token", HTML)
+        self.assertIn("inp.setAttribute('aria-describedby',status.id)", HTML)
+        self.assertIn(
+            "b.setAttribute('aria-label',(document.documentElement.lang==='en'?'New shortcut for ':'Нова комбінація для ')+h.textContent)",
+            HTML,
+        )
+
     def test_shortcut_capture_remains_keyboard_first_and_backend_validated(self) -> None:
         self.assertIn("b.textContent='Нова комбінація'", HTML)
         self.assertIn("b.setAttribute('aria-pressed','false')", HTML)
