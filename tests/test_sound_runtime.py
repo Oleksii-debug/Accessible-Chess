@@ -1,12 +1,19 @@
 import json
+import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 import wave
 from pathlib import Path
 
 from acs.sound_events import MoveSoundFacts, SoundEvent
 from acs.sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
-from acs.sound_windows import PackagedSoundAssetResolver, REQUIRED_SOUND_EVENTS
+from acs.sound_windows import (
+    PackagedSoundAssetResolver,
+    REQUIRED_SOUND_EVENTS,
+    WindowsSoundPlaybackAdapter,
+)
 
 
 class FakePlayback:
@@ -157,6 +164,49 @@ class PackagedSoundResolverTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 PackagedSoundAssetResolver(tmp).load_manifest()
+
+
+class WindowsSoundPlaybackAdapterCompatibilityTests(unittest.TestCase):
+    @staticmethod
+    def _write_manifest(root: Path) -> None:
+        sound_root = root / "assets" / "sounds"
+        sound_root.mkdir(parents=True)
+        files = {}
+        for event in REQUIRED_SOUND_EVENTS:
+            name = f"{event.value}.wav"
+            files[event.value] = name
+            with wave.open(str(sound_root / name), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\\x00\\x00" * 8)
+        (sound_root / "manifest.json").write_text(
+            json.dumps({"schema_version": 1, "files": files}),
+            encoding="utf-8",
+        )
+
+    def test_python_312_shape_needs_no_snd_sync_constant(self):
+        calls = []
+        fake_winsound = SimpleNamespace(
+            SND_FILENAME=1,
+            SND_NODEFAULT=2,
+            PlaySound=lambda path, flags: calls.append((path, flags)),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_manifest(root)
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(root),
+                cache_dir=root / "cache",
+            )
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules, {"winsound": fake_winsound}
+            ):
+                adapter.play(SoundEvent.MOVE, volume=100)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], fake_winsound.SND_FILENAME | fake_winsound.SND_NODEFAULT)
+        self.assertFalse(hasattr(fake_winsound, "SND_SYNC"))
 
 
 if __name__ == "__main__":
