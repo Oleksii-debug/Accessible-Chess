@@ -79,10 +79,12 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
     html = _asset_root() / "web" / "index.html"
     bootstrap = _asset_root() / "web" / "stage1_release_bootstrap.js"
     board_bridge = _asset_root() / "web" / "stage1_board_actions.js"
+    p0_accessibility = _asset_root() / "web" / "p0_accessibility_runtime.js"
     for path, label in (
         (html, "Accessible HTML UI"),
         (bootstrap, "Stage 1 WebView bootstrap"),
         (board_bridge, "Stage 1 board action bridge"),
+        (p0_accessibility, "P0 accessibility runtime"),
     ):
         if not path.exists():
             if runtime is not None:
@@ -92,6 +94,7 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
             raise RuntimeError(f"{label} not found in packaged resources.")
     bootstrap_source = bootstrap.read_text(encoding="utf-8")
     board_bridge_source = board_bridge.read_text(encoding="utf-8")
+    p0_accessibility_source = p0_accessibility.read_text(encoding="utf-8")
 
     window = webview.create_window(
         "Accessible Chess",
@@ -111,6 +114,10 @@ def run_release_window(api: Stage1ReleaseAccessibleChessAPI, runtime: Any | None
     def install_release_web_contract(*_args: Any) -> None:
         window.evaluate_js(bootstrap_source)
         window.evaluate_js(board_bridge_source)
+        # Load the already-accepted shared P0 runtime last so native document
+        # selections survive Stage 1 polling/rerender mutations without
+        # intercepting Ctrl+C or introducing a scripted clipboard path.
+        window.evaluate_js(p0_accessibility_source)
 
     window.events.before_show += install_menu_on_native_host
     window.events.loaded += install_release_web_contract
