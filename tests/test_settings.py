@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.settings import DEFAULTS, SCHEMA_VERSION, Settings, SettingsError
 
@@ -51,6 +52,20 @@ class SettingsTests(unittest.TestCase):
                 settings.set("volume", 101)
             self.assertEqual(settings.get("volume"), 80)
             self.assertFalse(path.exists())
+
+    def test_failed_save_rolls_back_in_memory_value(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 42)
+            persisted = path.read_text(encoding="utf-8")
+
+            with patch.object(settings, "save", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    settings.set("volume", 25)
+
+            self.assertEqual(settings.get("volume"), 42)
+            self.assertEqual(path.read_text(encoding="utf-8"), persisted)
 
     def test_malformed_file_recovers_to_defaults_with_warning(self):
         with tempfile.TemporaryDirectory() as td:
