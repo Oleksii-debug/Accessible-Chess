@@ -27,6 +27,8 @@ env:
   P797_JS_TEST_BLOB: 9baeb9b2a23bfae7359a0b3235f2176707467531
   P797_PY_TEST_BLOB: 917d9b9420b9537051f879d977d61219140cea8c
   INTEGRATED_SATURATION_BLOB: 3ad2ec97def951f67237cc788ee3606bc5b404bf
+  INTEGRATED_RELEASE_PREFLIGHT_BLOB: c2342531a7c43d4a05acf5860ee6cc5d53e6bc6e
+  INTEGRATED_RELEASE_PREFLIGHT_TEST_BLOB: ef037c4c82719d8661ac4c97894c2433a122edb5
   SETTINGS_BLOB: ade34140fe0500abe2c7bced0e310201ff2ba58c
   KEYBINDINGS_BLOB: b222f0d625999d8119cb3bb7cebffc961217f610
   UI_KEYMAP_SERVICE_BLOB: cceaa7e01cca28cec7e169c8dd00d85e17beccb9
@@ -81,6 +83,8 @@ jobs:
           test "$(git rev-parse HEAD:tests/js/stage1_p0_dynamic_selection_runtime_test.js)" = "$P797_JS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_p0_semantic_selection_backport.py)" = "$P797_PY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_saturation_refactor_contract.py)" = "$INTEGRATED_SATURATION_BLOB"
+          test "$(git rev-parse HEAD:acs/release_preflight.py)" = "$INTEGRATED_RELEASE_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_release_preflight.py)" = "$INTEGRATED_RELEASE_PREFLIGHT_TEST_BLOB"
 
           test "$(git rev-parse HEAD:acs/settings.py)" = "$SETTINGS_BLOB"
           test "$(git rev-parse HEAD:acs/keybindings.py)" = "$KEYBINDINGS_BLOB"
@@ -120,6 +124,7 @@ jobs:
           python -m pytest -q
           tests/test_stage1_p0_semantic_selection_backport.py
           tests/test_stage1_saturation_refactor_contract.py
+          tests/test_release_preflight.py
           tests/test_issue22_release_contract.py
           tests/test_nvda_p0_contract.py
           tests/test_stage1_webview2_accessibility_boundary.py
