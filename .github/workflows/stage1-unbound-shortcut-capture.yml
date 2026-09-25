@@ -1,0 +1,125 @@
+name: Stage1 Unbound Shortcut Capture
+
+on:
+  push:
+    branches:
+      - work/stage1-unbound-shortcut-capture-20260925
+  pull_request:
+    branches:
+      - work/final-stage1-source-composition-20260825
+    paths:
+      - web/index.html
+      - tests/test_stage1_unbound_shortcut_capture.py
+      - .github/workflows/stage1-unbound-shortcut-capture.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage1-unbound-shortcut-capture-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 1e8f0fcbe9bb6bbbe64ab960d2b5f11279109a72
+  KEYBINDINGS_BLOB: 0ed020f5cb5e780ed7a9a1a0c1b8d1d248a61213
+  UI_KEYMAP_SERVICE_BLOB: 48cda37d1ab1448d3d5c4de7bd2d9e3d95b502f2
+  STAGE1_RELEASE_UI_BLOB: d30726c28698fbbeeff6f62a79fc43f0e95321ef
+  P0_RUNTIME_BLOB: c04cb25325ea87323c7f2f20fe9baab84f748399
+  SETTINGS_BLOB: 3976f061aa2eaf93760d9629236b14ebb2d4a6e1
+  RELEASE_PREFLIGHT_BLOB: 214c0487f65997d59dd6469a7f6424addb066396
+  STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
+  BOARD_ACTIONS_BLOB: df5d2b74265bfc38081d2606c2d454ef0320b449
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve exact LF semantics on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact base, scope, and retained Stage1 authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+
+          test "$(git rev-parse HEAD:acs/keybindings.py)" = "$KEYBINDINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_keymap_service.py)" = "$UI_KEYMAP_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = "$STAGE1_RELEASE_UI_BLOB"
+          test "$(git rev-parse HEAD:web/p0_accessibility_runtime.js)" = "$P0_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:acs/settings.py)" = "$SETTINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/release_preflight.py)" = "$RELEASE_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:web/stage1_release_bootstrap.js)" = "$STAGE1_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:web/stage1_board_actions.js)" = "$BOARD_ACTIONS_BLOB"
+
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/stage1-unbound-shortcut-capture.yml' \
+            'tests/test_stage1_unbound_shortcut_capture.py' \
+            'web/index.html' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|candidate-package|final-release' ; then
+            echo 'QA/release harness contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Syntax and shipping-script gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q acs tests run_accessible_chess.py
+          node --check web/stage1_release_bootstrap.js
+          node --check web/stage1_board_actions.js
+          node --check web/p0_accessibility_runtime.js
+
+      - name: Focused unbound-shortcut and Stage1 keymap regressions
+        run: >-
+          python -m pytest -q
+          tests/test_stage1_unbound_shortcut_capture.py
+          tests/test_keybindings.py
+          tests/test_ui_keymap_service.py
+          tests/test_webview_keymap_bridge_contract.py
+          tests/test_issue22_release_contract.py
+          tests/test_stage1_release_composition_ui.py
+          tests/test_stage1_p0_semantic_selection_backport.py
+          tests/test_release_preflight.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Canonical SELFTEST
+        run: python -m acs.selftest
+
+      - name: Complete Stage1 diagnostic
+        run: python run_accessible_chess.py --diagnostic
