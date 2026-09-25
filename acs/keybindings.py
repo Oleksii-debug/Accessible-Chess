@@ -453,10 +453,17 @@ class ActionRegistry:
 
     def save(self, path: str | Path) -> None:
         target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".tmp")
-        tmp.write_text(self.export_json() + "\n", encoding="utf-8")
-        tmp.replace(target)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(self.export_json() + "\n", encoding="utf-8")
+            tmp.replace(target)
+        except OSError:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     @classmethod
     def load(

@@ -6,10 +6,20 @@ on:
       - work/final-stage1-source-composition-20260825
     paths:
       - acs/stage1_release_ui.py
+      - acs/release_preflight.py
+      - acs/settings.py
+      - acs/keybindings.py
+      - acs/ui_keymap_service.py
       - web/p0_accessibility_runtime.js
       - tests/js/stage1_p0_dynamic_selection_runtime_test.js
       - tests/test_stage1_p0_semantic_selection_backport.py
       - tests/test_stage1_saturation_refactor_contract.py
+      - tests/test_release_preflight.py
+      - tests/test_settings.py
+      - tests/test_sound_runtime.py
+      - tests/test_stage1_release_composition_ui.py
+      - tests/test_keybindings.py
+      - tests/test_ui_keymap_service.py
       - .github/workflows/stage1-p0-selection-convergence.yml
   workflow_dispatch:
 
@@ -33,8 +43,10 @@ env:
   P795_SETTINGS_TEST_BLOB: 53ff44b7ecfdc95848fc5ad0a24823d77de343fa
   P795_SOUND_TEST_BLOB: 6c8dfd857a43ea42283998e458c5b290d1dd82d7
   P795_RELEASE_COMPOSITION_TEST_BLOB: 9e11a0dd7e42f2f646e862496b5eade597e03bea
-  KEYBINDINGS_BLOB: b222f0d625999d8119cb3bb7cebffc961217f610
-  UI_KEYMAP_SERVICE_BLOB: cceaa7e01cca28cec7e169c8dd00d85e17beccb9
+  P798_KEYBINDINGS_BLOB: 0ed020f5cb5e780ed7a9a1a0c1b8d1d248a61213
+  P798_UI_KEYMAP_SERVICE_BLOB: 48cda37d1ab1448d3d5c4de7bd2d9e3d95b502f2
+  P798_KEYBINDINGS_TEST_BLOB: 728464c720d99f197eeb3858c30fa9ec0e38df5e
+  P798_UI_KEYMAP_SERVICE_TEST_BLOB: de0168b686b4bc5f072147be8e8440ffd0d33f9f
   SOUND_RUNTIME_BLOB: c2b850ef66d19631d1579b815b7ee0aaef64c650
   SOUND_WINDOWS_BLOB: 7ec0d7f5b339f74833a5ec4601c714390eb21829
   STOCKFISH_RUNTIME_BLOB: 23477698de93e7ecb582e9411a3bfacc0976849c
@@ -93,8 +105,10 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_settings.py)" = "$P795_SETTINGS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_sound_runtime.py)" = "$P795_SOUND_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_release_composition_ui.py)" = "$P795_RELEASE_COMPOSITION_TEST_BLOB"
-          test "$(git rev-parse HEAD:acs/keybindings.py)" = "$KEYBINDINGS_BLOB"
-          test "$(git rev-parse HEAD:acs/ui_keymap_service.py)" = "$UI_KEYMAP_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:acs/keybindings.py)" = "$P798_KEYBINDINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_keymap_service.py)" = "$P798_UI_KEYMAP_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_keybindings.py)" = "$P798_KEYBINDINGS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_keymap_service.py)" = "$P798_UI_KEYMAP_SERVICE_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/sound_runtime.py)" = "$SOUND_RUNTIME_BLOB"
           test "$(git rev-parse HEAD:acs/sound_windows.py)" = "$SOUND_WINDOWS_BLOB"
           test "$(git rev-parse HEAD:acs/stockfish_runtime.py)" = "$STOCKFISH_RUNTIME_BLOB"
@@ -103,7 +117,7 @@ jobs:
           test "$(git rev-parse HEAD:web/stage1_board_actions.js)" = "$BOARD_ACTIONS_BLOB"
 
           changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/stage1-p0-selection-convergence.yml'             'acs/stage1_release_ui.py'             'tests/js/stage1_p0_dynamic_selection_runtime_test.js'             'tests/test_stage1_p0_semantic_selection_backport.py'             'tests/test_stage1_saturation_refactor_contract.py'             'web/p0_accessibility_runtime.js' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/stage1-p0-selection-convergence.yml'             'acs/keybindings.py'             'acs/release_preflight.py'             'acs/settings.py'             'acs/stage1_release_ui.py'             'acs/ui_keymap_service.py'             'tests/js/stage1_p0_dynamic_selection_runtime_test.js'             'tests/test_keybindings.py'             'tests/test_release_preflight.py'             'tests/test_settings.py'             'tests/test_sound_runtime.py'             'tests/test_stage1_p0_semantic_selection_backport.py'             'tests/test_stage1_release_composition_ui.py'             'tests/test_stage1_saturation_refactor_contract.py'             'tests/test_ui_keymap_service.py'             'web/p0_accessibility_runtime.js' | sort)"
           printf '%s\n' "$changed"
           test "$changed" = "$expected"
 
@@ -140,6 +154,8 @@ jobs:
           tests/test_keymap_corruption_security.py
           tests/test_sound_runtime.py
           tests/test_settings.py
+          tests/test_keybindings.py
+          tests/test_ui_keymap_service.py
           tests/test_stockfish_runtime.py
 
       - name: Full repository unittest

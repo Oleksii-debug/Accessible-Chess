@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from acs.keybindings import ActionRegistry
 from acs.ui_keymap_service import KeymapService
@@ -255,6 +256,103 @@ def test_malformed_saved_profile_recovers_to_defaults(tmp_path):
     assert by_id["history.go_to_move"]["binding"] == "Ctrl+G"
     assert service.reset_all()["ok"] is True
     assert KeymapService(path).snapshot()["recoveryMessage"] is None
+
+
+def test_failed_shortcut_persist_rolls_back_live_and_durable_state(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path, lang="uk")
+    assert service.save("history.go_to_move", "Ctrl+J")["ok"] is True
+    persisted = path.read_bytes()
+
+    with patch.object(ActionRegistry, "save", side_effect=OSError(r"C:\\Users\\secret\\disk full")):
+        result = service.save("history.go_to_move", "Alt+J")
+
+    assert result["ok"] is False
+    assert result["message"] == "Налаштування клавіш не збережено."
+    assert "OSError" not in result["message"]
+    assert "secret" not in result["message"]
+    assert service.resolve_binding("history", "Ctrl+J")["actionId"] == "history.go_to_move"
+    assert service.resolve_binding("history", "Alt+J") is None
+    assert path.read_bytes() == persisted
+
+
+def test_failed_alias_persist_rolls_back_live_alias(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path, lang="en")
+    assert service.save("move.undo", "x")["ok"] is True
+    persisted = path.read_bytes()
+
+    with patch.object(ActionRegistry, "save", side_effect=PermissionError("denied")):
+        result = service.save("move.undo", "z")
+
+    assert result == {
+        "ok": False,
+        "message": "Keyboard settings were not saved.",
+        "conflicts": [],
+    }
+    assert service.resolve_alias("move_entry", "x")["actionId"] == "move.undo"
+    assert service.resolve_alias("move_entry", "z") is None
+    assert path.read_bytes() == persisted
+
+
+def test_failed_reset_variants_restore_exact_live_registry(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path)
+    assert service.save("history.go_to_move", "Alt+J")["ok"] is True
+    assert service.save("history.previous", "Shift+Left")["ok"] is True
+    assert service.save("board.current", "F6")["ok"] is True
+    persisted = path.read_bytes()
+    before = service.editor.registry.export_json()
+
+    operations = (
+        lambda: service.reset_action("history.go_to_move"),
+        lambda: service.reset_context("history"),
+        service.reset_all,
+    )
+    for operation in operations:
+        with patch.object(ActionRegistry, "save", side_effect=OSError("disk full")):
+            result = operation()
+        assert result["ok"] is False
+        assert service.editor.registry.export_json() == before
+        assert service.resolve_binding("history", "Alt+J")["actionId"] == "history.go_to_move"
+        assert service.resolve_binding("history", "Shift+Left")["actionId"] == "history.previous"
+        assert service.resolve_binding("board", "F6")["actionId"] == "board.current"
+        assert path.read_bytes() == persisted
+
+
+def test_failed_import_persist_restores_registry_and_file(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path, lang="en")
+    assert service.save("history.go_to_move", "Alt+J")["ok"] is True
+    persisted = path.read_bytes()
+
+    payload = json.loads(service.export_profile())
+    payload["bindings"]["history.go_to_move"] = "Ctrl+J"
+
+    with patch.object(ActionRegistry, "save", side_effect=OSError("read only")):
+        result = service.import_profile(json.dumps(payload))
+
+    assert result["ok"] is False
+    assert result["requiresConfirmation"] is False
+    assert result["message"] == "Keyboard settings were not saved."
+    assert service.resolve_binding("history", "Alt+J")["actionId"] == "history.go_to_move"
+    assert service.resolve_binding("history", "Ctrl+J") is None
+    assert path.read_bytes() == persisted
+
+
+def test_failed_recovery_reset_preserves_recovery_marker_and_bad_file(tmp_path):
+    path = tmp_path / "keymap.json"
+    path.write_text("{not json", encoding="utf-8")
+    service = KeymapService(path, lang="uk")
+    before = path.read_bytes()
+    assert service.snapshot()["recoveryMessage"]
+
+    with patch.object(ActionRegistry, "save", side_effect=OSError("disk full")):
+        result = service.reset_all()
+
+    assert result["ok"] is False
+    assert service.snapshot()["recoveryMessage"] == "invalid keymap profile"
+    assert path.read_bytes() == before
 
 
 def test_search_returns_semantic_rows(tmp_path):
