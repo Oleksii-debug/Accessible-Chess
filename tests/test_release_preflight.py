@@ -59,6 +59,9 @@ class ReleasePreflightTests(unittest.TestCase):
             "semantic_square_count": 64, "board_focus_continuity": True,
             "black_e5_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
             "raw_exception_noise": False,
+            "semantic_document_copy": True,
+            "semantic_document_copy_outside_edit": True,
+            "semantic_document_clipboard": "Accessible Chess",
         }), encoding="utf-8")
         (root / "RELEASE_MANIFEST.json").write_text(json.dumps({
             "product": "Accessible Chess",
@@ -69,6 +72,7 @@ class ReleasePreflightTests(unittest.TestCase):
             "nvda_verified": False,
             "strict_cross_process_uia": "PASS",
             "packaged_e4_e9_clipboard_board_focus": "PASS",
+            "packaged_semantic_document_copy": "PASS",
             "packaged_sound": "PASS",
             "stockfish_runtime_lifecycle": "PASS",
             "native_menu_automated_self_diagnostic": "PASS",
@@ -117,6 +121,31 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); leak = root / "AccessibleChess/acs/secret.py"; leak.parent.mkdir(); leak.write_text("TOKEN='x'"); self.rewrite_checksums(root); self.rejected(root, "raw product source")
         root = self.make_package(); stale = root / "AccessibleChess/build/stale.bin"; stale.parent.mkdir(); stale.write_bytes(b"x"); self.rewrite_checksums(root); self.rejected(root, "stale/build/source")
         root = self.make_package(); nested = root / "AccessibleChess/AccessibleChess/AccessibleChess.exe"; nested.parent.mkdir(); nested.write_bytes(b"x"); self.rewrite_checksums(root); self.rejected(root, "double AccessibleChess")
+
+    def test_semantic_document_copy_has_a_distinct_fail_closed_manifest_gate(self) -> None:
+        root = self.make_package()
+        path = root / "RELEASE_MANIFEST.json"
+        data = json.loads(path.read_text())
+        data.pop("packaged_semantic_document_copy")
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.rewrite_checksums(root)
+        self.rejected(root, "packaged_semantic_document_copy")
+
+    def test_semantic_document_copy_evidence_must_be_outside_edit_and_exact(self) -> None:
+        cases = (
+            ("semantic_document_copy", False, "prove semantic document copy"),
+            ("semantic_document_copy_outside_edit", False, "outside an Edit control"),
+            ("semantic_document_clipboard", "e9", "clipboard evidence mismatch"),
+        )
+        for field, value, fragment in cases:
+            with self.subTest(field=field):
+                root = self.make_package()
+                path = root / "packaged-uia-strict-summary.json"
+                data = json.loads(path.read_text())
+                data[field] = value
+                path.write_text(json.dumps(data), encoding="utf-8")
+                self.rewrite_checksums(root)
+                self.rejected(root, fragment)
 
     def test_manifest_nvda_true_is_rejected(self) -> None:
         root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data["nvda_verified"] = True
