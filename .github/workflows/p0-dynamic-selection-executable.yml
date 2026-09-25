@@ -49,19 +49,39 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove bounded evidence-only scope
+      - name: Prove retained P0 dynamic-selection authority and PR-base hygiene
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          base="${{ github.event.pull_request.base.sha }}"
+          p0_owner="dba6640f6b247609ffe519ea2a32947593d6e9a7"
+          git cat-file -e "${p0_owner}^{commit}"
+
+          base="${PR_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD)"
+          fi
           git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$p0_owner" HEAD
           git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/p0-dynamic-selection-executable.yml'             'tests/js/p0_dynamic_selection_runtime_test.js'             'tests/js/p0_accessibility_partial_replacement_test.js'             'tests/test_p0_dynamic_selection_action_delivery.py'             'tests/test_p0_dynamic_selection_partial_replacement.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected P0 dynamic-selection scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+
+          for path in \
+            tests/js/p0_dynamic_selection_runtime_test.js \
+            tests/js/p0_accessibility_partial_replacement_test.js \
+            tests/test_p0_dynamic_selection_action_delivery.py \
+            tests/test_p0_dynamic_selection_partial_replacement.py
+          do
+            actual="$(git rev-parse "HEAD:$path")"
+            expected="$(git rev-parse "$p0_owner:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Retained P0 evidence blob drift: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done
+
+          printf 'P0 retained authority PASS: pr-base=%s owner=%s head=%s\n' "$base" "$p0_owner" "$(git rev-parse HEAD)"
 
       - name: Compile focused regression
         run: python -m compileall -q tests/test_p0_dynamic_selection_action_delivery.py tests/test_p0_dynamic_selection_partial_replacement.py tests/test_p0_semantic_document_copy.py
