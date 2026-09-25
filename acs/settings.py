@@ -136,8 +136,13 @@ class Settings:
 
     def set(self, key: str, value: Any) -> None:
         validated = _validated_value(key, value)
+        previous = self.data.get(key, DEFAULTS[key])
         self.data[key] = validated
-        self.save()
+        try:
+            self.save()
+        except Exception:
+            self.data[key] = previous
+            raise
 
     def reset(self, key: str | None = None) -> None:
         if key is None:
