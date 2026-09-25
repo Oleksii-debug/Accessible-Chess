@@ -134,19 +134,43 @@ class Settings:
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
 
+    def _replace_state(
+        self,
+        candidate: Mapping[str, Any],
+        *,
+        warning: str | None,
+        persist: bool = True,
+    ) -> None:
+        previous_data = dict(self.data)
+        previous_warning = self.warning
+        self.data.clear()
+        self.data.update(candidate)
+        self.warning = warning
+        if not persist:
+            return
+        try:
+            self.save()
+        except Exception:
+            self.data.clear()
+            self.data.update(previous_data)
+            self.warning = previous_warning
+            raise
+
     def set(self, key: str, value: Any) -> None:
         validated = _validated_value(key, value)
-        self.data[key] = validated
-        self.save()
+        candidate = dict(self.data)
+        candidate[key] = validated
+        self._replace_state(candidate, warning=self.warning)
 
     def reset(self, key: str | None = None) -> None:
+        candidate = dict(self.data)
         if key is None:
-            self.data = dict(DEFAULTS)
+            candidate = dict(DEFAULTS)
         else:
             if key not in DEFAULTS:
                 raise KeyError(f"unknown setting: {key}")
-            self.data[key] = DEFAULTS[key]
-        self.save()
+            candidate[key] = DEFAULTS[key]
+        self._replace_state(candidate, warning=self.warning)
 
     def to_profile(self) -> dict[str, Any]:
         values = {key: self.data[key] for key in DEFAULTS}
@@ -164,14 +188,19 @@ class Settings:
         for key, value in values.items():
             if key in DEFAULTS:
                 candidate[key] = _validated_value(key, value)
-        self.data = candidate
-        self.warning = "; ".join(warnings) if warnings else None
-        if persist:
-            self.save()
+        warning = "; ".join(warnings) if warnings else None
+        self._replace_state(candidate, warning=warning, persist=persist)
         return warnings
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(self.export_json() + "\n", encoding="utf-8")
-        tmp.replace(self.path)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(self.export_json() + "\n", encoding="utf-8")
+            tmp.replace(self.path)
+        except Exception:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
