@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.keybindings import (
     ActionDefinition,
@@ -119,6 +120,23 @@ class ActionRegistryTests(unittest.TestCase):
             loaded, warning = ActionRegistry.load(path)
             self.assertIsNone(warning)
             self.assertEqual(loaded.get_binding("history.go_to_move"), "Ctrl+J")
+
+    def test_failed_atomic_replace_preserves_existing_keymap_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            registry = ActionRegistry()
+            registry.set_binding("history.go_to_move", "Ctrl+J")
+            registry.save(path)
+            persisted = path.read_bytes()
+
+            registry.set_binding("history.go_to_move", "Alt+J")
+            tmp = path.with_suffix(".json.tmp")
+            with patch.object(Path, "replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    registry.save(path)
+
+            self.assertEqual(path.read_bytes(), persisted)
+            self.assertFalse(tmp.exists())
 
     def test_external_nvda_actions_are_not_remappable(self):
         definitions = [
