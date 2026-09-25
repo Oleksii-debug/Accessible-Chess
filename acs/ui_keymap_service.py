@@ -230,25 +230,19 @@ class KeymapService:
         return self._resolution(resolution)
 
     def save(self, action_id: str, value: str, *, allow_warnings: bool = False) -> dict[str, Any]:
-        result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
-        if result.ok:
-            self._persist()
-        return self._result(result)
+        return self._apply_and_persist(
+            lambda: self.editor.save(action_id, value, allow_warnings=allow_warnings)
+        )
 
     def reset_action(self, action_id: str) -> dict[str, Any]:
-        result = self.editor.reset_action(action_id)
-        self._persist()
-        return self._result(result)
+        return self._apply_and_persist(lambda: self.editor.reset_action(action_id))
 
     def reset_context(self, context: str) -> dict[str, Any]:
-        result = self.editor.reset_context(BindingContext(context))
-        self._persist()
-        return self._result(result)
+        parsed = BindingContext(context)
+        return self._apply_and_persist(lambda: self.editor.reset_context(parsed))
 
     def reset_all(self) -> dict[str, Any]:
-        result = self.editor.reset_all()
-        self._persist()
-        return self._result(result)
+        return self._apply_and_persist(self.editor.reset_all)
 
     def export_profile(self) -> str:
         return self.editor.export_profile()
@@ -292,16 +286,41 @@ class KeymapService:
                 "requiresConfirmation": True,
             }
 
-        result = self.editor.import_profile(text)
-        if result.ok:
-            self._persist()
-        response = self._result(result)
+        response = self._apply_and_persist(lambda: self.editor.import_profile(text))
         response["requiresConfirmation"] = False
         return response
 
     def set_language(self, lang: str) -> dict[str, Any]:
         self.editor.set_language(lang)
         return self.snapshot()
+
+    def _apply_and_persist(self, operation) -> dict[str, Any]:
+        definitions = self.editor.registry.definitions()
+        rollback_registry = ActionRegistry.import_json(
+            self.editor.registry.export_json(),
+            definitions,
+        )
+        rollback_recovery = self.recovery_message
+
+        result = operation()
+        if not result.ok:
+            return self._result(result)
+
+        try:
+            self._persist()
+        except OSError:
+            self.editor.registry = rollback_registry
+            self.recovery_message = rollback_recovery
+            return {
+                "ok": False,
+                "message": (
+                    "Keyboard settings were not saved."
+                    if self.editor.lang == "en"
+                    else "Налаштування клавіш не збережено."
+                ),
+                "conflicts": [self._conflict(item) for item in result.conflicts],
+            }
+        return self._result(result)
 
     def _persist(self) -> None:
         self.editor.registry.save(self.path)
