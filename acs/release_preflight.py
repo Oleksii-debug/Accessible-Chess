@@ -52,6 +52,7 @@ _REQUIRED_WEB_RESOURCES = (
     "web/index.html",
     "web/stage1_release_bootstrap.js",
     "web/stage1_board_actions.js",
+    "web/p0_accessibility_runtime.js",
 )
 _EXPECTED_RELEASE_LABEL = "NVDA TEST CANDIDATE — WAITING FOR USER TEST"
 _EXPECTED_STOCKFISH_VERSION = "18"
