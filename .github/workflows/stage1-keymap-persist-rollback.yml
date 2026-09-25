@@ -1,0 +1,142 @@
+name: Stage1 Keymap Persistence Rollback
+
+on:
+  pull_request:
+    branches:
+      - work/final-stage1-source-composition-20260825
+    paths:
+      - acs/keybindings.py
+      - acs/ui_keymap_service.py
+      - tests/test_keybindings.py
+      - tests/test_ui_keymap_service.py
+      - .github/workflows/stage1-keymap-persist-rollback.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage1-keymap-persist-rollback-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 040f089e336433c83d64a761656c17065a67f843
+  SETTINGS_BLOB: ade34140fe0500abe2c7bced0e310201ff2ba58c
+  WEBAPP_KEYMAP_CORE_BLOB: 0ba06f548d39dad7372e0339b3e121fd1717cc05
+  STAGE1_UI_BLOB: 16e78af6219c8c36f0c4026942ef1d02875a370a
+  STAGE1_UI_CORE_BLOB: b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+  RELEASE_PREFLIGHT_BLOB: 485c876d6476f2b86d3155be3db355084db6094c
+  SOUND_WINDOWS_BLOB: 7ec0d7f5b339f74833a5ec4601c714390eb21829
+  SOUND_RUNTIME_BLOB: c2b850ef66d19631d1579b815b7ee0aaef64c650
+  STOCKFISH_RUNTIME_BLOB: 23477698de93e7ecb582e9411a3bfacc0976849c
+  INDEX_HTML_BLOB: 17803443a815843be3aa1b8c6be1c5abb7e7c888
+  STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact keymap repair head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve repository LF bytes on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git -c core.autocrlf=false checkout HEAD -- .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact ancestry scope and frozen release blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD "$BASE_SHA")" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+
+          test "$(git rev-parse HEAD:acs/settings.py)" = "$SETTINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$WEBAPP_KEYMAP_CORE_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = "$STAGE1_UI_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = "$STAGE1_UI_CORE_BLOB"
+          test "$(git rev-parse HEAD:acs/release_preflight.py)" = "$RELEASE_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:acs/sound_windows.py)" = "$SOUND_WINDOWS_BLOB"
+          test "$(git rev-parse HEAD:acs/sound_runtime.py)" = "$SOUND_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:acs/stockfish_runtime.py)" = "$STOCKFISH_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$INDEX_HTML_BLOB"
+          test "$(git rev-parse HEAD:web/stage1_release_bootstrap.js)" = "$STAGE1_BOOTSTRAP_BLOB"
+
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/stage1-keymap-persist-rollback.yml'             'acs/keybindings.py'             'acs/ui_keymap_service.py'             'tests/test_keybindings.py'             'tests/test_ui_keymap_service.py' | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict' ; then
+            echo 'QA strict harness contamination detected' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -Ei '(^|/)(acsdb|chessbase|bookdocument|bookreader|book_index|training|teacher|classroom|remote_lesson)([^/]*)(/|\.|$)' ; then
+            echo 'Stage2 contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Compile and parse retained Stage1 surfaces
+        run: |
+          python -m compileall -q acs tests run_accessible_chess.py
+          node --check web/stage1_release_bootstrap.js
+          node --check web/stage1_board_actions.js
+
+      - name: Focused keymap persistence and Issue22 regressions
+        run: >-
+          python -m pytest -q
+          tests/test_keybindings.py
+          tests/test_ui_keymap_service.py
+          tests/test_ui_keymap_editor.py
+          tests/test_ui_keymap_adapter.py
+          tests/test_webapp_keymap_api.py
+          tests/test_webview_keymap_bridge_contract.py
+          tests/test_keymap_corruption_security.py
+          tests/test_keymap_import_warning_confirmation.py
+          tests/test_keymap_import_warning_confirmation_integration.py
+          tests/test_issue22_release_contract.py
+          tests/test_stage1_native_menu_action_routing.py
+          tests/test_ui_native_menu_recovery.py
+
+      - name: Release critical Stage1 regressions
+        run: >-
+          python -m pytest -q
+          tests/test_stage1_release_composition_ui.py
+          tests/test_stage1_webview2_accessibility_boundary.py
+          tests/test_windows_native_menu_smoke_contract.py
+          tests/test_stage1_core_full_flow.py
+          tests/test_stockfish_runtime.py
+          tests/test_sound_runtime.py
+          tests/test_settings.py
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Canonical SELFTEST
+        run: python -m acs.selftest
+
+      - name: Complete Stage1 diagnostic
+        run: python run_accessible_chess.py --diagnostic
