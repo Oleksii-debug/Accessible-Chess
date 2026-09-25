@@ -356,7 +356,8 @@ def _validate_manifest(root: Path) -> tuple[str, str]:
     if not isinstance(qa_commit, str) or not _SHA40_RE.fullmatch(qa_commit.casefold()):
         _fail("release manifest qa_commit must be a 40-hex commit")
     for field in (
-        "strict_cross_process_uia", "packaged_e4_e9_clipboard_board_focus", "packaged_sound",
+        "strict_cross_process_uia", "packaged_e4_e9_clipboard_board_focus",
+        "packaged_semantic_document_copy", "packaged_sound",
         "stockfish_runtime_lifecycle", "native_menu_automated_self_diagnostic",
     ):
         if manifest.get(field) != "PASS":
@@ -412,6 +413,12 @@ def _validate_release_evidence(root: Path, integration_sha: str) -> None:
         _fail("packaged UIA summary must prove exactly 64 semantic squares")
     if summary.get("raw_exception_noise") is not False:
         _fail("packaged UIA summary must prove no raw exception noise")
+    if summary.get("semantic_document_copy") is not True:
+        _fail("packaged UIA summary must prove semantic document copy")
+    if summary.get("semantic_document_copy_outside_edit") is not True:
+        _fail("packaged UIA summary semantic copy must be outside an Edit control")
+    if summary.get("semantic_document_clipboard") != "Accessible Chess":
+        _fail("packaged UIA summary semantic document clipboard evidence mismatch")
 
 
 def _read_checksums(root: Path) -> dict[str, str]:
