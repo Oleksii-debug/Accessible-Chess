@@ -1,0 +1,84 @@
+name: Stage1 CRLF Blob Portability Proof
+
+on:
+  push:
+    branches:
+      - work/stage1-crlf-windows-proof-20260925
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FIX_HEAD: 9f83c008b10662175447c07b7478909f32549bad
+  TEST_BLOB: c813441cb99fb5a238e5ea9910b2fa12284cfc95
+  RELEASE_UI_CORE_BLOB: b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+  KEYMAP_CORE_BLOB: 0ba06f548d39dad7372e0339b3e121fd1717cc05
+
+jobs:
+  crlf-portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout evidence head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove evidence-only ancestry and exact fix blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$FIX_HEAD"
+          test "$(git rev-parse "$FIX_HEAD:tests/test_stage1_saturation_refactor_contract.py")" = "$TEST_BLOB"
+          changed="$(git diff --name-only "$FIX_HEAD"...HEAD)"
+          printf '%s\n' "$changed"
+          test "$changed" = ".github/workflows/stage1-crlf-windows-proof.yml"
+
+      - name: Reproduce old false RED and prove path-aware Git hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf true
+          python - <<'PY'
+          from pathlib import Path
+          for name in (
+              "acs/stage1_release_ui_core.py",
+              "acs/webapp_keymap_core.py",
+          ):
+              path = Path(name)
+              data = path.read_bytes().replace(b"\r\n", b"\n")
+              path.write_bytes(data.replace(b"\n", b"\r\n"))
+              assert b"\r\n" in path.read_bytes(), name
+          PY
+
+          raw_release="$(git hash-object --no-filters acs/stage1_release_ui_core.py)"
+          clean_release="$(git hash-object --path=acs/stage1_release_ui_core.py acs/stage1_release_ui_core.py)"
+          raw_keymap="$(git hash-object --no-filters acs/webapp_keymap_core.py)"
+          clean_keymap="$(git hash-object --path=acs/webapp_keymap_core.py acs/webapp_keymap_core.py)"
+
+          printf 'release raw=%s clean=%s expected=%s\n' "$raw_release" "$clean_release" "$RELEASE_UI_CORE_BLOB"
+          printf 'keymap raw=%s clean=%s expected=%s\n' "$raw_keymap" "$clean_keymap" "$KEYMAP_CORE_BLOB"
+
+          test "$raw_release" != "$RELEASE_UI_CORE_BLOB"
+          test "$raw_keymap" != "$KEYMAP_CORE_BLOB"
+          test "$clean_release" = "$RELEASE_UI_CORE_BLOB"
+          test "$clean_keymap" = "$KEYMAP_CORE_BLOB"
+
+          python -m unittest -v \
+            tests.test_stage1_saturation_refactor_contract.Stage1SaturationRefactorContractTests.test_extracted_core_files_are_byte_identical_to_frozen_git_blobs
+
+      - name: Restore tracked bytes and run complete portability contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c core.autocrlf=false checkout HEAD -- acs/stage1_release_ui_core.py acs/webapp_keymap_core.py
+          python -m unittest -v tests.test_stage1_saturation_refactor_contract
