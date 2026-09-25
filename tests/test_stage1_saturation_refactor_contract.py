@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -22,10 +21,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
-    header = f"blob {len(data)}\0".encode("ascii")
-    return hashlib.sha1(header + data).hexdigest()
-
+    """Hash current working-tree bytes through Git's path-aware clean filters."""
+    relative = path.resolve().relative_to(ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "hash-object", f"--path={relative}", str(path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git hash-object failed for {relative}: {result.stderr.strip()}"
+        )
+    digest = result.stdout.strip()
+    if len(digest) != 40 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise RuntimeError(f"git hash-object returned invalid SHA for {relative}")
+    return digest
 
 class _Event:
     def __init__(self) -> None:
