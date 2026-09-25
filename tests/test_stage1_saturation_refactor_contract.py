@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -22,10 +21,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
-    header = f"blob {len(data)}\0".encode("ascii")
-    return hashlib.sha1(header + data).hexdigest()
-
+    """Hash current working-tree bytes through Git's path-aware clean filters."""
+    relative = path.resolve().relative_to(ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "hash-object", f"--path={relative}", str(path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git hash-object failed for {relative}: {result.stderr.strip()}"
+        )
+    digest = result.stdout.strip()
+    if len(digest) != 40 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise RuntimeError(f"git hash-object returned invalid SHA for {relative}")
+    return digest
 
 class _Event:
     def __init__(self) -> None:
@@ -84,6 +97,57 @@ class _Runtime:
 
 
 class Stage1SaturationRefactorContractTests(unittest.TestCase):
+    def test_blob_helper_hashes_current_file_through_git_path_filter(self) -> None:
+        target = ROOT / "acs" / "stage1_release_ui_core.py"
+        expected = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=expected + "\n",
+            stderr="",
+        )
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            self.assertEqual(_git_blob_sha(target), expected)
+
+        args, kwargs = run.call_args
+        self.assertEqual(
+            args[0],
+            [
+                "git",
+                "hash-object",
+                "--path=acs/stage1_release_ui_core.py",
+                str(target),
+            ],
+        )
+        self.assertEqual(kwargs["cwd"], ROOT)
+        self.assertTrue(kwargs["capture_output"])
+        self.assertTrue(kwargs["text"])
+        self.assertFalse(kwargs["check"])
+
+    def test_blob_helper_fails_closed_on_git_or_digest_errors(self) -> None:
+        target = ROOT / "acs" / "stage1_release_ui_core.py"
+        with self.subTest("git failure"):
+            failed = subprocess.CompletedProcess(
+                args=[],
+                returncode=128,
+                stdout="",
+                stderr="hash failed",
+            )
+            with mock.patch("subprocess.run", return_value=failed):
+                with self.assertRaisesRegex(RuntimeError, "git hash-object failed"):
+                    _git_blob_sha(target)
+
+        with self.subTest("invalid digest"):
+            malformed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="not-a-sha\n",
+                stderr="",
+            )
+            with mock.patch("subprocess.run", return_value=malformed):
+                with self.assertRaisesRegex(RuntimeError, "invalid SHA"):
+                    _git_blob_sha(target)
+
     def test_extracted_core_files_are_byte_identical_to_frozen_git_blobs(self) -> None:
         self.assertEqual(
             _git_blob_sha(ROOT / "acs" / "stage1_release_ui_core.py"),
@@ -186,11 +250,33 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
                 release_ui.run_release_window(api, runtime)
 
         self.assertEqual(fake_webview.start_calls, [("edgechromium", True)])
-        self.assertEqual(len(fake_webview.window.evaluated), 2)
+        self.assertEqual(len(fake_webview.window.evaluated), 3)
         self.assertIn("__accessibleChessStage1ReleaseBootstrap", fake_webview.window.evaluated[0])
         self.assertIn("__accessibleChessStage1BoardActions", fake_webview.window.evaluated[1])
+        self.assertIn(
+            "__accessibleChessP0AccessibilityRuntimeInstalled",
+            fake_webview.window.evaluated[2],
+        )
         self.assertEqual(api.closed, 1)
         self.assertEqual(runtime.closed, 1)
+
+    def test_missing_p0_accessibility_runtime_fails_before_window_creation_and_closes_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "web").mkdir()
+            (root / "web" / "index.html").write_text("<html></html>", encoding="utf-8")
+            (root / "web" / "stage1_release_bootstrap.js").write_text("(() => {})();", encoding="utf-8")
+            (root / "web" / "stage1_board_actions.js").write_text("(() => {})();", encoding="utf-8")
+            fake_webview = _FakeWebview()
+            api = _Api()
+            runtime = _Runtime()
+            with mock.patch.dict(sys.modules, {"webview": fake_webview}):
+                with mock.patch.object(release_ui, "_asset_root", return_value=root):
+                    with self.assertRaisesRegex(RuntimeError, "P0 accessibility runtime not found"):
+                        release_ui.run_release_window(api, runtime)
+            self.assertEqual(fake_webview.create_calls, [])
+            self.assertEqual(api.closed, 0)
+            self.assertEqual(runtime.closed, 1)
 
     def test_missing_board_bridge_fails_before_window_creation_and_closes_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as td:
