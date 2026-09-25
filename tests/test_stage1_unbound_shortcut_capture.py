@@ -50,6 +50,15 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
             HTML,
         )
 
+        self.assertIn(
+            "save.setAttribute('aria-label',(document.documentElement.lang==='en'?'Save ':'Зберегти ')+h.textContent)",
+            HTML,
+        )
+        self.assertIn(
+            "reset.setAttribute('aria-label',(document.documentElement.lang==='en'?'Restore default for ':'Відновити за замовчуванням для ')+h.textContent)",
+            HTML,
+        )
+
     def test_shortcut_capture_remains_keyboard_first_and_backend_validated(self) -> None:
         self.assertIn("b.textContent='Нова комбінація'", HTML)
         self.assertIn("b.setAttribute('aria-pressed','false')", HTML)
