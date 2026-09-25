@@ -59,6 +59,19 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
             HTML,
         )
 
+    def test_keymap_rows_expose_context_default_and_refresh_on_language_change(self) -> None:
+        self.assertIn("function keymapContextLabel(ctx)", HTML)
+        self.assertIn("all.textContent=document.documentElement.lang==='en'?'All':'Усі'", HTML)
+        self.assertIn("o.textContent=keymapContextLabel(ctx)", HTML)
+        self.assertIn("meta.id='binding-meta-'+token", HTML)
+        self.assertIn("meta.className='binding-meta'", HTML)
+        self.assertIn(
+            "meta.textContent=(en?'Context: ':'Контекст: ')+keymapContextLabel(item.registryContext||item.context)+(en?'; Default: ':'; За замовчуванням: ')+defaultValue",
+            HTML,
+        )
+        self.assertIn("inp.setAttribute('aria-describedby',meta.id+' '+status.id)", HTML)
+        self.assertIn("if(keymap.length)renderKeymap();renderHelp()", HTML)
+
     def test_shortcut_capture_remains_keyboard_first_and_backend_validated(self) -> None:
         self.assertIn("b.textContent='Нова комбінація'", HTML)
         self.assertIn("b.setAttribute('aria-pressed','false')", HTML)
