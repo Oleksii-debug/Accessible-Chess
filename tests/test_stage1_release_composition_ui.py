@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from acs.release_app import create_release_api
@@ -130,6 +131,24 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             finally:
                 api2.close_analysis()
                 runtime2.close()
+
+    def test_failed_sound_setting_persist_does_not_change_runtime_state(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                settings = api._settings
+                self.assertIsNotNone(settings)
+                with patch.object(settings, "save", side_effect=OSError("disk full")):
+                    result = api.set_sound_volume(35)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["volume"], 80)
+                preview = api.preview_sound("move")
+                self.assertTrue(preview["ok"], preview)
+                self.assertEqual(playback.calls[-1], (SoundEvent.MOVE, 80))
+            finally:
+                api.close_analysis()
+                runtime.close()
 
     def test_sound_failure_is_concise_and_never_leaks_exception_or_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
