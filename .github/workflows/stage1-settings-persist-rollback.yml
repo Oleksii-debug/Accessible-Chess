@@ -8,6 +8,7 @@ on:
       - acs/settings.py
       - tests/test_settings.py
       - tests/test_stage1_release_composition_ui.py
+      - tests/test_sound_runtime.py
       - .github/workflows/stage1-settings-persist-rollback.yml
   workflow_dispatch:
 
