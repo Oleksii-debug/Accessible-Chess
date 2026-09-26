@@ -1,0 +1,36 @@
+name: P0 Packaged Document Copy Probe Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/p0_packaged_document_copy_probe.ps1'
+      - 'tests/test_p0_packaged_document_copy_probe.py'
+      - '.github/workflows/p0-packaged-document-copy-probe-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Parse PowerShell helper
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/p0_packaged_document_copy_probe.ps1'),[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){$errors | ForEach-Object {Write-Error $_}; exit 1}
+          Write-Host 'PACKAGED_DOCUMENT_COPY_PROBE_POWERSHELL_PARSE=PASS'
+      - name: Execute focused contract regression
+        run: python -m unittest -v tests.test_p0_packaged_document_copy_probe
