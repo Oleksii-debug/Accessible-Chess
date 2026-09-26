@@ -249,7 +249,12 @@ async function run() {
   const teacherSecond = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
   teacherSurfaceAnnounce(teacherSecond.payload.announcement);
 
-  await new Promise(resolve => setTimeout(resolve, 520));
+  // Nine accepted surface announcements can be queued back-to-back here. The
+  // production pump intentionally spaces each write by 30 ms + 35 ms, so 520 ms
+  // can observe the penultimate write and falsely report the final Teacher event
+  // as lost. Keep the oracle bounded while allowing the full deterministic queue
+  // to drain on hosted Windows/Linux runners.
+  await new Promise(resolve => setTimeout(resolve, 750));
   assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
