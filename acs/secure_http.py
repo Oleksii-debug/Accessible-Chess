@@ -101,7 +101,7 @@ class BoundedHttpsJsonTransport:
                 separators=(",", ":"),
                 allow_nan=False,
             ).encode("utf-8")
-        except (TypeError, ValueError, UnicodeError):
+        except (TypeError, ValueError, UnicodeError, RecursionError):
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
         return self._post_bytes(
             url,
@@ -203,7 +203,7 @@ class BoundedHttpsJsonTransport:
         try:
             text = payload.decode("utf-8")
             value = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
-        except (UnicodeError, json.JSONDecodeError, ValueError):
+        except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError):
             raise SecureHttpError(TransportErrorCode.INVALID_JSON) from None
         return JsonResponse(status=status, value=value, content_type=content_type)
 
