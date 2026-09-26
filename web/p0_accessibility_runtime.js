@@ -181,10 +181,24 @@
 
   let lastAnnouncement = "";
   let lastAnnouncementAt = 0;
-  let lastAnnouncementDispatch = 0;
+  let lastAnnouncementDispatch = null;
   let dispatchCounter = 0;
   let announcementRunning = false;
   const announcementQueue = [];
+  const rememberedDispatches = new Set();
+  const rememberedDispatchOrder = [];
+  const MAX_REMEMBERED_DISPATCHES = 256;
+
+  function rememberDispatch(dispatch) {
+    if (dispatch === null) return false;
+    if (rememberedDispatches.has(dispatch)) return true;
+    rememberedDispatches.add(dispatch);
+    rememberedDispatchOrder.push(dispatch);
+    while (rememberedDispatchOrder.length > MAX_REMEMBERED_DISPATCHES) {
+      rememberedDispatches.delete(rememberedDispatchOrder.shift());
+    }
+    return false;
+  }
 
   function pumpAnnouncements() {
     if (announcementRunning || !announcementQueue.length) return;
@@ -206,8 +220,10 @@
     if (!message) return false;
     const text = String(message).slice(0, 300);
     const now = Date.now();
-    const dispatch = Number(dispatchId) || 0;
-    if (text === lastAnnouncement && now - lastAnnouncementAt < 500 && dispatch === lastAnnouncementDispatch) {
+    const dispatch = dispatchId === null || dispatchId === undefined ? null : String(dispatchId);
+    if (dispatch !== null) {
+      if (rememberDispatch(dispatch)) return false;
+    } else if (text === lastAnnouncement && now - lastAnnouncementAt < 500 && lastAnnouncementDispatch === null) {
       return false;
     }
     lastAnnouncement = text;
@@ -218,14 +234,15 @@
     return true;
   }
 
-  global.announce = function (message) {
-    return exposeAnnouncement(message, 0);
+  global.announce = function (message, eventId) {
+    const dispatch = eventId === null || eventId === undefined ? null : "inline:" + String(eventId);
+    return exposeAnnouncement(message, dispatch);
   };
 
   if (typeof global.apiAction === "function" && typeof global.render === "function") {
     global.apiAction = async function (name) {
       const args = Array.prototype.slice.call(arguments, 1);
-      const dispatchId = ++dispatchCounter;
+      const dispatchId = "api:" + String(++dispatchCounter);
       try {
         const bridge = global.pywebview && global.pywebview.api;
         if (!bridge || typeof bridge[name] !== "function") throw new Error("action unavailable");
