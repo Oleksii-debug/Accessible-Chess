@@ -142,11 +142,23 @@ def _redact_url(value: str) -> str:
         parts = urlsplit(value)
     except ValueError:
         return value
+
+    # RFC-style userinfo is credential-bearing diagnostic material regardless of
+    # whether it is a conventional user:password pair or a token encoded as the
+    # username. Preserve the destination host/path while removing the complete
+    # credential prefix. Splitting from the right keeps IPv6 host literals and
+    # any percent-encoded userinfo opaque rather than attempting to decode them.
+    netloc = parts.netloc
+    userinfo_changed = "@" in netloc
+    if userinfo_changed:
+        _userinfo, host = netloc.rsplit("@", 1)
+        netloc = f"{REDACTED}@{host}"
+
     query, query_changed = _redact_url_parameters(parts.query)
     fragment, fragment_changed = _redact_url_parameters(parts.fragment)
-    if not query_changed and not fragment_changed:
+    if not userinfo_changed and not query_changed and not fragment_changed:
         return value
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
+    return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
 
 
 def redact_diagnostic(value: Any, *, max_depth: int = 32) -> Any:
