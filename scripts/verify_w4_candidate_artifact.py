@@ -172,10 +172,13 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
             raise CandidateArtifactError("release manifest makes forbidden NVDA verified claim")
 
         checksums = _parse_checksums(candidate.read("SHA256SUMS.txt"))
+        # Canonical Version 2 assembler hashes every regular package file that
+        # exists before SHA256SUMS.txt is written.  That includes the already
+        # materialized RELEASE_MANIFEST.json and excludes only SHA256SUMS.txt.
         inventory_files = {
             name
             for name, info in members.items()
-            if not info.is_dir() and name not in {"RELEASE_MANIFEST.json", "SHA256SUMS.txt"}
+            if not info.is_dir() and name != "SHA256SUMS.txt"
         }
         if set(checksums) != inventory_files:
             missing_checksums = sorted(inventory_files - set(checksums))
