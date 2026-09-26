@@ -5,6 +5,7 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/sound_pack_download.py'
       - 'acs/sound_pack_store.py'
       - 'acs/sound_profiles.py'
       - 'acs/sound_runtime.py'
@@ -12,6 +13,7 @@ on:
       - 'acs/stage1_release_ui_core.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_release_ui.py'
+      - 'tests/test_sound_pack_download.py'
       - 'tests/test_sound_pack_store.py'
       - 'tests/test_sound_profile_api.py'
       - 'tests/test_sound_profiles.py'
@@ -54,6 +56,7 @@ jobs:
           changed="$(git diff --name-only "$base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-sound-profiles-contract.yml' \
+            'acs/sound_pack_download.py' \
             'acs/sound_pack_store.py' \
             'acs/sound_profiles.py' \
             'acs/sound_runtime.py' \
@@ -61,6 +64,7 @@ jobs:
             'acs/stage1_release_ui_core.py' \
             'acs/version2_release_app.py' \
             'acs/version2_release_ui.py' \
+            'tests/test_sound_pack_download.py' \
             'tests/test_sound_pack_store.py' \
             'tests/test_sound_profile_api.py' \
             'tests/test_sound_profiles.py' \
@@ -75,6 +79,7 @@ jobs:
       - name: Compile sound profile authority
         run: >-
           python -m py_compile
+          acs/sound_pack_download.py
           acs/sound_pack_store.py
           acs/sound_profiles.py
           acs/sound_runtime.py
@@ -82,6 +87,7 @@ jobs:
           acs/stage1_release_ui_core.py
           acs/version2_release_app.py
           acs/version2_release_ui.py
+          tests/test_sound_pack_download.py
           tests/test_sound_pack_store.py
           tests/test_sound_profile_api.py
           tests/test_sound_profiles.py
@@ -94,6 +100,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_sound_profiles
+          tests.test_sound_pack_download
           tests.test_sound_pack_store
           tests.test_sound_runtime
           tests.test_sound_profile_api
