@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import unittest
 
-from acs.oauth_pkce import OAuthContractError
+from acs.oauth_pkce import AuthorizationRequest, OAuthContractError
 from acs.oauth_token_response import OAuthTokenResponse
 
 
 class OAuthTokenResponseTests(unittest.TestCase):
+    def authorization_request(self, *, scopes=("openid", "profile")) -> AuthorizationRequest:
+        return AuthorizationRequest.create(
+            authorization_endpoint="https://accounts.example.test/oauth/authorize",
+            token_endpoint="https://accounts.example.test/oauth/token",
+            client_id="accessible-chess-desktop",
+            redirect_uri="http://127.0.0.1:43127/callback",
+            scopes=scopes,
+            state="state-123",
+            nonce="nonce-456",
+            code_verifier="A" * 64,
+        )
+
     def test_valid_success_response_is_bounded_and_secret_safe_in_repr(self):
         response = OAuthTokenResponse.from_mapping(
             {
@@ -84,6 +96,73 @@ class OAuthTokenResponseTests(unittest.TestCase):
             OAuthTokenResponse.from_mapping(
                 MappingSubclass({"access_token": "token", "token_type": "Bearer"})
             )
+
+    def test_oidc_request_accepts_id_token_and_returned_scope_subset(self):
+        request = self.authorization_request(scopes=("openid", "profile", "email"))
+        response = OAuthTokenResponse.from_mapping(
+            {
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "scope": "openid profile",
+                "id_token": "signed-token-placeholder",
+            }
+        )
+        self.assertIs(response.validate_for_request(request), response)
+
+    def test_oidc_request_requires_id_token(self):
+        request = self.authorization_request(scopes=("openid", "profile"))
+        response = OAuthTokenResponse.from_mapping(
+            {
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "scope": "openid profile",
+            }
+        )
+        with self.assertRaisesRegex(OAuthContractError, "missing id_token"):
+            response.validate_for_request(request)
+
+    def test_response_scope_cannot_expand_beyond_requested_scope(self):
+        request = self.authorization_request(scopes=("openid", "profile"))
+        response = OAuthTokenResponse.from_mapping(
+            {
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "scope": "openid profile admin",
+                "id_token": "signed-token-placeholder",
+            }
+        )
+        with self.assertRaisesRegex(OAuthContractError, "unrequested scope"):
+            response.validate_for_request(request)
+
+    def test_plain_oauth_request_can_omit_id_token(self):
+        request = self.authorization_request(scopes=("profile",))
+        response = OAuthTokenResponse.from_mapping(
+            {
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "scope": "profile",
+            }
+        )
+        self.assertIs(response.validate_for_request(request), response)
+
+    def test_absent_response_scope_uses_request_contract_without_inventing_scope(self):
+        request = self.authorization_request(scopes=("openid", "profile"))
+        response = OAuthTokenResponse.from_mapping(
+            {
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "id_token": "signed-token-placeholder",
+            }
+        )
+        self.assertIsNone(response.scope)
+        self.assertIs(response.validate_for_request(request), response)
+
+    def test_request_binding_rejects_wrong_request_type(self):
+        response = OAuthTokenResponse.from_mapping(
+            {"access_token": "access-token", "token_type": "Bearer"}
+        )
+        with self.assertRaisesRegex(OAuthContractError, "AuthorizationRequest"):
+            response.validate_for_request(object())  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":
