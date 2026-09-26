@@ -18,6 +18,9 @@ _PACKAGED_W2_ACTIONS = frozenset(
         "library.import_packaged_sample_library",
     }
 )
+_REQUIRED_STARTER_BOOKLETS = frozenset(
+    f"starter-booklet-{index:02d}" for index in range(1, 25)
+)
 
 
 def packaged_starter_materials_ready(value: Any) -> bool:
@@ -29,17 +32,37 @@ def packaged_starter_materials_ready(value: Any) -> bool:
         return False
 
     booklet_count = value.get("booklet_count")
-    if not isinstance(booklet_count, int) or booklet_count < 24:
+    if type(booklet_count) is not int or booklet_count < len(_REQUIRED_STARTER_BOOKLETS):
         return False
 
     items = value.get("items")
-    if not isinstance(items, (tuple, list)) or len(items) < 25:
+    if not isinstance(items, (tuple, list)):
         return False
 
-    return any(
-        isinstance(item, dict) and item.get("material_id") == "starter-course"
-        for item in items
-    )
+    material_ids: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            return False
+        material_id = item.get("material_id")
+        if not isinstance(material_id, str) or not material_id:
+            return False
+        material_ids.append(material_id)
+
+    # A duplicated semantic item must not satisfy a projected count.  The count
+    # is required to agree with the distinct booklet inventory, and the canonical
+    # first 24 booklet identities must all be present.
+    if len(set(material_ids)) != len(material_ids):
+        return False
+    if material_ids.count("starter-course") != 1:
+        return False
+    booklet_ids = {
+        material_id
+        for material_id in material_ids
+        if material_id.startswith("starter-booklet-")
+    }
+    if booklet_count != len(booklet_ids):
+        return False
+    return _REQUIRED_STARTER_BOOKLETS.issubset(booklet_ids)
 
 
 def packaged_w2_library_ready(value: Any) -> bool:
@@ -67,9 +90,9 @@ def packaged_w2_library_ready(value: Any) -> bool:
 
     starter_games = starter.get("starter_games")
     stress_games = starter.get("stress_games")
-    if not isinstance(starter_games, int) or starter_games < 200:
+    if type(starter_games) is not int or starter_games < 200:
         return False
-    if not isinstance(stress_games, int) or stress_games <= starter_games:
+    if type(stress_games) is not int or stress_games <= starter_games:
         return False
 
     actions = value.get("actions")
