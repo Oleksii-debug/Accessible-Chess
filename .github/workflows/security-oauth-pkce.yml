@@ -10,6 +10,7 @@ on:
       - 'tests/test_oauth_pkce.py'
       - 'tests/test_oauth_pkce_explicit_inputs.py'
       - 'tests/test_oidc_metadata.py'
+      - 'tests/test_oidc_issuer_binding.py'
       - '.github/workflows/security-oauth-pkce.yml'
   workflow_dispatch:
 
@@ -55,6 +56,7 @@ jobs:
           tests/test_oauth_pkce.py
           tests/test_oauth_pkce_explicit_inputs.py
           tests/test_oidc_metadata.py
+          tests/test_oidc_issuer_binding.py
 
       - name: Execute focused OAuth/OIDC contract
         run: >-
@@ -62,6 +64,7 @@ jobs:
           tests.test_oauth_pkce
           tests.test_oauth_pkce_explicit_inputs
           tests.test_oidc_metadata
+          tests.test_oidc_issuer_binding
 
       - name: Enforce provider-neutral boundary
         shell: python
