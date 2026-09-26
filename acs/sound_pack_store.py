@@ -269,6 +269,14 @@ class SoundPackStore:
             raise ValueError("installed sound asset digest mismatch")
         return path
 
+    def verify_installed(self, pack_id: str) -> SoundPackManifest:
+        """Verify the complete installed pack, including every published asset."""
+
+        manifest = self.load_manifest(pack_id)
+        for sound_id in manifest.files:
+            self.resolve(manifest.pack_id, sound_id)
+        return manifest
+
     def uninstall(
         self,
         pack_id: str,
@@ -310,7 +318,7 @@ class SoundPackStore:
             if child.name.startswith(".") or not child.is_dir():
                 continue
             try:
-                manifest = self.load_manifest(child.name)
+                manifest = self.verify_installed(child.name)
             except Exception as exc:
                 records.append(
                     InstalledSoundPack(
@@ -349,7 +357,7 @@ class SoundPackStore:
             <= entry.max_product_sound_api
         )
         try:
-            manifest = self.load_manifest(entry.pack_id)
+            manifest = self.verify_installed(entry.pack_id)
         except FileNotFoundError:
             return SoundPackCatalogState(
                 pack_id=entry.pack_id,
