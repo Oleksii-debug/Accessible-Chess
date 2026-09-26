@@ -185,19 +185,20 @@
   let dispatchCounter = 0;
   let announcementRunning = false;
   const announcementQueue = [];
-  const rememberedDispatches = new Set();
-  const rememberedDispatchOrder = [];
+  const rememberedDispatchMessages = new Set();
+  const rememberedDispatchMessageOrder = [];
   const recentPassiveAnnouncements = new Map();
-  const MAX_REMEMBERED_DISPATCHES = 256;
+  const MAX_REMEMBERED_DISPATCH_MESSAGES = 256;
   const MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS = 256;
 
-  function rememberDispatch(dispatch) {
+  function rememberDispatchMessage(dispatch, text) {
     if (dispatch === null) return false;
-    if (rememberedDispatches.has(dispatch)) return true;
-    rememberedDispatches.add(dispatch);
-    rememberedDispatchOrder.push(dispatch);
-    while (rememberedDispatchOrder.length > MAX_REMEMBERED_DISPATCHES) {
-      rememberedDispatches.delete(rememberedDispatchOrder.shift());
+    const key = String(dispatch) + "\u0000" + String(text);
+    if (rememberedDispatchMessages.has(key)) return true;
+    rememberedDispatchMessages.add(key);
+    rememberedDispatchMessageOrder.push(key);
+    while (rememberedDispatchMessageOrder.length > MAX_REMEMBERED_DISPATCH_MESSAGES) {
+      rememberedDispatchMessages.delete(rememberedDispatchMessageOrder.shift());
     }
     return false;
   }
@@ -235,7 +236,7 @@
     const now = Date.now();
     const dispatch = dispatchId === null || dispatchId === undefined ? null : String(dispatchId);
     if (dispatch !== null) {
-      if (rememberDispatch(dispatch)) return false;
+      if (rememberDispatchMessage(dispatch, text)) return false;
     } else if (rememberPassiveAnnouncement(text, now)) {
       return false;
     }
