@@ -26,10 +26,12 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
     def test_board_grid_remap_uses_same_persisted_registry(self):
         with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
-            self.assertEqual(api.keymap_resolve_binding("board", "ArrowLeft")["actionId"], "board.cursor_left")
+            # The WebView canonicalizes KeyboardEvent.key (ArrowLeft -> Left)
+            # before crossing the Python bridge; the bridge resolves canonical chords.
+            self.assertEqual(api.keymap_resolve_binding("board", "Left")["actionId"], "board.cursor_left")
             changed = api.keymap_save("board.cursor_left", "Ctrl+Alt+Left")
             self.assertTrue(changed["ok"])
-            self.assertIsNone(api.keymap_resolve_binding("board", "ArrowLeft"))
+            self.assertIsNone(api.keymap_resolve_binding("board", "Left"))
             self.assertEqual(
                 api.keymap_resolve_binding("board", "Ctrl+Alt+Left")["actionId"],
                 "board.cursor_left",
