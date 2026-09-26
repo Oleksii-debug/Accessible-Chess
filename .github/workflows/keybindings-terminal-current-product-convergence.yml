@@ -26,6 +26,8 @@ on:
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/library_surface_dom_test.js'
       - 'tests/js/education_surface_dom_test.js'
+      - '.github/workflows/d01-education-management-webview.yml'
+      - '.github/workflows/full-product-education-class-create.yml'
       - '.github/workflows/keybindings-terminal-current-product-convergence.yml'
   workflow_dispatch:
 
@@ -66,6 +68,8 @@ jobs:
           git diff --check "$EXPECTED_PRODUCT_SHA" HEAD
           changed="$(git diff --name-only "$EXPECTED_PRODUCT_SHA" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/d01-education-management-webview.yml' \
+            '.github/workflows/full-product-education-class-create.yml' \
             '.github/workflows/full-product-native-menu-keymap-refresh.yml' \
             '.github/workflows/keybindings-contract.yml' \
             '.github/workflows/keybindings-terminal-current-product-convergence.yml' \
