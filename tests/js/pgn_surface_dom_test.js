@@ -43,7 +43,20 @@ global.document = {
 global.window = {};
 vm.runInThisContext(fs.readFileSync("web/full_product_pgn.js", "utf8"), { filename: "full_product_pgn.js" });
 
+const pgnBindings = {
+  ArrowUp: "pgn.previous_item",
+  ArrowDown: "pgn.next_item",
+  ArrowLeft: "pgn.parent_variation"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "document") return "";
+  return pgnBindings[event.key] || "";
+};
+
 function check(condition, message) { if (!condition) throw new Error(message); }
+const shellSource = fs.readFileSync("web/index.html", "utf8");
+check(shellSource.includes("window.accessibleChessKeymapAction=keymapActionForEvent"),
+  "shipping shell does not export the current-keymap event resolver");
 function snapshot(selectedId) {
   return {
     status: "ready",
@@ -81,18 +94,58 @@ async function run() {
   check(document.activeElement && document.activeElement.id === "pgn-a", "initial tree focus missing");
 
   let prevented = false;
-  items[0].listeners.keydown({ key: "ArrowDown", preventDefault: () => { prevented = true; } });
+  let stopped = false;
+  items[0].listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { prevented = true; },
+    stopPropagation: () => { stopped = true; }
+  });
   await flush();
-  check(prevented, "ArrowDown did not use semantic tree navigation");
-  check(calls[0][0] === "pgn.move" && calls[0][1].delta === 1, "ArrowDown used wrong bridge command");
+  check(prevented, "default Down binding did not use semantic tree navigation");
+  check(stopped, "handled PGN navigation bubbled into the global dispatcher");
+  check(calls[0][0] === "pgn.move" && calls[0][1].delta === 1, "default Down binding used wrong bridge command");
   check(document.activeElement && document.activeElement.id === "pgn-b", "tree focus was not restored after navigation");
 
+  delete pgnBindings.ArrowDown;
+  pgnBindings.j = "pgn.next_item";
+  const remapStart = calls.length;
+  let stalePrevented = false;
+  root.querySelectorAll('[role="treeitem"]')[1].listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { stalePrevented = true; },
+    stopPropagation: () => {}
+  });
+  await flush();
+  check(!stalePrevented, "old ArrowDown binding survived the live remap");
+  check(calls.length === remapStart, "old ArrowDown binding still dispatched PGN navigation");
+
+  let remapPrevented = false;
+  let remapStopped = false;
+  root.querySelectorAll('[role="treeitem"]')[1].listeners.keydown({
+    key: "j",
+    preventDefault: () => { remapPrevented = true; },
+    stopPropagation: () => { remapStopped = true; }
+  });
+  await flush();
+  check(remapPrevented && remapStopped, "remapped PGN navigation was not owned locally");
+  check(calls.length === remapStart + 1, "remapped PGN navigation did not dispatch exactly once");
+  check(calls[calls.length - 1][0] === "pgn.move" && calls[calls.length - 1][1].delta === 1, "remapped key used wrong trusted bridge command");
+
+  pgnBindings.ArrowDown = "pgn.next_item";
+  delete pgnBindings.j;
   const current = root.querySelectorAll('[role="treeitem"]')[1];
   const beforeCopy = calls.length;
   let ctrlPrevented = false;
-  current.listeners.keydown({ key: "c", ctrlKey: true, preventDefault: () => { ctrlPrevented = true; } });
+  let ctrlStopped = false;
+  current.listeners.keydown({
+    key: "c",
+    ctrlKey: true,
+    preventDefault: () => { ctrlPrevented = true; },
+    stopPropagation: () => { ctrlStopped = true; }
+  });
   await flush();
   check(!ctrlPrevented, "Ctrl+C was hijacked by PGN tree navigation");
+  check(!ctrlStopped, "Ctrl+C was stopped before browser/NVDA handling");
   check(calls.length === beforeCopy, "Ctrl+C unexpectedly became a PGN command");
 
   const all = root.descendants();
