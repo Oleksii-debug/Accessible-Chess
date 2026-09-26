@@ -6,6 +6,7 @@ import json
 import stat
 import tempfile
 import unittest
+import wave
 import zipfile
 from pathlib import Path
 
@@ -18,9 +19,21 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _wav_bytes(seed: bytes) -> bytes:
+    value = hashlib.sha256(seed).digest()[0]
+    sample = int((value - 128) * 128).to_bytes(2, "little", signed=True)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        writer.writeframes(sample * 16)
+    return buffer.getvalue()
+
+
 def _pack_files(pack_id="download.test", version="1.0.0"):
     payloads = {
-        event: (b"RIFF" + event.encode("ascii"))
+        event: _wav_bytes(event.encode("ascii"))
         for event in CORE_SOUND_EVENTS
     }
     files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
@@ -123,7 +136,7 @@ class HttpsZipSoundPackAcquirerTests(unittest.TestCase):
             self.assertEqual(manifest.pack_id, "download.test")
             self.assertEqual(
                 store.resolve("download.test", "move").read_bytes(),
-                b"RIFFmove",
+                _wav_bytes(b"move"),
             )
             self.assertEqual(list(scratch.iterdir()), [])
             self.assertEqual(len(opener.calls), 1)
