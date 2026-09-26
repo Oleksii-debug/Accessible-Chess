@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+import acs.secret_store as secret_store
+from acs.secret_store import SecretStoreError, WindowsDpapiSecretStore
+
+
+class SecretStoreContractTests(unittest.TestCase):
+    def test_module_imports_on_every_platform_and_non_windows_fails_closed(self) -> None:
+        store = WindowsDpapiSecretStore(Path("unused"))
+        if sys.platform != "win32":
+            with self.assertRaisesRegex(SecretStoreError, "DPAPI is unavailable"):
+                store.write("refresh-token", b"secret")
+
+    def test_slot_names_are_hashed_and_hostile_objects_are_not_stringified(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            store = WindowsDpapiSecretStore(Path(td))
+            target = store._path("refresh-token")
+            self.assertTrue(target.name.endswith(".dpapi"))
+            self.assertNotIn("refresh", target.name)
+            self.assertNotIn("token", target.name)
+
+            conversions: list[str] = []
+
+            class DangerousName:
+                def __str__(self) -> str:
+                    conversions.append("str")
+                    raise AssertionError("secret slot must not invoke __str__")
+
+            with self.assertRaisesRegex(SecretStoreError, "safe stable identifier"):
+                store._path(DangerousName())  # type: ignore[arg-type]
+            self.assertEqual(conversions, [])
+
+    def test_simulated_dpapi_round_trip_is_atomic_ciphertext_only_and_deletable(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            store = WindowsDpapiSecretStore(Path(td) / "secure")
+            secret = b"refresh-token-value-that-must-not-hit-disk"
+
+            def protect(value: bytes) -> bytes:
+                return b"DPAPI-FIXTURE:" + value[::-1]
+
+            def unprotect(value: bytes) -> bytes:
+                prefix = b"DPAPI-FIXTURE:"
+                if not value.startswith(prefix):
+                    raise SecretStoreError("fixture ciphertext rejected")
+                return value[len(prefix):][::-1]
+
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(secret_store, "_dpapi_protect", side_effect=protect),
+                mock.patch.object(secret_store, "_dpapi_unprotect", side_effect=unprotect),
+            ):
+                store.write("refresh-token", secret)
+                target = store._path("refresh-token")
+                ciphertext = target.read_bytes()
+                self.assertNotEqual(ciphertext, secret)
+                self.assertNotIn(secret, ciphertext)
+                self.assertEqual(store.read("refresh-token"), secret)
+                self.assertTrue(store.delete("refresh-token"))
+                self.assertFalse(store.delete("refresh-token"))
+                self.assertIsNone(store.read("refresh-token"))
+
+    def test_secret_and_ciphertext_size_limits_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            store = WindowsDpapiSecretStore(Path(td) / "secure")
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(secret_store, "_dpapi_protect", return_value=b"cipher"),
+            ):
+                with self.assertRaisesRegex(SecretStoreError, "secret value exceeds size limit"):
+                    store.write("refresh-token", b"x" * (secret_store._MAX_SECRET_BYTES + 1))
+
+                store._prepare_root()
+                target = store._path("refresh-token")
+                target.write_bytes(b"x" * (secret_store._MAX_CIPHERTEXT_BYTES + 1))
+                with self.assertRaisesRegex(SecretStoreError, "ciphertext exceeds size limit"):
+                    store.read("refresh-token")
+
+    def test_symlink_secret_file_is_rejected_before_read_or_replace(self) -> None:
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlinks unsupported")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "secure"
+            root.mkdir()
+            store = WindowsDpapiSecretStore(root)
+            target = store._path("refresh-token")
+            elsewhere = Path(td) / "elsewhere"
+            elsewhere.write_bytes(b"not-a-secret")
+            try:
+                target.symlink_to(elsewhere)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation unavailable")
+            with mock.patch.object(secret_store.sys, "platform", "win32"):
+                with self.assertRaisesRegex(SecretStoreError, "symlink or reparse point"):
+                    store.read("refresh-token")
+
+
+@unittest.skipUnless(sys.platform == "win32", "real DPAPI qualification requires Windows")
+class WindowsDpapiIntegrationTests(unittest.TestCase):
+    def test_current_user_dpapi_round_trip_does_not_persist_plaintext(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            store = WindowsDpapiSecretStore(Path(td) / "secure")
+            secret = b"accessible-chess-real-dpapi-round-trip-secret"
+            store.write("refresh-token", secret)
+            target = store._path("refresh-token")
+            ciphertext = target.read_bytes()
+            self.assertGreater(len(ciphertext), 0)
+            self.assertNotEqual(ciphertext, secret)
+            self.assertNotIn(secret, ciphertext)
+            self.assertEqual(store.read("refresh-token"), secret)
+            self.assertTrue(store.delete("refresh-token"))
+            self.assertIsNone(store.read("refresh-token"))
+
+
+if __name__ == "__main__":
+    unittest.main()
