@@ -46,6 +46,10 @@ _KEY_NORMALIZER = re.compile(r"[^a-z0-9]")
 _HEADER_RE = re.compile(
     r"(?im)(\b(?:authorization|proxy-authorization)\s*:\s*)(?:bearer\s+|basic\s+)?[^\s,;]+"
 )
+# Cookie headers can carry several credentials separated by semicolons and
+# Set-Cookie attributes on the same line. Redact the complete header value so a
+# second cookie/attribute cannot survive after only the first token is hidden.
+_COOKIE_HEADER_RE = re.compile(r"(?im)(\b(?:cookie|set-cookie)\s*:\s*)[^\r\n]*")
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+\-/]+=*")
 _ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
@@ -85,6 +89,7 @@ def redact_text(value: str) -> str:
     if type(value) is not str:
         raise SecretRedactionError("diagnostic text must be plain text")
     text = value
+    text = _COOKIE_HEADER_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _HEADER_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _BEARER_RE.sub("Bearer " + REDACTED, text)
     text = _ASSIGNMENT_RE.sub(lambda match: match.group(1) + REDACTED, text)
