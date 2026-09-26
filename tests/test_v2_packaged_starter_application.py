@@ -115,7 +115,8 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual("pgn", app.shell.current_route.route_id)
                 self.assertIsNotNone(app.session)
                 self.assertEqual(1, app.session.view().game_count)
-                self.assertFalse(app.session.dirty)
+                self.assertTrue(app.session.dirty)
+                self.assertIsNone(app.session.view().source_path)
 
                 result = app.browser_command(
                     "library", "library.open_packaged_stress_pgn", {}
@@ -123,6 +124,8 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual("status", result["kind"])
                 self.assertEqual("pgn", app.shell.current_route.route_id)
                 self.assertEqual(1, app.session.view().game_count)
+                self.assertTrue(app.session.dirty)
+                self.assertIsNone(app.session.view().source_path)
             finally:
                 app.shutdown()
                 analysis.close()
