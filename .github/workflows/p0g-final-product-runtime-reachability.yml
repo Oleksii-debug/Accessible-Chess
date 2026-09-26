@@ -1,0 +1,84 @@
+name: P0-G Final Product Runtime Reachability
+
+on:
+  pull_request:
+    branches:
+      - fix/p0g-event-aware-current-product-20260926
+    paths:
+      - 'acs/version2_final_release.py'
+      - 'tests/test_p0g_final_product_runtime_reachability.py'
+      - '.github/workflows/p0g-final-product-runtime-reachability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0g-final-product-runtime-reachability-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FINAL_RELEASE_BLOB: 28c71a3f7998a72ad9528d84922de58b34d7e5c5
+  REACHABILITY_TEST_BLOB: bc78f3ce0736e439c32f4a0d897710a32cf650ca
+
+jobs:
+  final-product-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked scope and resource identities
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA" HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/p0g-final-product-runtime-reachability.yml' \
+            'acs/version2_final_release.py' \
+            'tests/test_p0g_final_product_runtime_reachability.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_final_release.py)" = "$FINAL_RELEASE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)" = "$REACHABILITY_TEST_BLOB"
+          git show "$EXPECTED_BASE_SHA:web/p0_accessibility_runtime.js" | grep -Fq '"AccessibleChessTeacherSurface"'
+          git show "$EXPECTED_BASE_SHA:web/p0_accessibility_runtime.js" | grep -Fq 'wrapSurfaceRenderAnnouncement'
+
+      - name: Parse shipping P0 runtime
+        run: node --check web/p0_accessibility_runtime.js
+
+      - name: Compile final-product reachability scope
+        run: python -m py_compile acs/version2_final_release.py tests/test_p0g_final_product_runtime_reachability.py
+
+      - name: Prove runtime load order and retained final composition
+        run: python -m unittest -v tests.test_p0g_final_product_runtime_reachability tests.test_version2_final_product_composition
+
+      - name: Full repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+      - name: Current V2 production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
