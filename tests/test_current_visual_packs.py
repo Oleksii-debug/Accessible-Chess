@@ -21,6 +21,10 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _png(body: bytes) -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + body
+
+
 def _board_manifest(
     data: bytes = b"png-board",
     *,
@@ -28,7 +32,12 @@ def _board_manifest(
     api: int = 1,
     pack_id: str = "high-contrast",
 ) -> tuple[VisualPackManifest, dict[str, bytes]]:
-    payloads = {"board/light.png": data}
+    light = _png(data + b"-light")
+    dark = _png(data + b"-dark")
+    payloads = {
+        "board/light.png": light,
+        "board/dark.png": dark,
+    }
     return (
         VisualPackManifest(
             pack_id=pack_id,
@@ -40,10 +49,14 @@ def _board_manifest(
             provenance="Project-authored test visual asset.",
             product_api_version=api,
             assets={
-                "light": VisualAssetSpec(
+                "light_square": VisualAssetSpec(
                     "board/light.png",
-                    _digest(data),
-                )
+                    _digest(light),
+                ),
+                "dark_square": VisualAssetSpec(
+                    "board/dark.png",
+                    _digest(dark),
+                ),
             },
         ),
         payloads,
@@ -56,8 +69,8 @@ def _piece_manifest() -> tuple[VisualPackManifest, dict[str, bytes]]:
     for side in ("white", "black"):
         for piece in ("king", "queen", "rook", "bishop", "knight", "pawn"):
             asset_id = f"{side}_{piece}"
-            path = f"pieces/{asset_id}.svg"
-            data = f"<svg>{asset_id}</svg>".encode()
+            path = f"pieces/{asset_id}.png"
+            data = _png(asset_id.encode())
             payloads[path] = data
             assets[asset_id] = VisualAssetSpec(path, _digest(data))
     return (
@@ -162,9 +175,16 @@ class CurrentVisualPacksTests(unittest.TestCase):
             self.assertTrue(store.verify(first))
             self.assertEqual(store.versions(first.kind, first.pack_id), ("1.0.0",))
             self.assertEqual(
-                store.resolve_asset(first.kind, first.pack_id, "light"),
+                store.resolve_asset(first.kind, first.pack_id, "light_square"),
                 installed / "board" / "light.png",
             )
+            asset_url = store.resolve_asset_data_url(
+                first.kind,
+                first.pack_id,
+                "light_square",
+            )
+            self.assertIsNotNone(asset_url)
+            self.assertTrue(asset_url.startswith("data:image/png;base64,"))
 
             second_data = b"png-board-v2"
             second, second_payloads = _board_manifest(
@@ -195,15 +215,19 @@ class CurrentVisualPacksTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             store = VisualPackStore(Path(raw) / "packs")
             manifest, payloads = _board_manifest()
+            wrong_checksum = dict(payloads)
+            wrong_checksum["board/light.png"] = b"wrong"
             with self.assertRaisesRegex(VisualPackStoreError, "checksum"):
                 store.install(
                     manifest,
-                    {"board/light.png": b"wrong"},
+                    wrong_checksum,
                 )
+            wrong_paths = dict(payloads)
+            wrong_paths["board/other.png"] = wrong_paths.pop("board/light.png")
             with self.assertRaisesRegex(VisualPackStoreError, "paths"):
                 store.install(
                     manifest,
-                    {"board/other.png": next(iter(payloads.values()))},
+                    wrong_paths,
                 )
             store.install(manifest, payloads)
             changed, changed_payloads = _board_manifest(
@@ -212,6 +236,39 @@ class CurrentVisualPacksTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(VisualPackStoreError, "different content"):
                 store.install(changed, changed_payloads)
+
+    def test_install_rejects_extension_spoofed_non_image_bytes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            store = VisualPackStore(Path(raw) / "packs")
+            light = b"not-a-real-png"
+            dark = _png(b"dark")
+            manifest = VisualPackManifest(
+                pack_id="spoofed-image",
+                version="1.0.0",
+                title="Spoofed image",
+                kind=VisualPackKind.BOARD,
+                license_id="CC0-1.0",
+                author="Accessible Chess",
+                provenance="Adversarial test fixture.",
+                assets={
+                    "light_square": VisualAssetSpec(
+                        "board/light.png",
+                        _digest(light),
+                    ),
+                    "dark_square": VisualAssetSpec(
+                        "board/dark.png",
+                        _digest(dark),
+                    ),
+                },
+            )
+            with self.assertRaisesRegex(VisualPackStoreError, "invalid signature"):
+                store.install(
+                    manifest,
+                    {
+                        "board/light.png": light,
+                        "board/dark.png": dark,
+                    },
+                )
 
     def test_incompatible_product_api_is_rejected_before_publication(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -252,7 +309,7 @@ class CurrentVisualPacksTests(unittest.TestCase):
             installed = store.install(manifest, payloads)
             (installed / "board" / "light.png").write_bytes(b"tampered")
             self.assertIsNone(
-                store.resolve_asset(manifest.kind, manifest.pack_id, "light")
+                store.resolve_asset(manifest.kind, manifest.pack_id, "light_square")
             )
             resolved = store.effective_preferences(
                 BoardVisualPreferences(board_theme_id=manifest.pack_id)
