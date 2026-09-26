@@ -59,7 +59,7 @@ _QUOTED_ASSIGNMENT_RE = re.compile(
 _ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
     r"api[_-]?key|api[_-]?secret|license[_-]?key|session[_-]?token|password|passwd)"
-    r"\s*[=:]\s*)([^\s&,;]+)"
+    r"\s*[=:]\s*)(?![\"\'])([^\s&,;]+)"
 )
 _JSONISH_RE = re.compile(
     r"(?i)([\"'](?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
