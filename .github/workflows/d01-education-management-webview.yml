@@ -32,8 +32,6 @@ env:
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
   WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
   OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
-  CURRENT_SHARED_EDUCATION_TEST_BLOB: 92ef5d96eda599bdb4db66e8ebe263a693532227
-  CURRENT_EDUCATION_RELEASE_BLOB: 55956329c1fe2dc9417ae4082fba821667c9ec13
 
 jobs:
   verify:
@@ -81,8 +79,17 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
           test "$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)" = "$DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:web/full_product_education.js)" = "$WEB_SURFACE_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "$CURRENT_SHARED_EDUCATION_TEST_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
+
+          # These two files form the Product-owned Education release binding
+          # contract. P0 convergence intentionally evolves them together from
+          # StarterContentApplication to PackagedStarterApplication. Keep them
+          # in this gate and prove the pair by compile, focused tests and the
+          # exact production-composition diagnostic below instead of pinning
+          # one historical composition blob forever.
+          git cat-file -e "HEAD:acs/version2_education_mutation_release.py"
+          git cat-file -e "HEAD:tests/test_version2_education_class_create.py"
+          test -s acs/version2_education_mutation_release.py
+          test -s tests/test_version2_education_class_create.py
 
           education_owner="e5ac1982423c87c42c359726c37707f3fccffac5"
           git cat-file -e "${education_owner}^{commit}"

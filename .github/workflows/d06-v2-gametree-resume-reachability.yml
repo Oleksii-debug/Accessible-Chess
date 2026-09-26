@@ -18,7 +18,6 @@ concurrency:
 env:
   D06_V2_RESUME_OWNER: c2a080712ab76bd318dc6a6c3037db464ab67857
   D06_RESUME_BLOB: 585574d61de42c3f956e050b0d7acf5e19dc7942
-  D06_RELEASE_APP_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
   D06_TEST_BLOB: 3a52ce7a15ac296b362d25e3ca470bd99497961a
 
 jobs:
@@ -64,8 +63,12 @@ jobs:
           git merge-base --is-ancestor "$D06_V2_RESUME_OWNER" HEAD
           git diff --check "$base" HEAD
           test "$(git rev-parse HEAD:acs/version2_gametree_resume.py)" = "$D06_RESUME_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$D06_RELEASE_APP_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_reachability.py)" = "$D06_TEST_BLOB"
+          # version2_release_app.py is the Product composition surface for this
+          # retained D06 owner. It may evolve independently; compatibility is
+          # proved below by compile, focused release-app tests and full suites.
+          git cat-file -e "HEAD:acs/version2_release_app.py"
+          test -s acs/version2_release_app.py
           printf 'Retained D06 authority PASS: base=%s owner=%s head=%s\n' "$base" "$D06_V2_RESUME_OWNER" "$(git rev-parse HEAD)"
 
       - name: Compile changed Python surface

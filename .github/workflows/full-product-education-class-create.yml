@@ -28,8 +28,6 @@ env:
   MUTATION_APP_BLOB: f9429f3c9e9a6fdc32708716cacfa669c7cb4184
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
   OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
-  CURRENT_SHARED_EDUCATION_TEST_BLOB: 92ef5d96eda599bdb4db66e8ebe263a693532227
-  CURRENT_EDUCATION_RELEASE_BLOB: 55956329c1fe2dc9417ae4082fba821667c9ec13
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
   WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
 
@@ -78,14 +76,22 @@ jobs:
           git cat-file -e "${education_owner}^{commit}"
           git merge-base --is-ancestor "$education_owner" HEAD
           test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
+
+          # The Education release binding and its shared class-create test are
+          # Product composition surfaces. P0 convergence evolves them together
+          # to the packaged starter application; compile, focused Education
+          # regressions and production diagnostic below prove compatibility.
+          git cat-file -e "HEAD:acs/version2_education_mutation_release.py"
+          git cat-file -e "HEAD:tests/test_version2_education_class_create.py"
+          test -s acs/version2_education_mutation_release.py
+          test -s tests/test_version2_education_class_create.py
+
           # The launcher is composition-owned and may legitimately change while
           # retaining Education. Keep it in pull_request.paths and prove it by
           # compile + focused Education tests + production diagnostic below,
           # rather than freezing one historical launcher blob forever.
           git cat-file -e "HEAD:run_accessible_chess_v2.py"
           test -s run_accessible_chess_v2.py
-          test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "$CURRENT_SHARED_EDUCATION_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_education_open_selected.py)" = "$OPEN_SELECTED_TEST_BLOB"
