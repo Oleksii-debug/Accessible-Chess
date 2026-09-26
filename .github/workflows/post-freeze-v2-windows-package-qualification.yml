@@ -229,6 +229,10 @@ jobs:
           Write-Host 'PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS'
           """'''
           run = run[:start] + replacement + run[end:]
+          if 'if($last.Trim() -eq $expected.Trim())' in run:
+              raise SystemExit('Stale trimmed clipboard comparison survived document override replacement')
+          if run.count('PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS') != 1:
+              raise SystemExit('Hardened document override replacement count mismatch')
           Path('.previous-materialize-and-pre.ps1').write_text(run, encoding='utf-8', newline='\n')
           '@ | Set-Content -LiteralPath .extract-previous-package-pre.py -Encoding utf8
           python .extract-previous-package-pre.py
