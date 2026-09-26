@@ -3,6 +3,7 @@ from __future__ import annotations
 """Fail-closed local storage for provider-neutral visual asset packs."""
 
 from dataclasses import dataclass
+import base64
 import hashlib
 import json
 import os
@@ -23,6 +24,7 @@ from .visual_preferences import (
 MAX_VISUAL_MANIFEST_BYTES = 64 * 1024
 MAX_VISUAL_ASSET_BYTES = 4 * 1024 * 1024
 MAX_VISUAL_PACK_BYTES = 24 * 1024 * 1024
+MAX_WEBVIEW_VISUAL_ASSET_BYTES = 256 * 1024
 _BUILT_IN_ID = "classic"
 _MANIFEST_NAME = "manifest.json"
 
@@ -106,6 +108,23 @@ def _decode_json(data: bytes, label: str) -> Mapping[str, object]:
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _image_mime(path: str, data: bytes) -> str:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".png":
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise VisualPackStoreError("visual PNG asset has an invalid signature")
+        return "image/png"
+    if suffix in {".jpg", ".jpeg"}:
+        if not data.startswith(b"\xff\xd8\xff"):
+            raise VisualPackStoreError("visual JPEG asset has an invalid signature")
+        return "image/jpeg"
+    if suffix == ".webp":
+        if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+            raise VisualPackStoreError("visual WebP asset has an invalid signature")
+        return "image/webp"
+    raise VisualPackStoreError("visual asset type is not renderable")
 
 
 def _reparse(metadata: os.stat_result) -> bool:
@@ -257,6 +276,7 @@ class VisualPackStore:
                 raise VisualPackStoreError(
                     "visual pack asset checksum mismatch"
                 )
+            _image_mime(path, data)
             out[path] = data
         return out
 
@@ -753,6 +773,27 @@ class VisualPackStore:
         ):
             return None
         return path
+
+    def resolve_asset_data_url(
+        self,
+        kind: VisualPackKind | str,
+        pack_id: str,
+        asset_id: str,
+    ) -> str | None:
+        """Return one verified bounded raster asset as a WebView-safe data URL."""
+
+        path = self.resolve_asset(kind, pack_id, asset_id)
+        if path is None:
+            return None
+        try:
+            metadata = _regular(path, "visual pack asset")
+            if metadata.st_size > MAX_WEBVIEW_VISUAL_ASSET_BYTES:
+                return None
+            data = path.read_bytes()
+            mime = _image_mime(path.as_posix(), data)
+        except (OSError, VisualPackStoreError):
+            return None
+        return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
     def effective_preferences(
         self,
