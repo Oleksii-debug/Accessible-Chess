@@ -65,7 +65,7 @@ jobs:
           git config core.eol lf
           Remove-Item work -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path work | Out-Null
-          $paths=@('acs','web','tests','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
+          $paths=@('acs','web','tests','docs/WINDOWS_NATIVE_MENU_SMOKE.md','run_accessible_chess.py','ACCESSIBILITY_0.4_ARCHITECTURE.md','VERSION.txt','HOTKEYS_UA.txt','HOTKEYS_EN.txt')
           git archive --format=zip --output=product.zip $env:SOURCE_INTEGRATION_SHA -- $paths
           if($LASTEXITCODE -ne 0){throw 'Exact product export failed'}
           Expand-Archive product.zip work -Force
