@@ -1,0 +1,59 @@
+name: Secure HTTPS Transport Contract
+
+on:
+  pull_request:
+    paths:
+      - 'acs/secure_http.py'
+      - 'tests/test_secure_http.py'
+      - '.github/workflows/secure-http-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: secure-http-transport-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove isolated transport-only scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/secure-http-transport.yml' 'acs/secure_http.py' 'tests/test_secure_http.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected secure transport scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile transport and tests
+        run: python -m compileall -q acs/secure_http.py tests/test_secure_http.py
+
+      - name: Execute secure transport contract tests
+        run: python -m unittest -v tests.test_secure_http
+
+      - name: Core selftest
+        run: python -m acs.selftest
