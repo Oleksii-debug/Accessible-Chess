@@ -7,12 +7,12 @@ from acs.keybindings import ActionRegistry, BindingContext
 
 
 def _action_for(registry: ActionRegistry, binding: str) -> str | None:
-    resolved = registry.resolve_binding(BindingContext.DOCUMENT, binding)
+    resolved = registry.resolve_binding(BindingContext.PGN_TREE, binding)
     return None if resolved is None else resolved.action_id
 
 
 class FullProductPgnKeybindingTests(unittest.TestCase):
-    def test_pgn_tree_navigation_defaults_are_registered_and_context_local(self) -> None:
+    def test_pgn_tree_navigation_defaults_are_registered_and_widget_local(self) -> None:
         registry = build_full_product_action_registry()
 
         self.assertEqual("pgn.previous_item", _action_for(registry, "Up"))
@@ -22,6 +22,7 @@ class FullProductPgnKeybindingTests(unittest.TestCase):
             "board.cursor_up",
             registry.resolve_binding(BindingContext.BOARD, "Up").action_id,
         )
+        self.assertIsNone(registry.resolve_binding(BindingContext.DOCUMENT, "Up"))
 
     def test_remap_replaces_old_binding_and_survives_profile_roundtrip(self) -> None:
         registry = build_full_product_action_registry()
