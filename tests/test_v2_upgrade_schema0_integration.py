@@ -39,6 +39,18 @@ def _legacy_row(path: Path):
         connection.close()
 
 
+def _legacy_rows(path: Path):
+    connection = sqlite3.connect(path)
+    try:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        rows = connection.execute(
+            "SELECT id,title,pgn,created_at FROM games ORDER BY id"
+        ).fetchall()
+        return version, rows
+    finally:
+        connection.close()
+
+
 class Version2Schema0IntegrationTests(unittest.TestCase):
     def test_exact_shipped_schema0_upgrades_through_d07_and_existing_transaction(self):
         with tempfile.TemporaryDirectory() as td:
@@ -72,6 +84,65 @@ class Version2Schema0IntegrationTests(unittest.TestCase):
                 (root / ".v2-upgrade-state.json").read_text(encoding="utf-8")
             )
             self.assertEqual(journal["phase"], "committed")
+
+    def test_committed_schema0_wal_rows_survive_backup_and_upgrade(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            _make_legacy(library)
+
+            writer = sqlite3.connect(library)
+            try:
+                mode = str(writer.execute("PRAGMA journal_mode=WAL").fetchone()[0]).casefold()
+                self.assertEqual(mode, "wal")
+                # Keep this connection open so the committed second row remains a
+                # legitimate WAL-backed part of the logical database while the
+                # recovery coordinator snapshots and converts schema 0.
+                writer.execute("PRAGMA wal_autocheckpoint=0")
+                writer.execute(
+                    "INSERT INTO games(title,pgn,created_at) VALUES(?,?,?)",
+                    (
+                        "wal-only-source.pgn",
+                        "1. d4 d5 2. c4 *",
+                        "2026-09-26T00:00:00",
+                    ),
+                )
+                writer.commit()
+                self.assertTrue(Path(str(library) + "-wal").is_file())
+                before = _legacy_rows(library)
+                self.assertEqual(len(before[1]), 2)
+
+                report = Version2UpgradeCoordinator(UserDataLayout(root)).run()
+            finally:
+                writer.close()
+
+            self.assertEqual(report.status, "upgraded")
+            self.assertTrue(report.library_migrated)
+            with AcsDatabase(library) as reopened:
+                self.assertEqual(reopened.schema_version, ACSDB_SCHEMA_VERSION)
+                names = [
+                    str(row[0])
+                    for row in reopened.conn.execute(
+                        "SELECT source_name FROM sources ORDER BY id"
+                    ).fetchall()
+                ]
+                self.assertEqual(names, ["legacy-source.pgn", "wal-only-source.pgn"])
+                self.assertEqual(
+                    int(reopened.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]),
+                    2,
+                )
+
+            backup = (
+                root.parent
+                / "AccessibleChess.upgrade-backups"
+                / report.backup_name
+            )
+            manifest = json.loads(
+                (backup / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["library_schema_before"], 0)
+            self.assertEqual(_legacy_rows(backup / "data" / "library.acsdb"), before)
 
     def test_arbitrary_unversioned_sqlite_is_rejected_without_mutation(self):
         with tempfile.TemporaryDirectory() as td:
