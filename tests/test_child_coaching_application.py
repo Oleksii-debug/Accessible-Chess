@@ -5,13 +5,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from acs.child_coaching import LessonBlock, preset_templates
+from acs.child_coaching import LessonBlock, LessonBlockKind, preset_templates
 from acs.child_coaching_application import (
     ChildCoachingApplication,
     ChildCoachingApplicationError,
 )
 from acs.child_coaching_store import ChildCoachingTemplateStore
-from acs.teaching_session import PositionSourceKind, TeachingPositionSource
+from acs.teaching_session import PositionSourceKind, TeachingActivity, TeachingPositionSource
 
 
 class ChildCoachingApplicationTests(unittest.TestCase):
@@ -114,6 +114,46 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             self.assertIsNotNone(reopened.summary("newer-copy"))
             with self.assertRaises(ChildCoachingApplicationError):
                 reopened.summary("stale-copy")
+
+
+
+    def test_custom_template_can_append_and_remove_reusable_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.make_app(temp)
+            catalog = app.open_catalog()
+            catalog = app.copy_template(
+                "preset-preschool-4-6",
+                template_id="editable-blocks",
+                title="Editable blocks",
+                expected_revision=catalog.revision,
+            )
+            before, revision = app.get_template("editable-blocks")
+            extra = LessonBlock(
+                "homework",
+                LessonBlockKind.HOMEWORK,
+                "Home practice",
+                5,
+                TeachingActivity.TEACHER_EXPLAINS,
+                "Review today's idea once at home.",
+                teacher_note="Send this only after the lesson.",
+            )
+            catalog = app.append_block(
+                "editable-blocks",
+                extra,
+                expected_revision=revision,
+            )
+            appended, revision = app.get_template("editable-blocks")
+            self.assertEqual(len(appended.blocks), len(before.blocks) + 1)
+            self.assertEqual(appended.blocks[-1], extra)
+
+            catalog = app.remove_block(
+                "editable-blocks",
+                "homework",
+                expected_revision=revision,
+            )
+            restored, _ = app.get_template("editable-blocks")
+            self.assertEqual(len(restored.blocks), len(before.blocks))
+            self.assertTrue(restored.custom)
 
 
     def test_session_start_can_require_exact_reviewed_template_revision(self) -> None:
