@@ -118,38 +118,27 @@ class ClassroomPairingTests(unittest.TestCase):
             tuple(item.pairing_id for item in retry.pairings),
         )
 
-    def test_random_pairing_uses_injected_shuffle_and_preserves_exact_membership(self):
+    def test_random_pairing_is_batch_stable_for_retry_and_preserves_membership(self):
         classroom = _classroom()
         lesson = _lesson(("s1", "s2", "s3", "s4"))
 
-        def reverse(values):
-            values.reverse()
-
-        batch = plan_pairings(
-            lesson,
-            classroom,
+        kwargs = dict(
             batch_id="batch-random",
             game_session_ids=("game-a", "game-b"),
             mode=PairingMode.RANDOM,
-            shuffle=reverse,
         )
-        self.assertEqual(
-            tuple((item.white_student_id, item.black_student_id) for item in batch.pairings),
-            (("s4", "s3"), ("s2", "s1")),
+        first = plan_pairings(lesson, classroom, **kwargs)
+        retry = plan_pairings(lesson, classroom, **kwargs)
+
+        self.assertEqual(first, retry)
+        self.assertEqual(first.digest, retry.digest)
+        paired = tuple(
+            student
+            for item in first.pairings
+            for student in (item.white_student_id, item.black_student_id)
         )
-
-        def corrupt(values):
-            values[:] = ["s1", "s1", "s2", "s3"]
-
-        with self.assertRaisesRegex(ClassroomPairingError, "preserve the exact student set"):
-            plan_pairings(
-                lesson,
-                classroom,
-                batch_id="batch-corrupt",
-                game_session_ids=("game-a", "game-b"),
-                mode=PairingMode.RANDOM,
-                shuffle=corrupt,
-            )
+        self.assertEqual(set(paired), {"s1", "s2", "s3", "s4"})
+        self.assertEqual(len(paired), 4)
 
     def test_selected_subset_must_be_unique_active_lesson_students(self):
         classroom = _classroom()
@@ -185,6 +174,14 @@ class ClassroomPairingTests(unittest.TestCase):
                 batch_id="batch-outsider",
                 student_ids=("s1", "s6"),
                 game_session_ids=("game-x",),
+            )
+        with self.assertRaisesRegex(ClassroomPairingError, "at least two students"):
+            plan_pairings(
+                lesson,
+                classroom,
+                batch_id="batch-single",
+                student_ids=("s1",),
+                game_session_ids=(),
             )
         with self.assertRaisesRegex(ClassroomPairingError, "lesson session is outside current classroom scope"):
             plan_pairings(
