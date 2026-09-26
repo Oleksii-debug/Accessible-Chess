@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -547,6 +548,34 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                         engine_assistance=EngineAssistedWorkflowService(analysis),
                         board_dispatch=lambda *_: None,
                     )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_broken_implicit_bundle_link_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-broken-root-") as raw:
+            root = Path(raw)
+            broken = root / "w2-starter"
+            missing_target = root / "missing-target"
+            try:
+                broken.symlink_to(missing_target, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"directory symlink creation unavailable: {type(exc).__name__}")
+
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with mock.patch(
+                    "acs.version2_packaged_starter_application._default_bundle_root",
+                    return_value=broken,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "regular directory"):
+                        Version2PackagedStarterApplication(
+                            database,
+                            progress_store=BookProgressStore(root / "book-progress.json"),
+                            engine_assistance=EngineAssistedWorkflowService(analysis),
+                            board_dispatch=lambda *_: None,
+                        )
             finally:
                 analysis.close()
                 database.close()
