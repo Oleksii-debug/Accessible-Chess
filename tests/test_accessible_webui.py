@@ -130,8 +130,10 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('id="game-info" class="block" aria-live="off"', self.html)
         self.assertIn('id="moves" class="block" aria-live="off"', self.html)
         self.assertIn('id="engine-status" class="block" aria-live="off"', self.html)
+        self.assertIn("rememberedAnnouncementEvents.has(eventKey)", self.html)
+        self.assertIn("rememberedAnnouncementEventOrder.length>256", self.html)
         self.assertIn("recentAnnouncements=recentAnnouncements.filter(item=>now-item.at<500)", self.html)
-        self.assertIn("recentAnnouncements.some(item=>item.message===message&&item.eventId===eventId)", self.html)
+        self.assertIn("recentAnnouncements.some(item=>item.message===message)", self.html)
 
 
 if __name__ == "__main__":
