@@ -198,6 +198,28 @@ async function run() {
   pgnSurfaceAnnounce(concurrentResults[0].payload.announcement);
   pgnSurfaceAnnounce(concurrentResults[1].payload.announcement);
 
+  fakeWindow.AccessibleChessPgnSurface.render(
+    null,
+    null,
+    function () { throw new Error("synchronous bridge failure"); },
+    staleCallback
+  );
+  let synchronousFailureEscaped = false;
+  let rejectedInvoke = null;
+  try {
+    rejectedInvoke = pgnSurfaceInvoke("pgn.sync_failure", {});
+  } catch (_error) {
+    synchronousFailureEscaped = true;
+  }
+  assert.strictEqual(
+    synchronousFailureEscaped,
+    false,
+    "wrapped surface invoke must convert synchronous bridge failure to Promise rejection so accessible consumer catch paths run"
+  );
+  assert.ok(rejectedInvoke && typeof rejectedInvoke.then === "function", "wrapped synchronous failure must return a Promise");
+  await rejectedInvoke.catch(function () {});
+  pgnSurfaceAnnounce("Synchronous bridge failure fallback");
+
   const repeatLibraryResult = async function () {
     return { kind: "result", payload: { announcement: "Same library surface result" } };
   };
@@ -220,6 +242,11 @@ async function run() {
     nonEmptyLiveWrites.filter(value => value === "Concurrent product-surface result").length,
     2,
     "concurrent same-text surface actions must retain separate event identities while one-action duplicates coalesce"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Synchronous bridge failure fallback").length,
+    1,
+    "a synchronous bridge failure must remain reachable through the event-aware accessible fallback announcement"
   );
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
