@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from acs.ui_native_menu import make_keymap_menu, menu_caption
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI, _shared_spoken_san
 
