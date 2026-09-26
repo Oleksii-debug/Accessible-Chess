@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,20 @@ class AuthenticodeVerifierTests(unittest.TestCase):
             runner = mock.Mock(side_effect=AssertionError("runner must not execute"))
             with mock.patch("acs.authenticode.sys.platform", "win32"):
                 evidence = WindowsAuthenticodeVerifier(runner=runner).verify(indirect)
+        self.assertEqual(evidence.status, AuthenticodeStatus.ERROR)
+        self.assertFalse(evidence.trusted)
+        self.assertFalse(evidence.acceptable_for_release)
+        runner.assert_not_called()
+
+    def test_windows_reparse_attribute_is_error_without_invoking_provider(self) -> None:
+        runner = mock.Mock(side_effect=AssertionError("runner must not execute"))
+        reparse_info = mock.Mock(
+            st_mode=stat.S_IFREG | 0o644,
+            st_file_attributes=0x400,
+        )
+        with mock.patch.object(Path, "lstat", return_value=reparse_info):
+            with mock.patch("acs.authenticode.sys.platform", "win32"):
+                evidence = WindowsAuthenticodeVerifier(runner=runner).verify("candidate.exe")
         self.assertEqual(evidence.status, AuthenticodeStatus.ERROR)
         self.assertFalse(evidence.trusted)
         self.assertFalse(evidence.acceptable_for_release)
