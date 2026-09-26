@@ -82,6 +82,7 @@ _LABELS = {
         "size": "Розмір",
         "status": "Стан",
         "scan": "Перевірка",
+        "unavailable": "Співпраця в класі тимчасово недоступна.",
     },
     UILanguage.EN: {
         "heading": "Classroom collaboration",
@@ -121,6 +122,7 @@ _LABELS = {
         "size": "Size",
         "status": "Status",
         "scan": "Scan",
+        "unavailable": "Classroom collaboration is temporarily unavailable.",
     },
 }
 _TRANSFER_LABELS = {
@@ -224,7 +226,8 @@ class ClassroomCollaborationWebView:
             return _GENERIC_PARTICIPANT[self._language]
         if type(raw) is not str:
             return _GENERIC_PARTICIPANT[self._language]
-        label = " ".join(raw.split())[:120]
+        safe = "".join(ch for ch in raw if ord(ch) >= 32 and ord(ch) != 127)
+        label = " ".join(safe.split())[:120]
         return label or _GENERIC_PARTICIPANT[self._language]
 
     def _moderator(self) -> bool:
@@ -308,6 +311,29 @@ class ClassroomCollaborationWebView:
             "can_cancel": item.transfer_state in {"pending", "uploading", "failed"},
         }
 
+    def unavailable_snapshot(self) -> dict[str, object]:
+        labels = _LABELS[self._language]
+        return {
+            "available": False,
+            "heading": labels["heading"],
+            "status_message": labels["unavailable"],
+            "chat": {
+                "heading": labels["chat"],
+                "messages": (),
+                "unread_count": 0,
+            },
+            "files": {
+                "heading": labels["files"],
+                "items": (),
+            },
+        }
+
+    def safe_snapshot(self) -> dict[str, object]:
+        try:
+            return self.snapshot()
+        except Exception:
+            return self.unavailable_snapshot()
+
     def snapshot(self) -> dict[str, object]:
         labels = _LABELS[self._language]
         messages = self._store.room_messages(self._controller.room_id)
@@ -320,6 +346,7 @@ class ClassroomCollaborationWebView:
         self._unread_message_ids.intersection_update(visible_ids)
         unread_count = len(self._unread_message_ids)
         return {
+            "available": True,
             "heading": labels["heading"],
             "chat": {
                 "heading": labels["chat"],
@@ -359,7 +386,7 @@ class ClassroomCollaborationWebView:
         announcement: str = "",
         focus_target: str = "",
     ) -> ClassroomCollaborationWebViewEvent:
-        payload: dict[str, object] = {"collaboration": self.snapshot()}
+        payload: dict[str, object] = {"collaboration": self.safe_snapshot()}
         if announcement:
             payload["announcement"] = announcement
         if focus_target:
@@ -368,10 +395,7 @@ class ClassroomCollaborationWebView:
 
     def _error(self) -> ClassroomCollaborationWebViewEvent:
         payload: dict[str, object] = {"message": _GENERIC_FAILURE[self._language]}
-        try:
-            payload["collaboration"] = self.snapshot()
-        except Exception:
-            pass
+        payload["collaboration"] = self.safe_snapshot()
         return ClassroomCollaborationWebViewEvent("error", payload)
 
     def _send_chat(self, body: object) -> ClassroomCollaborationWebViewEvent:
