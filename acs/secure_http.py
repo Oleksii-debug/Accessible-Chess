@@ -141,9 +141,11 @@ class BoundedHttpsJsonTransport:
     ) -> JsonResponse:
         if len(body) > self.max_request_bytes:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        merged = {"Content-Type": content_type}
-        merged.update(dict(headers or {}))
-        return self._request_json("POST", url, body=body, headers=merged)
+        supplied = dict(headers or {})
+        if any(str(name).strip().casefold() == "content-type" for name in supplied):
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        supplied["Content-Type"] = content_type
+        return self._request_json("POST", url, body=body, headers=supplied)
 
     def _request_json(
         self,
@@ -212,16 +214,32 @@ def _validated_https_url(value: str) -> str:
 def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
     if len(headers) > 64:
         raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+    reserved = {
+        "connection",
+        "content-length",
+        "host",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
     result: dict[str, str] = {}
+    seen: set[str] = set()
     for raw_name, raw_value in headers.items():
         if not isinstance(raw_name, str) or not isinstance(raw_value, str):
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
         name = raw_name.strip()
         value = raw_value.strip()
-        if not name or len(name) > 128 or len(value) > 8192:
+        folded = name.casefold()
+        if not name or folded in seen or folded in reserved:
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        if len(name) > 128 or len(value) > 8192:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
         if any(ch in name or ch in value for ch in ("\r", "\n", "\x00")):
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        seen.add(folded)
         result[name] = value
     return result
 
