@@ -5,10 +5,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.child_coaching import LessonBlock, LessonBlockKind
 from acs.child_coaching_application import ChildCoachingApplication
 from acs.child_coaching_projection import ChildCoachingProjection
 from acs.child_coaching_store import ChildCoachingTemplateStore
 from acs.full_product_ui_shell import UILanguage
+from acs.teaching_session import TeachingActivity
 
 
 class ChildCoachingProjectionTests(unittest.TestCase):
@@ -82,6 +84,46 @@ class ChildCoachingProjectionTests(unittest.TestCase):
                 "Do not show this to the student.",
                 repr(student.payload),
             )
+
+
+    def test_student_preview_never_leaks_solution_text_before_canonical_reveal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app, projection = self.make_projection(temp, UILanguage.EN)
+            catalog = app.open_catalog()
+            catalog = app.copy_template(
+                "preset-preschool-4-6",
+                template_id="solution-template",
+                title="Solution template",
+                expected_revision=catalog.revision,
+            )
+            solution = LessonBlock(
+                "solution",
+                LessonBlockKind.REVIEW,
+                "Solution",
+                3,
+                TeachingActivity.SOLUTION_REVEAL,
+                "Now review the solution.",
+                teacher_note="Teacher may discuss alternatives.",
+                solution_text="The hidden answer is e4.",
+            )
+            catalog = app.append_block(
+                "solution-template",
+                solution,
+                expected_revision=catalog.revision,
+            )
+
+            teacher = projection.open_teacher_template("solution-template")
+            student = projection.student_preview("solution-template")
+            teacher_solution = teacher.payload["template"]["blocks"][-1]
+            student_solution = student.payload["template"]["blocks"][-1]
+            self.assertEqual(
+                teacher_solution["solution_text"],
+                "The hidden answer is e4.",
+            )
+            self.assertNotIn("solution_text", student_solution)
+            self.assertNotIn("The hidden answer is e4.", repr(student.payload))
+            self.assertNotIn("Teacher may discuss alternatives.", repr(student.payload))
+
 
     def test_projection_does_not_create_move_or_board_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
