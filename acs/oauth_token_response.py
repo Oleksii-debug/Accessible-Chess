@@ -10,7 +10,7 @@ tokens, so later adapters have one fail-closed success boundary before DPAPI.
 from dataclasses import dataclass, field
 from typing import Mapping
 
-from .oauth_pkce import OAuthContractError, _require_text
+from .oauth_pkce import AuthorizationRequest, OAuthContractError, _require_text
 
 _MAX_TOKEN_CHARS = 256 * 1024
 _MAX_SCOPE_CHARS = 4096
@@ -82,6 +82,21 @@ class OAuthTokenResponse:
             refresh_token=refresh_token,
             id_token=id_token,
         )
+
+    def validate_for_request(self, request: AuthorizationRequest) -> "OAuthTokenResponse":
+        if type(request) is not AuthorizationRequest:
+            raise OAuthContractError("token response requires an AuthorizationRequest")
+        request.validated()
+
+        requested = frozenset(request.scopes)
+        if self.scope is not None:
+            returned = frozenset(self.scope)
+            if not returned.issubset(requested):
+                raise OAuthContractError("OAuth token response granted an unrequested scope")
+
+        if "openid" in requested and self.id_token is None:
+            raise OAuthContractError("OIDC token response is missing id_token")
+        return self
 
 
 __all__ = ["OAuthTokenResponse"]
