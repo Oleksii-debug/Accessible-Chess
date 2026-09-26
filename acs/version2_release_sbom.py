@@ -45,15 +45,32 @@ def _sha40(value: object) -> str:
     return value.casefold()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
+def _hash_file(path: Path, algorithm: str) -> str:
     try:
+        digest = hashlib.new(algorithm)
         with path.open("rb") as handle:
             for block in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(block)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         _fail(f"SBOM payload file cannot be hashed: {type(exc).__name__}")
     return digest.hexdigest()
+
+
+def _sha256(path: Path) -> str:
+    return _hash_file(path, "sha256")
+
+
+def _package_verification_code(root: Path, files: Iterable[str]) -> str:
+    """Compute the SPDX 2.3 PackageVerificationCode for an analyzed package."""
+
+    sha1_values = []
+    for relative in files:
+        path = root.joinpath(*PurePosixPath(relative).parts)
+        if not path.is_file() or path.is_symlink():
+            _fail(f"SBOM payload file is not a regular file: {relative}")
+        sha1_values.append(_hash_file(path, "sha1"))
+    payload = "".join(sorted(sha1_values)).encode("ascii")
+    return hashlib.sha1(payload).hexdigest()
 
 
 def _json_object(path: Path, *, label: str) -> dict[str, object]:
@@ -186,6 +203,7 @@ def build_version2_release_sbom(
     if packaged_sounds - provenance_set:
         _fail("packaged sound asset is missing authoritative provenance")
 
+    verification_code = _package_verification_code(package_root, files)
     file_rows: list[dict[str, object]] = []
     relationships: list[dict[str, str]] = [{
         "spdxElementId": DOCUMENT_SPDX_ID,
@@ -235,6 +253,9 @@ def build_version2_release_sbom(
                 "versionInfo": sha,
                 "downloadLocation": "NOASSERTION",
                 "filesAnalyzed": True,
+                "packageVerificationCode": {
+                    "packageVerificationCodeValue": verification_code,
+                },
                 "licenseConcluded": "NOASSERTION",
                 "licenseDeclared": "NOASSERTION",
                 "copyrightText": "NOASSERTION",
