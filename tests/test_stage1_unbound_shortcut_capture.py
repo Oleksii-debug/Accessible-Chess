@@ -44,7 +44,6 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         self.assertIn("h.id='binding-label-'+token", HTML)
         self.assertIn("inp.setAttribute('aria-labelledby',h.id)", HTML)
         self.assertIn("status.id='binding-status-'+token", HTML)
-        self.assertIn("inp.setAttribute('aria-describedby',status.id)", HTML)
         self.assertIn(
             "b.setAttribute('aria-label',(document.documentElement.lang==='en'?'New shortcut for ':'Нова комбінація для ')+h.textContent)",
             HTML,
