@@ -10,6 +10,8 @@ on:
       - 'web/p0_accessibility_runtime.js'
       - 'tests/js/p0g_event_aware_announcement_test.js'
       - 'tests/js/p0_accessibility_runtime_test.js'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_p0_dynamic_selection_action_delivery.py'
       - '.github/workflows/p0g-event-aware-announcements.yml'
   workflow_dispatch:
 
@@ -56,6 +58,8 @@ jobs:
             '.github/workflows/p0g-event-aware-announcements.yml' \
             'tests/js/p0_accessibility_runtime_test.js' \
             'tests/js/p0g_event_aware_announcement_test.js' \
+            'tests/test_accessible_webui.py' \
+            'tests/test_p0_dynamic_selection_action_delivery.py' \
             'web/index.html' \
             'web/p0_accessibility_runtime.js' | sort)"
           test "$changed" = "$expected" || {
