@@ -41,6 +41,11 @@ const documentRef = {
   createTreeWalker() { throw new Error("collapsed test selection must not create a tree walker"); }
 };
 
+let pgnSurfaceInvoke = null;
+let pgnSurfaceAnnounce = null;
+let librarySurfaceInvoke = null;
+let librarySurfaceAnnounce = null;
+
 const fakeWindow = {
   document: documentRef,
   setTimeout,
@@ -57,13 +62,15 @@ const fakeWindow = {
   apiAction: async function () {},
   announce: function () {},
   AccessibleChessPgnSurface: Object.freeze({
-    render: function (_root, _snapshot, _invoke, announce) {
-      announce("Same product-surface result");
+    render: function (_root, _snapshot, invoke, announce) {
+      pgnSurfaceInvoke = invoke;
+      pgnSurfaceAnnounce = announce;
     }
   }),
   AccessibleChessLibrarySurface: Object.freeze({
-    render: function (_root, _snapshot, _invoke, announce) {
-      announce("Same library surface result");
+    render: function (_root, _snapshot, invoke, announce) {
+      librarySurfaceInvoke = invoke;
+      librarySurfaceAnnounce = announce;
     },
     apply: function (_root, _event, _invoke, announce) {
       announce("Passive library import result");
@@ -76,7 +83,7 @@ const fakeWindow = {
   })
 };
 
-vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math }, {
+vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math, Promise, Boolean }, {
   filename: "p0_accessibility_runtime.js"
 });
 
@@ -126,10 +133,6 @@ async function run() {
     "interleaved distinct passive status must still be exposed"
   );
 
-  // The final-product runtime is loaded after the Stage 1 inline script. It must
-  // preserve explicit event identity rather than reducing announce(message,eventId)
-  // back to message-only dedupe. A duplicate of event-1 remains a duplicate even
-  // when another event was published between the two emissions.
   fakeWindow.announce("First explicit event", "event-1");
   fakeWindow.announce("Interleaved explicit event", "event-2");
   fakeWindow.announce("First explicit event", "event-1");
@@ -145,7 +148,6 @@ async function run() {
     "the interleaved distinct event must still be exposed"
   );
 
-  // Equal result text from two different explicit user events is not a duplicate.
   fakeWindow.announce("Repeated explicit text", "event-3");
   fakeWindow.announce("Repeated explicit text", "event-4");
   await new Promise(resolve => setTimeout(resolve, 180));
@@ -155,31 +157,44 @@ async function run() {
     "distinct explicit event identities must preserve repeated result text"
   );
 
-  // Final-product render callbacks are installed into click/submit/keyboard action
-  // listeners. Route those through the canonical event-aware queue so repeated
-  // equal user results remain distinct accessibility events.
   let staleCallbackCalls = 0;
   const staleCallback = function () { staleCallbackCalls += 1; };
-  fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessLibrarySurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessLibrarySurface.render(null, null, null, staleCallback);
+  const repeatPgnResult = async function () {
+    return { kind: "result", payload: { announcement: "Same product-surface result" } };
+  };
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, repeatPgnResult, staleCallback);
+  assert.strictEqual(typeof pgnSurfaceInvoke, "function", "P0 runtime must wrap the PGN invoke boundary");
+  assert.strictEqual(typeof pgnSurfaceAnnounce, "function", "P0 runtime must wrap the PGN announce boundary");
+  const pgnFirst = await pgnSurfaceInvoke("pgn.action", {});
+  pgnSurfaceAnnounce(pgnFirst.payload.announcement);
+  pgnSurfaceAnnounce(pgnFirst.payload.announcement);
+  const pgnSecond = await pgnSurfaceInvoke("pgn.action", {});
+  pgnSurfaceAnnounce(pgnSecond.payload.announcement);
+
+  const repeatLibraryResult = async function () {
+    return { kind: "result", payload: { announcement: "Same library surface result" } };
+  };
+  fakeWindow.AccessibleChessLibrarySurface.render(null, null, repeatLibraryResult, staleCallback);
+  assert.strictEqual(typeof librarySurfaceInvoke, "function", "P0 runtime must wrap the Library invoke boundary");
+  assert.strictEqual(typeof librarySurfaceAnnounce, "function", "P0 runtime must wrap the Library announce boundary");
+  const libraryFirst = await librarySurfaceInvoke("library.action", {});
+  librarySurfaceAnnounce(libraryFirst.payload.announcement);
+  const librarySecond = await librarySurfaceInvoke("library.action", {});
+  librarySurfaceAnnounce(librarySecond.payload.announcement);
+
   await new Promise(resolve => setTimeout(resolve, 360));
-  assert.strictEqual(staleCallbackCalls, 0, "explicit product render callbacks must use the P0 event-aware queue");
+  assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
     2,
-    "two equal PGN/product user results must remain two live-region events"
+    "duplicate emission from one PGN action must coalesce while a second same-text action on the same render stays observable"
   );
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
     2,
-    "two equal Library user results must remain two live-region events"
+    "two equal Library user results on one rendered surface must remain two live-region events"
   );
 
-  // Library apply() is also used by asynchronous import progress, and Teacher
-  // render installs mouseenter handlers. They must not be upgraded blindly to
-  // fresh user-event dispatches or passive activity could spam the screen reader.
   fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
   fakeWindow.AccessibleChessTeacherSurface.render(null, null, null, staleCallback);
   assert.strictEqual(
