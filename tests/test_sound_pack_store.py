@@ -172,6 +172,26 @@ class SoundPackStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 store.resolve("soft.wood", "move")
 
+    def test_inventory_and_catalog_mark_tampered_install_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging = root / "staging"
+            staging.mkdir()
+            _write_pack(staging)
+            store = SoundPackStore(root / "installed")
+            store.install_from_staging(staging)
+            (store.root / "soft.wood" / "audio" / "move.wav").write_bytes(b"tampered")
+
+            records = store.installed()
+            self.assertEqual(len(records), 1)
+            self.assertFalse(records[0].valid)
+            self.assertIn("digest mismatch", records[0].error)
+
+            state = store.catalog_state(_catalog(version="2.0.0"))
+            self.assertTrue(state.installed)
+            self.assertTrue(state.update_available)
+            self.assertIn("invalid_installed_pack", state.reason)
+
     def test_uninstall_active_pack_publishes_safe_classic_profile_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
