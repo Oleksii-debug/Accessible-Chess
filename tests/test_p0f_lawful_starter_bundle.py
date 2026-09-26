@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import io
 import json
 import re
-
-import pytest
+from typing import Iterator, Type
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.starter_content import CONTENT_LICENSE_ID, build_starter_pgn
@@ -26,6 +26,20 @@ from tools.p0f_lawful_starter_bundle import (
     _write_complete_game_subset,
     build_release_bundle_from_curated_pgn,
 )
+
+
+@contextmanager
+def _raises(error_type: Type[BaseException], *, match: str) -> Iterator[None]:
+    """Dependency-free exception assertion usable under pytest or unittest discovery."""
+    try:
+        yield
+    except error_type as exc:
+        if re.search(match, str(exc)) is None:
+            raise AssertionError(
+                f"{error_type.__name__} message {str(exc)!r} does not match {match!r}"
+            ) from exc
+    else:
+        raise AssertionError(f"expected {error_type.__name__} matching {match!r}")
 
 
 def _fixture_pgn_records(count: int) -> str:
@@ -151,13 +165,13 @@ def test_representative_selector_rejects_nonrepresentative_pool():
     for candidate in candidates:
         candidate["result"] = "1-0"
 
-    with pytest.raises(RuntimeError, match="representative curation floors"):
+    with _raises(RuntimeError, match="representative curation floors"):
         _select_representative_candidates(candidates, MINIMUM_REAL_GAME_COUNT)
 
 
 def test_release_bundle_requires_binding_minimum_real_game_count(tmp_path):
     starter_pgn = build_starter_pgn(16)
-    with pytest.raises(ValueError, match=">= 200"):
+    with _raises(ValueError, match=">= 200"):
         build_release_bundle_from_curated_pgn(
             tmp_path,
             starter_pgn=starter_pgn,
@@ -227,7 +241,7 @@ def test_release_bundle_rejects_curation_evidence_for_different_bytes(tmp_path):
     curation = _fake_curation_evidence(starter_pgn)
     curation["selected_games"][0]["record_sha256"] = "0" * 64
 
-    with pytest.raises(ValueError, match="does not match selected starter PGN records"):
+    with _raises(ValueError, match="does not match selected starter PGN records"):
         build_release_bundle_from_curated_pgn(
             tmp_path,
             starter_pgn=starter_pgn,
@@ -241,7 +255,7 @@ def test_release_bundle_rejects_curation_evidence_for_different_bytes(tmp_path):
 
 def test_release_bundle_rejects_record_count_mismatch(tmp_path):
     starter_pgn = build_starter_pgn(MINIMUM_REAL_GAME_COUNT)
-    with pytest.raises(ValueError, match="complete-record count"):
+    with _raises(ValueError, match="complete-record count"):
         build_release_bundle_from_curated_pgn(
             tmp_path,
             starter_pgn=starter_pgn,
