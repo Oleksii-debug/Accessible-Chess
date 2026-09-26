@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/native_oauth_loopback.py'
       - 'tests/test_native_oauth_loopback.py'
+      - 'tests/test_native_oauth_loopback_hardening.py'
       - '.github/workflows/native-oauth-loopback.yml'
   workflow_dispatch:
 
@@ -49,16 +50,24 @@ jobs:
             .github/workflows/native-oauth-loopback.yml
             acs/native_oauth_loopback.py
             tests/test_native_oauth_loopback.py
+            tests/test_native_oauth_loopback_hardening.py
           )
           mapfile -t expected_sorted < <(printf '%s\n' "${expected_paths[@]}" | sort)
           test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected_sorted[@]}")"
           echo "NATIVE_OAUTH_LOOPBACK_EXACT_HEAD=$actual"
 
       - name: Compile callback transport and tests
-        run: python -m py_compile acs/native_oauth_loopback.py tests/test_native_oauth_loopback.py
+        run: >-
+          python -m py_compile
+          acs/native_oauth_loopback.py
+          tests/test_native_oauth_loopback.py
+          tests/test_native_oauth_loopback_hardening.py
 
       - name: Execute native loopback contract
-        run: python -m unittest -v tests.test_native_oauth_loopback
+        run: >-
+          python -m unittest -v
+          tests.test_native_oauth_loopback
+          tests.test_native_oauth_loopback_hardening
 
       - name: Enforce transport-only ownership boundary
         shell: python
