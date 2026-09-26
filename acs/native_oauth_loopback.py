@@ -107,6 +107,26 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
+    def parse_request(self) -> bool:
+        parsed = super().parse_request()
+        if parsed:
+            self.server.request_count += 1
+        return parsed
+
+    def send_error(
+        self,
+        code: int,
+        message: str | None = None,
+        explain: str | None = None,
+    ) -> None:
+        # BaseHTTPRequestHandler otherwise emits its own HTML for arbitrary
+        # unsupported methods. Keep every parsed callback attempt on the same
+        # static, no-reflection response path and inside the attempt budget.
+        if int(code) == 501:
+            self._respond(405, _ERROR_HTML)
+            return
+        super().send_error(code, message, explain)
+
     def _respond(self, status: int, body: bytes) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -122,7 +142,6 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def do_GET(self) -> None:
-        self.server.request_count += 1
         if self.client_address[0] != "127.0.0.1":
             self._respond(403, _ERROR_HTML)
             return
@@ -146,7 +165,6 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self._respond(200, _SUCCESS_HTML)
 
     def do_POST(self) -> None:
-        self.server.request_count += 1
         self._respond(405, _ERROR_HTML)
 
     do_PUT = do_POST
