@@ -6,7 +6,9 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/oauth_pkce.py'
+      - 'acs/oidc_metadata.py'
       - 'tests/test_oauth_pkce.py'
+      - 'tests/test_oidc_metadata.py'
       - '.github/workflows/security-oauth-pkce.yml'
   workflow_dispatch:
 
@@ -45,16 +47,28 @@ jobs:
           echo "OAUTH_PKCE_EXACT_HEAD=$actual"
 
       - name: Compile contract and tests
-        run: python -m py_compile acs/oauth_pkce.py tests/test_oauth_pkce.py
+        run: >-
+          python -m py_compile
+          acs/oauth_pkce.py
+          acs/oidc_metadata.py
+          tests/test_oauth_pkce.py
+          tests/test_oidc_metadata.py
 
-      - name: Execute focused OAuth PKCE contract
-        run: python -m unittest -v tests.test_oauth_pkce
+      - name: Execute focused OAuth/OIDC contract
+        run: >-
+          python -m unittest -v
+          tests.test_oauth_pkce
+          tests.test_oidc_metadata
 
       - name: Enforce provider-neutral boundary
         shell: python
         run: |
           from pathlib import Path
-          source = Path('acs/oauth_pkce.py').read_text(encoding='utf-8')
+          source = (
+              Path('acs/oauth_pkce.py').read_text(encoding='utf-8')
+              + '\n'
+              + Path('acs/oidc_metadata.py').read_text(encoding='utf-8')
+          )
           forbidden = (
               'requests', 'urllib.request', 'http.client', 'socket.',
               'stripe', 'paypal', 'client_secret', 'refresh_token',
