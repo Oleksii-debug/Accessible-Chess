@@ -419,15 +419,19 @@ def create_version2_release_application(
 
     database_path = layout.library_path
     application = None
+    application_build_failed = False
+    stage1_registry = api.keymap_service.editor.registry
 
     def build_application() -> Version2Application:
-        nonlocal application
+        nonlocal application, application_build_failed
         if application is not None:
             raise RuntimeError("Version 2 application is already constructed")
+        if application_build_failed:
+            raise RuntimeError("Version 2 application construction previously failed")
         database: Any | None = None
         try:
             database = AcsDatabase(database_path)
-            application = Version2Application(
+            candidate = Version2Application(
                 database,
                 progress_store=BookProgressStore(layout.root / "book-progress.json"),
                 engine_assistance=EngineAssistedWorkflowService(analysis),
@@ -436,11 +440,18 @@ def create_version2_release_application(
                 copy_text=copy_text,
                 language=language,
             )
-            resume_coordinator.restore(application)
-            _share_v2_action_registry(api, application)
-            api.bind_version2_application(application)
-            return application
+            resume_coordinator.restore(candidate)
+            _share_v2_action_registry(api, candidate)
+            api.bind_version2_application(candidate)
+            application = candidate
+            return candidate
         except Exception:
+            application_build_failed = True
+            # Registry convergence is the only API-visible mutation before the
+            # application publish point. Restore the retained Stage 1 authority
+            # before retiring the candidate/runtime stack so failed composition
+            # cannot leave the API pointing at candidate-owned command state.
+            api.keymap_service.editor.registry = stage1_registry
             _close_partial_version2_composition(
                 database,
                 continuous,
