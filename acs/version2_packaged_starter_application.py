@@ -156,6 +156,52 @@ def _identity_pinned_bytes(path: Path, *, label: str, maximum_bytes: int) -> byt
     return payload
 
 
+def _scan_comment_state(line: str, inside_brace: bool) -> bool:
+    """Match the lawful-bundle builder's non-chess Event framing semantics."""
+    for character in line:
+        if inside_brace:
+            if character == "}":
+                inside_brace = False
+            continue
+        if character == ";":
+            break
+        if character == "{":
+            inside_brace = True
+    return inside_brace
+
+
+def _starter_record_sha256s(payload: bytes) -> tuple[str, ...]:
+    """Hash the exact Event-framed records from the already-verified starter bytes.
+
+    This deliberately does not parse chess rules.  It mirrors the build-time
+    framing used by ``tools/p0f_lawful_starter_bundle.py`` so the manifest's
+    per-record evidence is cryptographically bound to the packaged PGN bytes.
+    """
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("packaged starter PGN is not valid UTF-8") from exc
+
+    current: list[str] = []
+    inside_brace = False
+    records: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if not inside_brace and line.startswith('[Event "') and current:
+            record = "".join(current).strip()
+            if record:
+                records.append(record)
+            current = [line]
+            inside_brace = _scan_comment_state(line, False)
+            continue
+        current.append(line)
+        inside_brace = _scan_comment_state(line, inside_brace)
+    if current:
+        record = "".join(current).strip()
+        if record:
+            records.append(record)
+    return tuple(hashlib.sha256(record.encode("utf-8")).hexdigest() for record in records)
+
+
 def _validate_manifest_authority(manifest: Mapping[str, object], starter_count: int) -> None:
     source = manifest.get("starter_source")
     if not isinstance(source, Mapping):
@@ -197,7 +243,11 @@ def _validate_manifest_authority(manifest: Mapping[str, object], starter_count: 
         raise RuntimeError("packaged starter selected_games evidence is invalid")
     for selected in selected_games:
         record_sha256 = selected.get("record_sha256") if isinstance(selected, Mapping) else None
-        if type(record_sha256) is not str or len(record_sha256) != 64:
+        if (
+            type(record_sha256) is not str
+            or len(record_sha256) != 64
+            or any(character not in "0123456789abcdefABCDEF" for character in record_sha256)
+        ):
             raise RuntimeError("packaged starter record_sha256 evidence is invalid")
 
     sample_library = manifest.get("sample_library")
@@ -295,9 +345,25 @@ def _load_manifest(root: Path) -> dict[str, object]:
 
     source = manifest.get("starter_source")
     subset_sha256 = source.get("subset_sha256") if isinstance(source, Mapping) else None
-    starter_payload_sha256 = hashlib.sha256(verified_payloads["starter_uk.pgn"]).hexdigest()
+    starter_payload = verified_payloads["starter_uk.pgn"]
+    starter_payload_sha256 = hashlib.sha256(starter_payload).hexdigest()
     if not isinstance(subset_sha256, str) or starter_payload_sha256 != subset_sha256.casefold():
         raise RuntimeError("packaged starter subset_sha256 does not match starter PGN bytes")
+
+    curation = source.get("curation") if isinstance(source, Mapping) else None
+    selected_games = curation.get("selected_games") if isinstance(curation, Mapping) else None
+    if not isinstance(selected_games, list):
+        raise RuntimeError("packaged starter selected_games evidence is unavailable")
+    expected_record_sha256s = tuple(
+        str(selected["record_sha256"]).casefold()
+        for selected in selected_games
+        if isinstance(selected, Mapping) and "record_sha256" in selected
+    )
+    actual_record_sha256s = _starter_record_sha256s(starter_payload)
+    if len(actual_record_sha256s) != starter_count:
+        raise RuntimeError("packaged starter PGN record count does not match curation evidence")
+    if actual_record_sha256s != expected_record_sha256s:
+        raise RuntimeError("packaged starter record_sha256 evidence does not match starter PGN records")
     return manifest
 
 
