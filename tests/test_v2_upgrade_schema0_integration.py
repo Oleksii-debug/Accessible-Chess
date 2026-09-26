@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from threading import Event, Thread
 import unittest
 
 from acs import version2_upgrade as upgrade_module
@@ -103,6 +104,63 @@ class Version2Schema0IntegrationTests(unittest.TestCase):
                 upgrade_base._canonical_library_schema,
                 original_base_authority,
             )
+
+    def test_base_schema_authority_stays_strict_during_legacy_upgrade(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            legacy_root = root / "legacy"
+            strict_root = root / "strict"
+            legacy_root.mkdir()
+            strict_root.mkdir()
+            _make_legacy(legacy_root / "library.acsdb")
+            _make_legacy(strict_root / "library.acsdb")
+
+            reached = Event()
+            release = Event()
+            result: dict[str, object] = {}
+
+            def phase_hook(phase: str) -> None:
+                if phase == "settings-migrated":
+                    reached.set()
+                    if not release.wait(10):
+                        raise RuntimeError("schema isolation test timed out")
+
+            def run_legacy_upgrade() -> None:
+                try:
+                    result["report"] = Version2UpgradeCoordinator(
+                        UserDataLayout(legacy_root),
+                        phase_hook=phase_hook,
+                    ).run()
+                except BaseException as exc:
+                    result["error"] = exc
+
+            worker = Thread(target=run_legacy_upgrade, daemon=True)
+            worker.start()
+            self.assertTrue(
+                reached.wait(10),
+                "legacy upgrade did not reach the synchronization point",
+            )
+            try:
+                self.assertIsNot(
+                    upgrade_base._canonical_library_schema,
+                    upgrade_module._canonical_library_schema,
+                )
+                strict = upgrade_base.Version2UpgradeCoordinator(
+                    upgrade_base.UserDataLayout(strict_root)
+                )
+                with self.assertRaisesRegex(
+                    upgrade_base.Version2UpgradeError,
+                    "explicit D07 migration",
+                ):
+                    strict._library_schema()
+            finally:
+                release.set()
+                worker.join(10)
+
+            self.assertFalse(worker.is_alive(), "legacy upgrade worker did not finish")
+            if "error" in result:
+                raise result["error"]  # type: ignore[misc]
+            self.assertEqual(result["report"].status, "upgraded")  # type: ignore[union-attr]
 
     def test_exact_shipped_schema0_upgrades_through_d07_and_existing_transaction(self):
         with tempfile.TemporaryDirectory() as td:
