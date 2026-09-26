@@ -27,6 +27,7 @@ if "--diagnostic" in sys.argv:
     from acs.selftest import run as core_run
     from acs.stage1_release_ui import complete_user_flow_diagnostic
     from acs.version2_final_product_profile import validate_final_product_profile
+    from acs.version2_release_diagnostics import packaged_starter_materials_ready
     from acs.version2_upgrade_status_release import (
         create_version2_release_application,
         final_product_resource_sources,
@@ -119,11 +120,6 @@ if "--diagnostic" in sys.argv:
         if isinstance(books_state, dict)
         else {}
     )
-    starter_items = (
-        starter_materials.get("items", ())
-        if isinstance(starter_materials, dict)
-        else ()
-    )
     if (
         not isinstance(semantic, dict)
         or not semantic.get("ok")
@@ -139,16 +135,7 @@ if "--diagnostic" in sys.argv:
         or "teacher" not in navigation
         or "classes" not in navigation
         or product_status.get("remote_transport") != "not_approved"
-        or not isinstance(starter_materials, dict)
-        or starter_materials.get("current_id") != "starter-course"
-        or not isinstance(starter_materials.get("booklet_count"), int)
-        or starter_materials.get("booklet_count", 0) < 24
-        or not isinstance(starter_items, (tuple, list))
-        or len(starter_items) < 25
-        or not any(
-            isinstance(item, dict) and item.get("material_id") == "starter-course"
-            for item in starter_items
-        )
+        or not packaged_starter_materials_ready(starter_materials)
         or cleanup_order != ["application", "analysis", "runtime"]
         or not runtime.closed
         or "V2 final-product bootstrap" not in resource_names
