@@ -28,7 +28,7 @@ class _OwnerLoop:
         self.IsDisposed = False
         self.thread = threading.Thread(target=self._run, name="test-native-owner")
         self.thread.start()
-        if not self.ready.wait(5):
+        if not self.ready.wait(self._WAIT_SECONDS):
             raise RuntimeError("owner did not start")
 
     def _run(self):
@@ -53,12 +53,12 @@ class _OwnerLoop:
             return callback()
         future = Future()
         self.tasks.put((callback, future))
-        return future.result(5)
+        return future.result(self._WAIT_SECONDS)
 
     def close(self):
         self.IsDisposed = True
         self.tasks.put(None)
-        self.thread.join(5)
+        self.thread.join(self._WAIT_SECONDS)
         if self.thread.is_alive():
             raise RuntimeError("owner did not stop")
 
