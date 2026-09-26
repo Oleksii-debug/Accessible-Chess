@@ -31,7 +31,9 @@ env:
   CURRENT_SHARED_EDUCATION_TEST_BLOB: 92ef5d96eda599bdb4db66e8ebe263a693532227
   CURRENT_EDUCATION_RELEASE_BLOB: 55956329c1fe2dc9417ae4082fba821667c9ec13
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
+  KEYBINDING_DOM_TEST_BLOB: e28f2c9bd433ffebf2c95e3e29dc4ab0124bda4d
   WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
+  KEYBINDING_WEB_SURFACE_BLOB: 8adb906ba89ee86666646b4875f2f6d4d2b4a329
 
 jobs:
   verify:
@@ -79,18 +81,22 @@ jobs:
           git merge-base --is-ancestor "$education_owner" HEAD
           test "$(git rev-parse HEAD:acs/education_class_management.py)" = "7b5e8c309ac453cb904552b23af658357db377db"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$CURRENT_EDUCATION_RELEASE_BLOB"
-          # The launcher is composition-owned and may legitimately change while
-          # retaining Education. Keep it in pull_request.paths and prove it by
-          # compile + focused Education tests + production diagnostic below,
-          # rather than freezing one historical launcher blob forever.
           git cat-file -e "HEAD:run_accessible_chess_v2.py"
           test -s run_accessible_chess_v2.py
           test "$(git rev-parse HEAD:tests/test_version2_education_class_create.py)" = "$CURRENT_SHARED_EDUCATION_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_education_open_selected.py)" = "$OPEN_SELECTED_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)" = "$DOM_TEST_BLOB"
-          test "$(git rev-parse HEAD:web/full_product_education.js)" = "$WEB_SURFACE_BLOB"
+          dom_blob="$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)"
+          case "$dom_blob" in
+            "$DOM_TEST_BLOB"|"$KEYBINDING_DOM_TEST_BLOB") ;;
+            *) echo "Unexpected Education DOM successor blob: $dom_blob" >&2; exit 1 ;;
+          esac
+          surface_blob="$(git rev-parse HEAD:web/full_product_education.js)"
+          case "$surface_blob" in
+            "$WEB_SURFACE_BLOB"|"$KEYBINDING_WEB_SURFACE_BLOB") ;;
+            *) echo "Unexpected Education surface successor blob: $surface_blob" >&2; exit 1 ;;
+          esac
 
       - name: Compile Education composition
         run: >-
