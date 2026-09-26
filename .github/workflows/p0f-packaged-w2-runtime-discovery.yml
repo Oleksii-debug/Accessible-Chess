@@ -54,6 +54,26 @@ jobs:
           tests.test_v2_packaged_starter_application
           tests.test_w3_p0f_starter_books_training_content
 
+      - name: Reject ambiguous duplicate-key package manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from acs.version2_packaged_starter_application import (
+              _DuplicateManifestKeyError,
+              _unique_manifest_object,
+          )
+
+          duplicate = '{"schema_version":3,"counts":{"starter_games":200,"starter_games":240}}'
+          try:
+              json.loads(duplicate, object_pairs_hook=_unique_manifest_object)
+          except _DuplicateManifestKeyError:
+              print('P0_F_W2_DUPLICATE_MANIFEST_KEY_REJECTED=PASS')
+          else:
+              raise SystemExit('duplicate manifest key was silently accepted')
+          PY
+
       - name: Prove final-product binding uses W2-aware starter subclass
         shell: bash
         run: |
