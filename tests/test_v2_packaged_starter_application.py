@@ -14,27 +14,28 @@ from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode
 from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
 
 
-_STARTER_PGN = """[Event \"Starter sample\"]
-[Site \"Offline\"]
-[Date \"2026.09.26\"]
-[Round \"1\"]
-[White \"Student\"]
-[Black \"Coach\"]
-[Result \"*\"]
+_STARTER_COUNT = 200
+_STRESS_COUNT = 1200
+
+
+def _game_record(index: int, *, event_prefix: str = "Starter sample") -> str:
+    return f'''[Event "{event_prefix} {index:03d}"]
+[Site "Offline"]
+[Date "2026.09.26"]
+[Round "{index}"]
+[White "Student {index:03d}"]
+[Black "Coach {index:03d}"]
+[Result "*"]
 
 1. e4 e5 2. Nf3 Nc6 *
-"""
+'''
 
-_STRESS_PGN = """[Event \"Stress sample\"]
-[Site \"Offline\"]
-[Date \"2026.09.26\"]
-[Round \"1\"]
-[White \"A\"]
-[Black \"B\"]
-[Result \"*\"]
 
-1. d4 d5 2. c4 e6 *
-"""
+def _starter_pgn() -> str:
+    return "\n".join(_game_record(index) for index in range(1, _STARTER_COUNT + 1))
+
+
+_STRESS_PGN = _game_record(1, event_prefix="Stress sample")
 
 
 def _sha256(path: Path) -> str:
@@ -43,10 +44,12 @@ def _sha256(path: Path) -> str:
 
 def _write_bundle(root: Path) -> None:
     root.mkdir(parents=True)
-    (root / "starter_uk.pgn").write_text(_STARTER_PGN, encoding="utf-8")
+    starter_pgn = _starter_pgn()
+    (root / "starter_uk.pgn").write_text(starter_pgn, encoding="utf-8")
     (root / "stress_uk.pgn").write_text(_STRESS_PGN, encoding="utf-8")
     with AcsDatabase(root / "sample_library.acsdb") as database:
-        database.import_pgn_text(_STARTER_PGN, source_name="starter_uk.pgn")
+        report = database.import_pgn_text(starter_pgn, source_name="starter_uk.pgn")
+        assert len(report.game_ids) == _STARTER_COUNT
     files = {}
     for name, license_id in (
         ("starter_uk.pgn", "CC0-1.0"),
@@ -65,9 +68,9 @@ def _write_bundle(root: Path) -> None:
         "runtime_network_required": False,
         "starter_source": {
             "license_id": "CC0-1.0",
-            "selected_games": 240,
+            "selected_games": _STARTER_COUNT,
         },
-        "counts": {"starter_games": 240, "stress_games": 1200},
+        "counts": {"starter_games": _STARTER_COUNT, "stress_games": _STRESS_COUNT},
         "files": files,
     }
     (root / "manifest.json").write_text(
@@ -99,14 +102,15 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 library = app.snapshot()["library"]
                 starter = library["packaged_starter_content"]
                 self.assertTrue(starter["available"])
-                self.assertEqual(240, starter["starter_games"])
-                self.assertEqual(1200, starter["stress_games"])
+                self.assertEqual(_STARTER_COUNT, starter["starter_games"])
+                self.assertEqual(_STRESS_COUNT, starter["stress_games"])
                 self.assertFalse(starter["network_required"])
                 self.assertTrue(starter["prebuilt_library"])
 
                 actions = {item["action"]: item for item in library["actions"]}
                 self.assertIn("library.open_packaged_starter_pgn", actions)
                 self.assertIn("library.open_packaged_stress_pgn", actions)
+                self.assertIn("library.import_packaged_sample_library", actions)
                 self.assertTrue(actions["library.open_packaged_starter_pgn"]["enabled"])
 
                 result = app.browser_command(
@@ -115,7 +119,7 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual("status", result["kind"])
                 self.assertEqual("pgn", app.shell.current_route.route_id)
                 self.assertIsNotNone(app.session)
-                self.assertEqual(1, app.session.view().game_count)
+                self.assertEqual(_STARTER_COUNT, app.session.view().game_count)
                 self.assertFalse(app.session.dirty)
                 self.assertIsNone(app.session.view().source_path)
                 with self.assertRaises(PgnDocumentError) as raised:
@@ -124,15 +128,13 @@ class PackagedStarterApplicationTests(unittest.TestCase):
 
                 app.session.edit_tag("Event", "Edited starter sample")
                 self.assertTrue(app.session.dirty)
-
                 result = app.browser_command(
                     "library", "library.open_packaged_stress_pgn", {}
                 )
-                # The existing unsaved-document guard owns the edit-preservation
-                # decision. This direct browser command must not silently replace
-                # an edited starter document.
                 self.assertEqual("error", result["kind"])
-                self.assertEqual("Edited starter sample", app.session.workspace.games()[0].tags["Event"])
+                self.assertEqual(
+                    "Edited starter sample", app.session.workspace.games()[0].tags["Event"]
+                )
             finally:
                 app.shutdown()
                 analysis.close()
@@ -152,7 +154,48 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual("status", second["kind"])
                 self.assertFalse(app.session.dirty)
                 self.assertIsNone(app.session.view().source_path)
-                self.assertEqual("Stress sample", app.session.workspace.games()[0].tags["Event"])
+                self.assertEqual(
+                    "Stress sample 001", app.session.workspace.games()[0].tags["Event"]
+                )
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
+    def test_packaged_sample_acsdb_import_is_explicit_readonly_and_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-library-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            packaged_database = bundle / "sample_library.acsdb"
+            before_hash = _sha256(packaged_database)
+            app, database, analysis = self._application(root, bundle)
+            try:
+                self.assertEqual(0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
+                first = app.browser_command(
+                    "library", "library.import_packaged_sample_library", {}
+                )
+                self.assertEqual("render", first["kind"])
+                self.assertEqual("library", app.shell.current_route.route_id)
+                self.assertEqual(
+                    _STARTER_COUNT,
+                    database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                )
+                self.assertEqual(1, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
+                self.assertEqual(before_hash, _sha256(packaged_database))
+
+                second = app.browser_command(
+                    "library", "library.import_packaged_sample_library", {}
+                )
+                self.assertEqual("render", second["kind"])
+                self.assertEqual(
+                    _STARTER_COUNT,
+                    database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                )
+                self.assertEqual(1, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
+                self.assertEqual(2, database.conn.execute("SELECT COUNT(*) FROM import_attempts").fetchone()[0])
+                self.assertEqual(before_hash, _sha256(packaged_database))
+                self.assertIn("already", second["payload"]["announcement"].casefold())
             finally:
                 app.shutdown()
                 analysis.close()
