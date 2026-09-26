@@ -234,4 +234,4 @@ finally {
 
 if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){throw 'Packaged document-copy evidence missing'}
 $bounded=Get-Content -LiteralPath $OutputPath -Raw
-if($bounded -match '(?i)[A-Z]:\|/home/|/Users/|/tmp/'){throw 'Local path leaked into document-copy evidence'}
+if($bounded.Contains(':\') -or $bounded -match '(?i)/home/|/Users/|/tmp/'){throw 'Local path leaked into document-copy evidence'}
