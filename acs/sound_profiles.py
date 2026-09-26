@@ -260,6 +260,8 @@ class SoundPackCatalogEntry:
     download_url: str
     archive_sha256: str
     archive_size_bytes: int
+    min_product_sound_api: int = 1
+    max_product_sound_api: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pack_id", _stable_id(self.pack_id, allow_dot=True))
@@ -274,6 +276,12 @@ class SoundPackCatalogEntry:
             raise TypeError("archive_size_bytes must be an integer")
         if self.archive_size_bytes <= 0:
             raise ValueError("archive_size_bytes must be positive")
+        for name in ("min_product_sound_api", "max_product_sound_api"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if self.min_product_sound_api > self.max_product_sound_api:
+            raise ValueError("sound API compatibility range is inverted")
 
         url = _required_text(self.download_url, "download_url")
         parts = urlsplit(url)
