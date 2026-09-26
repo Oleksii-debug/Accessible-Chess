@@ -38,18 +38,18 @@ _LIBRARY_ACTION = "library.import_packaged_sample_library"
 
 _LABELS = {
     UILanguage.UA: {
-        "starter": "Відкрити вбудовані 240 навчальних партій",
-        "stress": "Відкрити вбудований великий PGN (1200 партій)",
-        "sample_library": "Додати вбудовану стартову бібліотеку (240 партій)",
+        "starter": "Відкрити вбудовані {count} навчальних партій",
+        "stress": "Відкрити вбудований великий PGN ({count} партій)",
+        "sample_library": "Додати вбудовану стартову бібліотеку ({count} партій)",
         "starter_opened": "Вбудовані навчальні партії відкрито.",
         "stress_opened": "Вбудований великий PGN відкрито.",
         "library_imported": "Вбудовану стартову бібліотеку додано. Партій: {count}.",
         "library_reused": "Вбудована стартова бібліотека вже додана. Партій: {count}.",
     },
     UILanguage.EN: {
-        "starter": "Open the built-in 240-game starter PGN",
-        "stress": "Open the built-in large PGN (1200 games)",
-        "sample_library": "Add the built-in starter library (240 games)",
+        "starter": "Open the built-in {count}-game starter PGN",
+        "stress": "Open the built-in large PGN ({count} games)",
+        "sample_library": "Add the built-in starter library ({count} games)",
         "starter_opened": "Built-in starter games opened.",
         "stress_opened": "Built-in large PGN opened.",
         "library_imported": "Built-in starter library added. Games: {count}.",
@@ -237,13 +237,33 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         super().__init__(*args, **kwargs)
 
     def _starter_library_actions(self) -> tuple[dict[str, object], ...]:
-        if self._packaged_starter_root is None:
+        manifest = self._packaged_starter_manifest
+        if self._packaged_starter_root is None or manifest is None:
             return ()
+        counts = manifest.get("counts")
+        if not isinstance(counts, Mapping):
+            raise RuntimeError("packaged starter content counts are unavailable")
+        starter_count = counts.get("starter_games")
+        stress_count = counts.get("stress_games")
+        if type(starter_count) is not int or type(stress_count) is not int:
+            raise RuntimeError("packaged starter content counts are invalid")
         labels = _LABELS[self.shell.language]
         return (
-            {"action": _STARTER_ACTION, "label": labels["starter"], "enabled": True},
-            {"action": _STRESS_ACTION, "label": labels["stress"], "enabled": True},
-            {"action": _LIBRARY_ACTION, "label": labels["sample_library"], "enabled": True},
+            {
+                "action": _STARTER_ACTION,
+                "label": labels["starter"].format(count=starter_count),
+                "enabled": True,
+            },
+            {
+                "action": _STRESS_ACTION,
+                "label": labels["stress"].format(count=stress_count),
+                "enabled": True,
+            },
+            {
+                "action": _LIBRARY_ACTION,
+                "label": labels["sample_library"].format(count=starter_count),
+                "enabled": True,
+            },
         )
 
     def _decorate_library_snapshot(self, snapshot: Mapping[str, object]) -> dict[str, object]:
@@ -281,10 +301,6 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             text = payload.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise RuntimeError("packaged starter PGN is not valid UTF-8") from exc
-        # Packaged starter files are immutable release content. Build a clean
-        # canonical workspace without retaining a writable source fingerprint:
-        # simply opening bundled content must not look like an unsaved edit, but
-        # any later edit still requires the existing explicit Save As workflow.
         workspace = PgnWorkspace.from_text(text)
         if workspace.game_count != expected_count:
             raise RuntimeError("packaged starter PGN game count does not match the manifest")
