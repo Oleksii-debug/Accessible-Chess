@@ -232,6 +232,9 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertTrue(teacher_media.moderation_calls[-1][0].value)
         self.assertEqual("student-2", teacher_media.moderation_calls[-1][0].target_id)
         self.assertNotIn("student-2", repr(blocked.payload))
+        blocked_message = blocked.payload["collaboration"]["chat"]["messages"][0]
+        self.assertFalse(blocked_message["can_moderate_sender"])
+        self.assertFalse(blocked_message["can_remove_sender"])
 
         hidden = view.dispatch(
             "collaboration.chat.hide",
