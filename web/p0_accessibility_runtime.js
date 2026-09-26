@@ -256,26 +256,21 @@
     return exposeAnnouncement(message, "surface:" + String(++dispatchCounter));
   }
 
-  function wrapSurfaceAnnouncementCallback(surfaceName) {
+  function wrapSurfaceRenderAnnouncement(surfaceName) {
     const surface = global[surfaceName];
-    if (!surface || typeof surface !== "object") return false;
+    if (!surface || typeof surface !== "object" || typeof surface.render !== "function") return false;
     const replacement = {};
     Object.keys(surface).forEach(function (name) {
       replacement[name] = surface[name];
     });
-    let wrapped = false;
-    ["render", "apply"].forEach(function (methodName) {
-      const original = surface[methodName];
-      if (typeof original !== "function") return;
-      replacement[methodName] = function () {
-        const args = Array.prototype.slice.call(arguments);
-        if (args.length > 3) args[3] = exposeSurfaceActionAnnouncement;
-        return original.apply(surface, args);
-      };
-      wrapped = true;
-    });
-    if (wrapped) global[surfaceName] = Object.freeze(replacement);
-    return wrapped;
+    const originalRender = surface.render;
+    replacement.render = function () {
+      const args = Array.prototype.slice.call(arguments);
+      if (args.length > 3) args[3] = exposeSurfaceActionAnnouncement;
+      return originalRender.apply(surface, args);
+    };
+    global[surfaceName] = Object.freeze(replacement);
+    return true;
   }
 
   [
@@ -283,9 +278,8 @@
     "AccessibleChessLibrarySurface",
     "AccessibleChessBookSurface",
     "AccessibleChessTrainingSurface",
-    "AccessibleChessTeacherSurface",
     "AccessibleChessEducationSurface"
-  ].forEach(wrapSurfaceAnnouncementCallback);
+  ].forEach(wrapSurfaceRenderAnnouncement);
 
   if (typeof global.apiAction === "function" && typeof global.render === "function") {
     global.apiAction = async function (name) {
