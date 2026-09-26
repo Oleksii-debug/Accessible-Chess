@@ -183,8 +183,13 @@ class ChildCoachingApplication:
         student_ids: tuple[str, ...] = (),
         cohort_id: str | None = None,
         require_no_notation: bool = False,
+        expected_revision: str | None = None,
     ) -> LessonSession:
-        loaded = self._load_or_seed()
+        loaded = (
+            self._load_or_seed()
+            if expected_revision is None
+            else self._require_revision(expected_revision)
+        )
         template = self._find(loaded.templates, template_id)
         try:
             return compile_lesson_session(
