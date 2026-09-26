@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.version2_release_sbom import (
     SBOM_NAME,
@@ -225,6 +226,31 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                     inventory=self._inventory(package),
                 )
             self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
+
+    def test_sidecar_create_is_atomic_against_exists_then_write_race(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            output = root / SBOM_NAME
+            output.write_text("concurrent-writer\n", encoding="utf-8")
+
+            # Simulate the old TOCTOU window: any preflight exists() check lies
+            # that the target is absent even though another writer has created it.
+            with mock.patch.object(Path, "exists", return_value=False):
+                with self.assertRaisesRegex(
+                    Version2ReleaseSbomError, "must not already exist"
+                ):
+                    write_version2_release_sbom(
+                        package,
+                        output,
+                        integration_sha=_SHA,
+                        inventory=self._inventory(package),
+                    )
+
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "concurrent-writer\n",
+            )
 
 
 if __name__ == "__main__":
