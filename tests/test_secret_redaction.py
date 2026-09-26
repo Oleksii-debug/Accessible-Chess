@@ -93,6 +93,21 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn('password="' + REDACTED + '"', output)
         self.assertIn("account_id=acct-esc", output)
 
+    def test_json_like_secret_with_escaped_quote_redacts_the_entire_value(self) -> None:
+        raw = r'''payload={"access_token":"prefix\"escaped-token-tail","account_id":"acct-json"}'''
+        output = redact_text(raw)
+        self.assertNotIn("prefix", output)
+        self.assertNotIn("escaped-token-tail", output)
+        self.assertIn('"access_token":"' + REDACTED + '"', output)
+        self.assertIn('"account_id":"acct-json"', output)
+
+        single = r'''payload={'client_secret':'first\'secret-tail','account_id':'acct-single'}'''
+        single_output = redact_text(single)
+        self.assertNotIn("first", single_output)
+        self.assertNotIn("secret-tail", single_output)
+        self.assertIn("'client_secret':'" + REDACTED + "'", single_output)
+        self.assertIn("'account_id':'acct-single'", single_output)
+
     def test_cookie_headers_redact_the_complete_header_value(self) -> None:
         raw = (
             "Cookie: sessionid=session-secret; theme=dark; csrftoken=csrf-secret\n"
