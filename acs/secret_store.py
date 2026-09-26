@@ -184,6 +184,8 @@ class WindowsDpapiSecretStore:
             raise SecretStoreError("Windows DPAPI is unavailable on this platform")
         if type(value) is not bytes:
             raise SecretStoreError("secret value must be bytes")
+        if not value:
+            raise SecretStoreError("secret value must not be empty")
         if len(value) > _MAX_SECRET_BYTES:
             raise SecretStoreError("secret value exceeds size limit")
         self._prepare_root()
@@ -248,6 +250,8 @@ class WindowsDpapiSecretStore:
         if len(data) > _MAX_CIPHERTEXT_BYTES:
             raise SecretStoreError("secret ciphertext exceeds size limit")
         plaintext = _dpapi_unprotect(data, entropy=_slot_entropy(name))
+        if not plaintext:
+            raise SecretStoreError("unprotected secret is empty")
         if len(plaintext) > _MAX_SECRET_BYTES:
             raise SecretStoreError("unprotected secret exceeds size limit")
         return plaintext
