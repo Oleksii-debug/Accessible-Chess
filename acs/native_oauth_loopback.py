@@ -49,7 +49,7 @@ def _validated_callback_path(value: object) -> str:
         raise NativeLoopbackError("invalid callback path")
     if not value.startswith("/") or value.startswith("//"):
         raise NativeLoopbackError("invalid callback path")
-    if any(ord(char) < 0x20 or char in "?#\\" for char in value):
+    if any(ord(char) < 0x20 or ord(char) == 0x7F or char in "?#\\" for char in value):
         raise NativeLoopbackError("invalid callback path")
     if any(segment in (".", "..") for segment in value.split("/")):
         raise NativeLoopbackError("invalid callback path")
@@ -59,7 +59,9 @@ def _validated_callback_path(value: object) -> str:
 def _validated_authorization_url(value: object) -> str:
     if not isinstance(value, str) or not value or value != value.strip():
         raise NativeLoopbackError("invalid authorization URL")
-    if len(value) > _MAX_AUTHORIZATION_URL or any(ord(char) < 0x20 for char in value):
+    if len(value) > _MAX_AUTHORIZATION_URL or any(
+        ord(char) < 0x20 or ord(char) == 0x7F for char in value
+    ):
         raise NativeLoopbackError("invalid authorization URL")
     if "\\" in value:
         raise NativeLoopbackError("invalid authorization URL")
@@ -77,9 +79,13 @@ def _validated_authorization_url(value: object) -> str:
 
 
 def open_system_browser(url: str) -> bool:
-    """Open a validated authorization URL in the user's default browser."""
+    """Validate and open an authorization URL in the user's default browser."""
 
-    return bool(webbrowser.open(url, new=2, autoraise=True))
+    target = _validated_authorization_url(url)
+    try:
+        return bool(webbrowser.open(target, new=2, autoraise=True))
+    except Exception:
+        raise NativeLoopbackError("authorization browser could not be opened") from None
 
 
 class _LoopbackServer(HTTPServer):
@@ -99,8 +105,6 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     sys_version = ""
 
     def log_message(self, format: str, *args: object) -> None:
-        # Callback URLs may carry authorization codes/state. Never log the raw
-        # request target or browser/provider data from this local listener.
         return
 
     def _respond(self, status: int, body: bytes) -> None:
@@ -210,6 +214,9 @@ class NativeLoopbackCallback:
         self._used = True
         try:
             opened = opener(url)
+        except NativeLoopbackError:
+            self.close()
+            raise
         except Exception:
             self.close()
             raise NativeLoopbackError("authorization browser could not be opened") from None
