@@ -144,29 +144,33 @@ class LocalProfileStore:
             raise LocalProfileError("profile must be LocalProfile")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.temporary_path
-        try:
-            if tmp.exists() or tmp.is_symlink():
-                tmp.unlink()
-            encoded = (
-                json.dumps(
-                    profile.as_dict(),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    indent=2,
-                )
-                + "\n"
+        if tmp.exists() or tmp.is_symlink():
+            tmp.unlink()
+        encoded = (
+            json.dumps(
+                profile.as_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
             )
+            + "\n"
+        )
+        completed_temp = False
+        try:
             with tmp.open("x", encoding="utf-8", newline="\n") as stream:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
+            completed_temp = True
             os.replace(tmp, self.path)
-        finally:
-            try:
-                if tmp.exists() or tmp.is_symlink():
-                    tmp.unlink()
-            except OSError:
-                pass
+        except Exception:
+            if not completed_temp:
+                try:
+                    if tmp.exists() or tmp.is_symlink():
+                        tmp.unlink()
+                except OSError:
+                    pass
+            raise
 
     def export_json(self, profile: LocalProfile | None = None) -> str:
         item = self.load_or_create() if profile is None else profile
