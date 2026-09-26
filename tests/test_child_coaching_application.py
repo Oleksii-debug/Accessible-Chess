@@ -115,6 +115,41 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             with self.assertRaises(ChildCoachingApplicationError):
                 reopened.summary("stale-copy")
 
+
+    def test_session_start_can_require_exact_reviewed_template_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app_a = self.make_app(temp)
+            app_b = self.make_app(temp)
+            reviewed = app_a.open_catalog()
+            app_b.copy_template(
+                "preset-preschool-4-6",
+                template_id="concurrent-template",
+                title="Concurrent template",
+                expected_revision=reviewed.revision,
+            )
+            with self.assertRaisesRegex(
+                ChildCoachingApplicationError,
+                "changed; reopen",
+            ):
+                app_a.compile_session(
+                    "preset-preschool-4-6",
+                    session_id="stale-start",
+                    lesson_id="lesson-1",
+                    source=TeachingPositionSource(PositionSourceKind.START),
+                    expected_revision=reviewed.revision,
+                )
+
+            current = app_a.open_catalog()
+            session = app_a.compile_session(
+                "preset-preschool-4-6",
+                session_id="current-start",
+                lesson_id="lesson-1",
+                source=TeachingPositionSource(PositionSourceKind.START),
+                expected_revision=current.revision,
+            )
+            self.assertEqual(session.session_id, "current-start")
+
+
     def test_builtin_preset_cannot_be_deleted_but_can_be_edited_and_is_not_reseeded_over(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             app = self.make_app(temp)
