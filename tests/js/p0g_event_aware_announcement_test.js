@@ -101,6 +101,20 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     'two distinct user actions must remain two accessible result events'
   );
 
+  // The contract must not depend on the first 30 ms live-region publish timer
+  // firing before the next user result arrives. Distinct result events can be
+  // produced back-to-back by concurrent keyboard/API actions and both still
+  // need their own clear+publish cycle.
+  writes.length = 0;
+  await context.testApiAction('repeated_result');
+  await context.testApiAction('repeated_result');
+  await sleep(75);
+  assert.deepStrictEqual(
+    writes,
+    ['', 'Однаковий результат', '', 'Однаковий результат'],
+    'rapid distinct user results must not cancel an earlier pending announcement'
+  );
+
   // Passive/background duplicate suppression stays bounded and quiet.
   writes.length = 0;
   context.testAnnounce('Фоновий стан');
