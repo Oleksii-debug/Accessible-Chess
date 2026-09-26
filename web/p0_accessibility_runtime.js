@@ -181,10 +181,40 @@
 
   let lastAnnouncement = "";
   let lastAnnouncementAt = 0;
-  let lastAnnouncementDispatch = 0;
+  let lastAnnouncementDispatch = null;
   let dispatchCounter = 0;
   let announcementRunning = false;
   const announcementQueue = [];
+  const rememberedDispatchMessages = new Set();
+  const rememberedDispatchMessageOrder = [];
+  const recentPassiveAnnouncements = new Map();
+  const MAX_REMEMBERED_DISPATCH_MESSAGES = 256;
+  const MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS = 256;
+  const SURFACE_EVENT_PREFIX = "\uE000AccessibleChessEvent:";
+  const SURFACE_EVENT_SEPARATOR = "\uE001";
+
+  function rememberDispatchMessage(dispatch, text) {
+    if (dispatch === null) return false;
+    const key = String(dispatch) + "\u0000" + String(text);
+    if (rememberedDispatchMessages.has(key)) return true;
+    rememberedDispatchMessages.add(key);
+    rememberedDispatchMessageOrder.push(key);
+    while (rememberedDispatchMessageOrder.length > MAX_REMEMBERED_DISPATCH_MESSAGES) {
+      rememberedDispatchMessages.delete(rememberedDispatchMessageOrder.shift());
+    }
+    return false;
+  }
+
+  function rememberPassiveAnnouncement(text, now) {
+    const previous = recentPassiveAnnouncements.get(text);
+    if (previous !== undefined && now - previous < 500) return true;
+    if (recentPassiveAnnouncements.has(text)) recentPassiveAnnouncements.delete(text);
+    recentPassiveAnnouncements.set(text, now);
+    while (recentPassiveAnnouncements.size > MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS) {
+      recentPassiveAnnouncements.delete(recentPassiveAnnouncements.keys().next().value);
+    }
+    return false;
+  }
 
   function pumpAnnouncements() {
     if (announcementRunning || !announcementQueue.length) return;
@@ -206,8 +236,10 @@
     if (!message) return false;
     const text = String(message).slice(0, 300);
     const now = Date.now();
-    const dispatch = Number(dispatchId) || 0;
-    if (text === lastAnnouncement && now - lastAnnouncementAt < 500 && dispatch === lastAnnouncementDispatch) {
+    const dispatch = dispatchId === null || dispatchId === undefined ? null : String(dispatchId);
+    if (dispatch !== null) {
+      if (rememberDispatchMessage(dispatch, text)) return false;
+    } else if (rememberPassiveAnnouncement(text, now)) {
       return false;
     }
     lastAnnouncement = text;
@@ -218,14 +250,116 @@
     return true;
   }
 
-  global.announce = function (message) {
-    return exposeAnnouncement(message, 0);
+  global.announce = function (message, eventId) {
+    const dispatch = eventId === null || eventId === undefined ? null : "inline:" + String(eventId);
+    return exposeAnnouncement(message, dispatch);
   };
+
+  function surfaceResultWillAnnounce(result) {
+    if (!result || typeof result !== "object") return false;
+    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    return Boolean(payload.announcement || (result.kind === "error" && payload.message));
+  }
+
+  function taggedSurfaceMessage(message, dispatchId) {
+    return SURFACE_EVENT_PREFIX + String(dispatchId) + SURFACE_EVENT_SEPARATOR + String(message);
+  }
+
+  function decodeSurfaceMessage(message) {
+    const text = String(message || "");
+    if (!text.startsWith(SURFACE_EVENT_PREFIX)) return null;
+    const boundary = text.indexOf(SURFACE_EVENT_SEPARATOR, SURFACE_EVENT_PREFIX.length);
+    if (boundary < 0) return null;
+    const dispatch = text.slice(SURFACE_EVENT_PREFIX.length, boundary);
+    if (!/^surface:\d+$/.test(dispatch)) return null;
+    return { dispatch: dispatch, text: text.slice(boundary + SURFACE_EVENT_SEPARATOR.length) };
+  }
+
+  function bindSurfaceResultEvent(result, dispatchId) {
+    if (!surfaceResultWillAnnounce(result)) return result;
+    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    const taggedPayload = {};
+    Object.keys(payload).forEach(function (key) { taggedPayload[key] = payload[key]; });
+    if (payload.announcement) {
+      taggedPayload.announcement = taggedSurfaceMessage(payload.announcement, dispatchId);
+    }
+    if (result.kind === "error" && payload.message) {
+      taggedPayload.message = taggedSurfaceMessage(payload.message, dispatchId);
+    }
+    const taggedResult = {};
+    Object.keys(result).forEach(function (key) { taggedResult[key] = result[key]; });
+    taggedResult.payload = taggedPayload;
+    return taggedResult;
+  }
+
+  function wrapSurfaceRenderAnnouncement(surfaceName) {
+    const surface = global[surfaceName];
+    if (!surface || typeof surface !== "object" || typeof surface.render !== "function") return false;
+    const replacement = {};
+    Object.keys(surface).forEach(function (name) {
+      replacement[name] = surface[name];
+    });
+    const originalRender = surface.render;
+    replacement.render = function () {
+      const args = Array.prototype.slice.call(arguments);
+      if (args.length > 3 && typeof args[2] === "function") {
+        const originalInvoke = args[2];
+        const originalAnnounce = typeof args[3] === "function" ? args[3] : null;
+        const rejectedDispatches = [];
+
+        args[2] = function () {
+          const invokeArgs = Array.prototype.slice.call(arguments);
+          const dispatchId = "surface:" + String(++dispatchCounter);
+          let result;
+          try {
+            result = originalInvoke.apply(this, invokeArgs);
+          } catch (error) {
+            rejectedDispatches.push(dispatchId);
+            // Always expose the wrapped invoke as a Promise boundary. Some
+            // shipping surfaces use Promise.resolve(invoke(...)).catch(...);
+            // rethrowing here would escape before their accessible fallback
+            // announcement can run.
+            return Promise.reject(error);
+          }
+          return Promise.resolve(result).then(
+            function (resolved) {
+              return bindSurfaceResultEvent(resolved, dispatchId);
+            },
+            function (error) {
+              rejectedDispatches.push(dispatchId);
+              throw error;
+            }
+          );
+        };
+
+        args[3] = function (message) {
+          const tagged = decodeSurfaceMessage(message);
+          if (tagged) return exposeAnnouncement(tagged.text, tagged.dispatch);
+          if (rejectedDispatches.length) {
+            return exposeAnnouncement(message, rejectedDispatches.shift());
+          }
+          if (originalAnnounce) return originalAnnounce(message);
+          return exposeAnnouncement(message, null);
+        };
+      }
+      return originalRender.apply(surface, args);
+    };
+    global[surfaceName] = Object.freeze(replacement);
+    return true;
+  }
+
+  [
+    "AccessibleChessPgnSurface",
+    "AccessibleChessLibrarySurface",
+    "AccessibleChessBookSurface",
+    "AccessibleChessTrainingSurface",
+    "AccessibleChessEducationSurface"
+  ].forEach(wrapSurfaceRenderAnnouncement);
 
   if (typeof global.apiAction === "function" && typeof global.render === "function") {
     global.apiAction = async function (name) {
       const args = Array.prototype.slice.call(arguments, 1);
-      const dispatchId = ++dispatchCounter;
+      const dispatchId = "api:" + String(++dispatchCounter);
       try {
         const bridge = global.pywebview && global.pywebview.api;
         if (!bridge || typeof bridge[name] !== "function") throw new Error("action unavailable");
