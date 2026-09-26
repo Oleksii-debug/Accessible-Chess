@@ -143,6 +143,66 @@ class Version2TeacherSessionRuntimeBindingTests(unittest.TestCase):
         self.assertEqual(Board.START, after.position_fen)
         self.assertIsNone(after.presentation.pointer.square)
 
+    def test_visual_preference_command_persists_without_advancing_chess_state(self) -> None:
+        self.app.start_teaching_session(self._plan())
+        before = self.app._owned_teaching_state()
+        self.assertEqual(0, before.revision)
+
+        event = self.app.browser_command(
+            "teacher",
+            "teacher.visual.update",
+            {"field": "coordinate_mode", "value": "every_square"},
+        )
+
+        self.assertEqual("render-visual", event["kind"])
+        self.assertEqual(
+            "every_square",
+            event["payload"]["snapshot"]["visual"]["preferences"]["coordinate_mode"],
+        )
+        self.assertEqual(
+            "teacher-visual-coordinate-mode",
+            event["payload"]["focus_target"],
+        )
+        after = self.app._owned_teaching_state()
+        self.assertIs(after, before)
+        self.assertEqual(0, after.revision)
+        stored = self.app.visual.preference_store.load()
+        self.assertIsNotNone(stored)
+        self.assertEqual("every_square", stored.coordinate_mode.value)
+
+        invalid = self.app.browser_command(
+            "teacher",
+            "teacher.visual.update",
+            {"field": "position_fen", "value": "secret"},
+        )
+        self.assertEqual("error", invalid["kind"])
+        self.assertNotIn("secret", repr(invalid).lower())
+        self.assertEqual(0, self.app._owned_teaching_state().revision)
+
+    def test_visual_reset_is_bounded_and_restores_builtin_defaults(self) -> None:
+        self.app.start_teaching_session(self._plan())
+        changed = self.app.browser_command(
+            "teacher",
+            "teacher.visual.update",
+            {"field": "reduced_motion", "value": True},
+        )
+        self.assertTrue(
+            changed["payload"]["snapshot"]["visual"]["preferences"]["reduced_motion"]
+        )
+
+        reset = self.app.browser_command(
+            "teacher",
+            "teacher.visual.reset",
+            {},
+        )
+
+        self.assertEqual("render-visual", reset["kind"])
+        self.assertFalse(
+            reset["payload"]["snapshot"]["visual"]["preferences"]["reduced_motion"]
+        )
+        self.assertEqual("teacher-visual-reset", reset["payload"]["focus_target"])
+        self.assertEqual(0, self.app._owned_teaching_state().revision)
+
     def test_stop_unbinds_teacher_and_discards_only_live_session_ownership(self) -> None:
         self.app.start_teaching_session(self._plan())
         self.app.stop_teaching_session()
