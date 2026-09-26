@@ -27,6 +27,20 @@ class OAuthPkceTests(unittest.TestCase):
         values.update(overrides)
         return AuthorizationRequest.create(**values)
 
+    def direct_request(self, **overrides):
+        values = {
+            "authorization_endpoint": "https://accounts.example.test/oauth/authorize",
+            "token_endpoint": "https://accounts.example.test/oauth/token",
+            "client_id": "accessible-chess-desktop",
+            "redirect_uri": "http://127.0.0.1:43127/callback",
+            "scopes": ("openid", "profile"),
+            "state": "state-123",
+            "nonce": "nonce-456",
+            "code_verifier": "A" * 64,
+        }
+        values.update(overrides)
+        return AuthorizationRequest(**values)
+
     def test_rfc7636_reference_vector(self):
         verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
         self.assertEqual(
@@ -80,15 +94,34 @@ class OAuthPkceTests(unittest.TestCase):
         request = self.make_request(redirect_uri="https://app.example.test/oauth/callback")
         self.assertEqual(request.redirect_uri, "https://app.example.test/oauth/callback")
 
-    def test_non_loopback_http_redirect_is_rejected(self):
-        with self.assertRaises(OAuthContractError):
-            self.make_request(redirect_uri="http://app.example.test/oauth/callback")
+    def test_literal_ipv6_loopback_redirect_is_allowed(self):
+        request = self.make_request(redirect_uri="http://[::1]:43127/callback")
+        self.assertEqual(request.redirect_uri, "http://[::1]:43127/callback")
+
+    def test_non_loopback_or_hostname_http_redirect_is_rejected(self):
+        for redirect_uri in (
+            "http://app.example.test/oauth/callback",
+            "http://localhost:43127/callback",
+        ):
+            with self.subTest(redirect_uri=redirect_uri), self.assertRaises(OAuthContractError):
+                self.make_request(redirect_uri=redirect_uri)
 
     def test_non_https_provider_endpoints_are_rejected(self):
         with self.assertRaises(OAuthContractError):
             self.make_request(authorization_endpoint="http://accounts.example.test/authorize")
         with self.assertRaises(OAuthContractError):
             self.make_request(token_endpoint="http://accounts.example.test/token")
+
+    def test_malformed_provider_and_redirect_urls_fail_as_contract_errors(self):
+        cases = (
+            {"authorization_endpoint": "https://[::1/authorize"},
+            {"token_endpoint": "https://accounts.example.test:99999/token"},
+            {"redirect_uri": "http://[::1/callback"},
+            {"redirect_uri": "http://127.0.0.1:99999/callback"},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides), self.assertRaises(OAuthContractError):
+                self.make_request(**overrides)
 
     def test_userinfo_and_fragments_are_rejected(self):
         with self.assertRaises(OAuthContractError):
@@ -149,7 +182,7 @@ class OAuthPkceTests(unittest.TestCase):
             authorization_endpoint="https://accounts.example.test/oauth/authorize",
             token_endpoint="https://accounts.example.test/oauth/token",
             client_id="accessible-chess-desktop",
-            redirect_uri="http://localhost:43127/callback",
+            redirect_uri="http://127.0.0.1:43127/callback",
             scopes=("openid",),
         )
         self.assertGreaterEqual(len(request.state), 32)
@@ -157,6 +190,22 @@ class OAuthPkceTests(unittest.TestCase):
         self.assertNotEqual(request.state, request.nonce)
         self.assertTrue(re.fullmatch(r"[A-Za-z0-9_-]+", request.state))
         self.assertTrue(re.fullmatch(r"[A-Za-z0-9_-]+", request.nonce))
+
+    def test_direct_dataclass_construction_cannot_bypass_validation(self):
+        invalid = (
+            {"authorization_endpoint": "http://accounts.example.test/authorize"},
+            {"redirect_uri": "http://localhost:43127/callback"},
+            {"scopes": ("openid", "openid")},
+            {"state": " state-with-leading-space"},
+            {"nonce": ""},
+            {"code_verifier": "short"},
+        )
+        for overrides in invalid:
+            request = self.direct_request(**overrides)
+            with self.subTest(overrides=overrides), self.assertRaises(OAuthContractError):
+                request.authorization_url()
+            with self.subTest(overrides=overrides), self.assertRaises(OAuthContractError):
+                request.token_exchange_form("authorization-code")
 
 
 if __name__ == "__main__":
