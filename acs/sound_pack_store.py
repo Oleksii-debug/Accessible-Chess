@@ -22,6 +22,7 @@ from .sound_profiles import (
     SoundPackCatalogEntry,
     SoundPackManifest,
     SoundProfileStore,
+    compare_sound_pack_versions,
 )
 
 
@@ -414,7 +415,9 @@ class SoundPackStore:
                 reason=f"invalid_installed_pack:{type(exc).__name__}",
             )
 
-        update = compatible and manifest.version != entry.version
+        update = compatible and compare_sound_pack_versions(
+            entry.version, manifest.version
+        ) > 0
         return SoundPackCatalogState(
             pack_id=entry.pack_id,
             installed=True,
