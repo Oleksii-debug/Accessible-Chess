@@ -69,6 +69,12 @@ def _clean_distribution_name(value: object) -> str:
     return token
 
 
+def _canonical_distribution_name(value: str) -> str:
+    """Return the canonical PyPI/PEP 503 identity for uniqueness checks."""
+
+    return re.sub(r"[-_.]+", "-", value).casefold()
+
+
 def _clean_version(value: object) -> str:
     if type(value) is not str:
         raise RuntimeDependencyNoticeError("distribution version must be text")
@@ -122,9 +128,6 @@ def _looks_like_notice(path: PurePosixPath) -> bool:
     stem = name.split(".", 1)[0]
     if any(stem == base or stem.startswith(base + "-") for base in _LICENSE_BASENAMES):
         return True
-    # Some upstream source archives use SPDX-style prefixes such as
-    # ``MIT-LICENSE``. Accept only whole separator-delimited notice tokens; do
-    # not use a substring test that would misclassify names such as LICENSEE.
     tokens = tuple(token for token in re.split(r"[-_]+", stem) if token)
     return any(token in _LICENSE_BASENAMES for token in tokens)
 
@@ -162,7 +165,10 @@ def _try_locate_notice(dist: Any, relative: PurePosixPath) -> Path | None:
     if not callable(locator):
         raise RuntimeDependencyNoticeError("distribution cannot locate license files")
     try:
-        base = Path(locator("")).resolve(strict=True)
+        base_candidate = Path(locator(""))
+        if base_candidate.is_symlink():
+            raise RuntimeDependencyNoticeError("distribution root must not be a symlink")
+        base = base_candidate.resolve(strict=True)
         located = Path(locator(str(relative)))
         if located.is_symlink():
             raise RuntimeDependencyNoticeError("distribution license file must not be a symlink")
@@ -235,7 +241,7 @@ def _validated_external_sources(
 ) -> dict[str, ExternalArchiveNoticeSource]:
     result: dict[str, ExternalArchiveNoticeSource] = {}
     for raw_name, source in (sources or {}).items():
-        name = _clean_distribution_name(raw_name).casefold()
+        name = _canonical_distribution_name(_clean_distribution_name(raw_name))
         if name not in inventory:
             raise RuntimeDependencyNoticeError("external notice source is outside dependency inventory")
         if name in result:
@@ -320,10 +326,10 @@ def build_runtime_dependency_notice_bundle(
     seen: set[str] = set()
     for value in distributions:
         name = _clean_distribution_name(value)
-        folded = name.casefold()
-        if folded in seen:
+        identity = _canonical_distribution_name(name)
+        if identity in seen:
             raise RuntimeDependencyNoticeError("dependency notice inventory contains duplicates")
-        seen.add(folded)
+        seen.add(identity)
         names.append(name)
     if not names:
         raise RuntimeDependencyNoticeError("dependency notice inventory must not be empty")
@@ -332,10 +338,10 @@ def build_runtime_dependency_notice_bundle(
     for key, value in (expected_versions or {}).items():
         name = _clean_distribution_name(key)
         version = _clean_version(value)
-        folded = name.casefold()
-        if folded in expected:
+        identity = _canonical_distribution_name(name)
+        if identity in expected:
             raise RuntimeDependencyNoticeError("expected dependency versions contain duplicates")
-        expected[folded] = version
+        expected[identity] = version
     if expected and set(expected) != seen:
         raise RuntimeDependencyNoticeError("expected dependency versions must match the notice inventory")
     external = _validated_external_sources(external_notice_sources, seen)
@@ -352,13 +358,14 @@ def build_runtime_dependency_notice_bundle(
         resolved_python_version = python_version or ".".join(str(value) for value in sys.version_info[:3])
         resolved_python_version = _clean_version(resolved_python_version)
 
-        for name in sorted(names, key=str.casefold):
+        for name in sorted(names, key=_canonical_distribution_name):
+            identity = _canonical_distribution_name(name)
             try:
                 dist = distribution_loader(name)
             except Exception as exc:
                 raise RuntimeDependencyNoticeError(f"installed distribution is unavailable: {name}") from exc
             version = _clean_version(getattr(dist, "version", ""))
-            wanted = expected.get(name.casefold())
+            wanted = expected.get(identity)
             if wanted is not None and version != wanted:
                 raise RuntimeDependencyNoticeError(f"installed distribution version mismatch: {name}")
 
@@ -383,8 +390,8 @@ def build_runtime_dependency_notice_bundle(
                     "sha256": _sha256(target),
                 })
 
-            if not rows and name.casefold() in external:
-                source = external[name.casefold()]
+            if not rows and identity in external:
+                source = external[identity]
                 data = _read_external_notice(source)
                 target_name = f"{prefix}-{version}-NOTICE-01.txt"
                 target = staging / target_name
