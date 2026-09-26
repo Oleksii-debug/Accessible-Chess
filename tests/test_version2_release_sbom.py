@@ -137,6 +137,27 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                     inventory=self._inventory(package),
                 )
 
+    def test_sound_provenance_schema_is_pinned(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            provenance_path = package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["schema_version"] = 2
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError,
+                "schema version is unsupported",
+            ):
+                build_version2_release_sbom(
+                    package,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
+                )
+
     def test_sound_license_attribution_requires_provenance_digest_match(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
