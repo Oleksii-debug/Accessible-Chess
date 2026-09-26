@@ -83,6 +83,15 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("client_secret='" + REDACTED + "'", output)
         self.assertIn("account_id=acct-8", output)
 
+    def test_quoted_assignment_with_escaped_quote_redacts_the_entire_value(self) -> None:
+        raw = r'password="correct \"horse\" battery" account_id=acct-esc'
+        output = redact_text(raw)
+        self.assertNotIn("correct", output)
+        self.assertNotIn("horse", output)
+        self.assertNotIn("battery", output)
+        self.assertIn('password="' + REDACTED + '"', output)
+        self.assertIn("account_id=acct-esc", output)
+
     def test_cookie_headers_redact_the_complete_header_value(self) -> None:
         raw = (
             "Cookie: sessionid=session-secret; theme=dark; csrftoken=csrf-secret\n"
