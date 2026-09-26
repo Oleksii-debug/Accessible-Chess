@@ -277,6 +277,46 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
+  function appendMasterySummary(main, mastery) {
+    if (!mastery || typeof mastery !== "object") return;
+    const section = node("section");
+    const heading = node("h3", mastery.heading || "");
+    heading.id = "training-mastery-heading";
+    section.setAttribute("aria-labelledby", heading.id);
+    section.appendChild(heading);
+
+    if (mastery.status) {
+      section.appendChild(node("p", mastery.status));
+    }
+    if (mastery.available) {
+      const stats = node("dl");
+      [
+        [mastery.mode_label, mastery.mode],
+        [mastery.level_label, mastery.level],
+        [mastery.points_label, mastery.points],
+        [mastery.streak_label, mastery.streak],
+        [mastery.best_streak_label, mastery.best_streak],
+        [mastery.completed_label, mastery.completed]
+      ].forEach(function (pair) {
+        if (!pair[0]) return;
+        stats.appendChild(node("dt", pair[0]));
+        stats.appendChild(node("dd", pair[1] == null ? "" : pair[1]));
+      });
+      section.appendChild(stats);
+
+      const achievements = Array.isArray(mastery.achievements) ? mastery.achievements : [];
+      if (achievements.length) {
+        section.appendChild(node("h4", mastery.achievements_label || ""));
+        const list = node("ul");
+        achievements.forEach(function (label) {
+          list.appendChild(node("li", label));
+        });
+        section.appendChild(list);
+      }
+    }
+    main.appendChild(section);
+  }
+
   function renderTrainingSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage, solution) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("Training root must support replaceChildren");
@@ -302,6 +342,7 @@
       stats.appendChild(node("dd", pair[1]));
     });
     main.appendChild(stats);
+    appendMasterySummary(main, snapshot.mastery);
 
     if (snapshot.message) {
       const message = node("p", snapshot.message);
