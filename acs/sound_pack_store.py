@@ -280,7 +280,7 @@ class SoundPackStore:
                     os.replace(backup, final)
                 raise
             if backup.exists():
-                shutil.rmtree(backup)
+                shutil.rmtree(backup, ignore_errors=True)
             return manifest
         finally:
             if transaction.exists():
