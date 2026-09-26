@@ -21,7 +21,13 @@ from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
 from .release_app import _sound_cache_dir, _user_root
 from .settings import Settings
-from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
+from .sound_pack_store import SoundPackStore
+from .sound_profiles import SoundPreviewService, SoundProfileController, SoundProfileStore
+from .sound_runtime import (
+    GameSoundRuntime,
+    LegacyProfiledSoundPlaybackAdapter,
+    SoundRuntime,
+)
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
@@ -393,26 +399,42 @@ def create_version2_release_application(
             language = UILanguage(language_value)
         except (TypeError, ValueError):
             language = UILanguage.UA
+        sound_profile_controller = SoundProfileController(
+            SoundProfileStore(layout.root / "sound-profile.json"),
+            legacy_settings=settings.data,
+        )
+        sound_pack_store = SoundPackStore(layout.root / "sound-packs")
         playback = sound_playback
         if playback is None:
             playback = WindowsSoundPlaybackAdapter(
                 PackagedSoundAssetResolver(app_dir),
                 cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
+                pack_resolver=sound_pack_store,
             )
+        elif not callable(getattr(playback, "play_profiled", None)):
+            playback = LegacyProfiledSoundPlaybackAdapter(playback)
+
         sound_runtime = SoundRuntime(
             playback,
-            settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
+            profile=sound_profile_controller.current,
         )
         game_sounds = GameSoundRuntime(sound_runtime)
+        sound_preview_service = SoundPreviewService(
+            sound_profile_controller.current,
+            playback,
+        )
 
         api = Version2ReleaseAccessibleChessAPI(
             continuous_analysis=continuous,
             game_sounds=game_sounds,
             sound_runtime=sound_runtime,
             settings=settings,
+            sound_profile_controller=sound_profile_controller,
+            sound_preview_service=sound_preview_service,
             engine_play_service=engine_play,
             lang=language.value,
         )
+        api.sound_pack_store = sound_pack_store
     except Exception:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
