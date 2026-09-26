@@ -48,6 +48,12 @@ def _created(value: str) -> str:
     return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _canonical_distribution_name(value: str) -> str:
+    """Return the PEP 503 identity used for uniqueness and package IDs."""
+
+    return re.sub(r"[-_.]+", "-", value).casefold()
+
+
 def _spdx_id(prefix: str, value: str) -> str:
     token = re.sub(r"[^A-Za-z0-9.-]+", "-", value).strip("-.")
     if not token:
@@ -129,10 +135,10 @@ def build_runtime_dependency_spdx23(
             raise RuntimeDependencySbomError("distribution row is invalid")
         distribution = _text(row.get("distribution"), label="distribution name", max_length=256)
         version = _text(row.get("version"), label="distribution version", max_length=128)
-        folded = distribution.casefold()
-        if folded in seen:
+        canonical = _canonical_distribution_name(distribution)
+        if canonical in seen:
             raise RuntimeDependencySbomError("runtime dependency manifest contains duplicate distributions")
-        seen.add(folded)
+        seen.add(canonical)
         notices = row.get("notice_files")
         if not isinstance(notices, list) or not notices:
             raise RuntimeDependencySbomError(f"distribution has no verified notice evidence: {distribution}")
@@ -143,8 +149,8 @@ def build_runtime_dependency_spdx23(
             if not re.fullmatch(r"[0-9a-f]{64}", digest):
                 raise RuntimeDependencySbomError("notice SHA-256 is invalid")
 
-        package_id = _spdx_id("Package", f"{distribution}-{version}")
-        purl = f"pkg:pypi/{quote(distribution, safe='._-').lower()}@{quote(version, safe='._+-')}"
+        package_id = _spdx_id("Package", f"{canonical}-{version}")
+        purl = f"pkg:pypi/{quote(canonical, safe='._-')}@{quote(version, safe='._+-')}"
         packages.append(
             {
                 "SPDXID": package_id,
