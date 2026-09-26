@@ -125,6 +125,15 @@ def build_web_keymap(registry: ActionRegistry | None = None) -> dict[str, Any]:
                 "labelUk": _UK_LABELS.get(definition.action_id, definition.title),
                 "labelEn": _EN_LABELS.get(definition.action_id, definition.title),
                 "binding": registry.get_binding(definition.action_id),
+                "valueKind": (
+                    "shortcut"
+                    if (
+                        registry.get_binding(definition.action_id) is not None
+                        or definition.default_binding is not None
+                        or definition.default_alias is None
+                    )
+                    else "alias"
+                ),
                 "alias": registry.get_alias(definition.action_id),
                 "defaultBinding": definition.default_binding,
                 "defaultAlias": definition.default_alias,
