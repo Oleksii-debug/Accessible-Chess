@@ -33,6 +33,17 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
             self.text.index("Start-Process -FilePath $exe"),
         )
 
+    def test_probe_has_one_package_binding_and_one_executable_control_flow(self) -> None:
+        self.assertEqual(1, self.text.count("function AssertExactPackageBinding"))
+        self.assertEqual(1, self.text.count("function AssertLauncherFocus"))
+        self.assertEqual(
+            1,
+            self.text.count("$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru"),
+        )
+        self.assertEqual(1, self.text.count("AssertExactPackageBinding $root $ProductSha $exe"))
+        self.assertEqual(1, self.text.count("manifest_product_sha_verified=$true"))
+        self.assertEqual(1, self.text.count("executable_checksum_verified=$true"))
+
     def test_probe_launches_real_extracted_exe_and_uses_connected_provider_roots(self) -> None:
         self.assertIn("AccessibleChess.exe", self.text)
         self.assertIn("Start-Process -FilePath $exe", self.text)
