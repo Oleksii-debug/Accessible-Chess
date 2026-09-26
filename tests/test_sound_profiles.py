@@ -17,6 +17,7 @@ from acs.sound_profiles import (
     SoundPreviewService,
     SoundProfile,
     SoundProfileStore,
+    compare_sound_pack_versions,
 )
 
 
@@ -131,6 +132,39 @@ class SoundPackManifestTests(unittest.TestCase):
         hashes["move"] = "z" * 64
         with self.assertRaises(ValueError):
             self._pack(sha256=hashes)
+
+
+class SoundPackVersionTests(unittest.TestCase):
+    def test_semver_precedence_and_build_metadata(self) -> None:
+        self.assertGreater(compare_sound_pack_versions("2.0.0", "1.9.9"), 0)
+        self.assertLess(compare_sound_pack_versions("1.0.0-rc.1", "1.0.0"), 0)
+        self.assertLess(
+            compare_sound_pack_versions("1.0.0-alpha.2", "1.0.0-alpha.10"),
+            0,
+        )
+        self.assertEqual(
+            compare_sound_pack_versions("1.0.0+build.2", "1.0.0+build.1"),
+            0,
+        )
+
+    def test_manifest_rejects_non_semver_version(self) -> None:
+        files = {event: f"{event}.wav" for event in CORE_SOUND_EVENTS}
+        hashes = {event: _digest(event.encode()) for event in CORE_SOUND_EVENTS}
+        with self.assertRaisesRegex(ValueError, "Semantic Versioning"):
+            SoundPackManifest(
+                pack_id="bad.version",
+                version="latest",
+                title="Bad",
+                license_id="CC0-1.0",
+                files=files,
+                sha256=hashes,
+                author="Accessible Chess",
+                provenance="https://example.invalid/source",
+            )
+
+    def test_numeric_prerelease_leading_zero_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "leading zero"):
+            compare_sound_pack_versions("1.0.0-01", "1.0.0")
 
 
 class SoundPackCatalogEntryTests(unittest.TestCase):
