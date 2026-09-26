@@ -257,6 +257,7 @@ class MultiplayerGameSnapshot:
     white_presence: PresenceState = PresenceState.CONNECTED
     black_presence: PresenceState = PresenceState.CONNECTED
     rematch_of: str | None = None
+    rematch_requested_by: str | None = None
     version: int = MULTIPLAYER_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -283,6 +284,16 @@ class MultiplayerGameSnapshot:
         rematch_of = None if self.rematch_of is None else _id(self.rematch_of, "rematch game id")
         if rematch_of == game_id:
             raise MultiplayerContractError("game cannot be a rematch of itself")
+        rematch_requested_by = (
+            None
+            if self.rematch_requested_by is None
+            else _id(self.rematch_requested_by, "rematch requester id")
+        )
+        if rematch_requested_by is not None:
+            if rematch_requested_by not in {white, black}:
+                raise MultiplayerContractError("rematch requester must be one of the players")
+            if self.lifecycle.status is not GameStatus.FINISHED:
+                raise MultiplayerContractError("active game cannot carry a rematch request")
         _validate_game_clock(self.time_control, side, self.clock, self.lifecycle)
         object.__setattr__(self, "game_id", game_id)
         object.__setattr__(self, "sequence", sequence)
@@ -293,6 +304,7 @@ class MultiplayerGameSnapshot:
         object.__setattr__(self, "white_presence", white_presence)
         object.__setattr__(self, "black_presence", black_presence)
         object.__setattr__(self, "rematch_of", rematch_of)
+        object.__setattr__(self, "rematch_requested_by", rematch_requested_by)
         object.__setattr__(self, "version", MULTIPLAYER_SCHEMA_VERSION)
 
     def side_for(self, participant_id: str) -> str:
@@ -318,6 +330,7 @@ class MultiplayerGameSnapshot:
             "white_presence": self.white_presence.value,
             "black_presence": self.black_presence.value,
             "rematch_of": self.rematch_of,
+            "rematch_requested_by": self.rematch_requested_by,
         }
 
     @classmethod
@@ -339,6 +352,7 @@ class MultiplayerGameSnapshot:
                 "white_presence",
                 "black_presence",
                 "rematch_of",
+                "rematch_requested_by",
             },
             "multiplayer game snapshot",
         )
@@ -356,6 +370,7 @@ class MultiplayerGameSnapshot:
             white_presence=data["white_presence"],
             black_presence=data["black_presence"],
             rematch_of=data["rematch_of"],
+            rematch_requested_by=data["rematch_requested_by"],
         )
 
 
