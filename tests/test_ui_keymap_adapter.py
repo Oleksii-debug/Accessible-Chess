@@ -21,6 +21,16 @@ def test_ui_keymap_uses_exact_central_action_ids_and_defaults():
         assert row["alias"] == registry.get_alias(definition.action_id)
         assert row["defaultBinding"] == definition.default_binding
         assert row["defaultAlias"] == definition.default_alias
+        expected_kind = (
+            "shortcut"
+            if (
+                registry.get_binding(definition.action_id) is not None
+                or definition.default_binding is not None
+                or definition.default_alias is None
+            )
+            else "alias"
+        )
+        assert row["valueKind"] == expected_kind
 
 
 def test_ui_keymap_has_no_legacy_parallel_action_ids():
@@ -61,3 +71,24 @@ def test_move_entry_aliases_are_projected_without_changing_parser_syntax():
     assert rows["move.standard"]["alias"] == "s"
     assert rows["move.empty"]["alias"] == "e"
     assert all("W:" not in (row["alias"] or "") for row in rows.values())
+
+
+def test_value_kind_keeps_unbound_shortcuts_keyboard_capturable():
+    rows = _by_id(build_web_keymap())
+
+    material = rows["board.material"]
+    assert material["binding"] is None
+    assert material["alias"] is None
+    assert material["valueKind"] == "shortcut"
+
+    command = rows["move.undo"]
+    assert command["binding"] is None
+    assert command["alias"] == "u"
+    assert command["valueKind"] == "alias"
+
+    registry = ActionRegistry()
+    registry.set_binding("board.material", "Ctrl+Shift+M")
+    remapped = _by_id(build_web_keymap(registry))["board.material"]
+    assert remapped["valueKind"] == "shortcut"
+    assert remapped["binding"] == "Ctrl+Shift+M"
+
