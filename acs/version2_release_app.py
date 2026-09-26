@@ -431,10 +431,10 @@ def create_version2_release_application(
             settings=settings,
             sound_profile_controller=sound_profile_controller,
             sound_preview_service=sound_preview_service,
+            sound_pack_store=sound_pack_store,
             engine_play_service=engine_play,
             lang=language.value,
         )
-        api.sound_pack_store = sound_pack_store
     except Exception:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
