@@ -148,6 +148,21 @@ async function run() {
     "the interleaved distinct event must still be exposed"
   );
 
+  fakeWindow.announce("Same-event first message", "event-multi");
+  fakeWindow.announce("Same-event second message", "event-multi");
+  fakeWindow.announce("Same-event first message", "event-multi");
+  await new Promise(resolve => setTimeout(resolve, 220));
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same-event first message").length,
+    1,
+    "duplicate same-text emission from one event must remain suppressed"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same-event second message").length,
+    1,
+    "a distinct accessible result from the same event must not be dropped"
+  );
+
   fakeWindow.announce("Repeated explicit text", "event-3");
   fakeWindow.announce("Repeated explicit text", "event-4");
   await new Promise(resolve => setTimeout(resolve, 180));
