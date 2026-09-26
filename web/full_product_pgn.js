@@ -109,7 +109,7 @@
       });
       treeItem.addEventListener("keydown", function (event) {
         const resolve = global.accessibleChessKeymapAction;
-        const actionId = typeof resolve === "function" ? resolve(event, "document") : "";
+        const actionId = typeof resolve === "function" ? resolve(event, "pgn_tree") : "";
         let command = "";
         let payload = {};
         if (actionId === "pgn.previous_item") {
