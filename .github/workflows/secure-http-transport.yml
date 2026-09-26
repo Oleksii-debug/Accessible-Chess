@@ -24,20 +24,27 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12'
+          python-version: '3.12.10'
 
-      - name: Prove isolated transport-only scope
+      - name: Prove exact candidate identity and isolated transport-only scope
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha }}"
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head" || {
+            printf 'Expected exact PR head %s, got %s\n' "$expected_head" "$actual_head" >&2
+            exit 1
+          }
           base="${{ github.event.pull_request.base.sha }}"
           git cat-file -e "${base}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
@@ -48,6 +55,7 @@ jobs:
             printf 'Unexpected secure transport scope:\n%s\n' "$changed" >&2
             exit 1
           }
+          echo "SECURE_HTTP_EXACT_HEAD=$actual_head"
 
       - name: Compile transport and tests
         run: python -m compileall -q acs/secure_http.py tests/test_secure_http.py
