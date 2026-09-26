@@ -265,6 +265,27 @@ class VisualBoardWebViewState:
         self._cached_snapshot = None
         return self.snapshot(include_assets=True)
 
+    def update_field(
+        self,
+        field: object,
+        value: object,
+    ) -> dict[str, object]:
+        """Apply exactly one browser-selectable preference field."""
+
+        if type(field) is not str or field not in {
+            "board_theme_id",
+            "piece_theme_id",
+            "coordinate_mode",
+            "board_scale_percent",
+            "piece_scale_percent",
+            "show_last_move",
+            "reduced_motion",
+        }:
+            raise VisualBoardWebViewError("visual preference field is invalid")
+        current = self._preferences.load_or_default().as_dict()
+        current[field] = value
+        return self.update(current)
+
     def reset(self) -> dict[str, object]:
         try:
             self._preferences.save(BoardVisualPreferences())
