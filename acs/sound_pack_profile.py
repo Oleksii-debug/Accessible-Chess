@@ -9,7 +9,11 @@ cannot be left pointing at assets that were removed.
 
 from dataclasses import dataclass
 
-from .sound_pack_catalog import SoundPackCatalogEntry, SoundPackManager
+from .sound_pack_catalog import (
+    SoundPackCatalogEntry,
+    SoundPackCatalogStatus,
+    SoundPackManager,
+)
 from .sound_profile_store import SoundProfileManager
 from .sound_profiles import SoundPackManifest, SoundProfile
 
@@ -46,6 +50,22 @@ class SoundPackProfileCoordinator:
     @property
     def current_profile(self) -> SoundProfile:
         return self._profiles.current
+
+    @property
+    def fallback_pack_id(self) -> str:
+        """Expose only the stable fallback identity needed by presentation policy."""
+
+        return self._packs.fallback_pack_id
+
+    def resolve_usable_pack(self, pack_id: str) -> str:
+        """Resolve through the same installed-pack authority used by profiles."""
+
+        return self._packs.resolve_usable_pack(pack_id)
+
+    def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
+        """Project catalog/install status without exposing storage internals."""
+
+        return self._packs.status(entry)
 
     def install(
         self,
