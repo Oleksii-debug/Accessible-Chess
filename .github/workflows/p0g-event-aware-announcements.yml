@@ -80,6 +80,42 @@ jobs:
           node --check .p0g-shipping-inline.js
           node --check web/p0_accessibility_runtime.js
 
+      - name: Lock wrapped surface announcement consumption boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          token = 'payload.announcement'
+          expected = {
+              'web/full_product_pgn.js': 2,
+              'web/full_product_library.js': 2,
+              'web/full_product_books_training.js': 4,
+              'web/full_product_education.js': 2,
+          }
+          # Each semantic announcement has exactly two lexical uses in its
+          # guarded `if (payload.announcement) announce(String(...))` statement:
+          # the condition and the announce argument. The P0 runtime may therefore
+          # attach event identity to that transient payload without allowing the
+          # internal marker to become visible document/status text.
+          required_statement = 'if (payload.announcement) announce(String(payload.announcement));'
+          for raw_path, count in expected.items():
+              path = Path(raw_path)
+              text = path.read_text(encoding='utf-8')
+              actual = text.count(token)
+              if actual != count:
+                  raise SystemExit(
+                      f'P0_G_SURFACE_ANNOUNCEMENT_CONSUMER_DRIFT={raw_path}:{actual}!={count}'
+                  )
+              statements = text.count(required_statement)
+              if statements * 2 != count:
+                  raise SystemExit(
+                      f'P0_G_SURFACE_ANNOUNCEMENT_BOUNDARY_DRIFT={raw_path}:{statements}'
+                  )
+          print('P0_G_SURFACE_ANNOUNCEMENT_CONSUMPTION_BOUNDARY=PASS')
+          PY
+
       - name: Execute shipping announcement event contract
         run: |
           node tests/js/p0g_event_aware_announcement_test.js
