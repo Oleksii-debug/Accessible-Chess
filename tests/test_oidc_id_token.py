@@ -70,15 +70,22 @@ class OidcIdTokenTests(unittest.TestCase):
             ),
         )
         self.assertEqual(verifier.seen, [TOKEN])
-        self.assertNotIn(TOKEN, repr(identity))
-        self.assertNotIn(NONCE, repr(identity))
+        rendered = repr(identity)
+        self.assertNotIn(TOKEN, rendered)
+        self.assertNotIn(NONCE, rendered)
+        self.assertNotIn("user-42", rendered)
 
-    def test_signature_verifier_exception_is_bounded_and_unlinked(self) -> None:
-        verifier = _Verifier(failure=RuntimeError("private key/provider detail"))
-        with self.assertRaisesRegex(IdTokenError, "signature verification failed") as caught:
-            self.validate(verifier=verifier)
-        self.assertIsNone(caught.exception.__cause__)
-        self.assertNotIn("private", str(caught.exception))
+    def test_signature_verifier_exceptions_are_bounded_and_unlinked(self) -> None:
+        for failure in (
+            RuntimeError("private key/provider detail"),
+            IdTokenError("provider accidentally reused public exception: private detail"),
+        ):
+            with self.subTest(failure=type(failure).__name__):
+                verifier = _Verifier(failure=failure)
+                with self.assertRaisesRegex(IdTokenError, "signature verification failed") as caught:
+                    self.validate(verifier=verifier)
+                self.assertIsNone(caught.exception.__cause__)
+                self.assertNotIn("private", str(caught.exception))
 
     def test_requires_verified_envelope_and_secure_algorithm(self) -> None:
         class BadVerifier:
@@ -130,6 +137,7 @@ class OidcIdTokenTests(unittest.TestCase):
             (_claims(aud=[]), "invalid aud claim"),
             (_claims(aud=[CLIENT, CLIENT]), "invalid aud claim"),
             (_claims(aud=[CLIENT, 7]), "invalid aud claim"),
+            (_claims(aud=[CLIENT, "bad\naudience"], azp=CLIENT), "invalid aud claim"),
         ]
         for claims, message in rejected:
             with self.subTest(message=message):
@@ -151,7 +159,6 @@ class OidcIdTokenTests(unittest.TestCase):
                 with self.assertRaisesRegex(IdTokenError, message):
                     self.validate(envelope=VerifiedIdTokenEnvelope("RS256", claims))
 
-        # Boundaries are accepted inside the explicitly configured skew.
         self.validate(
             envelope=VerifiedIdTokenEnvelope(
                 "RS256", _claims(iat=NOW + 60, nbf=NOW + 60, exp=NOW + 61)
