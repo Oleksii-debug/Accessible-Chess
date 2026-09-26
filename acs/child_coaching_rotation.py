@@ -237,16 +237,28 @@ class RotationState:
             _digest_text(self.plan_digest, "rotation plan digest"),
         )
         object.__setattr__(self, "phase", _enum(self.phase, RotationPhase, "rotation phase"))
-        if type(self.round_index) is not int or self.round_index < 0:
-            raise ChildCoachingRotationError("rotation round_index must be a non-negative integer")
+        if (
+            type(self.round_index) is not int
+            or not 0 <= self.round_index < MAX_ROTATION_ROUNDS
+        ):
+            raise ChildCoachingRotationError(
+                "rotation round_index must be a bounded non-negative integer"
+            )
         if type(self.revision) is not int or self.revision < 0:
             raise ChildCoachingRotationError("rotation revision must be a non-negative integer")
         ref = self.pair_play_batch_ref
         if ref is not None:
             ref = _identifier(ref, "pair-play batch reference")
         object.__setattr__(self, "pair_play_batch_ref", ref)
-        if self.phase is RotationPhase.PLANNED and self.revision != 0:
-            raise ChildCoachingRotationError("planned rotation must start at revision zero")
+        if self.phase is RotationPhase.PLANNED:
+            if self.revision != 0 or self.round_index != 0 or ref is not None:
+                raise ChildCoachingRotationError(
+                    "planned rotation must be pristine at round zero"
+                )
+        elif self.revision < 1:
+            raise ChildCoachingRotationError(
+                "active/completed rotation must have a positive revision"
+            )
         if self.phase is RotationPhase.COMPLETED and ref is not None:
             raise ChildCoachingRotationError("completed rotation cannot retain pair-play reference")
 
