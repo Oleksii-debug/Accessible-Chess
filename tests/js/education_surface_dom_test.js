@@ -85,6 +85,16 @@ vm.runInThisContext(
   { filename: "full_product_education.js" }
 );
 
+const educationBindings = {
+  ArrowUp: "education.previous_item",
+  ArrowDown: "education.next_item",
+  Enter: "education.open_selected"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "education_list") return "";
+  return educationBindings[event.key] || "";
+};
+
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -271,9 +281,35 @@ async function run() {
     check(document.activeElement.id === "education-detail-heading", kind + " detail focus missing");
   }
 
+  const studentOption = root.descendants().find((element) => element.id.startsWith("education-student-"));
+  delete educationBindings.Enter;
+  educationBindings.o = "education.open_selected";
+  const beforeOldEnter = calls.length;
+  let oldEnterPrevented = false;
+  studentOption.listeners.keydown({
+    key: "Enter",
+    preventDefault: function () { oldEnterPrevented = true; },
+    stopPropagation: function () {}
+  });
+  await flushPromises();
+  check(!oldEnterPrevented, "old Education Enter binding survived live remap");
+  check(calls.length === beforeOldEnter, "old Education Enter binding still dispatched");
+
+  let remapPrevented = false;
+  let remapStopped = false;
+  studentOption.listeners.keydown({
+    key: "o",
+    preventDefault: function () { remapPrevented = true; },
+    stopPropagation: function () { remapStopped = true; }
+  });
+  await flushPromises();
+  check(remapPrevented && remapStopped, "remapped Education open key was not owned locally");
+  check(calls.length === beforeOldEnter + 1, "remapped Education open did not dispatch exactly once");
+  check(calls[calls.length - 1][0] === "education.open", "remapped Education open used wrong command");
+
   const courseOption = root.descendants().find((element) => element.id.startsWith("education-course-"));
   const beforeEnter = calls.length;
-  courseOption.listeners.keydown({ key: "Enter", preventDefault: function () {} });
+  courseOption.listeners.keydown({ key: "o", preventDefault: function () {} });
   await flushPromises();
   check(calls.length === beforeEnter, "read-only course invented an open command");
   check(!calls.some((call) => Object.prototype.hasOwnProperty.call(call[1], "record_id") || Object.prototype.hasOwnProperty.call(call[1], "student_id")), "browser sent raw education identity");
