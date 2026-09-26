@@ -104,6 +104,36 @@ class OidcProviderMetadataTests(unittest.TestCase):
                 scopes=("profile",),
             )
 
+    def test_direct_metadata_construction_cannot_bypass_security_capabilities(self):
+        defaults = {
+            "issuer": "https://accounts.example.test/tenant",
+            "authorization_endpoint": "https://accounts.example.test/oauth/authorize",
+            "token_endpoint": "https://accounts.example.test/oauth/token",
+            "response_types_supported": ("code",),
+            "code_challenge_methods_supported": ("S256",),
+            "token_endpoint_auth_methods_supported": ("none",),
+            "scopes_supported": ("openid", "profile"),
+        }
+        invalid = (
+            {"issuer": "http://accounts.example.test/tenant"},
+            {"authorization_endpoint": "http://accounts.example.test/authorize"},
+            {"token_endpoint": "http://accounts.example.test/token"},
+            {"response_types_supported": ("id_token",)},
+            {"code_challenge_methods_supported": ("plain",)},
+            {"token_endpoint_auth_methods_supported": ("client_secret_basic",)},
+            {"scopes_supported": ("profile",)},
+        )
+        for override in invalid:
+            values = dict(defaults)
+            values.update(override)
+            metadata = OidcProviderMetadata(**values)
+            with self.subTest(override=override), self.assertRaises(OAuthContractError):
+                metadata.create_authorization_request(
+                    client_id="accessible-chess-desktop",
+                    redirect_uri="http://127.0.0.1:43127/callback",
+                    scopes=("openid",),
+                )
+
     def test_capability_arrays_reject_duplicates_and_non_text_values(self):
         cases = (
             {"response_types_supported": ["code", "code"]},
