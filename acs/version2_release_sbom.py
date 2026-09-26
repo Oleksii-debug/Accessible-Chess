@@ -131,6 +131,8 @@ def _file_spdx_id(relative: str) -> str:
 
 def _sound_licenses(root: Path) -> dict[str, str]:
     provenance = _json_object(root / SOUND_PROVENANCE, label="sound provenance")
+    if provenance.get("schema_version") != 1:
+        _fail("sound provenance schema version is unsupported")
     events = provenance.get("events")
     if not isinstance(events, dict) or not events:
         _fail("sound provenance events are missing")
