@@ -53,6 +53,15 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn('test "$PRODUCT_SHA" = "$WORKFLOW_SHA"', self.text)
         self.assertIn("W4_READBACK_EXACT_PRODUCT_WORKFLOW_BINDING=PASS", self.text)
 
+    def test_long_build_staleness_is_rejected_after_artifact_publication(self) -> None:
+        self.assertIn("Recheck live Full Product freshness after build and upload", self.text)
+        self.assertIn(f"canonical='{CANONICAL_BRANCH}'", self.text)
+        self.assertIn('git fetch --no-tags origin "$canonical"', self.text)
+        self.assertIn('live="$(git rev-parse "origin/$canonical")"', self.text)
+        self.assertIn('test "$PRODUCT_SHA" = "$live"', self.text)
+        self.assertIn("STALE_W4_CANDIDATE", self.text)
+        self.assertIn("W4_POST_BUILD_FRESHNESS=PASS", self.text)
+
     def test_independent_verifier_receives_api_outer_digest(self) -> None:
         self.assertIn("python scripts/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
