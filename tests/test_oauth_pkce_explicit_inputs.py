@@ -40,6 +40,29 @@ class OAuthPkceExplicitInputTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(OAuthContractError):
                 self.create(**{field: " "})
 
+    def test_scope_iteration_is_count_bounded(self):
+        yielded = 0
+
+        def scopes():
+            nonlocal yielded
+            while True:
+                yielded += 1
+                yield f"scope-{yielded}"
+
+        with self.assertRaisesRegex(OAuthContractError, "scope count"):
+            self.create(scopes=scopes())
+        self.assertEqual(yielded, 65)
+
+    def test_extra_authorization_parameters_and_url_size_are_bounded(self):
+        request = self.create()
+        too_many = {f"x-{index}": "v" for index in range(65)}
+        with self.assertRaisesRegex(OAuthContractError, "parameter count"):
+            request.authorization_url(extra_parameters=too_many)
+
+        oversized = {f"long-{index}": "x" * 2048 for index in range(8)}
+        with self.assertRaisesRegex(OAuthContractError, "URL exceeds"):
+            request.authorization_url(extra_parameters=oversized)
+
     def test_text_subclass_cannot_execute_during_validation(self):
         calls: list[str] = []
 
