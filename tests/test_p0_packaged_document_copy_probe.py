@@ -28,6 +28,17 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
             self.text.index("Start-Process -FilePath $exe"),
         )
 
+    def test_probe_has_one_package_binding_and_one_executable_control_flow(self) -> None:
+        self.assertEqual(1, self.text.count("function AssertExactPackageBinding"))
+        self.assertEqual(1, self.text.count("AssertExactPackageBinding $root $ProductSha $exe"))
+        self.assertEqual(
+            1,
+            self.text.count("$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru"),
+        )
+        self.assertEqual(1, self.text.count("manifest_product_sha_verified=$true"))
+        self.assertEqual(1, self.text.count("executable_checksum_verified=$true"))
+        self.assertNotIn("40}  $focused=", self.text)
+
     def test_probe_uses_retained_provider_roots_not_desktop_document_search(self) -> None:
         self.assertIn("ProviderRoots($Report)", self.text)
         self.assertIn("AutomationElement]::FromHandle", self.text)
