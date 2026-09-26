@@ -101,5 +101,50 @@ class SoundPackManifestTests(unittest.TestCase):
             self._pack(files=files)
 
 
+class SoundProfileStrictScalarTests(unittest.TestCase):
+    def test_profile_and_event_volumes_do_not_coerce_strings_floats_or_booleans(self) -> None:
+        for value in ("80", 80.0, True):
+            with self.subTest(event_volume=value), self.assertRaises(TypeError):
+                SoundEventPreference(volume_percent=value)  # type: ignore[arg-type]
+            with self.subTest(master_volume=value), self.assertRaises(TypeError):
+                SoundProfile(master_volume_percent=value)  # type: ignore[arg-type]
+
+    def test_identifiers_paths_and_manifest_metadata_require_text(self) -> None:
+        with self.assertRaises(TypeError):
+            SoundProfile(pack_id=123)  # type: ignore[arg-type]
+        with self.assertRaises(TypeError):
+            SoundProfile(events={1: SoundEventPreference()})  # type: ignore[dict-item]
+        with self.assertRaises(TypeError):
+            SoundPackManifestTests._pack(version=1)  # type: ignore[arg-type]
+        files = {event: f"{event}.wav" for event in CORE_SOUND_EVENTS}
+        files["move"] = 7  # type: ignore[assignment]
+        with self.assertRaises(TypeError):
+            SoundPackManifestTests._pack(files=files)
+
+    def test_boolean_schema_version_cannot_alias_integer_schema_one(self) -> None:
+        with self.assertRaises(ValueError):
+            SoundProfile.from_mapping(
+                {
+                    "schema_version": True,
+                    "pack_id": "classic",
+                    "master_enabled": True,
+                    "master_volume_percent": 80,
+                    "events": {},
+                }
+            )
+
+    def test_event_keys_from_wire_mapping_are_not_string_coerced(self) -> None:
+        with self.assertRaises(TypeError):
+            SoundProfile.from_mapping(
+                {
+                    "schema_version": SOUND_PROFILE_SCHEMA_VERSION,
+                    "pack_id": "classic",
+                    "master_enabled": True,
+                    "master_volume_percent": 80,
+                    "events": {1: {"enabled": True}},
+                }
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
