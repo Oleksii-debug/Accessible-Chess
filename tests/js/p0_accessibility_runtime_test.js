@@ -62,8 +62,16 @@ const fakeWindow = {
     }
   }),
   AccessibleChessLibrarySurface: Object.freeze({
+    render: function (_root, _snapshot, _invoke, announce) {
+      announce("Same library surface result");
+    },
     apply: function (_root, _event, _invoke, announce) {
-      announce("Same product-surface apply result");
+      announce("Passive library import result");
+    }
+  }),
+  AccessibleChessTeacherSurface: Object.freeze({
+    render: function (_root, _snapshot, _invoke, announce) {
+      announce("Teacher hover-capable result");
     }
   })
 };
@@ -147,27 +155,37 @@ async function run() {
     "distinct explicit event identities must preserve repeated result text"
   );
 
-  // Final-product surfaces are loaded before this P0 runtime and receive a local
-  // bootstrap callback. The runtime must replace only that surface callback with
-  // the one canonical event-aware queue so two equal user results remain two
-  // accessibility events. This must work for both render() and Library apply().
+  // Final-product render callbacks are installed into click/submit/keyboard action
+  // listeners. Route those through the canonical event-aware queue so repeated
+  // equal user results remain distinct accessibility events.
   let staleCallbackCalls = 0;
   const staleCallback = function () { staleCallbackCalls += 1; };
   fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
   fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessLibrarySurface.render(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessLibrarySurface.render(null, null, null, staleCallback);
   await new Promise(resolve => setTimeout(resolve, 360));
-  assert.strictEqual(staleCallbackCalls, 0, "product surfaces must not bypass the P0 event-aware queue");
+  assert.strictEqual(staleCallbackCalls, 0, "explicit product render callbacks must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
     2,
     "two equal PGN/product user results must remain two live-region events"
   );
   assert.strictEqual(
-    nonEmptyLiveWrites.filter(value => value === "Same product-surface apply result").length,
+    nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
     2,
-    "two equal Library apply results must remain two live-region events"
+    "two equal Library user results must remain two live-region events"
+  );
+
+  // Library apply() is also used by asynchronous import progress, and Teacher
+  // render installs mouseenter handlers. They must not be upgraded blindly to
+  // fresh user-event dispatches or passive activity could spam the screen reader.
+  fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessTeacherSurface.render(null, null, null, staleCallback);
+  assert.strictEqual(
+    staleCallbackCalls,
+    2,
+    "passive import and hover-capable paths must retain their bounded bootstrap callback"
   );
 
   assert.strictEqual(live.attributes.get("aria-busy"), "false");
