@@ -302,6 +302,15 @@ async function proveStage1RefreshAnalysis() {
   selectSubstring(engineStatus, "selected");
 
   const indexSource = fs.readFileSync("web/index.html", "utf8");
+  const setTextSource = indexSource.match(/setText=\(id,text\)=>\{[^}]+\}/);
+  assert.ok(setTextSource, "shipping setText function was not found");
+  context.el = id => documentRef.getElementById(id);
+  const setText = vm.runInContext(setTextSource[0].replace(/^setText=/, ""), context);
+  const originalNode = textNodes(engineStatus)[0];
+  setText("engine-status", "Engine selected status");
+  assert.strictEqual(textNodes(engineStatus)[0], originalNode, "unchanged analysis text was replaced during polling");
+  assert.strictEqual(selection.toString(), "selected", "unchanged analysis poll destroyed document selection");
+  console.log("P0_UNCHANGED_STATUS_TEXT_NODE_STABLE=PASS");
   const start = indexSource.indexOf("async function refreshAnalysis()");
   const end = indexSource.indexOf("\nfunction applyUiLanguage", start);
   assert.ok(start >= 0 && end > start, "shipping refreshAnalysis function was not found");
@@ -311,22 +320,60 @@ async function proveStage1RefreshAnalysis() {
   const nextState = {
     analysis: {},
     engineEnabled: true,
-    engineStatus: "Engine selected status updated",
+    engineStatus: "Engine selected status",
     engineGame: { active: false },
     engineGameStatus: ""
   };
   context.state = { engineEnabled: true, engineGame: { active: false } };
   context.api = function () { return { get_state: async function () { return nextState; } }; };
-  context.setText = function (id, text) {
-    const node = documentRef.getElementById(id);
-    if (node) node.textContent = text || "";
-  };
+  context.setText = setText;
   context.renderEngineGame = function () {};
   context.renderAnalysis = function () {};
   const refreshAnalysis = vm.runInContext(refreshSource + "\nrefreshAnalysis", context, { filename: "index.refreshAnalysis.js" });
   await refreshAnalysis();
+  assert.strictEqual(textNodes(engineStatus)[0], originalNode, "unchanged real analysis poll replaced static text");
+  assert.strictEqual(selection.toString(), "selected", "unchanged real analysis poll lost the selection");
+  nextState.engineStatus = "Engine selected status updated";
+  await refreshAnalysis();
   assert.strictEqual(selection.toString(), "selected", "Stage1 refreshAnalysis lost a surviving semantic selection");
   console.log("P0_STAGE1_REFRESH_SELECTION_SURVIVES=PASS");
+}
+
+function proveAnalysisLinePollStable() {
+  currentRoute = null;
+  workspace.hidden = true;
+  documentRef.documentElement = { lang: "uk" };
+  const ids = [
+    "engine-toggle", "analysis-restart", "analysis-lock", "analysis-multipv",
+    "analysis-depth", "analysis-lines", "analysis-prev-pv", "analysis-next-pv",
+    "analysis-read", "analysis-explore", "analysis-insert-move", "analysis-insert-line",
+    "analysis-return", "analysis-explore-prev", "analysis-explore-next",
+    "analysis-exploration-status"
+  ];
+  for (const id of ids) {
+    const element = new FakeElement(id === "analysis-lines" ? "ul" : "div");
+    element.id = id;
+    main.appendChild(element);
+  }
+  const indexSource = fs.readFileSync("web/index.html", "utf8");
+  const start = indexSource.indexOf("function analysisLineText(line)");
+  const end = indexSource.indexOf("\nfunction render(s)", start);
+  assert.ok(start >= 0 && end > start, "shipping analysis renderer was not found");
+  context.setAnalysisMutationLock = function () {};
+  const renderAnalysis = vm.runInContext(indexSource.slice(start, end) + "\nrenderAnalysis", context);
+  const state = {
+    analysis: { enabled: true, selectedPv: 1, lines: [
+      { multipv: 1, depth: 12, scoreText: "+0.3", pvText: "e4 e5" }
+    ] }
+  };
+  renderAnalysis(state);
+  const line = documentRef.getElementById("analysis-lines");
+  selectSubstring(line, "Глибина");
+  const textNode = textNodes(line)[0];
+  renderAnalysis(state);
+  assert.strictEqual(textNodes(line)[0], textNode, "unchanged analysis line was replaced during polling");
+  assert.strictEqual(selection.toString(), "Глибина", "analysis poll destroyed variation selection");
+  console.log("P0_UNCHANGED_VARIATION_SELECTION_SURVIVES=PASS");
 }
 
 function emptyPgnSnapshot(message) {
@@ -398,6 +445,7 @@ function provePgnLocalRerender() {
 
 (async function run() {
   await proveStage1RefreshAnalysis();
+  proveAnalysisLinePollStable();
   provePgnLocalRerender();
   console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
 })().catch(error => {
