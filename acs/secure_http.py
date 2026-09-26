@@ -241,6 +241,7 @@ def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
         "transfer-encoding",
         "upgrade",
     }
+    token_punctuation = set("!#$%&'*+-.^_`|~")
     result: dict[str, str] = {}
     seen: set[str] = set()
     for raw_name, raw_value in headers.items():
@@ -251,9 +252,11 @@ def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
         folded = name.casefold()
         if not name or folded in seen or folded in reserved:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        if any(not (ch.isascii() and (ch.isalnum() or ch in token_punctuation)) for ch in name):
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
         if len(name) > 128 or len(value) > 8192:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        if any(ch in name or ch in value for ch in ("\r", "\n", "\x00")):
+        if any(ch in value for ch in ("\r", "\n", "\x00")):
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
         seen.add(folded)
         result[name] = value
