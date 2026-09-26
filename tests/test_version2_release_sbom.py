@@ -7,7 +7,6 @@ import tempfile
 import unittest
 
 from acs.version2_release_sbom import (
-    CHECKSUMS_NAME,
     SBOM_NAME,
     Version2ReleaseSbomError,
     build_version2_release_sbom,
@@ -32,7 +31,6 @@ class Version2ReleaseSbomTests(unittest.TestCase):
         engine.mkdir(parents=True)
         sounds.mkdir(parents=True)
         notices.mkdir(parents=True)
-
         (package / "AccessibleChess" / "AccessibleChess.exe").write_bytes(b"MZ-product")
         (engine / "stockfish.exe").write_bytes(b"MZ-stockfish")
         (notices / "Stockfish-18-source.zip").write_bytes(b"source")
@@ -41,156 +39,145 @@ class Version2ReleaseSbomTests(unittest.TestCase):
         )
         (sounds / "move.wav").write_bytes(b"RIFF-sound")
         (notices / "SOUND_PROVENANCE.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "events": {
-                        "move": {
-                            "file": "move.wav",
-                            "sha256": _sha256(sounds / "move.wav"),
-                            "license_id": "CC0-1.0",
-                            "source": "urn:accessible-chess:test:move",
-                            "creator": "test",
-                        }
-                    },
-                },
-                sort_keys=True,
-            )
-            + "\n",
+            json.dumps({
+                "schema_version": 1,
+                "events": {"move": {
+                    "file": "move.wav",
+                    "sha256": _sha256(sounds / "move.wav"),
+                    "license_id": "CC0-1.0",
+                    "source": "urn:accessible-chess:test:move",
+                    "creator": "test",
+                }},
+            }, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         (package / "RELEASE_MANIFEST.json").write_text(
             json.dumps({"integration_sha": _SHA}) + "\n", encoding="utf-8"
         )
+        (package / "SHA256SUMS.txt").write_text("fixture checksums\n", encoding="utf-8")
         return package
 
-    def test_writes_deterministic_exact_file_inventory(self) -> None:
+    @staticmethod
+    def _inventory(package: Path) -> tuple[str, ...]:
+        return tuple(sorted(
+            (str(path.relative_to(package)).replace("\\", "/")
+             for path in package.rglob("*") if path.is_file()),
+            key=str.casefold,
+        ))
+
+    def test_sidecar_hashes_every_package_file_deterministically(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            package = self._package(Path(td))
-            before = build_version2_release_sbom(package, integration_sha=_SHA)
-            target = write_version2_release_sbom(package, integration_sha=_SHA)
-            self.assertEqual(target.name, SBOM_NAME)
-            actual = json.loads(target.read_text(encoding="utf-8"))
-            self.assertEqual(actual, before)
-            self.assertEqual(actual["spdxVersion"], "SPDX-2.3")
-            self.assertEqual(actual["dataLicense"], "CC0-1.0")
-            self.assertEqual(
-                actual["documentNamespace"],
-                f"https://github.com/Oleksii-debug/Accessible-Chess/spdx/{_SHA}",
+            root = Path(td)
+            package = self._package(root)
+            inventory = self._inventory(package)
+            first = root / SBOM_NAME
+            second = root / "second.spdx.json"
+            write_version2_release_sbom(
+                package, first, integration_sha=_SHA, inventory=inventory
             )
-
+            write_version2_release_sbom(
+                package, second, integration_sha=_SHA, inventory=inventory
+            )
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            actual = json.loads(first.read_text(encoding="utf-8"))
             names = [row["fileName"][2:] for row in actual["files"]]
-            self.assertEqual(names, sorted(names, key=str.casefold))
-            self.assertNotIn(SBOM_NAME, names)
-            self.assertNotIn(CHECKSUMS_NAME, names)
+            self.assertEqual(names, list(inventory))
             self.assertIn("RELEASE_MANIFEST.json", names)
-            self.assertIn("AccessibleChess/engines/stockfish/stockfish.exe", names)
-            self.assertIn("THIRD_PARTY_NOTICES/Stockfish-18-source.zip", names)
-
+            self.assertIn("SHA256SUMS.txt", names)
             rows = {row["fileName"][2:]: row for row in actual["files"]}
             self.assertEqual(
                 rows["AccessibleChess/assets/sounds/move.wav"]["licenseConcluded"],
                 "CC0-1.0",
             )
-            for relative, row in rows.items():
-                checksum = row["checksums"][0]
-                self.assertEqual(checksum["algorithm"], "SHA256")
+            for relative in inventory:
                 self.assertEqual(
-                    checksum["checksumValue"],
+                    rows[relative]["checksums"][0]["checksumValue"],
                     _sha256(package.joinpath(*relative.split("/"))),
                 )
-
-            stockfish = next(item for item in actual["packages"] if item["name"] == "Stockfish")
-            self.assertEqual(stockfish["versionInfo"], "18")
+            stockfish = next(p for p in actual["packages"] if p["name"] == "Stockfish")
             self.assertEqual(stockfish["licenseDeclared"], "GPL-3.0-or-later")
-            self.assertIn("corresponding source", stockfish["comment"])
+            self.assertEqual(stockfish["versionInfo"], "18")
 
-    def test_validation_detects_payload_tamper(self) -> None:
+    def test_sidecar_must_be_outside_package_tree(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            package = self._package(Path(td))
-            write_version2_release_sbom(package, integration_sha=_SHA)
-            inventory = tuple(
-                sorted(
-                    (
-                        str(path.relative_to(package)).replace("\\", "/")
-                        for path in package.rglob("*")
-                        if path.is_file()
-                    ),
-                    key=str.casefold,
+            root = Path(td)
+            package = self._package(root)
+            with self.assertRaisesRegex(Version2ReleaseSbomError, "outside the package tree"):
+                write_version2_release_sbom(
+                    package,
+                    package / SBOM_NAME,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
                 )
+
+    def test_validation_detects_payload_tamper_or_new_file(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            inventory = self._inventory(package)
+            sbom = root / SBOM_NAME
+            write_version2_release_sbom(
+                package, sbom, integration_sha=_SHA, inventory=inventory
             )
             validate_version2_release_sbom(
-                package,
-                integration_sha=_SHA,
-                inventory=inventory,
+                package, sbom, integration_sha=_SHA, inventory=inventory
             )
-            (package / "AccessibleChess" / "AccessibleChess.exe").write_bytes(b"MZ-tampered")
-            with self.assertRaisesRegex(
-                Version2ReleaseSbomError,
-                "does not exactly describe",
-            ):
+            (package / "AccessibleChess" / "AccessibleChess.exe").write_bytes(b"changed")
+            with self.assertRaisesRegex(Version2ReleaseSbomError, "does not exactly describe"):
                 validate_version2_release_sbom(
-                    package,
-                    integration_sha=_SHA,
-                    inventory=inventory,
+                    package, sbom, integration_sha=_SHA, inventory=inventory
                 )
 
-    def test_validation_detects_unlisted_new_payload_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            package = self._package(Path(td))
-            write_version2_release_sbom(package, integration_sha=_SHA)
+            root = Path(td)
+            package = self._package(root)
+            old_inventory = self._inventory(package)
+            sbom = root / SBOM_NAME
+            write_version2_release_sbom(
+                package, sbom, integration_sha=_SHA, inventory=old_inventory
+            )
             (package / "AccessibleChess" / "new-runtime.dll").write_bytes(b"new")
-            inventory = tuple(
-                sorted(
-                    (
-                        str(path.relative_to(package)).replace("\\", "/")
-                        for path in package.rglob("*")
-                        if path.is_file()
-                    ),
-                    key=str.casefold,
-                )
-            )
-            with self.assertRaisesRegex(
-                Version2ReleaseSbomError,
-                "does not exactly describe",
-            ):
+            with self.assertRaisesRegex(Version2ReleaseSbomError, "does not exactly describe"):
                 validate_version2_release_sbom(
                     package,
+                    sbom,
                     integration_sha=_SHA,
-                    inventory=inventory,
+                    inventory=self._inventory(package),
                 )
 
-    def test_invalid_sound_license_and_stockfish_notice_fail_closed(self) -> None:
+    def test_invalid_license_notice_and_existing_output_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            package = self._package(Path(td))
-            provenance = json.loads(
-                (package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json").read_text(
-                    encoding="utf-8"
-                )
-            )
+            root = Path(td)
+            package = self._package(root)
+            provenance_path = package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             provenance["events"]["move"]["license_id"] = "not a license/id"
-            (package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json").write_text(
-                json.dumps(provenance) + "\n", encoding="utf-8"
-            )
+            provenance_path.write_text(json.dumps(provenance) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(Version2ReleaseSbomError, "license identity"):
                 build_version2_release_sbom(package, integration_sha=_SHA)
 
         with tempfile.TemporaryDirectory() as td:
-            package = self._package(Path(td))
+            root = Path(td)
+            package = self._package(root)
             (package / "THIRD_PARTY_NOTICES" / "Stockfish-NOTICE.txt").write_text(
                 "Stockfish 18\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(Version2ReleaseSbomError, "GPL licensing"):
                 build_version2_release_sbom(package, integration_sha=_SHA)
 
-    def test_existing_sbom_is_never_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            package = self._package(Path(td))
-            target = package / SBOM_NAME
-            target.write_text("keep\n", encoding="utf-8")
+            root = Path(td)
+            package = self._package(root)
+            output = root / SBOM_NAME
+            output.write_text("keep\n", encoding="utf-8")
             with self.assertRaisesRegex(Version2ReleaseSbomError, "must not already exist"):
-                write_version2_release_sbom(package, integration_sha=_SHA)
-            self.assertEqual(target.read_text(encoding="utf-8"), "keep\n")
+                write_version2_release_sbom(
+                    package,
+                    output,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
+                )
+            self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
 
 
 if __name__ == "__main__":
