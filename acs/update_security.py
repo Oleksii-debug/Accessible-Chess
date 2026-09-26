@@ -153,6 +153,10 @@ def _download_url(value: object) -> str:
         raise UpdateSecurityError("download URL is invalid")
     if "\\" in value or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
         raise UpdateSecurityError("download URL is invalid")
+    # urlsplit normalizes the scheme, so enforce the signed wire form before
+    # parsing to prevent multiple spellings of the same transport authority.
+    if not value.startswith("https://"):
+        raise UpdateSecurityError("download URL must use canonical HTTPS")
     try:
         parsed = urlsplit(value)
         port = parsed.port
