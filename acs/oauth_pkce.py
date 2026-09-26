@@ -55,6 +55,11 @@ def _require_text(name: str, value: object, *, max_length: int = 4096) -> str:
 
 
 def _split_url(name: str, value: str):
+    # Backslash handling differs across URL consumers (notably browser-like
+    # WHATWG parsers versus urllib/RFC-style parsing). Reject it before parsing
+    # so an OAuth authority cannot be rebound by a downstream interpretation.
+    if "\\" in value:
+        raise OAuthContractError(f"{name} contains an ambiguous backslash")
     try:
         parsed = urlsplit(value)
         # Accessing hostname/port performs additional structural validation and
