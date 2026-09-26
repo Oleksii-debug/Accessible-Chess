@@ -133,6 +133,18 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("account_id=acct-5", output)
         self.assertIn("lang=uk", output)
 
+    def test_url_userinfo_credentials_are_redacted_but_destination_survives(self) -> None:
+        raw = (
+            "request https://api-user:super-secret@example.test:8443/v1/status?lang=uk "
+            "mirror https://bearer-token@example.test/health"
+        )
+        output = redact_text(raw)
+        self.assertNotIn("api-user", output)
+        self.assertNotIn("super-secret", output)
+        self.assertNotIn("bearer-token", output)
+        self.assertIn(f"https://{REDACTED}@example.test:8443/v1/status?lang=uk", output)
+        self.assertIn(f"https://{REDACTED}@example.test/health", output)
+
     def test_oauth_url_fragment_secrets_are_redacted_without_losing_safe_context(self) -> None:
         raw = (
             "callback https://login.example/callback?lang=uk#access_token=fragment-secret&"
