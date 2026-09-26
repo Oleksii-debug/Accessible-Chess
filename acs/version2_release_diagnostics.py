@@ -71,9 +71,10 @@ def packaged_w2_library_ready(value: Any) -> bool:
     This predicate deliberately consumes only projected browser-safe state. The
     physical release diagnostic decides whether W2 evidence is required by first
     observing the package-local ``release-content/w2-starter`` directory. Once
-    that directory exists, malformed/missing metadata or any missing user action
-    must fail closed instead of allowing package qualification to pass on bytes
-    that the application cannot discover or use.
+    that directory exists, malformed/missing metadata, misleading accessible
+    labels, or any missing user action must fail closed instead of allowing
+    package qualification to pass on bytes that the application cannot discover
+    or describe truthfully to a screen-reader user.
     """
 
     if not isinstance(value, dict):
@@ -98,12 +99,31 @@ def packaged_w2_library_ready(value: Any) -> bool:
     actions = value.get("actions")
     if not isinstance(actions, (tuple, list)):
         return False
-    action_ids = {
-        item.get("action")
-        for item in actions
-        if isinstance(item, dict) and item.get("enabled") is True
+    action_map: dict[str, dict[str, Any]] = {}
+    for item in actions:
+        if not isinstance(item, dict) or item.get("enabled") is not True:
+            continue
+        action = item.get("action")
+        if not isinstance(action, str) or not action:
+            continue
+        if action in action_map:
+            return False
+        action_map[action] = item
+    if not _PACKAGED_W2_ACTIONS.issubset(action_map):
+        return False
+
+    expected_counts = {
+        "library.open_packaged_starter_pgn": starter_games,
+        "library.open_packaged_stress_pgn": stress_games,
+        "library.import_packaged_sample_library": starter_games,
     }
-    return _PACKAGED_W2_ACTIONS.issubset(action_ids)
+    for action, expected_count in expected_counts.items():
+        label = action_map[action].get("label")
+        if not isinstance(label, str) or not label.strip():
+            return False
+        if str(expected_count) not in label:
+            return False
+    return True
 
 
 __all__ = ["packaged_starter_materials_ready", "packaged_w2_library_ready"]
