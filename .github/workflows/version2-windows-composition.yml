@@ -38,6 +38,7 @@ env:
   V2_ACCEPTED_STAGE1_UI_BLOB: 16e78af6219c8c36f0c4026942ef1d02875a370a
   V2_ACCEPTED_P0G_STAGE1_UI_BLOB: c8629e690a10fa8e10a2053fdc85284f635d2beb
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
+  V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB: 6ec93d183da623c80c15b542fb7095725b91af52
 
 jobs:
   composition:
@@ -116,7 +117,15 @@ jobs:
             esac
           fi
 
-          unapproved_changed="$(printf '%s\n' "$changed" | grep -Ev '^(web/stage1_release_bootstrap\.js|acs/stage1_release_ui\.py)$' || true)"
+          if printf '%s\n' "$changed" | grep -Fxq 'acs/release_preflight.py'; then
+            actual_release_preflight_blob="$(git rev-parse HEAD:acs/release_preflight.py)"
+            if [ "$actual_release_preflight_blob" != "$V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB" ]; then
+              echo "Unexpected release preflight blob: $actual_release_preflight_blob" >&2
+              exit 1
+            fi
+          fi
+
+          unapproved_changed="$(printf '%s\n' "$changed" | grep -Ev '^(web/stage1_release_bootstrap\.js|acs/stage1_release_ui\.py|acs/release_preflight\.py)$' || true)"
           if printf '%s\n' "$unapproved_changed" | grep -E '(^|/)(stage1|tools/qa/|windows-stage1|release_preflight)'; then
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
