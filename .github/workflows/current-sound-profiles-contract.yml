@@ -12,12 +12,14 @@ on:
       - 'acs/sound_profile_store.py'
       - 'acs/sound_pack_catalog.py'
       - 'acs/sound_pack_profile.py'
+      - 'acs/sound_pack_store.py'
       - 'acs/classroom_sound.py'
       - 'acs/sound_runtime.py'
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_profile_store.py'
       - 'tests/test_sound_pack_catalog.py'
       - 'tests/test_sound_pack_profile.py'
+      - 'tests/test_sound_pack_store.py'
       - 'tests/test_sound_profile_runtime.py'
       - 'tests/test_classroom_sound.py'
       - '.github/workflows/current-sound-profiles-contract.yml'
@@ -25,6 +27,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: current-sound-profiles-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
@@ -64,12 +70,14 @@ jobs:
             'acs/classroom_sound.py' \
             'acs/sound_pack_catalog.py' \
             'acs/sound_pack_profile.py' \
+            'acs/sound_pack_store.py' \
             'acs/sound_profile_store.py' \
             'acs/sound_profiles.py' \
             'acs/sound_runtime.py' \
             'tests/test_classroom_sound.py' \
             'tests/test_sound_pack_catalog.py' \
             'tests/test_sound_pack_profile.py' \
+            'tests/test_sound_pack_store.py' \
             'tests/test_sound_profile_runtime.py' \
             'tests/test_sound_profile_store.py' \
             'tests/test_sound_profiles.py' | sort)"
@@ -86,12 +94,14 @@ jobs:
           acs/sound_profile_store.py
           acs/sound_pack_catalog.py
           acs/sound_pack_profile.py
+          acs/sound_pack_store.py
           acs/classroom_sound.py
           acs/sound_runtime.py
           tests/test_sound_profiles.py
           tests/test_sound_profile_store.py
           tests/test_sound_pack_catalog.py
           tests/test_sound_pack_profile.py
+          tests/test_sound_pack_store.py
           tests/test_sound_profile_runtime.py
           tests/test_classroom_sound.py
 
@@ -102,6 +112,7 @@ jobs:
           tests.test_sound_profile_store
           tests.test_sound_pack_catalog
           tests.test_sound_pack_profile
+          tests.test_sound_pack_store
           tests.test_sound_profile_runtime
           tests.test_classroom_sound
           tests.test_sound_events
