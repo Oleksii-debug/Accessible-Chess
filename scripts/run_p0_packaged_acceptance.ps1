@@ -115,10 +115,20 @@ if(-not (Test-Path -LiteralPath $hotkeyEvidence -PathType Leaf)){
 Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_VERIFY'
 Invoke-PythonVerifier $hotkeyVerifier $hotkeyEvidence $product $ProductSha
 
+# All packaged executable phases have now completed. Re-run both independent
+# verifiers so a later diagnostic/probe cannot alter earlier evidence after its
+# first verification and still reach the aggregate PASS marker.
+Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=FINAL_REVERIFY'
+Invoke-PythonVerifier $copyVerifier $copyEvidence $product $ProductSha
+Invoke-PythonVerifier $hotkeyVerifier $hotkeyEvidence $product $ProductSha
+
 $copy=(Get-Content -LiteralPath $copyEvidence -Raw -Encoding UTF8 | ConvertFrom-Json)
 $hotkey=(Get-Content -LiteralPath $hotkeyEvidence -Raw -Encoding UTF8 | ConvertFrom-Json)
+if(([string]$copy.product_sha).ToLowerInvariant() -cne $ProductSha.ToLowerInvariant()){
+  throw 'Document-copy evidence SHA changed after final verifier completion'
+}
 if(([string]$hotkey.product_sha).ToLowerInvariant() -cne $ProductSha.ToLowerInvariant()){
-  throw 'P0-G evidence SHA changed after verifier completion'
+  throw 'P0-G evidence SHA changed after final verifier completion'
 }
 Assert-NoMachineHumanClaim $copy 'document-copy'
 Assert-NoMachineHumanClaim $hotkey 'P0-G hotkey-result'
