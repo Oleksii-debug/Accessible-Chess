@@ -40,6 +40,11 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("ValuePattern]::Pattern", self.text)
         self.assertIn("WaitClipboard 'e2e4'", self.text)
 
+    def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
+        self.assertIn("if($last -ceq $Expected){return $last}", self.text)
+        self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
+        self.assertIn("clipboard_equality='case-sensitive exact string equality'", self.text)
+
     def test_probe_records_document_provider_identity_without_claiming_nvda(self) -> None:
         self.assertIn("document_process_id=[int]$document.Current.ProcessId", self.text)
         self.assertIn("launched_process_id=$process.Id", self.text)
