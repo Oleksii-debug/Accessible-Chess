@@ -39,10 +39,13 @@ jobs:
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha }}"
-          changed="$(git diff --name-only "$base" HEAD | grep -E '^(acs/authenticode\.py|tests/test_authenticode\.py|\.github/workflows/authenticode-verification\.yml)$' | sort || true)"
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' '.github/workflows/authenticode-verification.yml' 'acs/authenticode.py' 'tests/test_authenticode.py' | sort)"
           test "$changed" = "$expected" || {
-            printf 'Unexpected Authenticode owned paths:\n%s\n' "$changed" >&2
+            printf 'Unexpected Authenticode scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
