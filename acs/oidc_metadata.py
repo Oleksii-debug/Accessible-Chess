@@ -2,12 +2,16 @@ from __future__ import annotations
 
 """Fail-closed validation for provider-neutral OIDC discovery metadata.
 
-Fetching discovery JSON belongs to a later network adapter.  This module accepts
+Fetching discovery JSON belongs to a later network adapter. This module accepts
 an already-decoded document and validates only the security capabilities needed
-by the native public-client Authorization Code + PKCE flow.
+by the native public-client Authorization Code + PKCE flow. A transport that
+intends to trust discovery metadata must use ``from_mapping_for_issuer`` so the
+returned issuer is bound to locally configured authority rather than merely to
+whatever HTTPS document was fetched.
 """
 
 from dataclasses import dataclass
+import secrets
 from typing import Mapping
 
 from .oauth_pkce import (
@@ -30,6 +34,16 @@ def _string_array(name: str, value: object) -> tuple[str, ...]:
     return result
 
 
+def _canonical_issuer(value: object) -> str:
+    issuer = _validate_endpoint("issuer", value)
+    parts = _split_url("issuer", issuer)
+    if parts.query:
+        raise OAuthContractError("OIDC issuer must not contain a query")
+    # Issuer identifiers are exact strings in OIDC. A trailing slash changes the
+    # issuer and therefore must not be silently normalized here.
+    return issuer
+
+
 @dataclass(frozen=True)
 class OidcProviderMetadata:
     issuer: str
@@ -42,17 +56,16 @@ class OidcProviderMetadata:
 
     @classmethod
     def from_mapping(cls, document: Mapping[str, object]) -> "OidcProviderMetadata":
-        # Discovery input is expected to come from decoded JSON. Requiring an
-        # exact dict avoids invoking custom Mapping implementations at the trust
-        # boundary before validation has run.
+        """Parse capabilities without asserting local issuer trust.
+
+        This is useful for inspection/tests only. Network authentication adapters
+        should call ``from_mapping_for_issuer`` with the configured authority.
+        """
+
         if type(document) is not dict:
             raise OAuthContractError("OIDC metadata must be a plain JSON object")
 
-        issuer = _validate_endpoint("issuer", document.get("issuer"))
-        issuer_parts = _split_url("issuer", issuer)
-        if issuer_parts.query:
-            raise OAuthContractError("OIDC issuer must not contain a query")
-
+        issuer = _canonical_issuer(document.get("issuer"))
         authorization_endpoint = _validate_endpoint(
             "authorization_endpoint", document.get("authorization_endpoint")
         )
@@ -102,6 +115,22 @@ class OidcProviderMetadata:
             token_endpoint_auth_methods_supported=token_auth_methods,
             scopes_supported=scopes,
         )
+
+    @classmethod
+    def from_mapping_for_issuer(
+        cls,
+        document: Mapping[str, object],
+        *,
+        expected_issuer: str,
+    ) -> "OidcProviderMetadata":
+        expected = _canonical_issuer(expected_issuer)
+        metadata = cls.from_mapping(document)
+        # Exact-string comparison is intentional: issuer identifiers are not URL
+        # origins. Constant-time comparison avoids giving future shared adapters a
+        # reason to replace this with normalization or partial matching.
+        if not secrets.compare_digest(metadata.issuer, expected):
+            raise OAuthContractError("OIDC discovery issuer does not match configured issuer")
+        return metadata
 
     def create_authorization_request(
         self,
