@@ -47,6 +47,22 @@ class AuthenticodeVerifierTests(unittest.TestCase):
         self.assertFalse(evidence.trusted)
         runner.assert_not_called()
 
+    def test_symlink_target_is_error_without_invoking_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            indirect = Path(tmp) / "candidate-link.exe"
+            try:
+                indirect.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlink creation unavailable: {type(exc).__name__}")
+            runner = mock.Mock(side_effect=AssertionError("runner must not execute"))
+            with mock.patch("acs.authenticode.sys.platform", "win32"):
+                evidence = WindowsAuthenticodeVerifier(runner=runner).verify(indirect)
+        self.assertEqual(evidence.status, AuthenticodeStatus.ERROR)
+        self.assertFalse(evidence.trusted)
+        self.assertFalse(evidence.acceptable_for_release)
+        runner.assert_not_called()
+
     def test_valid_windows_signature_is_release_acceptable(self) -> None:
         payload = {
             "Status": "Valid",
