@@ -85,7 +85,7 @@ function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function collaboration(messages, unreadCount) {
+function collaboration(messages, unreadCount, moderation) {
   return {
     heading: "Classroom collaboration",
     chat: {
@@ -94,6 +94,12 @@ function collaboration(messages, unreadCount) {
       send_label: "Send",
       sync_label: "Refresh chat",
       mark_read_label: "Mark read",
+      hide_label: "Hide message",
+      mute_sender_label: "Mute sender",
+      allow_sender_label: "Allow sender",
+      mute_all_label: "Mute all students",
+      allow_all_label: "Allow all students",
+      moderation_available: !!moderation,
       empty_message: "No messages.",
       unread_label: "Unread: " + unreadCount,
       unread_count: unreadCount,
@@ -105,6 +111,7 @@ function collaboration(messages, unreadCount) {
       choose_upload_label: "Choose and send file",
       empty_message: "No files.",
       save_label: "Save",
+      open_label: "Open",
       retry_label: "Retry",
       cancel_label: "Cancel",
       can_choose_upload: true,
@@ -118,6 +125,7 @@ function collaboration(messages, unreadCount) {
         status_label: "Status: stored",
         scan_label: "Scan: clean",
         can_save: true,
+        can_open: true,
         can_retry: false,
         can_cancel: false
       }]
@@ -179,10 +187,11 @@ check(
 const fileItem = root.querySelector("#collaboration-file-a");
 check(fileItem && fileItem.tagName === "LI", "file metadata must be a semantic list item");
 const buttons = fileItem.querySelectorAll("BUTTON");
-check(buttons.length === 1, "clean stored file must expose Save only");
+check(buttons.length === 2, "clean stored file must expose explicit Save and Open only");
 check(
-  buttons[0].getAttribute("data-command") === "collaboration.file.save",
-  "Save must route through bounded collaboration command"
+  buttons.map((button) => button.getAttribute("data-command")).join(",") ===
+    "collaboration.file.save,collaboration.file.open",
+  "Save/Open must route through bounded collaboration commands"
 );
 
 input.focus();
@@ -226,5 +235,40 @@ check(
   root.querySelector("#collaboration-message-two") !== null,
   "new ordered chat message must render"
 );
+
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-moderated",
+          sender: "Student",
+          body: "Needs moderation.",
+          unread: false,
+          message_key: "b".repeat(64),
+          can_hide: true,
+          can_moderate_sender: true
+        }
+      ], 0, true)
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+const moderationCommands = root.querySelectorAll("BUTTON")
+  .map((button) => button.getAttribute("data-command"))
+  .filter(Boolean);
+[
+  "collaboration.chat.hide",
+  "collaboration.chat.mute_sender",
+  "collaboration.chat.allow_sender",
+  "collaboration.chat.mute_all_students",
+  "collaboration.chat.allow_all_students"
+].forEach((command) => {
+  check(moderationCommands.includes(command), "missing semantic moderation action: " + command);
+});
 
 console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
