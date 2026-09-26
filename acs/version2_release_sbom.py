@@ -140,11 +140,22 @@ def _sound_licenses(root: Path) -> dict[str, str]:
             _fail("sound provenance event contract is invalid")
         file_name = raw.get("file")
         license_id = raw.get("license_id")
+        expected_sha256 = raw.get("sha256")
         if not isinstance(file_name, str) or not file_name or "/" in file_name or "\\" in file_name:
             _fail("sound provenance file name is invalid")
         if not isinstance(license_id, str) or not _SAFE_LICENSE_RE.fullmatch(license_id):
             _fail("sound provenance SPDX license identity is invalid")
+        if (
+            not isinstance(expected_sha256, str)
+            or not _SHA256_RE.fullmatch(expected_sha256.casefold())
+        ):
+            _fail("sound provenance SHA-256 identity is invalid")
         relative = f"{SOUND_ROOT}/{file_name}"
+        sound_path = root.joinpath(*PurePosixPath(relative).parts)
+        if not sound_path.is_file() or sound_path.is_symlink():
+            _fail("sound provenance asset is not a regular packaged file")
+        if _sha256(sound_path) != expected_sha256.casefold():
+            _fail("sound provenance SHA-256 does not match packaged sound asset")
         previous = result.setdefault(relative, license_id)
         if previous != license_id:
             _fail("sound asset has conflicting license identities")
