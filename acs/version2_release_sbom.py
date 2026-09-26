@@ -176,8 +176,15 @@ def build_version2_release_sbom(
     files = _payload_files(package_root, inventory)
     _require_stockfish_compliance(package_root)
     sound_licenses = _sound_licenses(package_root)
-    if set(sound_licenses) - set(files):
+    file_set = set(files)
+    provenance_set = set(sound_licenses)
+    if provenance_set - file_set:
         _fail("sound provenance references files outside the SBOM payload")
+    packaged_sounds = {
+        relative for relative in files if relative.startswith(f"{SOUND_ROOT}/")
+    }
+    if packaged_sounds - provenance_set:
+        _fail("packaged sound asset is missing authoritative provenance")
 
     file_rows: list[dict[str, object]] = []
     relationships: list[dict[str, str]] = [{
@@ -217,8 +224,6 @@ def build_version2_release_sbom(
         "name": f"Accessible Chess V2 package {sha[:12]}",
         "documentNamespace": f"https://github.com/Oleksii-debug/Accessible-Chess/spdx/{sha}",
         "creationInfo": {
-            # Deliberately normalized for byte-for-byte reproducibility. The exact
-            # immutable integration commit is the release identity in this document.
             "created": "1980-01-01T00:00:00Z",
             "creators": ["Tool: Accessible-Chess deterministic release SBOM generator"],
         },
