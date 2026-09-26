@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  OWNER_HEAD: fix/v2-composition-publication-recovery-20260926
   BASE_PRODUCT_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
   CANDIDATE_PRODUCT_BLOB: fc7ba198d8204c2c21173866ed3c55384cd96fc2
   REGRESSION_BLOB: e65a2b5418a2df9f9816b18fa440dbd965dd06a7
@@ -42,11 +43,12 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact current authority and bounded Product delta
+      - name: Prove owner scope or retained publication authority
         if: github.event_name == 'pull_request'
         shell: bash
         env:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
@@ -54,13 +56,27 @@ jobs:
           git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EXPECTED_BASE_SHA"
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           git diff --check "$EXPECTED_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-composition-publication-boundary.yml' \
             'acs/version2_release_app.py' \
             'tests/test_version2_composition_publication_boundary.py' | sort)"
-          test "$changed" = "$expected"
-          test "$(git rev-parse "$EXPECTED_BASE_SHA":acs/version2_release_app.py)" = "$BASE_PRODUCT_BLOB"
+          if test "$EXPECTED_HEAD_REF" = "$OWNER_HEAD"; then
+            changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected publication-boundary owner scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            test "$(git rev-parse "$EXPECTED_BASE_SHA":acs/version2_release_app.py)" = "$BASE_PRODUCT_BLOB"
+            echo 'V2_PUBLICATION_SCOPE_MODE=OWNER_EXACT'
+          else
+            while IFS= read -r path; do
+              test -f "$path" || {
+                printf 'Retained publication-boundary authority missing: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$expected"
+            echo 'V2_PUBLICATION_SCOPE_MODE=CONVERGENCE_RETAINED'
+          fi
           test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$CANDIDATE_PRODUCT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_composition_publication_boundary.py)" = "$REGRESSION_BLOB"
 
