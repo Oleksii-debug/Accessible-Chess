@@ -3,6 +3,7 @@ from __future__ import annotations
 from email.message import Message
 import io
 import socket
+import ssl
 import unittest
 from urllib.error import HTTPError, URLError
 
@@ -71,6 +72,13 @@ class SecureHttpTests(unittest.TestCase):
             tiny.post_json("https://example.invalid/token", {"a": 1})
         self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
 
+    def test_post_json_serialization_error_has_no_secret_exception_chain(self) -> None:
+        transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b'{}')))
+        with self.assertRaises(SecureHttpError) as caught:
+            transport.post_json("https://example.invalid/token", {"secret": object()})
+        self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_post_form_carries_canonical_ascii_bytes_and_json_reply(self) -> None:
         opener = _Opener(_Response(b'{"access_token":"opaque"}'))
         transport = BoundedHttpsJsonTransport(opener=opener, max_request_bytes=128)
@@ -100,6 +108,7 @@ class SecureHttpTests(unittest.TestCase):
                 with self.assertRaises(SecureHttpError) as caught:
                     transport.post_form("https://example.invalid/token", body, headers=headers)
                 self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
+                self.assertIsNone(caught.exception.__cause__)
 
     def test_rejects_non_https_credentials_fragment_backslash_and_controls(self) -> None:
         invalid = [
@@ -117,6 +126,7 @@ class SecureHttpTests(unittest.TestCase):
                 with self.assertRaises(SecureHttpError) as caught:
                     transport.get_json(target)
                 self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
+                self.assertIsNone(caught.exception.__cause__)
 
     def test_rejects_header_injection_bad_types_duplicates_and_hop_by_hop_headers(self) -> None:
         transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b'{}')))
@@ -135,7 +145,8 @@ class SecureHttpTests(unittest.TestCase):
                     transport.get_json("https://example.invalid/", headers=headers)
                 self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
 
-    def test_redirect_http_error_timeout_and_network_have_bounded_taxonomy(self) -> None:
+    def test_redirect_http_error_timeout_tls_and_network_have_bounded_taxonomy(self) -> None:
+        tls_failure = ssl.SSLError("certificate for private.internal failed")
         cases = [
             (
                 HTTPError("https://secret.invalid/path?token=very-secret", 302, "Found", {}, None),
@@ -148,16 +159,19 @@ class SecureHttpTests(unittest.TestCase):
                 503,
             ),
             (URLError(socket.timeout("private timeout detail")), TransportErrorCode.TIMEOUT, None),
+            (URLError(tls_failure), TransportErrorCode.TLS, None),
+            (tls_failure, TransportErrorCode.TLS, None),
             (URLError("private DNS detail"), TransportErrorCode.NETWORK, None),
         ]
         for failure, expected, status in cases:
-            with self.subTest(expected=expected):
+            with self.subTest(expected=expected, failure=type(failure).__name__):
                 transport = BoundedHttpsJsonTransport(opener=_Opener(failure))
                 with self.assertRaises(SecureHttpError) as caught:
                     transport.get_json("https://example.invalid/api", headers={"Authorization": "Bearer super-secret"})
                 error = caught.exception
                 self.assertEqual(error.code, expected)
                 self.assertEqual(error.status, status)
+                self.assertIsNone(error.__cause__)
                 rendered = str(error)
                 self.assertNotIn("secret.invalid", rendered)
                 self.assertNotIn("super-secret", rendered)
@@ -170,7 +184,7 @@ class SecureHttpTests(unittest.TestCase):
             transport.get_json("https://example.invalid/")
         self.assertEqual(caught.exception.code, TransportErrorCode.RESPONSE_TOO_LARGE)
 
-    def test_content_type_and_json_fail_closed(self) -> None:
+    def test_content_type_and_json_fail_closed_without_provider_chain(self) -> None:
         cases = [
             (_Response(b'{}', content_type="text/html"), TransportErrorCode.INVALID_CONTENT_TYPE),
             (_Response(b'{bad json}'), TransportErrorCode.INVALID_JSON),
@@ -183,6 +197,7 @@ class SecureHttpTests(unittest.TestCase):
                 with self.assertRaises(SecureHttpError) as caught:
                     transport.get_json("https://example.invalid/")
                 self.assertEqual(caught.exception.code, expected)
+                self.assertIsNone(caught.exception.__cause__)
 
     def test_non_2xx_response_object_fails_closed(self) -> None:
         transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b'{}', status=204)))
