@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from acs.sound_events import MoveSoundFacts, SoundEvent
 from acs.sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
+from acs.sound_profiles import SoundEventPreference, SoundProfile
 from acs.sound_windows import (
     PackagedSoundAssetResolver,
     REQUIRED_SOUND_EVENTS,
@@ -112,6 +113,84 @@ class SoundRuntimeTests(unittest.TestCase):
         self.assertEqual(len(report.failures), 1)
         self.assertEqual(report.failures[0].event, SoundEvent.CAPTURE)
         self.assertEqual(failures, list(report.failures))
+
+
+class ProfiledFakePlayback(FakePlayback):
+    def __init__(self, fail_on=None):
+        super().__init__(fail_on=fail_on)
+        self.profiled_calls = []
+
+    def play_profiled(self, event, *, pack_id, sound_id, volume):
+        self.profiled_calls.append((event, pack_id, sound_id, volume))
+        if event == self.fail_on:
+            raise FileNotFoundError(f"missing {event.value}")
+
+
+class ProfiledSoundRuntimeTests(unittest.TestCase):
+    def test_profile_preserves_semantic_order_and_applies_per_event_volume(self):
+        fake = ProfiledFakePlayback()
+        profile = SoundProfile(
+            pack_id="soft.wood",
+            master_volume_percent=80,
+            events={
+                "capture": SoundEventPreference(True, 50, "wood.capture"),
+                "check": SoundEventPreference(True, 25, "wood.check"),
+            },
+        )
+        game = GameSoundRuntime(SoundRuntime(fake, profile=profile))
+        report = game.move(MoveSoundFacts(capture=True, check=True))
+
+        self.assertEqual(
+            [call[0] for call in fake.profiled_calls],
+            [SoundEvent.CAPTURE, SoundEvent.CHECK],
+        )
+        self.assertEqual(
+            fake.profiled_calls,
+            [
+                (SoundEvent.CAPTURE, "soft.wood", "wood.capture", 40),
+                (SoundEvent.CHECK, "soft.wood", "wood.check", 20),
+            ],
+        )
+        self.assertEqual(report.delivered, (SoundEvent.CAPTURE, SoundEvent.CHECK))
+        self.assertEqual(report.silenced, ())
+
+    def test_disabled_event_is_silenced_without_beep_or_adapter_call(self):
+        fake = ProfiledFakePlayback()
+        profile = SoundProfile(
+            events={"check": SoundEventPreference(enabled=False)}
+        )
+        report = SoundRuntime(fake, profile=profile).dispatch(
+            [SoundEvent.MOVE, SoundEvent.CHECK, SoundEvent.END]
+        )
+        self.assertEqual(
+            [call[0] for call in fake.profiled_calls],
+            [SoundEvent.MOVE, SoundEvent.END],
+        )
+        self.assertEqual(report.silenced, (SoundEvent.CHECK,))
+        self.assertTrue(report.ok)
+
+    def test_master_disable_marks_entire_batch_disabled_and_silenced(self):
+        fake = ProfiledFakePlayback()
+        report = SoundRuntime(
+            fake,
+            profile=SoundProfile(master_enabled=False),
+        ).dispatch([SoundEvent.MOVE, SoundEvent.CHECK])
+        self.assertTrue(report.disabled)
+        self.assertEqual(report.silenced, (SoundEvent.MOVE, SoundEvent.CHECK))
+        self.assertEqual(fake.profiled_calls, [])
+
+    def test_profiled_playback_failure_is_reported_and_later_event_continues(self):
+        fake = ProfiledFakePlayback(fail_on=SoundEvent.CAPTURE)
+        report = SoundRuntime(fake, profile=SoundProfile()).dispatch(
+            [SoundEvent.CAPTURE, SoundEvent.CHECK]
+        )
+        self.assertEqual(report.delivered, (SoundEvent.CHECK,))
+        self.assertEqual(len(report.failures), 1)
+        self.assertEqual(report.failures[0].event, SoundEvent.CAPTURE)
+
+    def test_profile_mode_requires_explicit_profiled_playback_contract(self):
+        with self.assertRaisesRegex(TypeError, "play_profiled"):
+            SoundRuntime(FakePlayback(), profile=SoundProfile())
 
 
 class PackagedSoundResolverTests(unittest.TestCase):
