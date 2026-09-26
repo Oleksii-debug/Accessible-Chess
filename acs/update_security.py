@@ -28,6 +28,7 @@ _ALLOWED_MANIFEST_KEYS = frozenset(
 class UpdateDecisionCode(str, Enum):
     ACCEPT = "accept"
     INVALID_METADATA = "invalid_metadata"
+    INVALID_PAYLOAD = "invalid_payload"
     SIGNATURE_INVALID = "signature_invalid"
     ROLLBACK_BLOCKED = "rollback_blocked"
     SOURCE_TOO_OLD = "source_too_old"
@@ -109,10 +110,26 @@ class UpdateManifest:
         return manifest
 
     def validate(self) -> None:
+        if not isinstance(self.version, ProductVersion):
+            raise ValueError("version must be ProductVersion")
+        if self.minimum_source_version is not None and not isinstance(
+            self.minimum_source_version, ProductVersion
+        ):
+            raise ValueError("minimum_source_version must be ProductVersion or None")
+        if isinstance(self.payload_size, bool) or not isinstance(self.payload_size, int):
+            raise ValueError("payload_size must be an integer")
         if self.payload_size <= 0:
             raise ValueError("payload_size must be positive")
-        if not _SHA256_RE.fullmatch(self.payload_sha256):
+        if not isinstance(self.payload_sha256, str) or not _SHA256_RE.fullmatch(
+            self.payload_sha256
+        ):
             raise ValueError("payload_sha256 must be 64 lowercase hexadecimal characters")
+        if not isinstance(self.download_url, str):
+            raise ValueError("download_url must be text")
+        if not isinstance(self.key_id, str):
+            raise ValueError("key_id must be text")
+        if not isinstance(self.signature, str):
+            raise ValueError("signature must be text")
         _validate_https_download_url(self.download_url)
         _validate_token("key_id", self.key_id, max_length=128)
         _validate_token("signature", self.signature, max_length=16384)
@@ -156,6 +173,13 @@ def verify_update(
     ACCEPT decision and its own platform-specific safety checks.
     """
 
+    if not isinstance(manifest, UpdateManifest):
+        return UpdateDecision(
+            False,
+            UpdateDecisionCode.INVALID_METADATA,
+            "manifest must be UpdateManifest",
+        )
+
     try:
         manifest.validate()
         current = (
@@ -165,6 +189,13 @@ def verify_update(
         )
     except (TypeError, ValueError) as exc:
         return UpdateDecision(False, UpdateDecisionCode.INVALID_METADATA, str(exc))
+
+    if not isinstance(payload, bytes):
+        return UpdateDecision(
+            False,
+            UpdateDecisionCode.INVALID_PAYLOAD,
+            "payload must be immutable bytes",
+        )
 
     try:
         signature_ok = bool(
