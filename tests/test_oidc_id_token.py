@@ -107,6 +107,14 @@ class OidcIdTokenTests(unittest.TestCase):
                 with self.assertRaisesRegex(IdTokenError, message):
                     self.validate(verifier=BadVerifier(envelope))
 
+    def test_authenticated_claim_set_size_is_bounded(self) -> None:
+        claims = _claims()
+        for index in range(123):
+            claims[f"extra-{index}"] = index
+        self.assertEqual(len(claims), 129)
+        with self.assertRaisesRegex(IdTokenError, "invalid verified claims"):
+            self.validate(envelope=VerifiedIdTokenEnvelope("RS256", claims))
+
     def test_issuer_subject_and_nonce_fail_closed(self) -> None:
         cases = [
             (_claims(iss="https://other.invalid"), "issuer mismatch"),
