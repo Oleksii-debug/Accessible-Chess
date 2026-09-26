@@ -132,7 +132,7 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   $last=''
   while($watch.ElapsedMilliseconds -lt $TimeoutMs){
     try {$last=[string](Get-Clipboard -Raw -ErrorAction Stop)} catch {$last=''}
-    if($last.Trim() -eq $Expected.Trim()){return $last}
+    if($last -ceq $Expected){return $last}
     Start-Sleep -Milliseconds 100
   }
   throw "Clipboard did not receive exact selected text; expected='$Expected' actual='$last'"
@@ -218,6 +218,7 @@ try {
     static_document_text=$selected
     static_document_outside_edit=$true
     textpattern_selection_supported=$true
+    clipboard_equality='case-sensitive exact string equality'
     ctrl_c_exact_clipboard=$true
     move_input_native_ctrl_a_ctrl_c=$true
     document_process_id=[int]$document.Current.ProcessId
