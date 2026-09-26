@@ -271,10 +271,8 @@ class HttpsZipSoundPackAcquirer:
             raise TypeError("entry must be SoundPackCatalogEntry")
         parent = Path(staging_parent)
         parent.mkdir(parents=True, exist_ok=True)
-        work = Path(tempfile.mkdtemp(prefix=".sound-download-", dir=parent))
-        archive_path = work / "archive.zip"
-        staging = work / "pack"
-        staging.mkdir()
+        staging = Path(tempfile.mkdtemp(prefix=".sound-download-", dir=parent))
+        archive_path = staging / ".archive.zip"
         try:
             self._download_archive(entry, archive_path)
             self._extract(archive_path, staging)
@@ -282,5 +280,5 @@ class HttpsZipSoundPackAcquirer:
             # The install service owns and later removes this returned private tree.
             return staging
         except Exception:
-            shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(staging, ignore_errors=True)
             raise
