@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .sound_pack_store import SoundPackStore
 from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
@@ -32,15 +33,185 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
     cannot accidentally create a second board/engine authority.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        sound_pack_store: SoundPackStore | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if sound_pack_store is not None and not isinstance(
+            sound_pack_store, SoundPackStore
+        ):
+            raise TypeError("sound_pack_store must be SoundPackStore or None")
         self._ui_thread = threading.get_ident()
         self._ui_owner: Any | None = None
         self._ui_action: Callable | None = None
         self._ui_closed = False
+        self._sound_pack_store = sound_pack_store
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
         self._version2_language_refresh: Callable[[], bool] | None = None
         self._external_review_fen: str | None = None
+
+    def get_sound_settings(self) -> dict[str, Any]:
+        state = super().get_sound_settings()
+        controller = getattr(self, "_sound_profile_controller", None)
+        store = self._sound_pack_store
+        if controller is None or store is None:
+            return state
+
+        profile = controller.current()
+        packs = [
+            {
+                "pack_id": "classic",
+                "title": "Built-in classic",
+                "version": "built-in",
+                "valid": True,
+                "license_id": "application-assets",
+                "author": "Accessible Chess",
+                "provenance": "packaged",
+            }
+        ]
+        for record in store.installed():
+            packs.append(
+                {
+                    "pack_id": record.pack_id,
+                    "title": record.title or record.pack_id,
+                    "version": record.version or "",
+                    "valid": record.valid,
+                    "license_id": record.license_id or "",
+                    "author": record.author or "",
+                    "provenance": record.provenance or "",
+                    "error": record.error,
+                }
+            )
+
+        effective_pack_id = profile.pack_id
+        available_sound_ids: list[str] = []
+        pack_warning = ""
+        if profile.pack_id != "classic":
+            try:
+                manifest = store.load_manifest(profile.pack_id)
+                available_sound_ids = sorted(manifest.files)
+            except Exception:
+                effective_pack_id = "classic"
+                pack_warning = self._sound_message(
+                    "Активний пакет звуків недоступний; використовується вбудований.",
+                    "The active sound pack is unavailable; built-in sounds are in use.",
+                )
+
+        return {
+            **state,
+            "pack_id": profile.pack_id,
+            "effective_pack_id": effective_pack_id,
+            "packs": packs,
+            "available_sound_ids": available_sound_ids,
+            "pack_warning": pack_warning,
+        }
+
+    def set_sound_pack(self, pack_id: str) -> dict[str, Any]:
+        controller = getattr(self, "_sound_profile_controller", None)
+        store = self._sound_pack_store
+        if controller is None or store is None or not isinstance(pack_id, str):
+            return {
+                "ok": False,
+                **self.get_sound_settings(),
+                "message": self._sound_message(
+                    "Пакет звуків недоступний.",
+                    "Sound pack is unavailable.",
+                ),
+            }
+        key = pack_id.strip().lower()
+        try:
+            if key != "classic":
+                store.load_manifest(key)
+            controller.set_pack(key, clear_sound_ids=True)
+        except Exception:
+            return {
+                "ok": False,
+                **self.get_sound_settings(),
+                "message": self._sound_message(
+                    "Не вдалося вибрати пакет звуків.",
+                    "Sound pack could not be selected.",
+                ),
+            }
+        return {
+            **self.get_sound_settings(),
+            "ok": True,
+            "message": self._sound_message(
+                "Пакет звуків змінено.",
+                "Sound pack changed.",
+            ),
+        }
+
+    def set_sound_event_sound(
+        self, event_id: str, sound_id: str | None
+    ) -> dict[str, Any]:
+        controller = getattr(self, "_sound_profile_controller", None)
+        store = self._sound_pack_store
+        if controller is None or store is None:
+            return super().set_sound_event_sound(event_id, sound_id)
+
+        profile = controller.current()
+        normalized = None if sound_id is None or sound_id == "" else sound_id
+        try:
+            if normalized is not None:
+                if profile.pack_id == "classic":
+                    raise ValueError("classic pack has no alternate sound ids")
+                manifest = store.load_manifest(profile.pack_id)
+                if normalized not in manifest.files:
+                    raise ValueError("sound id is not present in active pack")
+        except Exception:
+            return {
+                "ok": False,
+                **self.get_sound_settings(),
+                "message": self._sound_message(
+                    "Обраного звуку немає в активному пакеті.",
+                    "The selected sound is not in the active pack.",
+                ),
+            }
+
+        result = super().set_sound_event_sound(event_id, normalized)
+        if result.get("ok"):
+            return {**self.get_sound_settings(), "ok": True, "message": result.get("message", "")}
+        return {**self.get_sound_settings(), "ok": False, "message": result.get("message", "")}
+
+    def uninstall_sound_pack(self, pack_id: str) -> dict[str, Any]:
+        controller = getattr(self, "_sound_profile_controller", None)
+        store = self._sound_pack_store
+        if controller is None or store is None or not isinstance(pack_id, str):
+            return {
+                "ok": False,
+                **self.get_sound_settings(),
+                "message": self._sound_message(
+                    "Не вдалося видалити пакет звуків.",
+                    "Sound pack could not be removed.",
+                ),
+            }
+        key = pack_id.strip().lower()
+        try:
+            if key == "classic":
+                raise ValueError("built-in pack cannot be removed")
+            if controller.current().pack_id == key:
+                controller.set_pack("classic", clear_sound_ids=True)
+            removed = store.uninstall(key)
+        except Exception:
+            return {
+                "ok": False,
+                **self.get_sound_settings(),
+                "message": self._sound_message(
+                    "Не вдалося видалити пакет звуків.",
+                    "Sound pack could not be removed.",
+                ),
+            }
+        return {
+            **self.get_sound_settings(),
+            "ok": True,
+            "message": self._sound_message(
+                "Пакет звуків видалено." if removed else "Пакет звуків не встановлено.",
+                "Sound pack removed." if removed else "Sound pack is not installed.",
+            ),
+        }
 
     def _bind_ui_owner(self, owner: Any, *, action_factory: Callable | None = None) -> None:
         """Trusted host seam: called on the actual Form thread before DB creation."""
