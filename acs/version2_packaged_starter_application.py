@@ -65,6 +65,19 @@ _LABELS = {
 }
 
 
+class _DuplicateManifestKeyError(ValueError):
+    pass
+
+
+def _unique_manifest_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateManifestKeyError(key)
+        result[key] = value
+    return result
+
+
 def _is_reparse(info: os.stat_result) -> bool:
     flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     return bool(getattr(info, "st_file_attributes", 0) & flag)
@@ -91,7 +104,6 @@ def _safe_file(path: Path, *, label: str) -> os.stat_result:
 
 def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
     """Compare stable file identity where the host exposes one."""
-
     left_ino = getattr(left, "st_ino", 0)
     right_ino = getattr(right, "st_ino", 0)
     if left_ino and right_ino:
@@ -124,7 +136,15 @@ def _load_manifest(root: Path) -> dict[str, object]:
         _safe_file(entry, label="packaged starter content entry")
 
     manifest_path = root / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_manifest_object,
+        )
+    except _DuplicateManifestKeyError as exc:
+        raise RuntimeError("packaged starter content manifest contains duplicate keys") from exc
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("packaged starter content manifest is unreadable") from exc
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 3:
         raise RuntimeError("packaged starter content manifest schema is invalid")
     if manifest.get("bundle_kind") != "lawful-curated-real-game-starter":
@@ -188,7 +208,6 @@ def _verified_payload_bytes(
     label: str,
 ) -> bytes:
     """Read exactly the bytes pinned by the already-validated manifest."""
-
     files = manifest.get("files")
     metadata = files.get(name) if isinstance(files, Mapping) else None
     if not isinstance(metadata, Mapping):
@@ -258,21 +277,9 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             raise RuntimeError("packaged starter content counts are invalid")
         labels = _LABELS[self.shell.language]
         return (
-            {
-                "action": _STARTER_ACTION,
-                "label": labels["starter"].format(count=starter_count),
-                "enabled": True,
-            },
-            {
-                "action": _STRESS_ACTION,
-                "label": labels["stress"].format(count=stress_count),
-                "enabled": True,
-            },
-            {
-                "action": _LIBRARY_ACTION,
-                "label": labels["sample_library"].format(count=starter_count),
-                "enabled": True,
-            },
+            {"action": _STARTER_ACTION, "label": labels["starter"].format(count=starter_count), "enabled": True},
+            {"action": _STRESS_ACTION, "label": labels["stress"].format(count=stress_count), "enabled": True},
+            {"action": _LIBRARY_ACTION, "label": labels["sample_library"].format(count=starter_count), "enabled": True},
         )
 
     def _decorate_library_snapshot(self, snapshot: Mapping[str, object]) -> dict[str, object]:
