@@ -349,8 +349,6 @@ def _validate_file_policy(relative: str) -> None:
         _fail(f"build/source component is forbidden: {relative}")
     if token.suffix.casefold() in _RAW_SOURCE_SUFFIXES:
         _fail(f"raw source is forbidden in the default package: {relative}")
-    if token.suffix.casefold() in _DEBUG_BUILD_SUFFIXES:
-        _fail(f"debug/build artifact is forbidden in the default package: {relative}")
     name = token.name.casefold()
     if name in _USER_STATE_NAMES or any(
         part.endswith(".upgrade-backups") for part in folded_parts
@@ -360,6 +358,8 @@ def _validate_file_policy(relative: str) -> None:
         _fail(f"secret-bearing file type is forbidden: {relative}")
     if _backend_payload(relative):
         _fail(f"optional external backend payload is forbidden: {relative}")
+    if token.suffix.casefold() in _DEBUG_BUILD_SUFFIXES:
+        _fail(f"debug/build artifact is forbidden in the default package: {relative}")
 
 
 def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]:
