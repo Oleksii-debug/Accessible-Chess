@@ -26,8 +26,8 @@ env:
   P0G_QA_SHA: 4bcf76327943bdc633d185a053b1f0b858460d12
   P0G_PROBE_BLOB_SHA: 675d93dbf9853c35e7fe4a19dd3531f0853d7d2e
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 6d92513ef49ccf6e5cfb2e9b2e815d466118a3f1
-  P0_DOCUMENT_PROBE_BLOB_SHA: 56d01b5ee54303103e8c573c9370e5b521c617c8
+  P0_DOCUMENT_QA_SHA: 690fc855182d3d99a40d1bbd2516dd085aecec45
+  P0_DOCUMENT_PROBE_BLOB_SHA: 3fef48fd8834d547729b16d585bed6ceb5fe645c
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -110,6 +110,7 @@ jobs:
           grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'" .p0-packaged-document-copy-probe.ps1
           grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "AssertProviderFocus \$roots 'move input copy dispatch after Ctrl+A' 'move-input'" .p0-packaged-document-copy-probe.ps1
           grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
