@@ -485,6 +485,85 @@ class SoundProfileStore:
                 pass
 
 
+class SoundProfileController:
+    """In-process current profile authority with save-before-publish semantics."""
+
+    def __init__(
+        self,
+        store: SoundProfileStore,
+        *,
+        legacy_settings: Mapping[str, object] | None = None,
+    ) -> None:
+        if not isinstance(store, SoundProfileStore):
+            raise TypeError("store must be SoundProfileStore")
+        self._store = store
+        self._profile = store.load_or_migrate(legacy_settings)
+
+    def current(self) -> SoundProfile:
+        return self._profile
+
+    @property
+    def warning(self) -> str | None:
+        return self._store.warning
+
+    def replace(self, profile: SoundProfile) -> SoundProfile:
+        if not isinstance(profile, SoundProfile):
+            raise TypeError("profile must be SoundProfile")
+        self._store.save(profile)
+        self._profile = profile
+        return profile
+
+    def set_master_enabled(self, enabled: bool) -> SoundProfile:
+        if type(enabled) is not bool:
+            raise TypeError("enabled must be boolean")
+        return self.replace(replace(self._profile, master_enabled=enabled))
+
+    def set_master_volume(self, volume_percent: int) -> SoundProfile:
+        if isinstance(volume_percent, bool) or not isinstance(volume_percent, int):
+            raise TypeError("volume_percent must be an integer")
+        if not 0 <= volume_percent <= 100:
+            raise ValueError("volume_percent must be in 0..100")
+        return self.replace(
+            replace(self._profile, master_volume_percent=volume_percent)
+        )
+
+    def set_pack(self, pack_id: str, *, clear_sound_ids: bool = False) -> SoundProfile:
+        return self.replace(
+            self._profile.with_pack(pack_id, clear_sound_ids=clear_sound_ids)
+        )
+
+    def set_event(
+        self,
+        event_id: str,
+        *,
+        enabled: bool | None = None,
+        volume_percent: int | None = None,
+        sound_id: str | None | object = ...,
+    ) -> SoundProfile:
+        key = _stable_id(event_id, allow_dot=True)
+        current = self._profile.preference_for(key)
+        if enabled is not None and type(enabled) is not bool:
+            raise TypeError("enabled must be boolean or None")
+        if volume_percent is not None:
+            if isinstance(volume_percent, bool) or not isinstance(volume_percent, int):
+                raise TypeError("volume_percent must be an integer or None")
+            if not 0 <= volume_percent <= 100:
+                raise ValueError("volume_percent must be in 0..100")
+        next_sound_id = current.sound_id if sound_id is ... else sound_id
+        if next_sound_id is not None and not isinstance(next_sound_id, str):
+            raise TypeError("sound_id must be text, null, or omitted")
+        preference = SoundEventPreference(
+            enabled=current.enabled if enabled is None else enabled,
+            volume_percent=(
+                current.volume_percent
+                if volume_percent is None
+                else volume_percent
+            ),
+            sound_id=next_sound_id,
+        )
+        return self.replace(self._profile.with_event(key, preference))
+
+
 class SoundPreviewPlaybackPort(Protocol):
     def play_sound(
         self,
