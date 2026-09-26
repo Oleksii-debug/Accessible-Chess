@@ -453,6 +453,35 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_oversized_manifest_payload_length_fails_closed_before_read(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-oversize-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            # This is intentionally far beyond any release payload. Before the
+            # runtime bound, this value flowed directly into read(bytes + 1).
+            manifest["files"]["starter_uk.pgn"]["bytes"] = 1 << 62
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "safe size limit"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
     def test_tampered_packaged_payload_fails_closed_before_application_start(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-tamper-") as raw:
             root = Path(raw)
