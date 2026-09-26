@@ -65,7 +65,7 @@ jobs:
           tests/test_full_product_pgn_keybindings.py
 
       - name: Prove registry defaults and persisted remap
-        run: python -m pytest -q tests/test_full_product_pgn_keybindings.py
+        run: python -m unittest -v tests.test_full_product_pgn_keybindings
 
       - name: Prove PGN DOM keyboard and privacy contract
         run: node tests/js/pgn_surface_dom_test.js
