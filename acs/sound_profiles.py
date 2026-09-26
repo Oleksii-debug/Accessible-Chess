@@ -611,7 +611,11 @@ class SoundPreviewService:
         try:
             fallback = SoundEvent(key)
         except ValueError:
-            pass
+            if key == "low_time":
+                # The current packaged classic set predates a distinct low-time
+                # asset. Preview therefore uses the existing tick WAV as the safe
+                # classic fallback while custom packs may provide low_time itself.
+                fallback = SoundEvent.TICK
         self._playback.play_sound(
             pack_id=profile.pack_id,
             sound_id=profile.selected_sound_id(key),
