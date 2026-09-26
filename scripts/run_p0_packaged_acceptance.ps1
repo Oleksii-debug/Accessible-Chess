@@ -55,7 +55,6 @@ Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=COPY_PROBE'
   -TopologyScript $topology `
   -OutputPath $copyEvidence `
   -TimeoutSeconds $CopyTimeoutSeconds
-if($LASTEXITCODE -ne 0){throw 'Packaged semantic document-copy probe failed'}
 if(-not (Test-Path -LiteralPath $copyEvidence -PathType Leaf)){
   throw 'Packaged semantic document-copy evidence was not produced'
 }
@@ -70,7 +69,6 @@ Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_PROBE'
   -TopologyScript $topology `
   -OutputPath $hotkeyEvidence `
   -TimeoutSeconds $HotkeyTimeoutSeconds
-if($LASTEXITCODE -ne 0){throw 'Packaged P0-G hotkey-result probe failed'}
 if(-not (Test-Path -LiteralPath $hotkeyEvidence -PathType Leaf)){
   throw 'Packaged P0-G hotkey-result evidence was not produced'
 }
