@@ -289,6 +289,16 @@ class MultiplayerGameContractTests(unittest.TestCase):
                 ),
             )
 
+    def test_game_intent_round_trip_rejects_tamper_and_control_characters(self) -> None:
+        intent = GameIntent("game-1", "alice", 1, "move", move_text="e2e4")
+        self.assertEqual(GameIntent.from_record(intent.to_record()), intent)
+        tampered = intent.to_record()
+        tampered["move_text"] = "e2e3"
+        with self.assertRaisesRegex(MultiplayerContractError, "intent id does not match"):
+            GameIntent.from_record(tampered)
+        with self.assertRaisesRegex(MultiplayerContractError, "control characters"):
+            GameIntent("game-1", "alice", 1, "move", move_text="e2\x00e4")
+
     def test_draw_intents_delegate_state_to_canonical_lifecycle_snapshot(self) -> None:
         offered = LifecycleSnapshot(GameStatus.ACTIVE, None, "w", None)
         snapshot = game_snapshot(lifecycle=offered)
