@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -25,7 +26,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
                 db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 1
             )
@@ -107,7 +108,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.register_attachment(record), record)
         self.assertEqual(self.store.register_attachment(record), record)
         self.assertEqual(self.store.room_attachments("room"), (record,))
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db:
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_attachments)")}
         self.assertNotIn("content", columns)
         self.assertNotIn("blob", columns)
