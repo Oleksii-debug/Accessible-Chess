@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath, PureWindowsPath
+import re
 from typing import Mapping
 
 
@@ -30,6 +31,7 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
 )
 
 _ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
+_VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9a-z]+(?:[.-][0-9a-z]+)*))?$")
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ class SoundPackManifest:
             value = getattr(self, name)
             if not isinstance(value, str):
                 raise TypeError(f"sound pack {name} must be text")
-        version = self.version.strip()
+        version = _stable_version(self.version)
         title = self.title.strip()
         license_id = self.license_id.strip()
         author = self.author.strip()
@@ -273,6 +275,15 @@ def _stable_id(value: object, *, allow_dot: bool = False) -> str:
     allowed = "abcdefghijklmnopqrstuvwxyz0123456789_-" + ("." if allow_dot else "")
     if not text or any(ch not in allowed for ch in text):
         raise ValueError("id must use lowercase ascii letters, digits, dot, dash or underscore")
+    return text
+
+
+def _stable_version(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("sound pack version must be text")
+    text = value.strip().lower()
+    if not _VERSION_RE.fullmatch(text):
+        raise ValueError("sound pack version must be canonical semantic version text")
     return text
 
 
