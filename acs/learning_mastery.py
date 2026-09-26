@@ -40,12 +40,16 @@ _SNAPSHOT_FIELDS = frozenset(
         "daily_points",
         "last_event_id",
         "last_event_digest",
+        "activity_events",
         "bests",
         "digest",
     }
 )
 _BEST_FIELDS = frozenset(
     {"activity_id", "accuracy_bps", "mistakes", "hints_used", "duration_seconds"}
+)
+_ACTIVITY_EVENT_FIELDS = frozenset(
+    {"activity_id", "event_id", "content_digest", "event_digest", "sequence"}
 )
 _OUTCOME_FIELDS = frozenset(
     {
@@ -110,6 +114,12 @@ class TrainingOutcome:
     def digest(self) -> str:
         return _digest(self.to_record())
 
+    @property
+    def content_digest(self) -> str:
+        record = self.to_record()
+        record.pop("sequence")
+        return _digest(record)
+
     def to_record(self) -> dict[str, object]:
         return {
             "sequence": self.sequence,
@@ -167,6 +177,44 @@ class ActivityBest:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivityEvent:
+    activity_id: str
+    event_id: str
+    content_digest: str
+    event_digest: str
+    sequence: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "activity_id", _identifier(self.activity_id, "activity event activity id")
+        )
+        object.__setattr__(
+            self, "event_id", _identifier(self.event_id, "activity event id")
+        )
+        if not _is_sha256(self.content_digest):
+            raise MasteryError("activity event content digest must be lowercase SHA-256")
+        if not _is_sha256(self.event_digest):
+            raise MasteryError("activity event digest must be lowercase SHA-256")
+        _positive_int(self.sequence, "activity event sequence", maximum=_MAX_COUNTER)
+
+    def to_record(self) -> dict[str, object]:
+        return {
+            "activity_id": self.activity_id,
+            "event_id": self.event_id,
+            "content_digest": self.content_digest,
+            "event_digest": self.event_digest,
+            "sequence": self.sequence,
+        }
+
+    @classmethod
+    def from_record(cls, value: Mapping[str, Any]) -> "ActivityEvent":
+        data = _mapping(value, "activity event")
+        if frozenset(data) != _ACTIVITY_EVENT_FIELDS:
+            raise MasteryError("activity event schema mismatch")
+        return cls(**{key: data[key] for key in _ACTIVITY_EVENT_FIELDS})
+
+
+@dataclass(frozen=True, slots=True)
 class MasteryState:
     mode: LearningMode
     revision: int = 0
@@ -180,6 +228,7 @@ class MasteryState:
     daily_points: int = 0
     last_event_id: str | None = None
     last_event_digest: str | None = None
+    activity_events: tuple[ActivityEvent, ...] = ()
     bests: tuple[ActivityBest, ...] = ()
 
     def __post_init__(self) -> None:
@@ -226,6 +275,33 @@ class MasteryState:
             )
             if not _is_sha256(self.last_event_digest):
                 raise MasteryError("last event digest must be lowercase SHA-256")
+        if type(self.activity_events) is not tuple or len(self.activity_events) > _MAX_BESTS:
+            raise MasteryError("activity events must be a bounded tuple")
+        if any(type(item) is not ActivityEvent for item in self.activity_events):
+            raise MasteryError("activity events contain invalid record type")
+        event_activity_ids = tuple(item.activity_id for item in self.activity_events)
+        event_ids = tuple(item.event_id for item in self.activity_events)
+        if (
+            event_activity_ids != tuple(sorted(event_activity_ids))
+            or len(event_activity_ids) != len(set(event_activity_ids))
+            or len(event_ids) != len(set(event_ids))
+        ):
+            raise MasteryError("activity events must have unique sorted activities and event ids")
+        if self.revision == 0:
+            if self.activity_events:
+                raise MasteryError("empty mastery state must not contain activity events")
+        else:
+            latest = next(
+                (
+                    item
+                    for item in self.activity_events
+                    if item.event_id == self.last_event_id
+                    and item.sequence == self.revision
+                ),
+                None,
+            )
+            if latest is None or latest.event_digest != self.last_event_digest:
+                raise MasteryError("latest mastery event identity is inconsistent")
         if type(self.bests) is not tuple or len(self.bests) > _MAX_BESTS:
             raise MasteryError("activity bests must be a bounded tuple")
         if any(type(item) is not ActivityBest for item in self.bests):
@@ -275,6 +351,7 @@ class MasteryState:
             "daily_points": self.daily_points,
             "last_event_id": self.last_event_id,
             "last_event_digest": self.last_event_digest,
+            "activity_events": [item.to_record() for item in self.activity_events],
             "bests": [item.to_record() for item in self.bests],
         }
 
@@ -298,6 +375,9 @@ class MasteryState:
             mode = LearningMode(data["mode"])
         except (TypeError, ValueError) as exc:
             raise MasteryError("invalid mastery mode") from exc
+        raw_events = data["activity_events"]
+        if type(raw_events) is not list or len(raw_events) > _MAX_BESTS:
+            raise MasteryError("mastery activity events must be a bounded array")
         raw_bests = data["bests"]
         if type(raw_bests) is not list or len(raw_bests) > _MAX_BESTS:
             raise MasteryError("mastery bests must be a bounded array")
@@ -314,6 +394,7 @@ class MasteryState:
             daily_points=data["daily_points"],
             last_event_id=data["last_event_id"],
             last_event_digest=data["last_event_digest"],
+            activity_events=tuple(ActivityEvent.from_record(item) for item in raw_events),
             bests=tuple(ActivityBest.from_record(item) for item in raw_bests),
         )
 
@@ -356,17 +437,20 @@ def record_training_outcome(state: MasteryState, outcome: TrainingOutcome) -> Ma
     if type(state) is not MasteryState or type(outcome) is not TrainingOutcome:
         raise MasteryError("mastery update requires canonical state and outcome")
 
-    if outcome.sequence == state.revision:
+    prior_event = next(
+        (item for item in state.activity_events if item.event_id == outcome.event_id),
+        None,
+    )
+    if prior_event is not None:
         if (
-            state.last_event_id == outcome.event_id
-            and state.last_event_digest == outcome.digest
+            prior_event.activity_id == outcome.activity_id
+            and prior_event.content_digest == outcome.content_digest
         ):
             return MasteryUpdate(state, 0, 0, (), False, duplicate_retry=True)
-        raise MasteryError("mastery sequence was reused with different event content")
+        raise MasteryError("mastery event id was reused with different event content")
+
     if outcome.sequence != state.revision + 1:
         raise MasteryError("mastery outcome sequence is stale or has a gap")
-    if state.last_event_id == outcome.event_id:
-        raise MasteryError("mastery event id was reused for a new sequence")
 
     practice_day = date.fromisoformat(outcome.practice_date)
     if state.last_practice_date is not None:
@@ -398,6 +482,16 @@ def record_training_outcome(state: MasteryState, outcome: TrainingOutcome) -> Ma
 
     candidate_best = _best_from_outcome(outcome)
     bests, improved = _update_best(state.bests, candidate_best, mode=state.mode)
+    activity_events = _update_activity_event(
+        state.activity_events,
+        ActivityEvent(
+            activity_id=outcome.activity_id,
+            event_id=outcome.event_id,
+            content_digest=outcome.content_digest,
+            event_digest=outcome.digest,
+            sequence=outcome.sequence,
+        ),
+    )
     completed_count = state.completed_count + int(outcome.completed)
     perfect = outcome.completed and outcome.mistakes == 0 and outcome.hints_used == 0
     perfect_completions = state.perfect_completions + int(perfect)
@@ -416,6 +510,7 @@ def record_training_outcome(state: MasteryState, outcome: TrainingOutcome) -> Ma
         daily_points=daily_points + earned,
         last_event_id=outcome.event_id,
         last_event_digest=outcome.digest,
+        activity_events=activity_events,
         bests=bests,
     )
     new_achievements = tuple(
@@ -448,6 +543,22 @@ def _raw_points(outcome: TrainingOutcome) -> int:
     if outcome.completed and outcome.mistakes == 0 and outcome.hints_used == 0:
         points += 20
     return points
+
+
+def _update_activity_event(
+    events: tuple[ActivityEvent, ...],
+    candidate: ActivityEvent,
+) -> tuple[ActivityEvent, ...]:
+    existing = next(
+        (item for item in events if item.activity_id == candidate.activity_id),
+        None,
+    )
+    if existing is None and len(events) >= _MAX_BESTS:
+        raise MasteryError("activity event capacity is exhausted")
+    replacement = tuple(
+        item for item in events if item.activity_id != candidate.activity_id
+    ) + (candidate,)
+    return tuple(sorted(replacement, key=lambda item: item.activity_id))
 
 
 def _best_from_outcome(outcome: TrainingOutcome) -> ActivityBest:
@@ -579,6 +690,7 @@ def _parse_wire_integer(value: str) -> int:
 
 __all__ = [
     "ActivityBest",
+    "ActivityEvent",
     "LearningMode",
     "MasteryError",
     "MasteryState",
