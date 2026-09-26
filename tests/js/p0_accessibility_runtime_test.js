@@ -93,6 +93,21 @@ async function run() {
     "same background dispatch duplicate should remain coalesced"
   );
 
+  fakeWindow.announce("Passive A");
+  fakeWindow.announce("Passive B");
+  fakeWindow.announce("Passive A");
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Passive A").length,
+    1,
+    "interleaved passive duplicate inside the bounded window must remain suppressed"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Passive B").length,
+    1,
+    "interleaved distinct passive status must still be exposed"
+  );
+
   // The final-product runtime is loaded after the Stage 1 inline script. It must
   // preserve explicit event identity rather than reducing announce(message,eventId)
   // back to message-only dedupe. A duplicate of event-1 remains a duplicate even
