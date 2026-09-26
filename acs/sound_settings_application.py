@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Trusted application boundary for accessible sound settings.
 
-The browser may request only closed-world semantic mutations.  Profile
+The browser may request only closed-world semantic mutations. Profile
 persistence, pack verification/storage and playback remain owned by the existing
 sound-profile, pack-coordinator and profiled-runtime authorities.
 """
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from .sound_pack_catalog import SoundPackCatalogEntry, SoundPackState
 from .sound_pack_profile import SoundPackProfileCoordinator
-from .sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
+from .sound_profile_store import SoundProfileManager
 from .sound_profiles import CORE_SOUND_EVENTS, SoundEventPreference
 from .sound_runtime import ProfiledSoundRuntime
 
@@ -99,7 +99,7 @@ class SoundSettingsApplication:
         if self._packs is not None:
             for pack_id in sorted(self._catalog):
                 entry = self._catalog[pack_id]
-                status = self._packs._packs.status(entry)
+                status = self._packs.status(entry)
                 manifest = entry.manifest
                 packs.append(
                     {
@@ -115,7 +115,7 @@ class SoundSettingsApplication:
                         "can_install": status.state
                         in {SoundPackState.NOT_INSTALLED, SoundPackState.DIFFERENT_VERSION},
                         "can_uninstall": status.installed_version is not None
-                        and manifest.pack_id != self._packs._packs.fallback_pack_id,
+                        and manifest.pack_id != self._packs.fallback_pack_id,
                     }
                 )
 
@@ -178,7 +178,11 @@ class SoundSettingsApplication:
         if preview.error_type is not None:
             raise RuntimeError("sound preview failed")
         if not preview.delivered:
-            message = "Preview is muted by the current profile." if language == "en" else "Попередній звук вимкнено поточним профілем."
+            message = (
+                "Preview is muted by the current profile."
+                if language == "en"
+                else "Попередній звук вимкнено поточним профілем."
+            )
         else:
             message = "Sound preview played." if language == "en" else "Попередній звук відтворено."
         return self._result(message, language=language)
@@ -188,7 +192,7 @@ class SoundSettingsApplication:
             raise RuntimeError("sound pack management is unavailable")
         if pack_id not in self._catalog:
             raise ValueError("unknown sound pack")
-        resolved = self._packs._packs.resolve_usable_pack(pack_id)
+        resolved = self._packs.resolve_usable_pack(pack_id)
         if resolved != pack_id:
             raise ValueError("sound pack is not installed")
         self._profiles.set_pack(pack_id)
