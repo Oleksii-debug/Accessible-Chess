@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 
 from acs.sound_pack_store import (
@@ -25,6 +27,18 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _wav_bytes(seed: bytes) -> bytes:
+    value = hashlib.sha256(seed).digest()[0]
+    sample = int((value - 128) * 128).to_bytes(2, "little", signed=True)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        writer.writeframes(sample * 16)
+    return buffer.getvalue()
+
+
 def _write_pack(
     root: Path,
     *,
@@ -36,7 +50,7 @@ def _write_pack(
     hashes = {}
     for event in CORE_SOUND_EVENTS:
         relative = f"audio/{event}.wav"
-        data = payload_prefix + event.encode("ascii")
+        data = _wav_bytes(payload_prefix + event.encode("ascii"))
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
@@ -91,7 +105,7 @@ class SoundPackStoreTests(unittest.TestCase):
 
             self.assertEqual(installed, manifest)
             path = store.resolve("soft.wood", "move")
-            self.assertEqual(path.read_bytes(), b"v1:move")
+            self.assertEqual(path.read_bytes(), _wav_bytes(b"v1:move"))
             records = store.installed()
             self.assertEqual(len(records), 1)
             self.assertTrue(records[0].valid)
@@ -155,7 +169,7 @@ class SoundPackStoreTests(unittest.TestCase):
             store.install_from_staging(two)
 
             self.assertEqual(store.load_manifest("soft.wood").version, "2.0.0")
-            self.assertEqual(store.resolve("soft.wood", "move").read_bytes(), b"new:move")
+            self.assertEqual(store.resolve("soft.wood", "move").read_bytes(), _wav_bytes(b"new:move"))
             self.assertFalse(any(p.name.startswith(".soft.wood.") for p in store.root.iterdir()))
 
     def test_installed_tamper_fails_closed_at_resolution_time(self) -> None:
