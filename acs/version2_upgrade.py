@@ -3,17 +3,19 @@ from __future__ import annotations
 """Version 2 upgrade orchestration with exact legacy-Library integration.
 
 The crash-recovery/CAS implementation lives byte-for-byte in
-``version2_upgrade_base``.  This module is the stable import surface and adds
+``version2_upgrade_base``. This module is the stable import surface and adds
 only the D07-owned unversioned Library seam: exact schema recognition plus
 conversion of an authenticated private working copy before the existing
 publication transaction runs.
 """
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import secrets
 import sqlite3
-from typing import Mapping
+from threading import RLock
+from typing import Iterator, Mapping
 
 from . import version2_upgrade_base as _base
 from .acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
@@ -28,6 +30,9 @@ from .legacy_library_migration import (
 for _name in dir(_base):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_base, _name)
+
+
+_SCHEMA_SCOPE_LOCK = RLock()
 
 
 def _canonical_library_schema(connection: sqlite3.Connection) -> int:
@@ -54,14 +59,36 @@ def _canonical_library_schema(connection: sqlite3.Connection) -> int:
         raise Version2UpgradeError("library validation failed") from exc
 
 
-# All base helpers resolve this name dynamically in their defining module.
-# Rebinding it makes backup hashing, rollback readback and CAS publication use
-# the same exact D07 legacy recognizer without copying any schema knowledge.
-_base._canonical_library_schema = _canonical_library_schema
+@contextmanager
+def _legacy_schema_scope() -> Iterator[None]:
+    """Temporarily route base helper validation through the D07 legacy seam.
+
+    Base helper functions intentionally resolve ``_canonical_library_schema``
+    from their defining module. The previous integration rebound that symbol at
+    import time, permanently changing ``version2_upgrade_base`` for unrelated
+    callers. Keep that compatibility seam strictly bounded to one upgrade or
+    recovery transaction and restore the original authority even on failure.
+    """
+
+    with _SCHEMA_SCOPE_LOCK:
+        original = _base._canonical_library_schema
+        _base._canonical_library_schema = _canonical_library_schema
+        try:
+            yield
+        finally:
+            _base._canonical_library_schema = original
 
 
 class Version2UpgradeCoordinator(_base.Version2UpgradeCoordinator):
     """Canonical coordinator with preservation-first schema-0 conversion."""
+
+    def run(self):
+        with _legacy_schema_scope():
+            return super().run()
+
+    def recover_interrupted(self) -> bool:
+        with _legacy_schema_scope():
+            return super().recover_interrupted()
 
     def _migrate_library(
         self,
