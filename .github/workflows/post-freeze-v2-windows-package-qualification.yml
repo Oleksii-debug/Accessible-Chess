@@ -14,6 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  PACKAGE_ANCHOR_SHA: 481d291621e78e01ed85162516060c7f68e5a390
+  PRODUCT_PARENT_SHA: cadbbba94858f38d5094ccf026c92b5043ddb7b4
   PREVIOUS_PACKAGE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   PREVIOUS_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
@@ -46,25 +48,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bind current Product and exact previous package executor
+      - name: Bind current Product through preserved package anchor
         shell: bash
         run: |
           set -euo pipefail
-          parent_line="$(git rev-list --parents -n 1 HEAD)"
-          test "$(wc -w <<<"$parent_line" | tr -d ' ')" = '3'
-          product_parent="$(git rev-parse HEAD^1)"
-          previous_candidate="$(git rev-parse HEAD^2)"
-          test "$previous_candidate" = "$PREVIOUS_PACKAGE_SHA"
-          test "$(git merge-base "$product_parent" HEAD)" = "$product_parent"
+          git cat-file -e "$PACKAGE_ANCHOR_SHA^{commit}"
+          git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
+          git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
+          test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^1")" = "$PRODUCT_PARENT_SHA"
+          test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^2")" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$PACKAGE_ANCHOR_SHA" HEAD)" = "$PACKAGE_ANCHOR_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" HEAD)" = "$PRODUCT_PARENT_SHA"
           test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
-          changed="$(git diff --name-only "$product_parent" HEAD)"
+          changed="$(git diff --name-only "$PRODUCT_PARENT_SHA" HEAD)"
           test "$changed" = "$QUALIFICATION_SOURCE_PATH"
-          git diff --check "$product_parent" HEAD
-          if git cat-file -e "$product_parent:$QUALIFICATION_SOURCE_PATH" 2>/dev/null; then
+          git diff --check "$PRODUCT_PARENT_SHA" HEAD
+          if git cat-file -e "$PRODUCT_PARENT_SHA:$QUALIFICATION_SOURCE_PATH" 2>/dev/null; then
             echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT_PARENT' >&2
             exit 1
           fi
-          config_blob="$(git rev-parse "$product_parent:packaging/AccessibleChess.exe.config")"
+          config_blob="$(git rev-parse "$PRODUCT_PARENT_SHA:packaging/AccessibleChess.exe.config")"
           test "$config_blob" = "$WINFORMS_ACCESSIBILITY_CONFIG_BLOB"
           previous_blob="$(git rev-parse "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH")"
           test "$previous_blob" = "$PREVIOUS_WORKFLOW_BLOB_SHA"
@@ -77,14 +80,16 @@ jobs:
           grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .previous-package-qualification.yml
           grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .previous-package-qualification.yml
           grep -Fq "MENUBAR_OVERRIDE = r\"\"\"" .previous-package-qualification.yml
-          short="${product_parent:0:7}"
-          echo "PRODUCT_PARENT=$product_parent" >> "$GITHUB_ENV"
-          echo "SOURCE_INTEGRATION_SHA=$product_parent" >> "$GITHUB_ENV"
+          short="${PRODUCT_PARENT_SHA:0:7}"
+          echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
-          echo "CANDIDATE_PRODUCT_SHA=$product_parent"
-          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$previous_candidate"
+          echo "CANDIDATE_PRODUCT_SHA=$PRODUCT_PARENT_SHA"
+          echo "PACKAGE_ANCHOR_SHA=$PACKAGE_ANCHOR_SHA"
+          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
           echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
           echo "WINFORMS_ACCESSIBILITY_CONFIG_BLOB=$config_blob"
+          echo 'PACKAGE_ANCHOR_PROVENANCE=PASS'
           echo 'PINNED_ENV_RESTORED=PASS'
           echo 'WINFORMS_ACCESSIBILITY_CONFIG_LOCK=PASS'
           echo 'WORKFLOW_ONLY_DELTA=PASS'
