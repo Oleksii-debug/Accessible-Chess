@@ -8,6 +8,7 @@ It provides the small fail-closed boundary needed by a later accessible login
 surface and transport adapter.
 """
 
+from collections import Counter
 from dataclasses import dataclass
 import base64
 import hashlib
@@ -18,6 +19,14 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 class OAuthContractError(ValueError):
     """Raised when an authorization request would violate the local contract."""
+
+
+class OAuthAuthorizationError(OAuthContractError):
+    """A validated callback reported an OAuth authorization error."""
+
+    def __init__(self, error_code: str) -> None:
+        super().__init__("authorization server returned an OAuth error")
+        self.error_code = error_code
 
 
 _RESERVED_AUTHORIZATION_PARAMETERS = frozenset(
@@ -32,6 +41,7 @@ _RESERVED_AUTHORIZATION_PARAMETERS = frozenset(
         "state",
     }
 )
+_CALLBACK_PARAMETERS = frozenset({"code", "error", "state"})
 
 
 def _require_text(name: str, value: object, *, max_length: int = 4096) -> str:
@@ -73,6 +83,9 @@ def _validate_redirect_uri(value: object) -> str:
         raise OAuthContractError("redirect_uri must be absolute and fragment-free")
     if parsed.username is not None or parsed.password is not None:
         raise OAuthContractError("redirect_uri must not contain userinfo")
+    query_keys = {key for key, _ in parse_qsl(parsed.query, keep_blank_values=True)}
+    if query_keys & _CALLBACK_PARAMETERS:
+        raise OAuthContractError("redirect_uri query must not predefine OAuth callback parameters")
     if parsed.scheme == "https":
         return redirect_uri
     # RFC 8252 native-app loopback redirects use literal loopback addresses so
@@ -208,6 +221,56 @@ class AuthorizationRequest:
         ] + sorted(extras)
         return urlunsplit(parsed._replace(query=urlencode(query)))
 
+    def authorization_code_from_callback(self, callback_url: str) -> str:
+        """Validate redirect binding + state and return one authorization code.
+
+        Network/browser adapters hand the received callback URL to this method.
+        The method deliberately ignores non-critical provider extension fields,
+        but critical callback parameters must be singular and fail closed.
+        """
+
+        self.validated()
+        callback = _require_text("callback_url", callback_url, max_length=16384)
+        actual = _split_url("callback_url", callback)
+        expected = _split_url("redirect_uri", self.redirect_uri)
+
+        if actual.fragment:
+            raise OAuthContractError("authorization callback must not contain a fragment")
+        expected_origin_path = (expected.scheme, expected.hostname, expected.port, expected.path)
+        actual_origin_path = (actual.scheme, actual.hostname, actual.port, actual.path)
+        if actual_origin_path != expected_origin_path:
+            raise OAuthContractError("authorization callback does not match redirect_uri")
+        if actual.username is not None or actual.password is not None:
+            raise OAuthContractError("authorization callback must not contain userinfo")
+
+        expected_query = Counter(parse_qsl(expected.query, keep_blank_values=True))
+        actual_pairs = parse_qsl(actual.query, keep_blank_values=True)
+        actual_query = Counter(actual_pairs)
+        for pair, count in expected_query.items():
+            if actual_query[pair] < count:
+                raise OAuthContractError("authorization callback lost redirect_uri query data")
+
+        critical: dict[str, list[str]] = {key: [] for key in _CALLBACK_PARAMETERS}
+        for key, value in actual_pairs:
+            if key in critical:
+                critical[key].append(value)
+        for key, values in critical.items():
+            if len(values) > 1:
+                raise OAuthContractError(f"authorization callback contains duplicate {key}")
+
+        states = critical["state"]
+        if len(states) != 1 or not secrets.compare_digest(states[0], self.state):
+            raise OAuthContractError("authorization callback state mismatch")
+
+        codes = critical["code"]
+        errors = critical["error"]
+        if bool(codes) == bool(errors):
+            raise OAuthContractError("authorization callback must contain exactly one code or error")
+        if errors:
+            error_code = _require_text("oauth_error", errors[0], max_length=128)
+            raise OAuthAuthorizationError(error_code)
+        return _require_text("authorization_code", codes[0], max_length=8192)
+
     def token_exchange_form(self, authorization_code: str) -> tuple[tuple[str, str], ...]:
         self.validated()
         code = _require_text("authorization_code", authorization_code, max_length=8192)
@@ -222,6 +285,7 @@ class AuthorizationRequest:
 
 __all__ = [
     "AuthorizationRequest",
+    "OAuthAuthorizationError",
     "OAuthContractError",
     "code_challenge_s256",
     "generate_code_verifier",
