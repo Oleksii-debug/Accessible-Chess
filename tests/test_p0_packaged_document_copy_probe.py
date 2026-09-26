@@ -40,15 +40,24 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("ValuePattern]::Pattern", self.text)
         self.assertIn("WaitClipboard 'e2e4'", self.text)
 
-    def test_probe_fails_closed_if_native_copy_focus_escapes_the_packaged_app(self) -> None:
-        self.assertIn("function AssertAppFocus", self.text)
+    def test_probe_fails_closed_if_native_copy_focus_leaves_connected_provider_roots(self) -> None:
+        self.assertIn("function AssertProviderFocus", self.text)
         self.assertIn("AutomationElement]::FocusedElement", self.text)
-        self.assertIn("native keyboard focus escaped packaged process", self.text)
+        self.assertIn("$focusedRuntime=RuntimeId $focused", self.text)
+        self.assertIn("focused element has no stable UIA runtime identity", self.text)
+        self.assertIn("foreach($candidate in @(ControlElements $Roots))", self.text)
+        self.assertIn("native keyboard focus escaped connected packaged provider roots", self.text)
         self.assertIn("Accessible Chess Document could not receive focus for native Ctrl+C", self.text)
         self.assertIn("Static document copy focus landed in an edit control", self.text)
-        self.assertIn("AssertAppFocus $process 'move input copy' 'move-input'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'static document copy'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'static document copy dispatch'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'move input copy' 'move-input'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'move input copy dispatch' 'move-input'", self.text)
         self.assertIn("native_copy_focus_verified=$true", self.text)
         self.assertIn("move_input_focus_verified=$true", self.text)
+        self.assertIn("focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'", self.text)
+        self.assertNotIn("function AssertAppFocus", self.text)
+        self.assertNotIn("[int]$focused.Current.ProcessId -ne [int]$Process.Id", self.text)
         self.assertNotIn("try {$document.SetFocus()} catch {}", self.text)
 
     def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
