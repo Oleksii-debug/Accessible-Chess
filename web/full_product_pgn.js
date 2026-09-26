@@ -108,19 +108,22 @@
         invokeCommand(root, invoke, announce, "pgn.select", { node_id: item.node_id });
       });
       treeItem.addEventListener("keydown", function (event) {
+        const resolve = global.accessibleChessKeymapAction;
+        const actionId = typeof resolve === "function" ? resolve(event, "pgn_tree") : "";
         let command = "";
         let payload = {};
-        if (event.key === "ArrowUp") {
+        if (actionId === "pgn.previous_item") {
           command = "pgn.move";
           payload = { delta: -1 };
-        } else if (event.key === "ArrowDown") {
+        } else if (actionId === "pgn.next_item") {
           command = "pgn.move";
           payload = { delta: 1 };
-        } else if (event.key === "ArrowLeft" && item.has_parent) {
+        } else if (actionId === "pgn.parent_variation" && item.has_parent) {
           command = "pgn.parent";
         }
         if (!command) return;
         event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
         invokeCommand(root, invoke, announce, command, payload);
       });
       tree.appendChild(treeItem);
