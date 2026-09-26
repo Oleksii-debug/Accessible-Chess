@@ -16,6 +16,7 @@ from acs.version2_education_mutation_application import (
     MutableEducationWebViewProjection,
     Version2EducationMutationApplication,
 )
+from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
 from acs.version2_starter_content_application import Version2StarterContentApplication
 
 
@@ -128,10 +129,16 @@ class EducationClassProjectionTests(unittest.TestCase):
 
 class EducationMutationReleaseBindingTests(unittest.TestCase):
     def _assert_current_application_owner(self, observed: list[object]) -> None:
-        self.assertEqual(observed, [Version2StarterContentApplication])
+        self.assertEqual(observed, [Version2PackagedStarterApplication])
         self.assertTrue(
             issubclass(
+                Version2PackagedStarterApplication,
                 Version2StarterContentApplication,
+            )
+        )
+        self.assertTrue(
+            issubclass(
+                Version2PackagedStarterApplication,
                 Version2EducationMutationApplication,
             )
         )
