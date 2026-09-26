@@ -336,20 +336,106 @@ function installBoardFocusContinuity() {
 const soundLabels = {
     uk: {
         legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
-        previewEvent: 'Звук для прослуховування', preview: 'Прослухати',
+        pack: 'Пакет звуків', removePack: 'Видалити пакет',
+        previewEvent: 'Подія звуку', preview: 'Прослухати',
+        eventEnabled: 'Увімкнути цю подію', eventVolume: 'Гучність події',
+        eventSound: 'Звук події', defaultSound: 'Типовий звук події',
         unavailable: 'Налаштування звуку недоступні.',
-        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокіровка', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
+        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокіровка', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника', low_time:'Попередження про малий час'}
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', volume: 'Volume',
-        previewEvent: 'Sound to preview', preview: 'Preview',
+        pack: 'Sound pack', removePack: 'Remove pack',
+        previewEvent: 'Sound event', preview: 'Preview',
+        eventEnabled: 'Enable this event', eventVolume: 'Event volume',
+        eventSound: 'Event sound', defaultSound: 'Default event sound',
         unavailable: 'Sound settings are unavailable.',
-        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Game end', tick:'Clock tick'}
+        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Game end', tick:'Clock tick', low_time:'Low-time warning'}
     }
 };
 
+let currentSoundState = null;
+
 function text() {
     return soundLabels[document.documentElement.lang === 'en' ? 'en' : 'uk'];
+}
+
+function selectedSoundEvent() {
+    const select = byId('sound-preview-event');
+    return select ? String(select.value || 'move') : 'move';
+}
+
+function renderSoundEventControls() {
+    const state = currentSoundState || {};
+    const eventId = selectedSoundEvent();
+    const preferences = state.event_preferences && typeof state.event_preferences === 'object'
+        ? state.event_preferences : {};
+    const pref = preferences[eventId] || {enabled:true, volume_percent:100, sound_id:null};
+    const eventEnabled = byId('sound-event-enabled');
+    const eventVolume = byId('sound-event-volume');
+    const soundSelect = byId('sound-event-sound');
+    const hasProfile = Object.keys(preferences).length > 0;
+
+    if (eventEnabled) {
+        eventEnabled.checked = pref.enabled !== false;
+        eventEnabled.disabled = !hasProfile;
+    }
+    if (eventVolume) {
+        eventVolume.value = String(Number.isInteger(pref.volume_percent) ? pref.volume_percent : 100);
+        eventVolume.disabled = !hasProfile;
+    }
+    if (soundSelect) {
+        soundSelect.replaceChildren();
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = text().defaultSound;
+        soundSelect.appendChild(defaultOption);
+        const ids = Array.isArray(state.available_sound_ids) ? state.available_sound_ids : [];
+        ids.forEach(soundId => {
+            const option = document.createElement('option');
+            option.value = String(soundId);
+            option.textContent = String(soundId);
+            soundSelect.appendChild(option);
+        });
+        soundSelect.value = pref.sound_id && ids.includes(pref.sound_id) ? pref.sound_id : '';
+        soundSelect.disabled = !hasProfile || ids.length === 0;
+    }
+}
+
+function applySoundState(state) {
+    currentSoundState = state && typeof state === 'object' ? state : {};
+    const enabled = byId('sound-enabled');
+    const volume = byId('sound-volume');
+    const pack = byId('sound-pack');
+    const removePack = byId('sound-pack-remove');
+    const status = byId('sound-settings-status');
+
+    if (enabled) enabled.checked = !!currentSoundState.enabled;
+    if (volume) volume.value = String(currentSoundState.volume ?? 80);
+
+    if (pack) {
+        const packs = Array.isArray(currentSoundState.packs) ? currentSoundState.packs : [];
+        pack.replaceChildren();
+        packs.forEach(item => {
+            if (!item || !item.valid) return;
+            const option = document.createElement('option');
+            option.value = String(item.pack_id || '');
+            option.textContent = String(item.title || item.pack_id || '');
+            pack.appendChild(option);
+        });
+        const hasPacks = pack.options.length > 0;
+        pack.hidden = !hasPacks;
+        const packLabel = byId('sound-pack-label');
+        if (packLabel) packLabel.hidden = !hasPacks;
+        if (hasPacks) pack.value = String(currentSoundState.pack_id || 'classic');
+        if (removePack) {
+            removePack.hidden = !hasPacks || pack.value === 'classic';
+            removePack.disabled = pack.value === 'classic';
+        }
+    }
+
+    renderSoundEventControls();
+    if (status) status.textContent = String(currentSoundState.pack_warning || currentSoundState.profile_warning || '');
 }
 
 async function loadSoundState() {
@@ -364,10 +450,7 @@ async function loadSoundState() {
         return;
     }
     try {
-        const state = await a.get_sound_settings();
-        if (enabled) enabled.checked = !!state.enabled;
-        if (volume) volume.value = String(state.volume ?? 80);
-        if (status) status.textContent = '';
+        applySoundState(await a.get_sound_settings());
     } catch (_) {
         if (status) status.textContent = text().unavailable;
     }
@@ -375,22 +458,29 @@ async function loadSoundState() {
 
 function applySoundLanguage() {
     const t = text();
-    const legend = byId('sound-settings-legend');
-    const enabledLabel = byId('sound-enabled-label');
-    const volumeLabel = byId('sound-volume-label');
-    const eventLabel = byId('sound-preview-event-label');
-    const preview = byId('sound-preview');
-    if (legend) legend.textContent = t.legend;
-    if (enabledLabel) enabledLabel.textContent = t.enabled;
-    if (volumeLabel) volumeLabel.textContent = t.volume;
-    if (eventLabel) eventLabel.textContent = t.previewEvent;
-    if (preview) preview.textContent = t.preview;
+    const pairs = {
+        'sound-settings-legend': t.legend,
+        'sound-enabled-label': t.enabled,
+        'sound-volume-label': t.volume,
+        'sound-pack-label': t.pack,
+        'sound-pack-remove': t.removePack,
+        'sound-preview-event-label': t.previewEvent,
+        'sound-preview': t.preview,
+        'sound-event-enabled-label': t.eventEnabled,
+        'sound-event-volume-label': t.eventVolume,
+        'sound-event-sound-label': t.eventSound
+    };
+    Object.entries(pairs).forEach(([id, value]) => {
+        const node = byId(id);
+        if (node) node.textContent = value;
+    });
     const select = byId('sound-preview-event');
     if (select) {
         [...select.options].forEach(option => {
             option.textContent = t.events[option.value] || option.value;
         });
     }
+    renderSoundEventControls();
 }
 
 function installSoundSettings() {
@@ -431,22 +521,76 @@ function installSoundSettings() {
     volumeRow.append(volumeLabel, volume);
     fieldset.appendChild(volumeRow);
 
-    const previewRow = document.createElement('div');
-    previewRow.className = 'row';
+    const packRow = document.createElement('div');
+    packRow.className = 'row';
+    const packLabel = document.createElement('label');
+    packLabel.id = 'sound-pack-label';
+    packLabel.htmlFor = 'sound-pack';
+    const packSelect = document.createElement('select');
+    packSelect.id = 'sound-pack';
+    const removePack = document.createElement('button');
+    removePack.id = 'sound-pack-remove';
+    removePack.type = 'button';
+    packRow.append(packLabel, packSelect, removePack);
+    fieldset.appendChild(packRow);
+
+    const eventRow = document.createElement('div');
+    eventRow.className = 'row';
     const eventLabel = document.createElement('label');
     eventLabel.id = 'sound-preview-event-label';
     eventLabel.htmlFor = 'sound-preview-event';
     const eventSelect = document.createElement('select');
     eventSelect.id = 'sound-preview-event';
-    ['move','capture','check','castle','promotion','illegal','start','end','tick'].forEach(value => {
+    ['move','capture','check','castle','promotion','illegal','start','end','tick','low_time'].forEach(value => {
         const option = document.createElement('option');
         option.value = value;
         eventSelect.appendChild(option);
     });
+    eventRow.append(eventLabel, eventSelect);
+    fieldset.appendChild(eventRow);
+
+    const eventEnabledRow = document.createElement('div');
+    eventEnabledRow.className = 'row';
+    const eventEnabled = document.createElement('input');
+    eventEnabled.type = 'checkbox';
+    eventEnabled.id = 'sound-event-enabled';
+    const eventEnabledLabel = document.createElement('label');
+    eventEnabledLabel.id = 'sound-event-enabled-label';
+    eventEnabledLabel.htmlFor = eventEnabled.id;
+    eventEnabledRow.append(eventEnabled, eventEnabledLabel);
+    fieldset.appendChild(eventEnabledRow);
+
+    const eventVolumeRow = document.createElement('div');
+    eventVolumeRow.className = 'row';
+    const eventVolumeLabel = document.createElement('label');
+    eventVolumeLabel.id = 'sound-event-volume-label';
+    eventVolumeLabel.htmlFor = 'sound-event-volume';
+    const eventVolume = document.createElement('input');
+    eventVolume.id = 'sound-event-volume';
+    eventVolume.type = 'number';
+    eventVolume.min = '0';
+    eventVolume.max = '100';
+    eventVolume.step = '5';
+    eventVolume.inputMode = 'numeric';
+    eventVolumeRow.append(eventVolumeLabel, eventVolume);
+    fieldset.appendChild(eventVolumeRow);
+
+    const eventSoundRow = document.createElement('div');
+    eventSoundRow.className = 'row';
+    const eventSoundLabel = document.createElement('label');
+    eventSoundLabel.id = 'sound-event-sound-label';
+    eventSoundLabel.htmlFor = 'sound-event-sound';
+    const eventSound = document.createElement('select');
+    eventSound.id = 'sound-event-sound';
+    eventSoundRow.append(eventSoundLabel, eventSound);
+    fieldset.appendChild(eventSoundRow);
+
+    const previewRow = document.createElement('div');
+    previewRow.className = 'row';
     const preview = document.createElement('button');
     preview.id = 'sound-preview';
     preview.type = 'button';
-    previewRow.append(eventLabel, eventSelect, preview);
+    previewRow.append(preview);
     fieldset.appendChild(previewRow);
 
     const status = document.createElement('div');
@@ -455,45 +599,80 @@ function installSoundSettings() {
     fieldset.appendChild(status);
     section.appendChild(fieldset);
 
-    enabled.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_sound_enabled !== 'function') return;
+    async function applyResult(promise) {
         try {
-            const result = await a.set_sound_enabled(!!enabled.checked);
-            enabled.checked = !!result.enabled;
-            status.textContent = result.ok ? '' : (result.message || '');
+            const result = await promise;
+            applySoundState(result);
+            status.textContent = result.ok ? (result.pack_warning || '') : (result.message || '');
             speak(result.message);
+            return result;
         } catch (_) {
             status.textContent = text().unavailable;
             speak(text().unavailable);
+            return null;
+        }
+    }
+
+    enabled.addEventListener('change', () => {
+        const a = api();
+        if (a && typeof a.set_sound_enabled === 'function') {
+            applyResult(a.set_sound_enabled(!!enabled.checked));
         }
     });
 
-    volume.addEventListener('change', async () => {
+    volume.addEventListener('change', () => {
         const a = api();
-        if (!a || typeof a.set_sound_volume !== 'function') return;
         const value = Number(volume.value);
-        try {
-            const result = await a.set_sound_volume(Number.isInteger(value) ? value : -1);
-            volume.value = String(result.volume ?? 80);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
+        if (a && typeof a.set_sound_volume === 'function') {
+            applyResult(a.set_sound_volume(Number.isInteger(value) ? value : -1));
         }
     });
 
-    preview.addEventListener('click', async () => {
+    packSelect.addEventListener('change', () => {
         const a = api();
-        if (!a || typeof a.preview_sound !== 'function') return;
-        try {
-            const result = await a.preview_sound(eventSelect.value);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
+        if (a && typeof a.set_sound_pack === 'function') {
+            applyResult(a.set_sound_pack(packSelect.value));
+        }
+    });
+
+    removePack.addEventListener('click', () => {
+        const a = api();
+        if (a && typeof a.uninstall_sound_pack === 'function' && packSelect.value !== 'classic') {
+            applyResult(a.uninstall_sound_pack(packSelect.value));
+        }
+    });
+
+    eventSelect.addEventListener('change', renderSoundEventControls);
+
+    eventEnabled.addEventListener('change', () => {
+        const a = api();
+        if (a && typeof a.set_sound_event_enabled === 'function') {
+            applyResult(a.set_sound_event_enabled(eventSelect.value, !!eventEnabled.checked));
+        }
+    });
+
+    eventVolume.addEventListener('change', () => {
+        const a = api();
+        const value = Number(eventVolume.value);
+        if (a && typeof a.set_sound_event_volume === 'function') {
+            applyResult(a.set_sound_event_volume(
+                eventSelect.value,
+                Number.isInteger(value) ? value : -1
+            ));
+        }
+    });
+
+    eventSound.addEventListener('change', () => {
+        const a = api();
+        if (a && typeof a.set_sound_event_sound === 'function') {
+            applyResult(a.set_sound_event_sound(eventSelect.value, eventSound.value || null));
+        }
+    });
+
+    preview.addEventListener('click', () => {
+        const a = api();
+        if (a && typeof a.preview_sound === 'function') {
+            applyResult(a.preview_sound(eventSelect.value));
         }
     });
 
