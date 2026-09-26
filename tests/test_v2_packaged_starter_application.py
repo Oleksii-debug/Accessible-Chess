@@ -17,6 +17,7 @@ from acs.version2_packaged_starter_application import Version2PackagedStarterApp
 
 _STARTER_COUNT = 200
 _STRESS_COUNT = 1200
+_PROJECT_LICENSE_ID = "LicenseRef-Accessible-Chess-Starter-Content-1.0"
 
 
 def _game_record(index: int, *, event_prefix: str = "Starter sample") -> str:
@@ -61,7 +62,7 @@ def _write_bundle(root: Path) -> None:
     files = {}
     for name, license_id in (
         ("starter_uk.pgn", "CC0-1.0"),
-        ("stress_uk.pgn", "LicenseRef-Accessible-Chess-Starter-Content-1.0"),
+        ("stress_uk.pgn", _PROJECT_LICENSE_ID),
         ("sample_library.acsdb", "CC0-1.0"),
     ):
         path = root / name
@@ -77,6 +78,10 @@ def _write_bundle(root: Path) -> None:
         "starter_source": {
             "license_id": "CC0-1.0",
             "selected_games": _STARTER_COUNT,
+        },
+        "licenses": {
+            "CC0-1.0": {"type": "public-domain-dedication"},
+            _PROJECT_LICENSE_ID: {"type": "project-owned-redistribution-grant"},
         },
         "counts": {"starter_games": _STARTER_COUNT, "stress_games": _STRESS_COUNT},
         "files": files,
@@ -201,6 +206,32 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertIsNone(app.session)
             finally:
                 app.shutdown()
+                analysis.close()
+                database.close()
+
+    def test_manifest_license_drift_fails_closed_before_application_start(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-license-drift-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"]["starter_uk.pgn"]["license_id"] = _PROJECT_LICENSE_ID
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+            )
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "license failed"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
                 analysis.close()
                 database.close()
 
