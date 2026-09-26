@@ -176,7 +176,11 @@ def _validate_manifest_authority(manifest: Mapping[str, object], starter_count: 
     subset_sha256 = source.get("subset_sha256")
     if type(compressed_bytes) is not int or compressed_bytes < 1:
         raise RuntimeError("packaged starter source compressed byte evidence is invalid")
-    if type(subset_sha256) is not str or len(subset_sha256) != 64:
+    if (
+        type(subset_sha256) is not str
+        or len(subset_sha256) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in subset_sha256)
+    ):
         raise RuntimeError("packaged starter source subset_sha256 evidence is invalid")
 
     curation = source.get("curation")
@@ -269,6 +273,7 @@ def _load_manifest(root: Path) -> dict[str, object]:
     files = manifest.get("files")
     if not isinstance(files, dict) or set(files) != set(_REQUIRED_PAYLOAD_FILES):
         raise RuntimeError("packaged starter content payload manifest is invalid")
+    verified_payloads: dict[str, bytes] = {}
     for name in _REQUIRED_PAYLOAD_FILES:
         metadata = files.get(name)
         if not isinstance(metadata, Mapping):
@@ -281,7 +286,18 @@ def _load_manifest(root: Path) -> dict[str, object]:
             raise RuntimeError("packaged starter content hash metadata is invalid")
         if type(expected_bytes) is not int or expected_bytes < 1:
             raise RuntimeError("packaged starter content byte metadata is invalid")
-        _verified_payload_bytes(root, manifest, name, label="packaged starter content payload")
+        verified_payloads[name] = _verified_payload_bytes(
+            root,
+            manifest,
+            name,
+            label="packaged starter content payload",
+        )
+
+    source = manifest.get("starter_source")
+    subset_sha256 = source.get("subset_sha256") if isinstance(source, Mapping) else None
+    starter_payload_sha256 = hashlib.sha256(verified_payloads["starter_uk.pgn"]).hexdigest()
+    if not isinstance(subset_sha256, str) or starter_payload_sha256 != subset_sha256.casefold():
+        raise RuntimeError("packaged starter subset_sha256 does not match starter PGN bytes")
     return manifest
 
 
