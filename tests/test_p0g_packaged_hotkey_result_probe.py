@@ -61,14 +61,25 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("resolveBinding(eventChord(e),'board','board')", self.web)
         self.assertIn("resolveBinding(chord,'analysis','analysis')", self.web)
 
-    def test_probe_proves_action_state_separately_from_accessible_result(self) -> None:
+    def test_probe_proves_causal_action_state_separately_from_accessible_result(self) -> None:
+        self.assertIn("function FindVariationButton($Roots,[int]$Index)", self.text)
         self.assertIn("function SelectedVariation($Roots,[int]$Index)", self.text)
         self.assertIn("TogglePattern]::Pattern", self.text)
         self.assertIn("ToggleState]::On", self.text)
-        self.assertIn("Alt+$index did not select variation $index", self.text)
+        self.assertIn("$opposite=if($index -eq 1){2}else{1}", self.text)
+        self.assertIn("Invoke $preconditionButton", self.text)
+        self.assertIn("Could not establish opposite variation $opposite before Alt+$index", self.text)
+        self.assertIn("Alt+$index did not change packaged selected state from variation $opposite", self.text)
+        self.assertIn("$preconditionStates += $precondition", self.text)
         self.assertIn("$selectedStates += $selected", self.text)
+        self.assertIn("alt_1_precondition_selected_state=$preconditionStates[0]", self.text)
+        self.assertIn("alt_2_precondition_selected_state=$preconditionStates[1]", self.text)
         self.assertIn("alt_1_selected_state=$selectedStates[0]", self.text)
         self.assertIn("alt_2_selected_state=$selectedStates[1]", self.text)
+        self.assertLess(
+            self.text.index("Invoke $preconditionButton"),
+            self.text.index("[AccessibleChessP0GKeys]::Alt([byte]$case.key)"),
+        )
         self.assertLess(
             self.text.index("SelectedVariation $roots $index"),
             self.text.index("Alt+$index did not expose a matching live-region result"),
