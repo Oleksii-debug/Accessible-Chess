@@ -3,6 +3,7 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -55,6 +56,22 @@ class ComponentIntegrityTests(unittest.TestCase):
             self.assertEqual(report.verified_paths, ("acs/online.py", "acs/provider.json"))
             self.assertEqual(report.manifest_sha256, trusted_digest(manifest))
             self.assertEqual(user_document.read_bytes(), before)
+
+    def test_deep_manifest_json_recursion_fails_closed(self) -> None:
+        depth = sys.getrecursionlimit() + 100
+        nested = ("[" * depth) + "0" + ("]" * depth)
+        raw = (
+            '{"schema":"' + INTEGRITY_MANIFEST_SCHEMA + '","components":' + nested + "}"
+        ).encode("utf-8")
+        self.assertLess(len(raw), 64 * 1024)
+        with self.assertRaisesRegex(ComponentIntegrityError, "not valid JSON") as caught:
+            verify_protected_components(
+                raw,
+                trusted_manifest_sha256=trusted_digest(raw),
+                installation_root=".",
+                required_paths=("acs/x.py",),
+            )
+        self.assertIsNone(caught.exception.__cause__)
 
     def test_untrusted_manifest_fails_before_filesystem_dependency(self) -> None:
         manifest = manifest_bytes([("acs/online.py", b"expected")])
