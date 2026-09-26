@@ -23,6 +23,15 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _normalize_sha256(value: str, label: str) -> str:
+    normalized = value.strip().lower()
+    if normalized.startswith("sha256:"):
+        normalized = normalized[7:]
+    if not HEX64.fullmatch(normalized):
+        raise CandidateArtifactError(f"{label} must be one SHA-256 digest")
+    return normalized
+
+
 def _load_json(data: bytes, label: str) -> dict[str, object]:
     try:
         text = data.decode("utf-8-sig")
@@ -107,8 +116,8 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         raise CandidateArtifactError("outer artifact size is outside accepted bounds")
     outer_digest = _sha256(outer_bytes)
     if expected_outer_sha256 is not None:
-        wanted = expected_outer_sha256.strip().lower()
-        if not HEX64.fullmatch(wanted) or wanted != outer_digest:
+        wanted = _normalize_sha256(expected_outer_sha256, "outer artifact SHA-256")
+        if wanted != outer_digest:
             raise CandidateArtifactError("outer artifact SHA-256 mismatch")
 
     try:
