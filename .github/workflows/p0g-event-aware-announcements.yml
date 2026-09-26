@@ -59,6 +59,22 @@ jobs:
             exit 1
           }
 
+      - name: Parse complete shipping inline JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          html = Path('web/index.html').read_text(encoding='utf-8')
+          matches = re.findall(r'<script>\s*([\s\S]*?)</script>', html)
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one inline script, found {len(matches)}')
+          Path('.p0g-shipping-inline.js').write_text(matches[0], encoding='utf-8')
+          PY
+          node --check .p0g-shipping-inline.js
+
       - name: Execute shipping announcement event contract
         run: node tests/js/p0g_event_aware_announcement_test.js
 
