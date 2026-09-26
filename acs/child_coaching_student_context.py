@@ -139,6 +139,29 @@ class ChildCoachingStudentContextProjection:
     ) -> ChildCoachingStudentContext:
         classroom = self._classroom()
         student = self._student(classroom, student_id)
+        if student.deleted:
+            if type(session_id) is not str or not session_id.strip():
+                raise ChildCoachingStudentContextError(
+                    "student progress context is invalid"
+                )
+            # A tombstoned student must not resurrect historical metrics through
+            # the coaching projection. The durable progress authority remains
+            # untouched; this view is deliberately identity-minimized.
+            summary = StudentProgressSummary(
+                student_id=student.student_id,
+                session_id=session_id,
+                record_count=0,
+                training_reviews=0,
+                game_reviews=0,
+                completed_training_reviews=0,
+                attempts=0,
+                mistakes=0,
+                hints_used=0,
+                engine_reviews=0,
+                stale_engine_reviews=0,
+            )
+            return self._compose(student, summary)
+
         progress = self._progress()
         try:
             summary = progress.summary(student.student_id, session_id)
