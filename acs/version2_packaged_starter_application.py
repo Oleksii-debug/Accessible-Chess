@@ -481,7 +481,11 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         root = Path(packaged_starter_root) if explicit else _default_bundle_root()
         self._packaged_starter_root: Path | None = None
         self._packaged_starter_manifest: dict[str, object] | None = None
-        if root.exists():
+        # os.path.lexists() is intentional: Path.exists() follows symlinks and
+        # returns False for a broken package-root link.  A broken/reparse entry
+        # at the canonical release path must fail closed in _load_manifest()
+        # rather than silently disabling bundled starter content.
+        if os.path.lexists(root):
             self._packaged_starter_manifest = _load_manifest(root)
             self._packaged_starter_root = root
         elif explicit:
