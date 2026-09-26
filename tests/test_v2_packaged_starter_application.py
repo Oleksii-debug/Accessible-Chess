@@ -690,6 +690,39 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_release_manifest_requires_implicit_packaged_bundle(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-release-missing-") as raw:
+            root = Path(raw)
+            package_entry = root / "AccessibleChess" / "release-content" / "w2-starter"
+            release_manifest = root / "RELEASE_MANIFEST.json"
+            release_manifest.write_text("{}", encoding="utf-8")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with (
+                    mock.patch(
+                        "acs.version2_packaged_starter_application._default_bundle_root",
+                        return_value=package_entry,
+                    ),
+                    mock.patch(
+                        "acs.version2_packaged_starter_application._default_release_manifest_path",
+                        return_value=release_manifest,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "missing from the assembled release package",
+                    ):
+                        Version2PackagedStarterApplication(
+                            database,
+                            progress_store=BookProgressStore(root / "book-progress.json"),
+                            engine_assistance=EngineAssistedWorkflowService(analysis),
+                            board_dispatch=lambda *_: None,
+                        )
+            finally:
+                analysis.close()
+                database.close()
+
     def test_missing_explicit_bundle_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-missing-") as raw:
             root = Path(raw)

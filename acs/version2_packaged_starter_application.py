@@ -488,6 +488,13 @@ def _default_bundle_root() -> Path:
     return Path(sys.executable).resolve().parent / "release-content" / "w2-starter"
 
 
+def _default_release_manifest_path() -> Path:
+    """Return the canonical manifest that marks an assembled release package."""
+
+    executable_directory = Path(sys.executable).resolve().parent
+    return executable_directory.parent / "RELEASE_MANIFEST.json"
+
+
 class Version2PackagedStarterApplication(Version2StarterContentApplication):
     """Expose qualified packaged W2 content without mutating it in place."""
 
@@ -505,6 +512,10 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             self._packaged_starter_root = root
         elif explicit:
             raise RuntimeError("packaged starter content root is missing")
+        elif os.path.lexists(_default_release_manifest_path()):
+            raise RuntimeError(
+                "packaged starter content root is missing from the assembled release package"
+            )
         super().__init__(*args, **kwargs)
 
     def _starter_library_actions(self) -> tuple[dict[str, object], ...]:
