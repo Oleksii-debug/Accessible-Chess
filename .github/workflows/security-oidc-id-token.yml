@@ -1,0 +1,93 @@
+name: Security OIDC ID Token Trust
+
+on:
+  pull_request:
+    branches:
+      - work/security-oauth-pkce-contract-20260926
+    paths:
+      - 'acs/oidc_id_token.py'
+      - 'tests/test_oidc_id_token.py'
+      - '.github/workflows/security-oidc-id-token.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-oidc-id-token-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact candidate and stacked owner ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git merge-base --is-ancestor cf8cf8d31178d322fdc46ae47d6519435c031fbb HEAD
+          echo "OIDC_ID_TOKEN_EXACT_HEAD=$actual"
+
+      - name: Enforce bounded successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=cf8cf8d31178d322fdc46ae47d6519435c031fbb
+          mapfile -t changed < <(git diff --name-only "$base"...HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          expected=(
+            .github/workflows/security-oidc-id-token.yml
+            acs/oidc_id_token.py
+            tests/test_oidc_id_token.py
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected_sorted[@]}")"
+
+      - name: Compile contract and tests
+        run: python -m py_compile acs/oidc_id_token.py tests/test_oidc_id_token.py
+
+      - name: Execute ID token trust contract
+        run: python -m unittest -v tests.test_oidc_id_token
+
+      - name: Re-run inherited OAuth OIDC contracts
+        run: >-
+          python -m unittest -v
+          tests.test_oauth_pkce
+          tests.test_oauth_pkce_explicit_inputs
+          tests.test_oidc_metadata
+          tests.test_oidc_issuer_binding
+          tests.test_oauth_token_response
+
+      - name: Enforce no-I/O and no-secret boundary
+        shell: python
+        run: |
+          from pathlib import Path
+          source = Path('acs/oidc_id_token.py').read_text(encoding='utf-8')
+          forbidden = (
+              'requests', 'urllib.request', 'http.client', 'socket.', 'webbrowser.',
+              'client_secret', 'refresh_token', 'acs.entitlements', 'acs.secret_store',
+          )
+          found = [token for token in forbidden if token in source]
+          if found:
+              raise SystemExit(f'OIDC ID token boundary violation: {found}')
+          print('OIDC_ID_TOKEN_PROVIDER_NEUTRAL_BOUNDARY=PASS')
+
+      - name: Core selftest
+        run: python -m acs.selftest
