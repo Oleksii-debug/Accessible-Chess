@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -200,6 +201,70 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 second_announcement = second["payload"]["announcement"]
                 self.assertTrue(second_announcement)
                 self.assertNotEqual(first_announcement, second_announcement)
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
+    def test_post_start_packaged_pgn_tamper_fails_closed_before_open(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-late-pgn-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            app, database, analysis = self._application(root, bundle)
+            try:
+                with (bundle / "starter_uk.pgn").open("a", encoding="utf-8") as handle:
+                    handle.write("\n{post-start tamper}\n")
+                result = app.browser_command(
+                    "library", "library.open_packaged_starter_pgn", {}
+                )
+                self.assertEqual("error", result["kind"])
+                self.assertIsNone(app.session)
+                self.assertEqual(
+                    0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                )
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
+    def test_post_start_packaged_acsdb_tamper_fails_closed_before_import(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-late-db-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            packaged_database = bundle / "sample_library.acsdb"
+            app, database, analysis = self._application(root, bundle)
+            try:
+                connection = sqlite3.connect(packaged_database)
+                try:
+                    connection.execute(
+                        "UPDATE games SET pgn_text = pgn_text || ? WHERE id = (SELECT MIN(id) FROM games)",
+                        ("\n{post-start tamper}",),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+                quick = sqlite3.connect(packaged_database)
+                try:
+                    self.assertEqual("ok", quick.execute("PRAGMA quick_check").fetchone()[0])
+                    self.assertEqual(
+                        _STARTER_COUNT,
+                        quick.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                    )
+                finally:
+                    quick.close()
+
+                result = app.browser_command(
+                    "library", "library.import_packaged_sample_library", {}
+                )
+                self.assertEqual("error", result["kind"])
+                self.assertEqual(
+                    0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                )
+                self.assertEqual(
+                    0, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+                )
             finally:
                 app.shutdown()
                 analysis.close()
