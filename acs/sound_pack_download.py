@@ -63,9 +63,21 @@ def _member_mode(info: zipfile.ZipInfo) -> int:
     return (info.external_attr >> 16) & 0xFFFF
 
 
-def _is_symlink(info: zipfile.ZipInfo) -> bool:
+def _unsafe_member_mode(info: zipfile.ZipInfo) -> str | None:
+    """Return a stable rejection reason for unsafe Unix ZIP metadata."""
+
     mode = _member_mode(info)
-    return bool(mode and stat.S_IFMT(mode) == stat.S_IFLNK)
+    if not mode:
+        return None
+    kind = stat.S_IFMT(mode)
+    if info.is_dir():
+        return None if kind in {0, stat.S_IFDIR} else "special file"
+    if kind not in {0, stat.S_IFREG}:
+        return "special file"
+    executable = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    if mode & executable:
+        return "executable file mode"
+    return None
 
 
 class HttpsZipSoundPackAcquirer:
@@ -195,8 +207,11 @@ class HttpsZipSoundPackAcquirer:
             if key in seen_casefold:
                 raise ValueError("sound pack archive contains duplicate/colliding paths")
             seen_casefold.add(key)
-            if _is_symlink(info):
-                raise ValueError("sound pack archive must not contain symlinks")
+            unsafe_mode = _unsafe_member_mode(info)
+            if unsafe_mode is not None:
+                raise ValueError(
+                    f"sound pack archive contains unsafe {unsafe_mode}: {name}"
+                )
             if info.flag_bits & 0x1:
                 raise ValueError("encrypted sound pack archives are not supported")
 
