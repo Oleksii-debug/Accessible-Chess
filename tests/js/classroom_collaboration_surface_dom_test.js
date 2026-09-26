@@ -271,4 +271,34 @@ const moderationCommands = root.querySelectorAll("BUTTON")
   check(moderationCommands.includes(command), "missing semantic moderation action: " + command);
 });
 
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "error",
+    payload: {
+      collaboration: {
+        available: false,
+        heading: "Classroom collaboration",
+        status_message: "Classroom collaboration is temporarily unavailable.",
+        chat: { heading: "Chat", messages: [], unread_count: 0 },
+        files: { heading: "Files", items: [] }
+      }
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+const unavailableStatus = root.querySelector("#classroom-collaboration-status");
+check(unavailableStatus !== null, "unavailable collaboration must expose a status node");
+check(
+  unavailableStatus.getAttribute("role") === "status" &&
+  unavailableStatus.getAttribute("aria-live") === "off",
+  "unavailable collaboration status must be readable without live-region spam"
+);
+check(
+  root.querySelector("#classroom-collaboration").querySelectorAll("BUTTON").length === 0,
+  "unavailable collaboration must expose no stale actions"
+);
+
 console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
