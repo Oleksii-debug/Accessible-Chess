@@ -21,6 +21,7 @@ class BindingContext(str, Enum):
     ENGINE_GAME = "engine_game"
     DATABASE = "database"
     BOOK_READER = "book_reader"
+    PGN_TREE = "pgn_tree"
 
 
 @dataclass(frozen=True)
