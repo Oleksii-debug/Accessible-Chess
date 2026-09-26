@@ -24,7 +24,15 @@ from acs.child_coaching_store import (
     ChildCoachingTemplateStore,
 )
 from acs.interaction_contracts import BoardPermissionState, EngineVisibilityPolicy
-from acs.teaching_session import PositionSourceKind, TeachingActivity, TeachingPositionSource
+from acs.teaching_session import (
+    PositionSourceKind,
+    TeachingActivity,
+    TeachingPositionSource,
+    TeachingSessionPhase,
+    advance_step,
+    start_session,
+    submit_selection,
+)
 
 
 class ChildCoachingDomainTests(unittest.TestCase):
@@ -218,6 +226,41 @@ class ChildCoachingDomainTests(unittest.TestCase):
         )
         self.assertEqual(retained.title, "Teacher edited preset")
         self.assertEqual(len(seeded), len(preset_templates()))
+
+
+    def test_preschool_pointer_only_lesson_completes_without_move_input_or_board_mutation(self) -> None:
+        template = preset_templates()[0]
+        session = compile_lesson_session(
+            template,
+            session_id="pointer-only-session",
+            lesson_id="pointer-only-lesson",
+            source=TeachingPositionSource(PositionSourceKind.START),
+            student_ids=("student-1",),
+            require_no_notation=True,
+        )
+        state = start_session(session)
+        initial_fen = state.position_fen
+
+        for index, block in enumerate(template.blocks):
+            if block.activity is TeachingActivity.STUDENT_RESPONDS:
+                state = submit_selection(
+                    session,
+                    state,
+                    "student-1",
+                    "e4",
+                    state.revision,
+                )
+                self.assertEqual(state.position_fen, initial_fen)
+            self.assertNotEqual(
+                state.presentation.board_permission,
+                BoardPermissionState.MOVE_ALLOWED,
+            )
+            state = advance_step(session, state, state.revision)
+            if index + 1 < len(template.blocks):
+                self.assertEqual(state.position_fen, initial_fen)
+
+        self.assertEqual(state.phase, TeachingSessionPhase.COMPLETED)
+        self.assertEqual(state.position_fen, initial_fen)
 
 
 class ChildCoachingStoreTests(unittest.TestCase):
