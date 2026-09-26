@@ -12,6 +12,7 @@ on:
       - acs/ui_keymap_service.py
       - web/p0_accessibility_runtime.js
       - tests/js/stage1_p0_dynamic_selection_runtime_test.js
+      - tests/js/p0_accessibility_runtime_test.js
       - tests/test_stage1_p0_semantic_selection_backport.py
       - tests/test_stage1_saturation_refactor_contract.py
       - tests/test_release_preflight.py
@@ -33,9 +34,10 @@ concurrency:
 env:
   BASE_SHA: 040f089e336433c83d64a761656c17065a67f843
   P797_RELEASE_UI_BLOB: d30726c28698fbbeeff6f62a79fc43f0e95321ef
-  P797_RUNTIME_BLOB: c04cb25325ea87323c7f2f20fe9baab84f748399
+  P797_RUNTIME_BLOB: 6ddd04627cc29957735dc7f7cccd3264cca03f68
   P797_JS_TEST_BLOB: 9baeb9b2a23bfae7359a0b3235f2176707467531
   P797_PY_TEST_BLOB: 917d9b9420b9537051f879d977d61219140cea8c
+  P0G_RUNTIME_TEST_BLOB: 45befef818109acf108cf5fe35087efa1dc0e6b7
   INTEGRATED_SATURATION_BLOB: 3ad2ec97def951f67237cc788ee3606bc5b404bf
   INTEGRATED_RELEASE_PREFLIGHT_BLOB: 214c0487f65997d59dd6469a7f6424addb066396
   INTEGRATED_RELEASE_PREFLIGHT_TEST_BLOB: 361cb62f8e9b16462dca967beaaa458a3f8cf269
@@ -96,6 +98,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = "$P797_RELEASE_UI_BLOB"
           test "$(git rev-parse HEAD:web/p0_accessibility_runtime.js)" = "$P797_RUNTIME_BLOB"
           test "$(git rev-parse HEAD:tests/js/stage1_p0_dynamic_selection_runtime_test.js)" = "$P797_JS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/p0_accessibility_runtime_test.js)" = "$P0G_RUNTIME_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_p0_semantic_selection_backport.py)" = "$P797_PY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_saturation_refactor_contract.py)" = "$INTEGRATED_SATURATION_BLOB"
           test "$(git rev-parse HEAD:acs/release_preflight.py)" = "$INTEGRATED_RELEASE_PREFLIGHT_BLOB"
@@ -117,7 +120,7 @@ jobs:
           test "$(git rev-parse HEAD:web/stage1_board_actions.js)" = "$BOARD_ACTIONS_BLOB"
 
           changed="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/stage1-p0-selection-convergence.yml'             'acs/keybindings.py'             'acs/release_preflight.py'             'acs/settings.py'             'acs/stage1_release_ui.py'             'acs/ui_keymap_service.py'             'tests/js/stage1_p0_dynamic_selection_runtime_test.js'             'tests/test_keybindings.py'             'tests/test_release_preflight.py'             'tests/test_settings.py'             'tests/test_sound_runtime.py'             'tests/test_stage1_p0_semantic_selection_backport.py'             'tests/test_stage1_release_composition_ui.py'             'tests/test_stage1_saturation_refactor_contract.py'             'tests/test_ui_keymap_service.py'             'web/p0_accessibility_runtime.js' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/stage1-p0-selection-convergence.yml'             'acs/keybindings.py'             'acs/release_preflight.py'             'acs/settings.py'             'acs/stage1_release_ui.py'             'acs/ui_keymap_service.py'             'tests/js/p0_accessibility_runtime_test.js'             'tests/js/stage1_p0_dynamic_selection_runtime_test.js'             'tests/test_keybindings.py'             'tests/test_release_preflight.py'             'tests/test_settings.py'             'tests/test_sound_runtime.py'             'tests/test_stage1_p0_semantic_selection_backport.py'             'tests/test_stage1_release_composition_ui.py'             'tests/test_stage1_saturation_refactor_contract.py'             'tests/test_ui_keymap_service.py'             'web/p0_accessibility_runtime.js' | sort)"
           printf '%s\n' "$changed"
           test "$changed" = "$expected"
 
@@ -135,9 +138,14 @@ jobs:
           node --check web/stage1_board_actions.js
           node --check web/p0_accessibility_runtime.js
           node --check tests/js/stage1_p0_dynamic_selection_runtime_test.js
+          node --check tests/js/p0_accessibility_runtime_test.js
 
       - name: Executable P0 dynamic-selection oracle
-        run: node tests/js/stage1_p0_dynamic_selection_runtime_test.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/js/stage1_p0_dynamic_selection_runtime_test.js
+          node tests/js/p0_accessibility_runtime_test.js
 
       - name: Focused P0 and release composition regressions
         run: >-
