@@ -6,6 +6,7 @@ from typing import Mapping
 
 
 SOUND_PROFILE_SCHEMA_VERSION = 1
+SOUND_PACK_MANIFEST_SCHEMA_VERSION = 1
 
 CORE_SOUND_EVENTS = (
     "start",
@@ -129,6 +130,53 @@ class SoundPackManifest:
             return self.files[key]
         except KeyError as exc:
             raise KeyError(f"unknown sound id for pack {self.pack_id}: {key}") from exc
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "schema_version": SOUND_PACK_MANIFEST_SCHEMA_VERSION,
+            "pack_id": self.pack_id,
+            "version": self.version,
+            "title": self.title,
+            "license_id": self.license_id,
+            "files": dict(sorted(self.files.items())),
+            "author": self.author,
+            "provenance": self.provenance,
+        }
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> "SoundPackManifest":
+        if not isinstance(raw, Mapping) or any(type(key) is not str for key in raw):
+            raise TypeError("sound pack manifest must be an object with text keys")
+        expected = {
+            "schema_version",
+            "pack_id",
+            "version",
+            "title",
+            "license_id",
+            "files",
+            "author",
+            "provenance",
+        }
+        if set(raw) != expected:
+            raise ValueError("sound pack manifest fields are invalid")
+        schema = raw["schema_version"]
+        if type(schema) is not int or schema != SOUND_PACK_MANIFEST_SCHEMA_VERSION:
+            raise ValueError(f"unsupported sound pack manifest schema: {schema}")
+        files_raw = raw["files"]
+        if not isinstance(files_raw, Mapping) or any(
+            type(key) is not str or type(value) is not str
+            for key, value in files_raw.items()
+        ):
+            raise TypeError("sound pack manifest files must map text ids to text paths")
+        return cls(
+            pack_id=raw["pack_id"],  # type: ignore[arg-type]
+            version=raw["version"],  # type: ignore[arg-type]
+            title=raw["title"],  # type: ignore[arg-type]
+            license_id=raw["license_id"],  # type: ignore[arg-type]
+            files=dict(files_raw),
+            author=raw["author"],  # type: ignore[arg-type]
+            provenance=raw["provenance"],  # type: ignore[arg-type]
+        )
 
 
 @dataclass(frozen=True)
