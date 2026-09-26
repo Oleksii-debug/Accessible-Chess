@@ -70,9 +70,17 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
         verify(self.path, SHA, digest)
 
+    def test_prefixed_outer_digest_passes(self) -> None:
+        digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        verify(self.path, SHA, f"sha256:{digest}")
+
     def test_wrong_outer_digest_fails(self) -> None:
         with self.assertRaises(CandidateArtifactError):
             verify(self.path, SHA, "0" * 64)
+
+    def test_malformed_prefixed_digest_fails(self) -> None:
+        with self.assertRaises(CandidateArtifactError):
+            verify(self.path, SHA, "sha256:xyz")
 
     def test_wrong_evidence_sha_fails(self) -> None:
         self.path.write_bytes(_outer_bytes(copy_sha="1" * 40))
