@@ -35,12 +35,21 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("hotkey_focus_path='board-launcher SetFocus outside role=application", self.text)
         self.assertIn("board_application_entered=$false", self.text)
         self.assertNotIn("Invoke $launcher", self.text)
-        self.assertIn("engine-toggle", self.text)
         self.assertIn("AccessibleChessP0GKeys]::Alt", self.text)
         self.assertIn("@{index=1; key=0x31}", self.text)
         self.assertIn("@{index=2; key=0x32}", self.text)
         self.assertNotIn("dispatch_action", self.text)
         self.assertNotIn("keymap_resolve_binding", self.text)
+
+    def test_probe_enables_stockfish_idempotently(self) -> None:
+        self.assertIn("function EnsureEngineEnabled($EngineToggle)", self.text)
+        self.assertIn("^(Увімкнути Stockfish|Enable Stockfish)$", self.text)
+        self.assertIn("^(Вимкнути Stockfish|Disable Stockfish)$", self.text)
+        self.assertIn("return 'enabled-by-probe'", self.text)
+        self.assertIn("return 'already-enabled'", self.text)
+        self.assertIn("$engineState=EnsureEngineEnabled $engineToggle", self.text)
+        self.assertIn("engine_enable_state=$engineState", self.text)
+        self.assertNotIn("Invoke $engineToggle 'engine-toggle'\n\n", self.text)
 
     def test_shipping_routes_alt_variations_only_through_analysis_context_outside_board(self) -> None:
         actions = {item["id"]: item for item in self.keymap["actions"]}
