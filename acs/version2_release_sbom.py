@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Deterministic SPDX 2.3 sidecar for an exact validated V2 package tree.
 
-The SBOM is deliberately written *outside* the package tree.  That lets it hash
+The SBOM is deliberately written *outside* the package tree. That lets it hash
 every shipped regular file, including RELEASE_MANIFEST.json and SHA256SUMS.txt,
 without creating a self-referential checksum cycle or changing package bytes.
 """
@@ -23,6 +23,7 @@ STOCKFISH_SPDX_ID = "SPDXRef-Package-Stockfish-18"
 STOCKFISH_EXECUTABLE = "AccessibleChess/engines/stockfish/stockfish.exe"
 STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
+STOCKFISH_LICENSE = "THIRD_PARTY_NOTICES/Stockfish-COPYING.txt"
 SOUND_PROVENANCE = "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
 SOUND_ROOT = "AccessibleChess/assets/sounds"
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -75,27 +76,36 @@ def _json_object(path: Path, *, label: str) -> dict[str, object]:
     return value
 
 
-def _payload_files(root: Path, inventory: Iterable[str] | None) -> tuple[str, ...]:
-    if inventory is None:
-        values: list[str] = []
-        try:
-            for path in root.rglob("*"):
-                if path.is_symlink():
-                    _fail("SBOM package must not contain symlinks")
-                if path.is_file():
-                    values.append(PurePosixPath(*path.relative_to(root).parts).as_posix())
-        except Version2ReleaseSbomError:
-            raise
-        except (OSError, ValueError) as exc:
-            _fail(f"SBOM package inventory failed: {type(exc).__name__}")
-    else:
-        values = list(inventory)
+def _scan_payload_files(root: Path) -> tuple[str, ...]:
+    values: list[str] = []
+    try:
+        for path in root.rglob("*"):
+            if path.is_symlink():
+                _fail("SBOM package must not contain symlinks")
+            if path.is_file():
+                values.append(PurePosixPath(*path.relative_to(root).parts).as_posix())
+    except Version2ReleaseSbomError:
+        raise
+    except (OSError, ValueError) as exc:
+        _fail(f"SBOM package inventory failed: {type(exc).__name__}")
     result = tuple(sorted(values, key=str.casefold))
     if not result:
         _fail("SBOM cannot describe an empty package")
     if len(result) != len(set(value.casefold() for value in result)):
         _fail("SBOM package paths collide under Windows case-folding")
     return result
+
+
+def _payload_files(root: Path, inventory: Iterable[str] | None) -> tuple[str, ...]:
+    actual = _scan_payload_files(root)
+    if inventory is None:
+        return actual
+    supplied = tuple(sorted(inventory, key=str.casefold))
+    if len(supplied) != len(set(value.casefold() for value in supplied)):
+        _fail("SBOM supplied inventory collides under Windows case-folding")
+    if supplied != actual:
+        _fail("SBOM supplied inventory does not exactly match package tree")
+    return actual
 
 
 def _file_spdx_id(relative: str) -> str:
@@ -129,6 +139,7 @@ def _require_stockfish_compliance(root: Path) -> None:
         (STOCKFISH_EXECUTABLE, "Stockfish executable"),
         (STOCKFISH_SOURCE, "Stockfish corresponding source"),
         (STOCKFISH_NOTICE, "Stockfish notice"),
+        (STOCKFISH_LICENSE, "Stockfish license text"),
     ):
         path = root.joinpath(*PurePosixPath(relative).parts)
         try:
@@ -137,13 +148,21 @@ def _require_stockfish_compliance(root: Path) -> None:
         except OSError as exc:
             _fail(f"{label} cannot be inspected: {type(exc).__name__}")
     try:
-        text = root.joinpath(*PurePosixPath(STOCKFISH_NOTICE).parts).read_text(
+        notice_text = root.joinpath(*PurePosixPath(STOCKFISH_NOTICE).parts).read_text(
+            encoding="utf-8-sig"
+        ).casefold()
+        license_text = root.joinpath(*PurePosixPath(STOCKFISH_LICENSE).parts).read_text(
             encoding="utf-8-sig"
         ).casefold()
     except (OSError, UnicodeError) as exc:
-        _fail(f"Stockfish notice is unreadable: {type(exc).__name__}")
-    if "stockfish" not in text or "gpl" not in text:
+        _fail(f"Stockfish licensing evidence is unreadable: {type(exc).__name__}")
+    if "stockfish" not in notice_text or "gpl" not in notice_text:
         _fail("Stockfish notice does not identify GPL licensing")
+    if not all(
+        token in license_text
+        for token in ("gnu general public license", "version 3", "any later version")
+    ):
+        _fail("Stockfish license text does not prove GPL-3.0-or-later")
 
 
 def build_version2_release_sbom(
@@ -198,6 +217,8 @@ def build_version2_release_sbom(
         "name": f"Accessible Chess V2 package {sha[:12]}",
         "documentNamespace": f"https://github.com/Oleksii-debug/Accessible-Chess/spdx/{sha}",
         "creationInfo": {
+            # Deliberately normalized for byte-for-byte reproducibility. The exact
+            # immutable integration commit is the release identity in this document.
             "created": "1980-01-01T00:00:00Z",
             "creators": ["Tool: Accessible-Chess deterministic release SBOM generator"],
         },
@@ -223,7 +244,10 @@ def build_version2_release_sbom(
                 "licenseConcluded": "GPL-3.0-or-later",
                 "licenseDeclared": "GPL-3.0-or-later",
                 "copyrightText": "NOASSERTION",
-                "comment": f"Binary: {STOCKFISH_EXECUTABLE}; corresponding source: {STOCKFISH_SOURCE}; notice: {STOCKFISH_NOTICE}.",
+                "comment": (
+                    f"Binary: {STOCKFISH_EXECUTABLE}; corresponding source: {STOCKFISH_SOURCE}; "
+                    f"notice: {STOCKFISH_NOTICE}; exact license text: {STOCKFISH_LICENSE}."
+                ),
             },
         ],
         "files": file_rows,
@@ -284,7 +308,10 @@ def validate_version2_release_sbom(
     actual = _json_object(Path(sbom_path), label="release SBOM")
     if actual != expected:
         _fail("release SBOM does not exactly describe the packaged payload")
-    for row in actual.get("files", []):
+    files = actual.get("files")
+    if not isinstance(files, list):
+        _fail("release SBOM files contract is invalid")
+    for row in files:
         if not isinstance(row, dict):
             _fail("release SBOM file entry is invalid")
         checksums = row.get("checksums")
