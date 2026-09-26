@@ -17,7 +17,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertEqual(labels.count(runtime_label), 1)
         self.assertLess(labels.index(teacher_label), labels.index(runtime_label))
         self.assertLess(labels.index(education_label), labels.index(runtime_label))
-        self.assertLess(labels.index(runtime_label), labels.index(bootstrap_label))
+        self.assertLess(labels.index(bootstrap_label), labels.index(runtime_label))
         self.assertIs(
             final_release._release_ui._resource_sources,
             final_release._final_product_resource_sources,

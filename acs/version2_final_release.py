@@ -47,8 +47,12 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Books surface", root / "full_product_books_training.js"),
         ("V2 Teacher surface", root / "full_product_teacher.js"),
         ("V2 Education surface", root / "full_product_education.js"),
-        ("P0 event-aware accessibility runtime", root / "p0_accessibility_runtime.js"),
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
+        # The final bootstrap creates #v2-workspace synchronously, then starts an
+        # asynchronous snapshot refresh. Load P0 after that DOM owner exists so
+        # selection retention observes the real workspace, while surface wrappers
+        # still bind before a user can interact with the composed routes.
+        ("P0 event-aware accessibility runtime", root / "p0_accessibility_runtime.js"),
     )
     output: list[tuple[str, str]] = []
     for label, path in resources:
