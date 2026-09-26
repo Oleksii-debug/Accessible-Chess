@@ -39,9 +39,10 @@ class StageError(RuntimeError):
 def _require_direct_directory(path: Path, *, label: str) -> Path:
     # ``Path.resolve()`` can change the textual spelling of an otherwise direct
     # Windows path (notably by expanding an 8.3 component such as RUNNER~1).
-    # Textual inequality is therefore not evidence of indirection.  Walk every
+    # Textual inequality is therefore not evidence of indirection. Walk every
     # existing lexical component instead and fail closed on an actual symlink
-    # or Windows reparse point before resolving the directory for later I/O.
+    # or Windows reparse point. Resolve once only to prove the checked lexical
+    # path remains resolvable, then preserve that lexical identity for callers.
     absolute = Path(os.path.abspath(path))
     current = absolute
     while True:
@@ -65,9 +66,10 @@ def _require_direct_directory(path: Path, *, label: str) -> Path:
     if not stat.S_ISDIR(info.st_mode):
         raise StageError(f"{label} must be a direct regular directory")
     try:
-        return absolute.resolve(strict=True)
+        absolute.resolve(strict=True)
     except OSError as exc:
         raise StageError(f"{label} cannot be resolved") from exc
+    return absolute
 
 
 def _manifest_bytes(root: Path) -> bytes:
