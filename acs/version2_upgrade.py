@@ -9,13 +9,11 @@ conversion of an authenticated private working copy before the existing
 publication transaction runs.
 """
 
-from contextlib import contextmanager
 import os
 from pathlib import Path
 import secrets
 import sqlite3
-from threading import RLock
-from typing import Iterator, Mapping
+from typing import Mapping
 
 from . import version2_upgrade_base as _base
 from .acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
@@ -32,63 +30,14 @@ for _name in dir(_base):
         globals()[_name] = getattr(_base, _name)
 
 
-_SCHEMA_SCOPE_LOCK = RLock()
-
-
-def _canonical_library_schema(connection: sqlite3.Connection) -> int:
-    """Recognize only current D07 schemas or the exact shipped legacy schema."""
-    try:
-        raw_row = connection.execute("PRAGMA user_version").fetchone()
-        raw_version = raw_row[0] if raw_row is not None else None
-        if raw_version == 0:
-            try:
-                _check_legacy_schema(connection)
-            except LegacyLibraryMigrationError as exc:
-                raise Version2UpgradeError("library validation failed") from exc
-            return 0
-        return AcsDatabase._check_sqlite_integrity(connection)
-    except Version2UpgradeError:
-        raise
-    except RuntimeError as exc:
-        if type(raw_version) is int and raw_version > ACSDB_SCHEMA_VERSION:
-            raise Version2UpgradeError(
-                "library schema is newer than this Version 2 build"
-            ) from exc
-        raise Version2UpgradeError("library validation failed") from exc
-    except sqlite3.DatabaseError as exc:
-        raise Version2UpgradeError("library validation failed") from exc
-
-
-@contextmanager
-def _legacy_schema_scope() -> Iterator[None]:
-    """Temporarily route base helper validation through the D07 legacy seam.
-
-    Base helper functions intentionally resolve ``_canonical_library_schema``
-    from their defining module. The previous integration rebound that symbol at
-    import time, permanently changing ``version2_upgrade_base`` for unrelated
-    callers. Keep that compatibility seam strictly bounded to one upgrade or
-    recovery transaction and restore the original authority even on failure.
-    """
-
-    with _SCHEMA_SCOPE_LOCK:
-        original = _base._canonical_library_schema
-        _base._canonical_library_schema = _canonical_library_schema
-        try:
-            yield
-        finally:
-            _base._canonical_library_schema = original
 
 
 class Version2UpgradeCoordinator(_base.Version2UpgradeCoordinator):
     """Canonical coordinator with preservation-first schema-0 conversion."""
 
-    def run(self):
-        with _legacy_schema_scope():
-            return super().run()
-
-    def recover_interrupted(self) -> bool:
-        with _legacy_schema_scope():
-            return super().recover_interrupted()
+    def _validate_library_schema(self, connection: sqlite3.Connection) -> int:
+        """Use D07 legacy recognition only for this coordinator instance."""
+        return _canonical_library_schema(connection)
 
     def _migrate_library(
         self,
