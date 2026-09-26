@@ -22,6 +22,9 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
+  P0G_QA_SHA: 9b1c47711cd4c326b7302f283e7ce97186f8ce0f
+  P0G_PROBE_BLOB_SHA: 485e4d6e9da21899d89775aabc329e08409de68c
+  P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
   PYTHONNET_VERSION: '3.1.0'
@@ -55,11 +58,13 @@ jobs:
           git cat-file -e "$PACKAGE_ANCHOR_SHA^{commit}"
           git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
           git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
+          git cat-file -e "$P0G_QA_SHA^{commit}"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^1")" = "$PRODUCT_PARENT_SHA"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^2")" = "$PREVIOUS_PACKAGE_SHA"
           test "$(git merge-base "$PACKAGE_ANCHOR_SHA" HEAD)" = "$PACKAGE_ANCHOR_SHA"
           test "$(git merge-base "$PRODUCT_PARENT_SHA" HEAD)" = "$PRODUCT_PARENT_SHA"
           test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$P0G_QA_SHA")" = "$PRODUCT_PARENT_SHA"
           changed="$(git diff --name-only "$PRODUCT_PARENT_SHA" HEAD)"
           test "$changed" = "$QUALIFICATION_SOURCE_PATH"
           git diff --check "$PRODUCT_PARENT_SHA" HEAD
@@ -73,13 +78,19 @@ jobs:
           test "$previous_blob" = "$PREVIOUS_WORKFLOW_BLOB_SHA"
           authority_blob="$(git rev-parse "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH")"
           test "$authority_blob" = "$PRIOR_WORKFLOW_BLOB_SHA"
+          p0g_probe_blob="$(git rev-parse "$P0G_QA_SHA:$P0G_PROBE_PATH")"
+          test "$p0g_probe_blob" = "$P0G_PROBE_BLOB_SHA"
           git show "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH" > .previous-package-qualification.yml
           git show "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH" > .package-qualification-source.yml
+          git show "$P0G_QA_SHA:$P0G_PROBE_PATH" > .p0g-packaged-hotkey-result-probe.ps1
           test -s .previous-package-qualification.yml
           test -s .package-qualification-source.yml
+          test -s .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .previous-package-qualification.yml
           grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .previous-package-qualification.yml
           grep -Fq "MENUBAR_OVERRIDE = r\"\"\"" .previous-package-qualification.yml
+          grep -Fq 'function EnsureEngineEnabled($EngineToggle)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'AccessibleChessP0GKeys]::Alt' .p0g-packaged-hotkey-result-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
           echo "SOURCE_INTEGRATION_SHA=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
@@ -89,9 +100,12 @@ jobs:
           echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
           echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
           echo "WINFORMS_ACCESSIBILITY_CONFIG_BLOB=$config_blob"
+          echo "P0G_QA_SHA=$P0G_QA_SHA"
+          echo "P0G_PROBE_BLOB=$p0g_probe_blob"
           echo 'PACKAGE_ANCHOR_PROVENANCE=PASS'
           echo 'PINNED_ENV_RESTORED=PASS'
           echo 'WINFORMS_ACCESSIBILITY_CONFIG_LOCK=PASS'
+          echo 'P0G_PROBE_AUTHORITY_LOCK=PASS'
           echo 'WORKFLOW_ONLY_DELTA=PASS'
           echo 'PRODUCT_SOURCE_MUTATION=NONE'
 
@@ -180,6 +194,25 @@ jobs:
           & pwsh -NoLogo -NoProfile -File .previous-materialize-and-pre.ps1
           if($LASTEXITCODE -ne 0){throw 'Inherited topology-aware pre-artifact qualification failed'}
 
+      - name: Prove packaged P0-G Alt+1 Alt+2 accessible results
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath 'fresh-extraction\AccessibleChess' -PathType Container)){throw 'Fresh extracted Product missing before P0-G proof'}
+          if(-not (Test-Path -LiteralPath '.v2-uia-evidence\stage1_uia_topology_v5.ps1' -PathType Leaf)){throw 'Strict retained UIA topology helper missing before P0-G proof'}
+          & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .p0g-packaged-hotkey-result-probe.ps1 -ProductRoot 'fresh-extraction\AccessibleChess' -ProductSha $env:PRODUCT_PARENT -TopologyScript '.v2-uia-evidence\stage1_uia_topology_v5.ps1' -OutputPath 'packaged-p0g-hotkey-result-summary.json' -TimeoutSeconds 60
+          if($LASTEXITCODE -ne 0){throw "Packaged P0-G hotkey-result probe failed exit=$LASTEXITCODE"}
+          if(-not (Test-Path -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -PathType Leaf)){throw 'Packaged P0-G summary missing'}
+          $summary=Get-Content -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Packaged P0-G summary Product SHA mismatch'}
+          if(-not [bool]$summary.native_keyboard_dispatch){throw 'Packaged P0-G did not prove native keyboard dispatch'}
+          if(-not [bool]$summary.alt_1_action_occurred -or -not [bool]$summary.alt_1_accessible_result_exposed){throw 'Alt+1 ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if(-not [bool]$summary.alt_2_action_occurred -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Alt+2 ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if([bool]$summary.board_application_entered){throw 'P0-G probe entered role=application unexpectedly'}
+          if([bool]$summary.raw_uci_or_debug_exposed){throw 'P0-G probe exposed raw engine/provider/debug text'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine P0-G evidence must not claim physical NVDA acceptance'}
+          Write-Host 'PACKAGED_P0G_ACTION_OCCURRED_ACCESSIBLE_RESULT_EXPOSED=PASS'
+
       - name: Upload post-freeze Windows package qualification artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -189,6 +222,7 @@ jobs:
             packaged-uia-strict-summary.json
             packaged-v2-current-native-menu-summary.json
             packaged-v2-document-copy-summary.json
+            packaged-p0g-hotkey-result-summary.json
             packaged-final-acceptance-summary.json
           if-no-files-found: error
           retention-days: 14
@@ -199,6 +233,21 @@ jobs:
         with:
           name: Accessible-Chess-V2-post-freeze-package-qualification
           path: artifact-readback
+
+      - name: Verify packaged P0-G evidence survived artifact readback byte-for-byte
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path -LiteralPath 'packaged-p0g-hotkey-result-summary.json').Path
+          $readback=(Resolve-Path -LiteralPath 'artifact-readback\packaged-p0g-hotkey-result-summary.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Packaged P0-G evidence changed across upload/download readback'}
+          $summary=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Readback P0-G evidence Product SHA mismatch'}
+          if(-not [bool]$summary.alt_1_action_occurred -or -not [bool]$summary.alt_1_accessible_result_exposed -or -not [bool]$summary.alt_2_action_occurred -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Readback P0-G acceptance fields incomplete'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Readback evidence fabricated human/NVDA acceptance'}
+          Write-Host "PACKAGED_P0G_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant())"
 
       - name: Execute inherited post-upload readback and final checkpoint
         shell: pwsh
