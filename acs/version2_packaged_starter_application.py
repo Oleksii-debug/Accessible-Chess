@@ -10,6 +10,7 @@ imports sample games, never downloads content at runtime, and does not introduce
 a second PGN parser, database schema or persistence authority.
 """
 
+from collections import Counter
 from collections.abc import Mapping
 import hashlib
 import json
@@ -202,6 +203,61 @@ def _starter_record_sha256s(payload: bytes) -> tuple[str, ...]:
     return tuple(hashlib.sha256(record.encode("utf-8")).hexdigest() for record in records)
 
 
+def _validate_curation_aggregate_evidence(
+    curation: Mapping[str, object], selected_games: list[object]
+) -> None:
+    """Mirror the builder's aggregate curation proof without parsing chess rules."""
+    result_counts: Counter[str] = Counter()
+    length_counts: Counter[str] = Counter()
+    openings: set[tuple[str, ...]] = set()
+    valid_results = frozenset(_CURATION_CRITERIA["valid_results"])
+    valid_bands = frozenset(_CURATION_CRITERIA["length_band_minimums"])
+    opening_plies = int(_CURATION_CRITERIA["opening_prefix_plies"])
+
+    for selected in selected_games:
+        if not isinstance(selected, Mapping):
+            raise RuntimeError("packaged starter selected game evidence is invalid")
+        result = selected.get("result")
+        length_band = selected.get("length_band")
+        opening_prefix = selected.get("opening_prefix")
+        if type(result) is not str or result not in valid_results:
+            raise RuntimeError("packaged starter selected result evidence is invalid")
+        if type(length_band) is not str or length_band not in valid_bands:
+            raise RuntimeError("packaged starter selected length evidence is invalid")
+        if (
+            not isinstance(opening_prefix, list)
+            or len(opening_prefix) != opening_plies
+            or any(type(move) is not str or not move for move in opening_prefix)
+        ):
+            raise RuntimeError("packaged starter opening-prefix evidence is invalid")
+        result_counts[result] += 1
+        length_counts[length_band] += 1
+        openings.add(tuple(opening_prefix))
+
+    result_minimums = _CURATION_CRITERIA["result_minimums"]
+    length_minimums = _CURATION_CRITERIA["length_band_minimums"]
+    if not isinstance(result_minimums, Mapping) or not isinstance(length_minimums, Mapping):
+        raise RuntimeError("packaged starter curation minimums are invalid")
+    for result, minimum in result_minimums.items():
+        if result_counts[str(result)] < int(minimum):
+            raise RuntimeError("packaged starter result-stratum evidence is below the qualified floor")
+    for band, minimum in length_minimums.items():
+        if length_counts[str(band)] < int(minimum):
+            raise RuntimeError("packaged starter length-stratum evidence is below the qualified floor")
+    minimum_openings = int(_CURATION_CRITERIA["minimum_distinct_opening_prefixes"])
+    if len(openings) < minimum_openings:
+        raise RuntimeError("packaged starter opening-prefix diversity is below the qualified floor")
+
+    aggregate = {
+        "selected_result_counts": dict(sorted(result_counts.items())),
+        "selected_length_band_counts": dict(sorted(length_counts.items())),
+        "distinct_opening_prefixes": len(openings),
+    }
+    for key, value in aggregate.items():
+        if curation.get(key) != value:
+            raise RuntimeError(f"packaged starter curation aggregate evidence failed for {key}")
+
+
 def _validate_manifest_authority(manifest: Mapping[str, object], starter_count: int) -> None:
     source = manifest.get("starter_source")
     if not isinstance(source, Mapping):
@@ -249,6 +305,7 @@ def _validate_manifest_authority(manifest: Mapping[str, object], starter_count: 
             or any(character not in "0123456789abcdefABCDEF" for character in record_sha256)
         ):
             raise RuntimeError("packaged starter record_sha256 evidence is invalid")
+    _validate_curation_aggregate_evidence(curation, selected_games)
 
     sample_library = manifest.get("sample_library")
     if not isinstance(sample_library, Mapping):
