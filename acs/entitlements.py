@@ -38,6 +38,12 @@ class FeatureId(str, Enum):
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
 
+# User-owned local data must remain exportable even when a commercial
+# entitlement is unavailable, expired, revoked or requires an update. This is a
+# data-safety/recovery invariant, not a paid feature grant. Keep this set narrow:
+# provider-backed premium content/export requires a distinct future feature ID.
+LOCAL_DATA_SAFETY_FEATURE_IDS: FrozenSet[str] = frozenset({FeatureId.DATA_EXPORT.value})
+
 
 ACTIVE_STATES = frozenset(
     {
@@ -200,8 +206,9 @@ class FeatureGate:
     """Pure policy evaluator for stable feature IDs.
 
     The gate never deletes data and never performs network or billing calls.
-    A caller may preserve read/export/recovery features by granting their stable
-    feature IDs even while paid functionality is unavailable.
+    User-owned local data export is a narrow safety/recovery invariant and stays
+    available independently of commercial entitlement state. Other features
+    remain fail-closed unless explicitly entitled.
 
     When a server-authored snapshot supplies `server_time`, evaluation never
     reasons about a time earlier than that trusted floor. This blocks the trivial
@@ -226,6 +233,14 @@ class FeatureGate:
     ) -> AccessDecision:
         feature = _normalize_feature_id(feature_id)
         local_time = _utc_now(now)
+
+        if feature in LOCAL_DATA_SAFETY_FEATURE_IDS:
+            return AccessDecision(
+                True,
+                snapshot.state if snapshot is not None else EntitlementState.EXPIRED,
+                "local_data_safety",
+                feature,
+            )
 
         if snapshot is None:
             return AccessDecision(
