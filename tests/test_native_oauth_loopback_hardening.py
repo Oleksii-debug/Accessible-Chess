@@ -3,9 +3,14 @@ from __future__ import annotations
 import socket
 import threading
 import unittest
+from unittest import mock
 from urllib.parse import urlsplit
 
-from acs.native_oauth_loopback import NativeLoopbackCallback, NativeLoopbackError
+from acs.native_oauth_loopback import (
+    NativeLoopbackCallback,
+    NativeLoopbackError,
+    open_system_browser,
+)
 
 
 AUTH_URL = "https://identity.example.invalid/authorize?client_id=public"
@@ -34,6 +39,32 @@ class NativeOAuthLoopbackHardeningTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(NativeLoopbackError, "closed"):
             _ = listener.redirect_uri
+
+    def test_public_browser_helper_enforces_same_preflight(self) -> None:
+        hostile_urls = (
+            "http://identity.example.invalid/authorize",
+            "https://identity.example.invalid\\attacker.invalid/authorize",
+            "https://identity.example.invalid/authorize\x7f",
+        )
+        with mock.patch(
+            "acs.native_oauth_loopback.webbrowser.open",
+            side_effect=AssertionError("browser must not receive invalid URL"),
+        ) as browser:
+            for url in hostile_urls:
+                with self.subTest(url=url), self.assertRaises(NativeLoopbackError):
+                    open_system_browser(url)
+        browser.assert_not_called()
+
+    def test_public_browser_helper_sanitizes_browser_exception(self) -> None:
+        with mock.patch(
+            "acs.native_oauth_loopback.webbrowser.open",
+            side_effect=RuntimeError("browser-provider-private-detail"),
+        ):
+            with self.assertRaises(NativeLoopbackError) as caught:
+                open_system_browser(AUTH_URL)
+        self.assertEqual(str(caught.exception), "authorization browser could not be opened")
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn("provider-private", str(caught.exception))
 
     def test_duplicate_host_header_is_rejected_before_valid_callback(self) -> None:
         listener = NativeLoopbackCallback.create(timeout_seconds=2.0, max_attempts=3)
