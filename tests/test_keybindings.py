@@ -66,6 +66,22 @@ class ActionRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "likely to conflict with NVDA"):
             registry.set_binding("history.go_to_move", "NVDA+Space", allow_warnings=False)
 
+    def test_nvda_warning_cannot_be_bypassed_by_other_modifiers(self):
+        registry = ActionRegistry()
+        conflicts = registry.set_binding("history.go_to_move", "NVDA+Ctrl+F1")
+        self.assertEqual(registry.get_binding("history.go_to_move"), "Ctrl+NVDA+F1")
+        self.assertTrue(
+            any(c.kind == "nvda_likely" and c.value == "Ctrl+NVDA+F1" for c in conflicts)
+        )
+
+        registry.reset_action("history.go_to_move")
+        with self.assertRaisesRegex(ValueError, "likely to conflict with NVDA"):
+            registry.set_binding(
+                "history.go_to_move",
+                "Alt+Shift+NVDA+Space",
+                allow_warnings=False,
+            )
+
     def test_reserved_shortcuts_warn_without_silent_overwrite(self):
         registry = ActionRegistry()
         conflicts = registry.set_binding("history.go_to_move", "Alt+F4")
