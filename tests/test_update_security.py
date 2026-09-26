@@ -3,10 +3,12 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import pickle
 from pathlib import Path
 import tempfile
 import unittest
 
+import acs.update_security as update_security
 from acs.update_security import (
     UpdateSecurityError,
     open_verified_update,
@@ -86,6 +88,43 @@ class UpdateSecurityTests(unittest.TestCase):
             self.assertEqual(verified.key_id, "release-2026")
             with open_verified_update(verified, now=_NOW) as handle:
                 self.assertEqual(handle.read(), payload)
+
+    def test_verified_capability_cannot_be_forged_or_serialized(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = b"MZ-authentic-update"
+            package = self._package(root, payload)
+            verified = verify_update_package(
+                _metadata(payload),
+                package,
+                current_version="2.0.0",
+                verifier=_TestVerifier(),
+                now=_NOW,
+            )
+
+            with self.assertRaisesRegex(TypeError, "not serializable"):
+                pickle.dumps(verified)
+
+            forged = object.__new__(update_security.VerifiedUpdate)
+            for name, value in (
+                ("package_path", package),
+                ("version", verified.version),
+                ("download_url", verified.download_url),
+                ("package_sha256", hashlib.sha256(payload).hexdigest()),
+                ("package_size", len(payload)),
+                ("key_id", verified.key_id),
+                ("published_at", verified.published_at),
+                ("expires_at", verified.expires_at),
+            ):
+                object.__setattr__(forged, name, value)
+            with self.assertRaisesRegex(UpdateSecurityError, "capability is invalid"):
+                with open_verified_update(forged, now=_NOW):
+                    pass
+
+            incomplete = update_security.VerifiedUpdate()
+            with self.assertRaisesRegex(UpdateSecurityError, "capability is invalid"):
+                with open_verified_update(incomplete, now=_NOW):
+                    pass
 
     def test_replacement_after_verification_fails_at_consumption_boundary(self):
         with tempfile.TemporaryDirectory() as td:
