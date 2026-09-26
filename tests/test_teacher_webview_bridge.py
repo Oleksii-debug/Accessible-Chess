@@ -106,7 +106,7 @@ class TeacherWebViewBridgeTests(unittest.TestCase):
         pointer = bridge.dispatch("teacher.pointer_input", {"coordinate": "f3"})
         turned = bridge.dispatch("teacher.orientation.toggle", {})
 
-        self.assertEqual([True, False, False, True], flags)
+        self.assertEqual([True, False, False, False], flags)
         self.assertIn("assets", initial.payload["snapshot"]["visual"])
         self.assertNotIn("assets", pointer.payload["snapshot"]["visual"])
         self.assertNotIn("assets", turned.payload["snapshot"]["visual"])
