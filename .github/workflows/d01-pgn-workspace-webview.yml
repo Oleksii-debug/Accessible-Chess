@@ -157,12 +157,13 @@ jobs:
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # The shared semantic document may be either the pre-P0-G Product
-          # blob or the exact event-aware P0-G blob. Any third identity fails
-          # closed so D01 cannot silently accept unrelated presentation drift.
+          # The shared semantic document may be the pre-P0-G Product blob,
+          # either reviewed event-aware P0-G predecessor, or the exact current
+          # convergence blob with event-aware queue/dedupe semantics. Every
+          # other identity remains fail-closed.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3)
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142)
               ;;
             *)
               printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
