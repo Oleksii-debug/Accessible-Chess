@@ -211,6 +211,8 @@ class BoundedHttpsJsonTransport:
 def _validated_https_url(value: str) -> str:
     if not isinstance(value, str) or not value or len(value) > 4096:
         raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+    if value != value.strip():
+        raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value) or "\\" in value:
         raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
     try:
@@ -265,7 +267,7 @@ def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
                 raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
             if len(name) > 128 or len(value) > 8192:
                 raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-            if any(ch in value for ch in ("\r", "\n", "\x00")):
+            if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
                 raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
             seen.add(folded)
             result[name] = value
