@@ -135,6 +135,28 @@ class RuntimeDependencyReleaseTests(unittest.TestCase):
                     created_utc="2026-09-26T16:00:00Z",
                 )
 
+    def test_rejects_pep503_alias_duplicate_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundle = self._bundle(root)
+            manifest_path = bundle / "PYTHON_RUNTIME_DEPENDENCIES.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["distributions"][0]["distribution"] = "demo-package"
+            duplicate = dict(manifest["distributions"][0])
+            duplicate["distribution"] = "demo_package"
+            manifest["distributions"].append(duplicate)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            notices = root / "notices"
+            notices.mkdir()
+            with self.assertRaisesRegex(RuntimeDependencyReleaseError, "distributions contain duplicates"):
+                publish_runtime_dependency_release_evidence(
+                    bundle,
+                    notices,
+                    document_name="Accessible Chess runtime",
+                    created_utc="2026-09-26T16:00:00Z",
+                )
+            self.assertFalse((notices / "Python-Runtime").exists())
+
     def test_refuses_existing_destination(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
