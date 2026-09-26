@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/p0-release-critical-to-full-product-20260926
     paths:
       - 'acs/version2_release_app.py'
       - 'tests/test_version2_composition_publication_boundary.py'
