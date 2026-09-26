@@ -53,6 +53,10 @@ _RAW_SOURCE_SUFFIXES = {
     ".py", ".pyc", ".pyo", ".ipynb", ".c", ".cc", ".cpp", ".cxx",
     ".h", ".hpp", ".hh", ".rs",
 }
+_DEBUG_BUILD_SUFFIXES = {
+    ".pdb", ".dbg", ".ilk", ".exp", ".lib", ".obj", ".pch", ".idb",
+    ".dmp", ".mdmp",
+}
 _USER_STATE_NAMES = {
     "settings.json",
     "library.acsdb",
@@ -345,6 +349,8 @@ def _validate_file_policy(relative: str) -> None:
         _fail(f"build/source component is forbidden: {relative}")
     if token.suffix.casefold() in _RAW_SOURCE_SUFFIXES:
         _fail(f"raw source is forbidden in the default package: {relative}")
+    if token.suffix.casefold() in _DEBUG_BUILD_SUFFIXES:
+        _fail(f"debug/build artifact is forbidden in the default package: {relative}")
     name = token.name.casefold()
     if name in _USER_STATE_NAMES or any(
         part.endswith(".upgrade-backups") for part in folded_parts
