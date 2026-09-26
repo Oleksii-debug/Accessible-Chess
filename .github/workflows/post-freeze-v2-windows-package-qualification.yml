@@ -1,0 +1,399 @@
+name: Post-freeze V2 Windows Package Qualification
+
+on:
+  push:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-freeze-v2-windows-package-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PREVIOUS_PACKAGE_SHA: 0494ab8debbbf7dd72058438b6b967778e85faec
+  QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
+  PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
+  QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
+  PYTHON_VERSION: '3.12.10'
+
+jobs:
+  qualify-package:
+    runs-on: windows-2025
+    timeout-minutes: 85
+    steps:
+      - name: Checkout exact package qualification child
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Bind exact Product and same-lineage qualification authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent_line="$(git rev-list --parents -n 1 HEAD)"
+          test "$(wc -w <<<"$parent_line" | tr -d ' ')" = '3'
+          product_parent="$(git rev-parse HEAD^1)"
+          previous_candidate="$(git rev-parse HEAD^2)"
+          test "$previous_candidate" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$product_parent" HEAD)" = "$product_parent"
+          test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$QUALIFICATION_AUTHORITY_SHA" "$PREVIOUS_PACKAGE_SHA")" = "$QUALIFICATION_AUTHORITY_SHA"
+          changed="$(git diff --name-only "$product_parent" HEAD)"
+          test "$changed" = "$QUALIFICATION_SOURCE_PATH"
+          git diff --check "$product_parent" HEAD
+          if git cat-file -e "$product_parent:$QUALIFICATION_SOURCE_PATH" 2>/dev/null; then
+            echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT_PARENT' >&2
+            exit 1
+          fi
+          actual_blob="$(git rev-parse "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$actual_blob" = "$PRIOR_WORKFLOW_BLOB_SHA"
+          git show "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH" > .package-qualification-source.yml
+          test -s .package-qualification-source.yml
+          short="${product_parent:0:7}"
+          echo "PRODUCT_PARENT=$product_parent" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$product_parent" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
+          echo "CANDIDATE_PRODUCT_SHA=$product_parent"
+          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$previous_candidate"
+          echo 'WORKFLOW_ONLY_DELTA=PASS'
+          echo 'PRODUCT_SOURCE_MUTATION=NONE'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Materialize exact inherited qualification executor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from __future__ import annotations
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+
+          SOURCE = Path('.package-qualification-source.yml')
+          PRE = (
+              'Build exact lawful W2 release corpus',
+              'Install qualified pinned Windows compiler stack',
+              'Materialize immutable strict packaged UIA helper',
+              'Source release diagnostic P0-G and W3 retained oracles',
+              'Build standalone AccessibleChess.exe',
+              'Build deterministic nine-event sound input with provenance',
+              'Download exact official Stockfish 18 Windows release',
+              'Prepare canonical payload bind W2 W3 assemble package and deterministic ZIP',
+              'Fresh extraction W2 W3 readback packaged diagnostic and engine smoke',
+              'Prove fresh-extracted packaged keyboard and UIA semantics',
+              'Prove fresh-extracted native MenuBar profile through process-scoped UIA',
+              'Prove packaged semantic document selection and native Ctrl+C',
+              'Prove packaged P0-G Books Training keyboard close and restart',
+          )
+          POST = (
+              'Verify uploaded artifact byte identity W2 W3 and final evidence',
+              'Package qualification checkpoint',
+          )
+          MENUBAR_STEP = 'Prove fresh-extracted native MenuBar profile through process-scoped UIA'
+          DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'
+
+          MENUBAR_OVERRIDE = r"""$ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $output=(Join-Path $PWD 'packaged-v2-current-native-menu-probe.json')
+          $process=Start-Process -FilePath $exe -WorkingDirectory $productRoot -PassThru
+          try {
+            $deadline=[DateTime]::UtcNow.AddSeconds(45)
+            $canonical=@()
+            $uia=$null
+            do {
+              $process.Refresh()
+              if($process.HasExited){throw "Fresh-extracted V2 process exited before bounded native-menu proof with code $($process.ExitCode)"}
+              Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
+              & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/p0_native_menubar_uia_probe.ps1 -TargetProcessId $process.Id -MenuHandle 0 -OutputPath $output -TimeoutSeconds 2
+              if($LASTEXITCODE -ne 0){throw "External native MenuBar UIA probe failed exit=$LASTEXITCODE"}
+              $uia=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+              $canonical=@($uia.exact_menu_bars)
+              if($canonical.Count -eq 1){break}
+              Start-Sleep -Milliseconds 250
+            } while([DateTime]::UtcNow -lt $deadline)
+            if($canonical.Count -ne 1){throw "Expected exactly one canonical native MenuBar, found $($canonical.Count)"}
+            $menu=$canonical[0]
+            if([int]$menu.process_id -ne $process.Id){throw 'Native MenuBar is not owned by launched V2 process'}
+            if(-not [bool]$menu.enabled -or [bool]$menu.offscreen){throw 'V2 native MenuBar is disabled or offscreen'}
+            $names=@($uia.top_level_names)
+            $patterns=@($uia.top_level_expand_collapse)
+            $expectedUa=@('Файл','Гра','Позиція','PGN','Бібліотека','Імпорт','Експорт','Stockfish','Аналіз','Книги','Учитель/Клас','Налаштування','Довідка')
+            $expectedEn=@('File','Game','Position','PGN','Library','Import','Export','Engine','Analysis','Books','Teacher/Classroom','Settings','Help')
+            $actual=($names -join '|')
+            if($names.Count -ne 13 -or ($actual -ne ($expectedUa -join '|') -and $actual -ne ($expectedEn -join '|'))){throw "Packaged V2 native menu profile mismatch: $actual"}
+            if($patterns.Count -ne 13 -or @($patterns|Where-Object {-not [bool]$_}).Count -ne 0){throw 'Top native menu item lacks ExpandCollapsePattern'}
+            [ordered]@{
+              product_sha=$env:PRODUCT_PARENT
+              machine_scope='fresh-extracted Windows UIA native menu structure only'
+              menu_discovered_by='bounded repeated external process-scoped UIA probe'
+              menu_bar_count=1
+              menu_automation_id=[string]$menu.automation_id
+              menu_name=[string]$menu.name
+              menu_owner_process_matches=$true
+              menu_visible=$true
+              menu_enabled=$true
+              top_level_count=$names.Count
+              top_level_names=$names
+              top_level_all_visible_enabled=$true
+              top_level_expand_collapse_pattern=$true
+              teacher_menu_present=($names -contains 'Учитель/Клас' -or $names -contains 'Teacher/Classroom')
+              training_top_menu_expected=$false
+              structural_uia='PASS'
+              alt_arrows_enter_esc='HUMAN_ONLY_UNPROVEN'
+              nvda_menu_usability='HUMAN_ONLY_UNPROVEN'
+              nvda_verified=$false
+            }|ConvertTo-Json -Depth 5|Set-Content -Encoding UTF8 packaged-v2-current-native-menu-summary.json
+            Write-Host "FRESH_PACKAGED_NATIVE_MENUBAR_UIA=PASS names=$actual"
+          } finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+          """
+
+          DOCUMENT_OVERRIDE = r"""$ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          if(-not ('AccessibleChessCopyKeys' -as [type])){
+            Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class AccessibleChessCopyKeys {
+            [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+            private const uint KEYEVENTF_KEYUP = 0x0002;
+            public static void Ctrl(byte key) {
+              keybd_event(0x11,0,0,UIntPtr.Zero); keybd_event(key,0,0,UIntPtr.Zero);
+              keybd_event(key,0,KEYEVENTF_KEYUP,UIntPtr.Zero); keybd_event(0x11,0,KEYEVENTF_KEYUP,UIntPtr.Zero);
+            }
+          }
+          "@
+          }
+          function Hwnd([string]$v){$t=$v.Trim();if($t.StartsWith('0x',[StringComparison]::OrdinalIgnoreCase)){return [IntPtr]([Convert]::ToInt64($t.Substring(2),16))};return [IntPtr]([int64]$t)}
+          function ElementKey($e){try{$r=(($e.GetRuntimeId()|ForEach-Object{[string]$_}) -join '.');if($r){return 'rid:'+$r}}catch{};try{return 'obj:'+([string]$e.GetHashCode())}catch{return ''}}
+          function ProviderRoots($report){
+            $out=@()
+            foreach($row in @($report.root_attempts)){
+              if(-not $row.connected_to_app -or -not $row.from_handle_success -or -not $row.provider_subtree_seen){continue}
+              $e=[System.Windows.Automation.AutomationElement]::FromHandle((Hwnd ([string]$row.hwnd)))
+              if($null -ne $e){$out+=,$e}
+            }
+            if($out.Count -eq 0){throw 'No connected provider-bearing roots available for document-copy proof'}
+            return $out
+          }
+          function ControlElements($roots){
+            $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
+            $stack=New-Object System.Collections.Stack
+            foreach($r in $roots){$stack.Push($r)}
+            $seen=New-Object 'System.Collections.Generic.HashSet[string]'
+            $out=@()
+            while($stack.Count -gt 0){
+              if($out.Count -ge 20000){throw 'Document-copy UIA traversal cap reached'}
+              $e=$stack.Pop();$key=ElementKey $e
+              if($key -and -not $seen.Add($key)){continue}
+              $out+=,$e;$kids=@()
+              $c=$walker.GetFirstChild($e)
+              while($null -ne $c){$kids+=,$c;$c=$walker.GetNextSibling($c)}
+              for($i=$kids.Count-1;$i -ge 0;$i--){$stack.Push($kids[$i])}
+            }
+            return $out
+          }
+          function ReadTopology($process,[int]$timeoutMs=45000){
+            $topology=(Resolve-Path '.v2-uia-evidence\stage1_uia_topology_v5.ps1').Path
+            $watch=[System.Diagnostics.Stopwatch]::StartNew();$last='not attempted'
+            while($watch.ElapsedMilliseconds -lt $timeoutMs){
+              if($process.HasExited){throw "Packaged process exited before document-copy topology readiness with code $($process.ExitCode)"}
+              try{
+                Remove-Item -LiteralPath 'uia-topology-report-v5.json' -Force -ErrorAction SilentlyContinue
+                & $topology -AppPid $process.Id *> $null
+                if(Test-Path -LiteralPath 'uia-topology-report-v5.json'){
+                  $report=Get-Content -LiteralPath 'uia-topology-report-v5.json' -Raw|ConvertFrom-Json
+                  $connected=@($report.nodes|Where-Object{[string]$_.control_type -eq 'ControlType.Document' -and [bool]$_.source_root_connected})
+                  if($connected.Count -gt 0){return $report}
+                  $last='no connected Document nodes yet'
+                }
+              }catch{$last=$_.Exception.Message}
+              Start-Sleep -Milliseconds 400
+            }
+            throw "Packaged document-copy UIA topology timeout: $last"
+          }
+          function WaitClipboard([string]$expected,[int]$timeoutMs=5000){
+            $watch=[System.Diagnostics.Stopwatch]::StartNew();$last=''
+            while($watch.ElapsedMilliseconds -lt $timeoutMs){
+              try{$last=[string](Get-Clipboard -Raw -ErrorAction Stop)}catch{$last=''}
+              if($last.Trim() -eq $expected.Trim()){return}
+              Start-Sleep -Milliseconds 100
+            }
+            throw "Clipboard did not receive exact selected text; expected='$expected' actual='$last'"
+          }
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $process=Start-Process -FilePath $exe -WorkingDirectory $productRoot -PassThru
+          try{
+            $report=ReadTopology $process
+            $elements=ControlElements (ProviderRoots $report)
+            $docs=@($elements|Where-Object{try{[string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Document'}catch{$false}})
+            if($docs.Count -eq 0){throw 'No WebView Document reachable through connected app provider roots'}
+            $doc=$null;$textPattern=$null;$target=$null
+            foreach($candidate in $docs){
+              try{
+                $tp=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+                if($null -eq $tp -or ([string]$tp.SupportedTextSelection) -match 'None$'){continue}
+                $all=$tp.DocumentRange.Clone()
+                $hit=$all.FindText('Інформація про гру',$false,$false)
+                if($null -eq $hit){$hit=$all.FindText('Game information',$false,$false)}
+                if($null -ne $hit){$doc=$candidate;$textPattern=$tp;$target=$hit;break}
+              }catch{}
+            }
+            if($null -eq $doc){throw "Connected WebView Documents found=$($docs.Count), but none exposes selectable stable static text"}
+            $selected=([string]$target.GetText(-1)).Trim()
+            if(-not $selected){throw 'Static TextPattern target is empty'}
+            $enclosing=$target.GetEnclosingElement()
+            if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){throw 'Static text proof accidentally targeted an edit control'}
+            $ws=New-Object -ComObject WScript.Shell
+            $null=$ws.AppActivate($process.Id)
+            try{$doc.SetFocus()}catch{}
+            $target.Select()
+            Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
+            Start-Sleep -Milliseconds 150
+            [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+            WaitClipboard $selected
+            Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$doc.Current.ProcessId)"
+            $move=$elements|Where-Object{try{[string]$_.Current.AutomationId -eq 'move-input'}catch{$false}}|Select-Object -First 1
+            if($null -eq $move){throw 'Move Input UIA element not found through connected app provider roots'}
+            $value=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            if($null -eq $value){throw 'Move Input lacks ValuePattern'}
+            $value.SetValue('e2e4');$null=$ws.AppActivate($process.Id);$move.SetFocus()
+            Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
+            Start-Sleep -Milliseconds 100
+            [AccessibleChessCopyKeys]::Ctrl([byte]0x41);[AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+            WaitClipboard 'e2e4'
+            $value.SetValue('')
+            Write-Host 'PACKAGED_MOVE_INPUT_NATIVE_CTRL_A_CTRL_C=PASS'
+            [ordered]@{
+              product_sha=$env:PRODUCT_PARENT
+              static_document_text=$selected
+              static_document_outside_edit=$true
+              textpattern_selection_supported=$true
+              ctrl_c_exact_clipboard=$true
+              move_input_native_ctrl_a_ctrl_c=$true
+              discovery='connected provider roots from strict stage1_uia_topology_v5'
+              document_process_id=[int]$doc.Current.ProcessId
+              launched_process_id=$process.Id
+              human_tested=$false
+              nvda_verified=$false
+            }|ConvertTo-Json -Depth 4|Set-Content -Encoding UTF8 packaged-v2-document-copy-summary.json
+          } finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+          if(-not (Test-Path packaged-v2-document-copy-summary.json)){throw 'Packaged document-copy evidence missing'}
+          """
+
+          EXCLUDED_RUN = (
+              'Bind package identity to exact current Product and prior package lineage',
+              'Prove workflow-only delta and package authorities',
+          )
+
+          def parse_steps(text: str) -> list[dict[str, str]]:
+              lines = text.splitlines()
+              starts = [i for i, line in enumerate(lines) if line.startswith('      - name: ')]
+              starts.append(len(lines))
+              out = []
+              for pos in range(len(starts) - 1):
+                  begin, end = starts[pos], starts[pos + 1]
+                  block = lines[begin:end]
+                  name = block[0][len('      - name: '):]
+                  shell = ''
+                  run = ''
+                  for index, line in enumerate(block[1:], start=1):
+                      if line.startswith('        shell: '):
+                          shell = line[len('        shell: '):].strip()
+                      if line == '        run: |':
+                          payload = []
+                          for raw in block[index + 1:]:
+                              if raw.startswith('          '): payload.append(raw[10:])
+                              elif raw == '': payload.append('')
+                              else: raise SystemExit(f'Unexpected run-block indentation in {name!r}: {raw!r}')
+                          run = '\n'.join(payload) + '\n'
+                          break
+                  out.append({'name': name, 'shell': shell, 'run': run})
+              return out
+
+          def validate(steps):
+              by_name = {step['name']: step for step in steps}
+              inherited_run = tuple(step['name'] for step in steps if step['run'])
+              if inherited_run != EXCLUDED_RUN + PRE + POST:
+                  raise SystemExit(f'Inherited run-step sequence drifted: {inherited_run!r}')
+              return by_name
+
+          def bash_exe():
+              git = shutil.which('git')
+              root = Path(git).resolve().parent.parent
+              candidate = root / 'bin' / 'bash.exe'
+              if not candidate.is_file(): raise SystemExit('Git-for-Windows bash not found')
+              return str(candidate)
+
+          def run_step(index, step):
+              suffix = '.ps1' if step['shell'] == 'pwsh' else '.sh'
+              script = Path(f'.package-qualified-step-{index:02d}{suffix}')
+              script.write_text(step['run'], encoding='utf-8', newline='\n')
+              cmd = ['pwsh','-NoLogo','-NoProfile','-File',str(script)] if step['shell'] == 'pwsh' else [bash_exe(),'--noprofile','--norc','-e','-o','pipefail',str(script)]
+              print(f"INHERITED_QUALIFICATION_STEP_START={step['name']}", flush=True)
+              result = subprocess.run(cmd, cwd=Path.cwd(), env=os.environ.copy())
+              if result.returncode: raise SystemExit(f"Inherited qualification step failed: {step['name']} exit={result.returncode}")
+              print(f"INHERITED_QUALIFICATION_STEP_PASS={step['name']}", flush=True)
+
+          def main():
+              if len(sys.argv) != 2 or sys.argv[1] not in {'pre','post'}: raise SystemExit('usage: qualification_executor.py pre|post')
+              by_name = validate(parse_steps(SOURCE.read_text(encoding='utf-8')))
+              selected = PRE if sys.argv[1] == 'pre' else POST
+              for index, name in enumerate(selected, start=1):
+                  step = dict(by_name[name])
+                  if name == MENUBAR_STEP: step['run'] = MENUBAR_OVERRIDE
+                  if name == DOCUMENT_STEP: step['run'] = DOCUMENT_OVERRIDE
+                  run_step(index, step)
+              print(f'INHERITED_QUALIFICATION_{sys.argv[1].upper()}=PASS', flush=True)
+
+          if __name__ == '__main__': main()
+          '@ | Set-Content -LiteralPath .package-qualification-executor.py -Encoding utf8
+          python .package-qualification-executor.py pre
+          if($LASTEXITCODE -ne 0){throw 'Inherited pre-artifact qualification failed'}
+
+      - name: Upload post-freeze Windows package qualification artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: |
+            candidate-output/Accessible-Chess-V2-*-post-freeze-package-qualification.zip
+            packaged-uia-strict-summary.json
+            packaged-v2-current-native-menu-summary.json
+            packaged-v2-document-copy-summary.json
+            packaged-final-acceptance-summary.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Download uploaded package artifact for exact readback
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: artifact-readback
+
+      - name: Execute inherited post-upload readback and final checkpoint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python .package-qualification-executor.py post
+          if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}
