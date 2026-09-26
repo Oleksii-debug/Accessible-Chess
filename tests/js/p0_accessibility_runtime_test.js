@@ -93,6 +93,35 @@ async function run() {
     "same background dispatch duplicate should remain coalesced"
   );
 
+  // The final-product runtime is loaded after the Stage 1 inline script. It must
+  // preserve explicit event identity rather than reducing announce(message,eventId)
+  // back to message-only dedupe. A duplicate of event-1 remains a duplicate even
+  // when another event was published between the two emissions.
+  fakeWindow.announce("First explicit event", "event-1");
+  fakeWindow.announce("Interleaved explicit event", "event-2");
+  fakeWindow.announce("First explicit event", "event-1");
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "First explicit event").length,
+    1,
+    "interleaved duplicate emission from the same event must remain suppressed"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Interleaved explicit event").length,
+    1,
+    "the interleaved distinct event must still be exposed"
+  );
+
+  // Equal result text from two different explicit user events is not a duplicate.
+  fakeWindow.announce("Repeated explicit text", "event-3");
+  fakeWindow.announce("Repeated explicit text", "event-4");
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Repeated explicit text").length,
+    2,
+    "distinct explicit event identities must preserve repeated result text"
+  );
+
   assert.strictEqual(live.attributes.get("aria-busy"), "false");
   console.log("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS");
 }
