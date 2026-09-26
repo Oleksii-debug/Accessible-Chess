@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 from typing import Any
+
+# When this verifier is executed directly (``python scripts/...py``), Python
+# puts the scripts directory rather than the repository root on sys.path.
+# Keep the module import path identical for direct CLI use and package/test
+# imports so release qualification does not depend on the caller's PYTHONPATH.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.verify_p0_packaged_document_copy_evidence import (
     EvidenceError,
