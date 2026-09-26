@@ -223,6 +223,7 @@ class ClassroomCollaborationWebView:
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
+        self._removed_participant_ids: set[str] = set()
         self._prepared: dict[str, PreparedFile] = {}
 
     @property
@@ -287,6 +288,7 @@ class ClassroomCollaborationWebView:
 
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
         moderator = self._moderator()
+        sender_active = item.sender_id not in self._removed_participant_ids
         view: dict[str, object] = {
             "dom_id": "collaboration-message-" + sha256(item.message_id.encode("utf-8")).hexdigest()[:16],
             "sender": self._label(item.sender_id),
@@ -294,10 +296,13 @@ class ClassroomCollaborationWebView:
             "unread": item.message_id in self._unread_message_ids,
             "can_hide": moderator,
             "can_moderate_sender": (
-                moderator and item.sender_id != self._controller.local_participant_id
+                moderator
+                and sender_active
+                and item.sender_id != self._controller.local_participant_id
             ),
             "can_remove_sender": (
                 moderator
+                and sender_active
                 and self._participant_moderation is not None
                 and item.sender_id != self._controller.local_participant_id
             ),
@@ -519,6 +524,7 @@ class ClassroomCollaborationWebView:
             block=block,
             operation_id=self._id_factory("operation"),
         )
+        self._removed_participant_ids.add(message.sender_id)
         return self._event(
             "collaboration.participant.removed",
             announcement=_LABELS[self._language]["blocked" if block else "removed"],
