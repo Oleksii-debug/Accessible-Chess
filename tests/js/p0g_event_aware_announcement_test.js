@@ -192,6 +192,20 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     'same-event duplicate emission must remain suppressed'
   );
 
+  // Explicit event identity is not a passive anti-spam timer. The same event
+  // must remain deduplicated even after the 500 ms background window expires.
+  writes.length = 0;
+  const durableEventId = context.testNextEvent();
+  context.testAnnounce('Стійкий результат події', durableEventId);
+  await sleep(560);
+  context.testAnnounce('Стійкий результат події', durableEventId);
+  await sleep(110);
+  assert.deepStrictEqual(
+    writes,
+    ['', 'Стійкий результат події'],
+    'same explicit event must stay deduplicated beyond the passive 500 ms window'
+  );
+
   assert.strictEqual(attributes['aria-busy'], 'false');
   console.log('P0-G EVENT-AWARE ANNOUNCEMENT PASS');
 })().catch(error => {
