@@ -101,6 +101,14 @@ class ChallengeContractTests(unittest.TestCase):
                 ChallengeIntent("challenge-1", "bob", 1, "decline"),
             )
 
+    def test_challenge_intent_round_trip_is_content_bound(self) -> None:
+        intent = ChallengeIntent("challenge-1", "bob", 4, "accept")
+        self.assertEqual(ChallengeIntent.from_record(intent.to_record()), intent)
+        tampered = intent.to_record()
+        tampered["expected_revision"] = 5
+        with self.assertRaisesRegex(MultiplayerContractError, "intent id does not match"):
+            ChallengeIntent.from_record(tampered)
+
     def test_challenge_tracker_accepts_one_server_terminal_transition_and_is_idempotent(self) -> None:
         pending = ChallengeSnapshot("challenge-1", "alice", "bob", CONTROL)
         tracker = ChallengeSnapshotTracker(pending)
