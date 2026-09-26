@@ -9,6 +9,7 @@ on:
       - 'scripts/build_starter_content.py'
       - 'tests/test_p0f_starter_content.py'
       - 'docs/P0F_STARTER_CONTENT_PROVENANCE.md'
+      - 'run_accessible_chess_v2.py'
       - '.github/workflows/p0f-starter-content.yml'
 
 permissions:
@@ -44,6 +45,7 @@ jobs:
           acs/starter_content.py
           scripts/build_starter_content.py
           tests/test_p0f_starter_content.py
+          run_accessible_chess_v2.py
 
       - name: Run starter, ACSDB, and GameTree regressions
         run: >-
@@ -58,6 +60,9 @@ jobs:
           .p0f-smoke
           --starter-games 32
           --stress-games 64
+
+      - name: Prove final-product launcher sees packaged starter materials
+        run: python run_accessible_chess_v2.py --diagnostic
 
   default-volume:
     runs-on: ubuntu-22.04
