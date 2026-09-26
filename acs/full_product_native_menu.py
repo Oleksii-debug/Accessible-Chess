@@ -324,6 +324,23 @@ def install_full_product_windows_native_menu(
         top = ToolStripMenuItem(top_spec.label)
         for child in top_spec.items:
             top.DropDownItems.Add(item(child))
+
+        def refresh_live_captions(sender, event, menu_id=top_spec.menu_id, menu_item=top):
+            live = next(
+                (candidate for candidate in controller.spec() if candidate.menu_id == menu_id),
+                None,
+            )
+            if live is None:
+                return
+            controls = list(menu_item.DropDownItems)
+            if len(controls) != len(live.items):
+                return
+            for control, live_spec in zip(controls, live.items):
+                if live_spec.kind is not NativeMenuItemKind.SEPARATOR:
+                    control.Text = live_spec.label
+
+        handlers.append(refresh_live_captions)
+        top.DropDownOpening += refresh_live_captions
         menu.Items.Add(top)
 
     setattr(window, "_accessible_chess_native_menu", menu)
