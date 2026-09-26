@@ -414,14 +414,20 @@ class SoundPackInstallService:
             self.acquisition.acquire(entry, staging_parent=self.staging_parent)
         )
         try:
+            candidate = self.store._validate_staging(staging)
+            if candidate.pack_id != entry.pack_id or candidate.version != entry.version:
+                raise ValueError(
+                    "acquired sound pack identity does not match catalogue entry"
+                )
             manifest = self.store.install_from_staging(staging)
         finally:
             # Acquired staging is private scratch owned by this service.
             try:
-                if staging.is_dir() and self.staging_parent.resolve() in staging.resolve().parents:
+                if (
+                    staging.is_dir()
+                    and self.staging_parent.resolve() in staging.resolve().parents
+                ):
                     shutil.rmtree(staging)
             except Exception:
                 pass
-        if manifest.pack_id != entry.pack_id or manifest.version != entry.version:
-            raise ValueError("acquired sound pack identity does not match catalogue entry")
         return manifest
