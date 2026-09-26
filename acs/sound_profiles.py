@@ -31,7 +31,7 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
     "classroom.file_complete",
 )
 
-_ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
+_ALLOWED_AUDIO_SUFFIXES = {".wav"}
 _HEX = frozenset("0123456789abcdef")
 
 
@@ -70,7 +70,7 @@ def _safe_audio_path(value: object) -> str:
     if ":" in path.parts[0]:
         raise ValueError("sound file path must not contain a drive prefix")
     if path.suffix.lower() not in _ALLOWED_AUDIO_SUFFIXES:
-        raise ValueError("unsupported sound asset type")
+        raise ValueError("unsupported sound asset type; current Windows product requires WAV")
     return path.as_posix()
 
 
