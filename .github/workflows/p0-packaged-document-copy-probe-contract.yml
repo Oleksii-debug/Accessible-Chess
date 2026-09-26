@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
+
 jobs:
   contract:
     strategy:
@@ -28,14 +31,38 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
-      - name: Prove exact candidate identity
+      - name: Prove exact current Product identity and bounded scope
         shell: bash
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           actual="$(git rev-parse HEAD)"
-          test "$actual" = "$expected"
+          test "$actual" = "$expected" || {
+            printf 'Expected exact candidate %s, got %s\n' "$expected" "$actual" >&2
+            exit 1
+          }
+          base="$CURRENT_PRODUCT_BASE"
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.sha }}' = "$base" || {
+              printf 'Expected current Product base %s, PR base is %s\n' "$base" '${{ github.event.pull_request.base.sha }}' >&2
+              exit 1
+            }
+          fi
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/p0-packaged-document-copy-probe-contract.yml' \
+            'scripts/p0_packaged_document_copy_probe.ps1' \
+            'tests/test_p0_packaged_document_copy_probe.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected P0 document-copy probe scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
           echo "P0_DOCUMENT_COPY_CONTRACT_EXACT_HEAD=$actual"
+          echo "P0_DOCUMENT_COPY_CONTRACT_EXACT_BASE=$base"
       - name: Parse PowerShell helper
         shell: pwsh
         run: |
