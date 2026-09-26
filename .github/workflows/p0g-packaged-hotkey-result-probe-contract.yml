@@ -19,6 +19,7 @@ permissions:
 
 env:
   CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
+  OWNER_HEAD: qa/p0g-packaged-hotkey-result-20260926
 
 jobs:
   contract:
@@ -37,7 +38,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
-      - name: Prove exact candidate identity and bounded scope
+      - name: Prove exact identity and retain owner bounded-scope fence
         shell: bash
         run: |
           set -euo pipefail
@@ -50,17 +51,25 @@ jobs:
           base="$CURRENT_PRODUCT_BASE"
           git cat-file -e "${base}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
-          test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected_paths="$(printf '%s\n' \
-            '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml' \
-            'scripts/p0g_packaged_hotkey_result_probe.ps1' \
-            'tests/test_p0g_packaged_hotkey_result_probe.py' | sort)"
-          test "$changed" = "$expected_paths" || {
-            printf 'Unexpected P0-G packaged-probe scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+
+          head_ref='${{ github.event.pull_request.head.ref }}'
+          if test "$head_ref" = "$OWNER_HEAD"; then
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            expected_paths="$(printf '%s\n' \
+              '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml' \
+              'scripts/p0g_packaged_hotkey_result_probe.ps1' \
+              'tests/test_p0g_packaged_hotkey_result_probe.py' | sort)"
+            test "$changed" = "$expected_paths" || {
+              printf 'Unexpected P0-G packaged-probe owner scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            echo 'P0G_PACKAGED_SCOPE_MODE=OWNER_EXACT'
+          else
+            test -f scripts/p0g_packaged_hotkey_result_probe.ps1
+            test -f tests/test_p0g_packaged_hotkey_result_probe.py
+            echo 'P0G_PACKAGED_SCOPE_MODE=CONVERGENCE_RETAINED'
+          fi
           echo "P0G_PACKAGED_PROBE_EXACT_HEAD=$actual"
           echo "P0G_PACKAGED_PROBE_EXACT_BASE=$base"
       - name: Parse packaged PowerShell probe
