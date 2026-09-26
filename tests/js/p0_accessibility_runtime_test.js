@@ -55,7 +55,17 @@ const fakeWindow = {
   },
   render: async function () {},
   apiAction: async function () {},
-  announce: function () {}
+  announce: function () {},
+  AccessibleChessPgnSurface: Object.freeze({
+    render: function (_root, _snapshot, _invoke, announce) {
+      announce("Same product-surface result");
+    }
+  }),
+  AccessibleChessLibrarySurface: Object.freeze({
+    apply: function (_root, _event, _invoke, announce) {
+      announce("Same product-surface apply result");
+    }
+  })
 };
 
 vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math }, {
@@ -135,6 +145,29 @@ async function run() {
     nonEmptyLiveWrites.filter(value => value === "Repeated explicit text").length,
     2,
     "distinct explicit event identities must preserve repeated result text"
+  );
+
+  // Final-product surfaces are loaded before this P0 runtime and receive a local
+  // bootstrap callback. The runtime must replace only that surface callback with
+  // the one canonical event-aware queue so two equal user results remain two
+  // accessibility events. This must work for both render() and Library apply().
+  let staleCallbackCalls = 0;
+  const staleCallback = function () { staleCallbackCalls += 1; };
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
+  await new Promise(resolve => setTimeout(resolve, 260));
+  assert.strictEqual(staleCallbackCalls, 0, "product surfaces must not bypass the P0 event-aware queue");
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
+    2,
+    "two equal PGN/product user results must remain two live-region events"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same product-surface apply result").length,
+    2,
+    "two equal Library apply results must remain two live-region events"
   );
 
   assert.strictEqual(live.attributes.get("aria-busy"), "false");
