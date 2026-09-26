@@ -135,6 +135,24 @@ class LocalProfileIdentityTests(unittest.TestCase):
             self.assertFalse(path.exists())
             self.assertEqual(store.temporary_path.read_bytes(), original)
 
+    def test_fsynced_temp_is_preserved_when_final_replace_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "profile.json"
+            store = LocalProfileStore(path)
+            profile = LocalProfile("6" * 32, "Recoverable", False)
+            with patch("acs.local_profile.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    store.save(profile)
+            self.assertFalse(path.exists())
+            self.assertTrue(store.temporary_path.exists())
+
+            recovered = store.load_or_create()
+            self.assertEqual(recovered, profile)
+            self.assertEqual(
+                store.warning_code,
+                "profile_recovered_from_interrupted_save",
+            )
+
     def test_save_round_trip_leaves_no_temp(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "profile.json"
