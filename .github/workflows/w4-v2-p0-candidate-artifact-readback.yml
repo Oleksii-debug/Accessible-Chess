@@ -1,0 +1,141 @@
+name: W4 V2 P0 Candidate Artifact Readback
+
+on:
+  workflow_run:
+    workflows: ['W4 V2 P0 Fresh Windows Candidate']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: w4-v2-p0-candidate-readback-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  readback:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact workflow authority from completed run
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Resolve exact candidate artifact from completed W4 run
+        id: artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          repo=os.environ['REPO']
+          run=os.environ['RUN_ID']
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/actions/runs/{run}/artifacts?per_page=100',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              payload=json.load(response)
+          matches=[item for item in payload.get('artifacts', []) if item.get('name') == 'Accessible-Chess-V2-NVDA-test-candidate' and not item.get('expired')]
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one non-expired candidate artifact, found {len(matches)}')
+          item=matches[0]
+          digest=item.get('digest')
+          if not isinstance(digest, str) or not digest:
+              raise SystemExit('candidate artifact API digest missing')
+          out=os.environ['GITHUB_OUTPUT']
+          with open(out, 'a', encoding='utf-8') as stream:
+              stream.write(f"artifact_id={item['id']}\n")
+              stream.write(f"artifact_digest={digest}\n")
+          print(f"W4_READBACK_ARTIFACT_ID={item['id']}")
+          print(f"W4_READBACK_ARTIFACT_DIGEST={digest}")
+          PY
+
+      - name: Download raw outer artifact ZIP from exact completed run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, urllib.request
+          repo=os.environ['REPO']
+          artifact=os.environ['ARTIFACT_ID']
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/actions/artifacts/{artifact}/zip',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          opener=urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+          with opener.open(req, timeout=60) as response, open('candidate-artifact.zip', 'wb') as output:
+              while True:
+                  block=response.read(1024 * 1024)
+                  if not block:
+                      break
+                  output.write(block)
+          if os.path.getsize('candidate-artifact.zip') <= 0:
+              raise SystemExit('downloaded candidate artifact is empty')
+          print('W4_RAW_ARTIFACT_DOWNLOAD=PASS')
+          PY
+
+      - name: Bind readback to exact integrated Product SHA from candidate filename and manifest
+        id: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import io, json, os, re, zipfile
+          outer=zipfile.ZipFile('candidate-artifact.zip','r')
+          names=[name for name in outer.namelist() if name.endswith('-NVDA-test-candidate.zip')]
+          if len(names) != 1:
+              raise SystemExit(f'expected one candidate ZIP, found {len(names)}')
+          match=re.fullmatch(r'.*Accessible-Chess-V2-([0-9a-fA-F]{7})-NVDA-test-candidate\.zip', names[0])
+          if not match:
+              raise SystemExit('candidate filename lacks seven-hex Product prefix')
+          inner=zipfile.ZipFile(io.BytesIO(outer.read(names[0])),'r')
+          manifest=json.loads(inner.read('RELEASE_MANIFEST.json').decode('utf-8-sig'))
+          sha=str(manifest.get('integration_sha','')).lower()
+          if not re.fullmatch(r'[0-9a-f]{40}', sha):
+              raise SystemExit('manifest integration_sha is not exact 40-hex')
+          if not sha.startswith(match.group(1).lower()):
+              raise SystemExit('candidate filename Product prefix mismatches manifest')
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as stream:
+              stream.write(f'product_sha={sha}\n')
+          print(f'W4_READBACK_PRODUCT_SHA={sha}')
+          PY
+
+      - name: Independently verify outer artifact, inner package, checksums, P0-F and P0 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify_w4_candidate_artifact.py \
+            --artifact candidate-artifact.zip \
+            --product-sha '${{ steps.product.outputs.product_sha }}' \
+            --outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'
+          echo 'W4_EXACT_RUN_ARTIFACT_READBACK=PASS'
+          echo 'HUMAN_TESTED=NO'
+          echo 'NVDA_VERIFIED=NO'
