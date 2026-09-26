@@ -1,0 +1,315 @@
+# exact-package-reconvergence: 603caba / p0g 9b2c555 / p0-document 690fc85
+name: Post-freeze V2 Windows Package Qualification
+
+on:
+  push:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-freeze-v2-windows-package-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACKAGE_ANCHOR_SHA: 05dcceb312670242370da34d48413a0801c350e8
+  PRODUCT_PARENT_SHA: 603caba648a8452e3db1e514019713bdefd1516f
+  PREVIOUS_PACKAGE_SHA: 9e5b8dbf7f480b6eafdbbe6f11b94dc3fcc7a25f
+  PREVIOUS_WORKFLOW_BLOB_SHA: 1ec9dab21f6aa91127ccb06092c9b93fb7bf6aba
+  QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
+  PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
+  QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
+  WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
+  P0G_QA_SHA: 9b2c555163f29389915583350d9039d68bef87fc
+  P0G_PROBE_BLOB_SHA: 94697b6f6dcf621f0102cbd4a36591d21b0efef8
+  P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
+  P0_DOCUMENT_QA_SHA: 690fc855182d3d99a40d1bbd2516dd085aecec45
+  P0_DOCUMENT_PROBE_BLOB_SHA: 3fef48fd8834d547729b16d585bed6ceb5fe645c
+  P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+  STARTER_ZSTANDARD_VERSION: '0.23.0'
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+
+jobs:
+  qualify-package:
+    runs-on: windows-2025
+    timeout-minutes: 85
+    steps:
+      - name: Checkout exact package qualification child
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Bind current Product through preserved package anchor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$PACKAGE_ANCHOR_SHA^{commit}"
+          git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
+          git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
+          git cat-file -e "$P0G_QA_SHA^{commit}"
+          git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
+          test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^1")" = "$PRODUCT_PARENT_SHA"
+          test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^2")" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$PACKAGE_ANCHOR_SHA" HEAD)" = "$PACKAGE_ANCHOR_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" HEAD)" = "$PRODUCT_PARENT_SHA"
+          test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$P0G_QA_SHA")" = "$PRODUCT_PARENT_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$P0_DOCUMENT_QA_SHA")" = "$PRODUCT_PARENT_SHA"
+          changed="$(git diff --name-only "$PRODUCT_PARENT_SHA" HEAD)"
+          test "$changed" = "$QUALIFICATION_SOURCE_PATH"
+          git diff --check "$PRODUCT_PARENT_SHA" HEAD
+          if git cat-file -e "$PRODUCT_PARENT_SHA:$QUALIFICATION_SOURCE_PATH" 2>/dev/null; then
+            echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT_PARENT' >&2
+            exit 1
+          fi
+          config_blob="$(git rev-parse "$PRODUCT_PARENT_SHA:packaging/AccessibleChess.exe.config")"
+          test "$config_blob" = "$WINFORMS_ACCESSIBILITY_CONFIG_BLOB"
+          previous_blob="$(git rev-parse "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$previous_blob" = "$PREVIOUS_WORKFLOW_BLOB_SHA"
+          authority_blob="$(git rev-parse "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$authority_blob" = "$PRIOR_WORKFLOW_BLOB_SHA"
+          p0g_probe_blob="$(git rev-parse "$P0G_QA_SHA:$P0G_PROBE_PATH")"
+          test "$p0g_probe_blob" = "$P0G_PROBE_BLOB_SHA"
+          document_probe_blob="$(git rev-parse "$P0_DOCUMENT_QA_SHA:$P0_DOCUMENT_PROBE_PATH")"
+          test "$document_probe_blob" = "$P0_DOCUMENT_PROBE_BLOB_SHA"
+          git show "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH" > .previous-package-qualification.yml
+          git show "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH" > .package-qualification-source.yml
+          git show "$P0G_QA_SHA:$P0G_PROBE_PATH" > .p0g-packaged-hotkey-result-probe.ps1
+          git show "$P0_DOCUMENT_QA_SHA:$P0_DOCUMENT_PROBE_PATH" > .p0-packaged-document-copy-probe.ps1
+          test -s .previous-package-qualification.yml
+          test -s .package-qualification-source.yml
+          test -s .p0g-packaged-hotkey-result-probe.ps1
+          test -s .p0-packaged-document-copy-probe.ps1
+          grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .previous-package-qualification.yml
+          grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .previous-package-qualification.yml
+          grep -Fq "MENUBAR_OVERRIDE = r\"\"\"" .previous-package-qualification.yml
+          grep -Fq 'function EnsureEngineEnabled($EngineToggle)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function FindVariationButton($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function SelectedVariation($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'Could not establish opposite variation $opposite before Alt+$index' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'AccessibleChessP0GKeys]::Alt' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function AssertProductForeground($Process)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'foreground_product_verified=$true' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function AssertProviderFocus' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function ActivateProduct($Shell,$Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function AssertProductForeground($Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "AssertProviderFocus \$roots 'move input copy dispatch after Ctrl+A' 'move-input'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
+          short="${PRODUCT_PARENT_SHA:0:7}"
+          echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
+          echo "CANDIDATE_PRODUCT_SHA=$PRODUCT_PARENT_SHA"
+          echo "PACKAGE_ANCHOR_SHA=$PACKAGE_ANCHOR_SHA"
+          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
+          echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
+          echo "WINFORMS_ACCESSIBILITY_CONFIG_BLOB=$config_blob"
+          echo "P0G_QA_SHA=$P0G_QA_SHA"
+          echo "P0G_PROBE_BLOB=$p0g_probe_blob"
+          echo "P0_DOCUMENT_QA_SHA=$P0_DOCUMENT_QA_SHA"
+          echo "P0_DOCUMENT_PROBE_BLOB=$document_probe_blob"
+          echo 'PACKAGE_ANCHOR_PROVENANCE=PASS'
+          echo 'PINNED_ENV_RESTORED=PASS'
+          echo 'WINFORMS_ACCESSIBILITY_CONFIG_LOCK=PASS'
+          echo 'P0G_PROBE_AUTHORITY_LOCK=PASS'
+          echo 'P0_DOCUMENT_PROBE_AUTHORITY_LOCK=PASS'
+          echo 'WORKFLOW_ONLY_DELTA=PASS'
+          echo 'PRODUCT_SOURCE_MUTATION=NONE'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Bind canonical WinForms config into inherited standalone build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.package-qualification-source.yml')
+          text = path.read_text(encoding='utf-8')
+          needle = "          Write-Host 'STANDALONE_BUILD=PASS'"
+          if text.count(needle) != 1:
+              raise SystemExit(f'Inherited standalone build marker drifted: count={text.count(needle)}')
+          lines = [
+              "          $config=(Resolve-Path 'packaging\\AccessibleChess.exe.config').Path",
+              "          $target=Join-Path $dist 'AccessibleChess.exe.config'",
+              "          Copy-Item -LiteralPath $config -Destination $target -Force",
+              "          if(-not (Test-Path -LiteralPath $target -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}",
+              "          if((Get-Item -LiteralPath $target).Length -le 0){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_EMPTY'}",
+              "          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $config).Hash",
+              "          $targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash",
+              "          if($sourceHash -ne $targetHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}",
+              "          Write-Host \"STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$($targetHash.ToLowerInvariant())\"",
+          ]
+          replacement = '\n'.join(lines + [needle])
+          patched = text.replace(needle, replacement, 1)
+          path.write_text(patched, encoding='utf-8', newline='\n')
+          if 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS' not in path.read_text(encoding='utf-8'):
+              raise SystemExit('Inherited standalone build app-config patch missing after write')
+          print('INHERITED_STANDALONE_APPCONFIG_BIND=PASS')
+          PY
+
+      - name: Execute exact previous topology-aware pre-artifact executor with restored pins
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from pathlib import Path
+
+          source = Path('.previous-package-qualification.yml').read_text(encoding='utf-8')
+          wanted = 'Materialize exact inherited qualification executor'
+          lines = source.splitlines()
+          starts = [i for i, line in enumerate(lines) if line.startswith('      - name: ')]
+          starts.append(len(lines))
+          run = None
+          for pos in range(len(starts) - 1):
+              begin, end = starts[pos], starts[pos + 1]
+              block = lines[begin:end]
+              if block[0][len('      - name: '):] != wanted:
+                  continue
+              for index, line in enumerate(block[1:], start=1):
+                  if line == '        run: |':
+                      payload = []
+                      for raw in block[index + 1:]:
+                          if raw.startswith('          '):
+                              payload.append(raw[10:])
+                          elif raw == '':
+                              payload.append('')
+                          else:
+                              raise SystemExit(f'Unexpected inherited run-block indentation: {raw!r}')
+                      run = '\n'.join(payload) + '\n'
+                      break
+              break
+          if run is None:
+              raise SystemExit(f'Previous package step not found: {wanted}')
+          required = (
+              "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'",
+              'connected provider roots from strict stage1_uia_topology_v5',
+              "if name == DOCUMENT_STEP: step['run'] = DOCUMENT_OVERRIDE",
+              "python .package-qualification-executor.py pre",
+          )
+          for token in required:
+              if token not in run:
+                  raise SystemExit(f'Previous topology-aware executor drifted: missing {token!r}')
+          start_token = 'DOCUMENT_OVERRIDE = r"""'
+          start = run.find(start_token)
+          if start < 0:
+              raise SystemExit('Previous document override start marker missing')
+          end = run.find('\n"""', start + len(start_token))
+          if end < 0:
+              raise SystemExit('Previous document override end marker missing')
+          end += len('\n"""')
+          replacement = '''DOCUMENT_OVERRIDE = r"""$ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath 'fresh-extraction\\AccessibleChess' -PathType Container)){throw 'Fresh extracted Product missing before hardened document-copy proof'}
+          if(-not (Test-Path -LiteralPath '.v2-uia-evidence\\stage1_uia_topology_v5.ps1' -PathType Leaf)){throw 'Strict retained UIA topology helper missing before hardened document-copy proof'}
+          if(-not (Test-Path -LiteralPath '.p0-packaged-document-copy-probe.ps1' -PathType Leaf)){throw 'Pinned hardened document-copy probe missing'}
+          & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .p0-packaged-document-copy-probe.ps1 -ProductRoot 'fresh-extraction\\AccessibleChess' -ProductSha $env:PRODUCT_PARENT -TopologyScript '.v2-uia-evidence\\stage1_uia_topology_v5.ps1' -OutputPath 'packaged-v2-document-copy-summary.json' -TimeoutSeconds 60
+          if($LASTEXITCODE -ne 0){throw "Hardened packaged document-copy probe failed exit=$LASTEXITCODE"}
+          if(-not (Test-Path -LiteralPath 'packaged-v2-document-copy-summary.json' -PathType Leaf)){throw 'Hardened packaged document-copy evidence missing'}
+          $summary=Get-Content -LiteralPath 'packaged-v2-document-copy-summary.json' -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Hardened document-copy summary Product SHA mismatch'}
+          if(-not [bool]$summary.static_document_outside_edit -or -not [bool]$summary.textpattern_selection_supported){throw 'Hardened document-copy semantic selection proof incomplete'}
+          if([string]$summary.document_provider_cardinality -ne 'exactly one selectable Accessible Chess document containing stable static target text'){throw 'Hardened document-copy provider cardinality proof incomplete'}
+          if(-not [bool]$summary.ctrl_c_exact_clipboard -or -not [bool]$summary.native_copy_focus_verified -or -not [bool]$summary.foreground_product_verified){throw 'Hardened native Ctrl+C focus/foreground/copy proof incomplete'}
+          if(-not [bool]$summary.move_input_native_ctrl_a_ctrl_c -or -not [bool]$summary.move_input_focus_verified){throw 'Hardened Move Input focus/copy proof incomplete'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine document-copy evidence must not claim physical NVDA acceptance'}
+          Write-Host 'PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS'
+          """'''
+          run = run[:start] + replacement + run[end:]
+          if 'if($last.Trim() -eq $expected.Trim())' in run:
+              raise SystemExit('Stale trimmed clipboard comparison survived document override replacement')
+          if run.count('PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS') != 1:
+              raise SystemExit('Hardened document override replacement count mismatch')
+          Path('.previous-materialize-and-pre.ps1').write_text(run, encoding='utf-8', newline='\n')
+          '@ | Set-Content -LiteralPath .extract-previous-package-pre.py -Encoding utf8
+          python .extract-previous-package-pre.py
+          if($LASTEXITCODE -ne 0){throw 'Exact previous package executor extraction failed'}
+          & pwsh -NoLogo -NoProfile -File .previous-materialize-and-pre.ps1
+          if($LASTEXITCODE -ne 0){throw 'Inherited topology-aware pre-artifact qualification failed'}
+
+      - name: Prove packaged P0-G Alt+1 Alt+2 accessible results
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath 'fresh-extraction\AccessibleChess' -PathType Container)){throw 'Fresh extracted Product missing before P0-G proof'}
+          if(-not (Test-Path -LiteralPath '.v2-uia-evidence\stage1_uia_topology_v5.ps1' -PathType Leaf)){throw 'Strict retained UIA topology helper missing before P0-G proof'}
+          & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .p0g-packaged-hotkey-result-probe.ps1 -ProductRoot 'fresh-extraction\AccessibleChess' -ProductSha $env:PRODUCT_PARENT -TopologyScript '.v2-uia-evidence\stage1_uia_topology_v5.ps1' -OutputPath 'packaged-p0g-hotkey-result-summary.json' -TimeoutSeconds 60
+          if($LASTEXITCODE -ne 0){throw "Packaged P0-G hotkey-result probe failed exit=$LASTEXITCODE"}
+          if(-not (Test-Path -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -PathType Leaf)){throw 'Packaged P0-G summary missing'}
+          $summary=Get-Content -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Packaged P0-G summary Product SHA mismatch'}
+          if(-not [bool]$summary.native_keyboard_dispatch){throw 'Packaged P0-G did not prove native keyboard dispatch'}
+          if(-not [bool]$summary.foreground_product_verified){throw 'Packaged P0-G did not prove AccessibleChess.exe was the foreground native-key target'}
+          if(-not [string]$summary.alt_1_precondition_selected_state -or -not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed){throw 'Alt+1 causal selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if(-not [string]$summary.alt_2_precondition_selected_state -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Alt+2 causal selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if([bool]$summary.board_application_entered){throw 'P0-G probe entered role=application unexpectedly'}
+          if([bool]$summary.raw_uci_or_debug_exposed){throw 'P0-G probe exposed raw engine/provider/debug text'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine P0-G evidence must not claim physical NVDA acceptance'}
+          Write-Host 'PACKAGED_P0G_CAUSAL_SELECTED_STATE_ACTION_OCCURRED_ACCESSIBLE_RESULT_EXPOSED=PASS'
+
+      - name: Upload post-freeze Windows package qualification artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: |
+            candidate-output/Accessible-Chess-V2-*-post-freeze-package-qualification.zip
+            packaged-uia-strict-summary.json
+            packaged-v2-current-native-menu-summary.json
+            packaged-v2-document-copy-summary.json
+            packaged-p0g-hotkey-result-summary.json
+            packaged-final-acceptance-summary.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Download uploaded package artifact for exact readback
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: artifact-readback
+
+      - name: Verify packaged P0-G evidence survived artifact readback byte-for-byte
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path -LiteralPath 'packaged-p0g-hotkey-result-summary.json').Path
+          $readback=(Resolve-Path -LiteralPath 'artifact-readback\packaged-p0g-hotkey-result-summary.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Packaged P0-G evidence changed across upload/download readback'}
+          $summary=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Readback P0-G evidence Product SHA mismatch'}
+          if(-not [bool]$summary.foreground_product_verified){throw 'Readback P0-G evidence did not preserve foreground Product proof'}
+          if(-not [string]$summary.alt_1_precondition_selected_state -or -not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed -or -not [string]$summary.alt_2_precondition_selected_state -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Readback P0-G causal selected-state acceptance fields incomplete'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Readback evidence fabricated human/NVDA acceptance'}
+          Write-Host "PACKAGED_P0G_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant())"
+
+      - name: Execute inherited post-upload readback and final checkpoint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath .package-qualification-executor.py -PathType Leaf)){throw 'Inherited qualification executor missing before post-readback'}
+          python .package-qualification-executor.py post
+          if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}
