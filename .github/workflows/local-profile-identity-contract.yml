@@ -1,0 +1,66 @@
+name: Local Profile Identity Contract
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/local_profile.py'
+      - 'tests/test_local_profile_identity.py'
+      - '.github/workflows/local-profile-identity-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-profile-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact local-profile scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='${{ github.event.pull_request.base.sha }}'
+          mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/local-profile-identity-contract.yml'
+            'acs/local_profile.py'
+            'tests/test_local_profile_identity.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected local-profile PR scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'LOCAL_PROFILE_IDENTITY_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile local profile identity boundary
+        run: >-
+          python -m py_compile
+          acs/local_profile.py
+          tests/test_local_profile_identity.py
+
+      - name: Run local profile identity contract
+        run: python -m unittest -v tests.test_local_profile_identity
