@@ -13,8 +13,10 @@ ORACLE = ROOT / "tests" / "js" / "p0g_event_aware_announcement_test.js"
 class P0GAccessibleResultsReleaseQualificationTests(unittest.TestCase):
     def test_canonical_event_aware_result_oracle_passes(self) -> None:
         node = shutil.which("node")
-        if node is None:
-            self.skipTest("Node.js is unavailable; canonical P0-G JS oracle cannot execute")
+        self.assertIsNotNone(
+            node,
+            "Node.js is required for release qualification; the canonical P0-G JS oracle must execute",
+        )
 
         result = subprocess.run(
             [node, str(ORACLE)],
