@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import tempfile
 from typing import Any
@@ -43,6 +44,10 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _canonical_distribution_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).casefold()
 
 
 def _safe_flat_file(value: object, *, label: str) -> str:
@@ -103,10 +108,10 @@ def _load_inventory(root: Path) -> tuple[Path, dict[str, Any], tuple[Path, ...]]
         distribution = row.get("distribution")
         if not isinstance(distribution, str) or not distribution.strip():
             raise RuntimeDependencyReleaseError("runtime notice distribution name is invalid")
-        folded = distribution.strip().casefold()
-        if folded in distributions:
+        canonical = _canonical_distribution_name(distribution.strip())
+        if canonical in distributions:
             raise RuntimeDependencyReleaseError("runtime notice distributions contain duplicates")
-        distributions.add(folded)
+        distributions.add(canonical)
         notices = row.get("notice_files")
         if not isinstance(notices, list) or not notices:
             raise RuntimeDependencyReleaseError(
