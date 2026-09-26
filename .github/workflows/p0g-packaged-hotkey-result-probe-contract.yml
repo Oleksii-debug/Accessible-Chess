@@ -1,0 +1,93 @@
+name: P0-G Packaged Hotkey Result Probe Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
+      - 'tests/test_p0g_packaged_hotkey_result_probe.py'
+      - '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml'
+  push:
+    branches:
+      - qa/p0g-packaged-hotkey-result-20260926
+    paths:
+      - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
+      - 'tests/test_p0g_packaged_hotkey_result_probe.py'
+      - '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml'
+
+permissions:
+  contents: read
+
+env:
+  CURRENT_PRODUCT_BASE: cadbbba94858f38d5094ccf026c92b5043ddb7b4
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Prove exact candidate identity and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || {
+            printf 'Expected exact candidate %s, got %s\n' "$expected" "$actual" >&2
+            exit 1
+          }
+          base="$CURRENT_PRODUCT_BASE"
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.sha }}' = "$base" || {
+              printf 'Expected Product base %s, PR base is %s\n' "$base" '${{ github.event.pull_request.base.sha }}' >&2
+              exit 1
+            }
+          fi
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml' \
+            'scripts/p0g_packaged_hotkey_result_probe.ps1' \
+            'tests/test_p0g_packaged_hotkey_result_probe.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected P0-G packaged-probe scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          echo "P0G_PACKAGED_PROBE_EXACT_HEAD=$actual"
+          echo "P0G_PACKAGED_PROBE_EXACT_BASE=$base"
+      - name: Parse packaged PowerShell probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/p0g_packaged_hotkey_result_probe.ps1').Path,
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if($errors.Count -ne 0){
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell probe parse errors: $($errors.Count)"
+          }
+          Write-Host 'P0G_PACKAGED_POWERSHELL_PARSE=PASS'
+      - name: Compile and run bounded probe contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/test_p0g_packaged_hotkey_result_probe.py
+          python -m unittest -v tests.test_p0g_packaged_hotkey_result_probe
