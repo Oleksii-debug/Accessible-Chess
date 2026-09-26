@@ -33,7 +33,24 @@ _EXPECTED_FILES = frozenset(
     {"starter_uk.pgn", "stress_uk.pgn", "sample_library.acsdb", "manifest.json"}
 )
 _REQUIRED_PAYLOAD_FILES = ("starter_uk.pgn", "stress_uk.pgn", "sample_library.acsdb")
+_CORPUS_NAME = "lichess-standard-rated-2013-01"
+_CORPUS_URL = "https://database.lichess.org/standard/lichess_db_standard_rated_2013-01.pgn.zst"
+_CORPUS_SHA256 = "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635"
 _CORPUS_LICENSE_ID = "CC0-1.0"
+_CORPUS_PUBLISHED_GAMES = 121_332
+_CURATION_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
+_CURATION_PARSER = "acs.pgn_roundtrip.parse_pgn_text(strict=True)"
+_CURATION_CRITERIA = {
+    "minimum_plies": 20,
+    "valid_results": ["0-1", "1-0", "1/2-1/2"],
+    "required_metadata": ["Event", "White", "Black"],
+    "result_minimums": {"1-0": 20, "0-1": 20, "1/2-1/2": 8},
+    "length_band_minimums": {"20-59": 20, "60-99": 20, "100+": 8},
+    "minimum_distinct_opening_prefixes": 12,
+    "opening_prefix_plies": 4,
+    "maximum_scanned_games": 5000,
+}
+_MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 _EXPECTED_PAYLOAD_LICENSES = {
     "starter_uk.pgn": _CORPUS_LICENSE_ID,
     "stress_uk.pgn": CONTENT_LICENSE_ID,
@@ -114,13 +131,84 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
     return True
 
 
-def _sha256(path: Path) -> str:
-    _safe_file(path, label="packaged starter content file")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _identity_pinned_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytes:
+    before = _safe_file(path, label=label)
+    if before.st_size > maximum_bytes:
+        raise RuntimeError(f"{label} exceeds the safe size limit")
+    try:
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if _is_reparse(opened) or not stat.S_ISREG(opened.st_mode):
+                raise RuntimeError(f"{label} opened object is not a regular file")
+            if not _same_file_identity(before, opened):
+                raise RuntimeError(f"{label} changed before verified read")
+            payload = handle.read(maximum_bytes + 1)
+            opened_after = os.fstat(handle.fileno())
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError(f"{label} cannot be read") from exc
+    after = _safe_file(path, label=label)
+    if not _same_file_identity(opened, opened_after) or not _same_file_identity(opened, after):
+        raise RuntimeError(f"{label} changed during verified read")
+    if len(payload) > maximum_bytes or len(payload) != opened_after.st_size or len(payload) != after.st_size:
+        raise RuntimeError(f"{label} changed size during verified read")
+    return payload
+
+
+def _validate_manifest_authority(manifest: Mapping[str, object], starter_count: int) -> None:
+    source = manifest.get("starter_source")
+    if not isinstance(source, Mapping):
+        raise RuntimeError("packaged starter source authority is unavailable")
+    expected_source = {
+        "name": _CORPUS_NAME,
+        "url": _CORPUS_URL,
+        "license_id": _CORPUS_LICENSE_ID,
+        "published_games": _CORPUS_PUBLISHED_GAMES,
+        "compressed_sha256": _CORPUS_SHA256,
+        "selection": _CURATION_POLICY_ID,
+        "selected_games": starter_count,
+    }
+    for key, expected in expected_source.items():
+        if source.get(key) != expected:
+            raise RuntimeError(f"packaged starter source authority failed for {key}")
+    compressed_bytes = source.get("compressed_bytes")
+    subset_sha256 = source.get("subset_sha256")
+    if type(compressed_bytes) is not int or compressed_bytes < 1:
+        raise RuntimeError("packaged starter source compressed byte evidence is invalid")
+    if type(subset_sha256) is not str or len(subset_sha256) != 64:
+        raise RuntimeError("packaged starter source subset_sha256 evidence is invalid")
+
+    curation = source.get("curation")
+    if not isinstance(curation, Mapping):
+        raise RuntimeError("packaged starter curation evidence is unavailable")
+    if curation.get("policy_id") != _CURATION_POLICY_ID:
+        raise RuntimeError("packaged starter curation policy authority is invalid")
+    if curation.get("parser") != _CURATION_PARSER:
+        raise RuntimeError("packaged starter curation parser authority is invalid")
+    if curation.get("criteria") != _CURATION_CRITERIA:
+        raise RuntimeError("packaged starter curation criteria authority is invalid")
+    selected_games = curation.get("selected_games")
+    if not isinstance(selected_games, list) or len(selected_games) != starter_count:
+        raise RuntimeError("packaged starter selected_games evidence is invalid")
+    for selected in selected_games:
+        record_sha256 = selected.get("record_sha256") if isinstance(selected, Mapping) else None
+        if type(record_sha256) is not str or len(record_sha256) != 64:
+            raise RuntimeError("packaged starter record_sha256 evidence is invalid")
+
+    sample_library = manifest.get("sample_library")
+    if not isinstance(sample_library, Mapping):
+        raise RuntimeError("packaged starter sample_library evidence is unavailable")
+    games = sample_library.get("games")
+    distinct_games = sample_library.get("distinct_games")
+    distinct_player_pairs = sample_library.get("distinct_player_pairs")
+    distinct_events = sample_library.get("distinct_events")
+    if games != starter_count or distinct_games != starter_count:
+        raise RuntimeError("packaged starter sample_library game evidence is invalid")
+    if type(distinct_player_pairs) is not int or distinct_player_pairs < 20:
+        raise RuntimeError("packaged starter sample_library player diversity is invalid")
+    if type(distinct_events) is not int or distinct_events < 1:
+        raise RuntimeError("packaged starter sample_library event diversity is invalid")
 
 
 def _load_manifest(root: Path) -> dict[str, object]:
@@ -137,13 +225,18 @@ def _load_manifest(root: Path) -> dict[str, object]:
 
     manifest_path = root / "manifest.json"
     try:
+        manifest_bytes = _identity_pinned_bytes(
+            manifest_path,
+            label="packaged starter content manifest",
+            maximum_bytes=_MANIFEST_MAX_BYTES,
+        )
         manifest = json.loads(
-            manifest_path.read_text(encoding="utf-8"),
+            manifest_bytes.decode("utf-8", errors="strict"),
             object_pairs_hook=_unique_manifest_object,
         )
     except _DuplicateManifestKeyError as exc:
         raise RuntimeError("packaged starter content manifest contains duplicate keys") from exc
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("packaged starter content manifest is unreadable") from exc
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 3:
         raise RuntimeError("packaged starter content manifest schema is invalid")
@@ -161,12 +254,7 @@ def _load_manifest(root: Path) -> dict[str, object]:
         raise RuntimeError("packaged starter content has fewer than 200 starter games")
     if type(stress_count) is not int or stress_count <= starter_count:
         raise RuntimeError("packaged starter stress corpus is not larger than the starter corpus")
-
-    source = manifest.get("starter_source")
-    if not isinstance(source, dict) or source.get("license_id") != _CORPUS_LICENSE_ID:
-        raise RuntimeError("packaged starter source license is invalid")
-    if source.get("selected_games") != starter_count:
-        raise RuntimeError("packaged starter source count does not match the manifest")
+    _validate_manifest_authority(manifest, starter_count)
 
     licenses = manifest.get("licenses")
     if not isinstance(licenses, Mapping):
@@ -183,8 +271,6 @@ def _load_manifest(root: Path) -> dict[str, object]:
         raise RuntimeError("packaged starter content payload manifest is invalid")
     for name in _REQUIRED_PAYLOAD_FILES:
         metadata = files.get(name)
-        path = root / name
-        info = _safe_file(path, label="packaged starter content payload")
         if not isinstance(metadata, Mapping):
             raise RuntimeError("packaged starter content file metadata is invalid")
         if metadata.get("license_id") != _EXPECTED_PAYLOAD_LICENSES[name]:
@@ -195,8 +281,7 @@ def _load_manifest(root: Path) -> dict[str, object]:
             raise RuntimeError("packaged starter content hash metadata is invalid")
         if type(expected_bytes) is not int or expected_bytes < 1:
             raise RuntimeError("packaged starter content byte metadata is invalid")
-        if info.st_size != expected_bytes or _sha256(path) != expected_hash.casefold():
-            raise RuntimeError(f"packaged starter content integrity failed for {name}")
+        _verified_payload_bytes(root, manifest, name, label="packaged starter content payload")
     return manifest
 
 
