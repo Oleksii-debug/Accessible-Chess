@@ -260,6 +260,24 @@ class CurrentVisualPacksTests(unittest.TestCase):
             self.assertEqual(resolved.effective_board_theme_id, "classic")
             self.assertTrue(resolved.board_fallback_used)
 
+    def test_damaged_pack_can_be_uninstalled_without_trusting_its_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            store = VisualPackStore(Path(raw) / "packs")
+            manifest, payloads = _board_manifest()
+            installed = store.install(manifest, payloads)
+            (installed / "board" / "light.png").write_bytes(b"tampered")
+            with self.assertRaises(VisualPackStoreError):
+                store.verify(manifest)
+            self.assertTrue(
+                store.uninstall(manifest.kind, manifest.pack_id, manifest.version)
+            )
+            self.assertFalse(installed.exists())
+            effective = store.effective_preferences(
+                BoardVisualPreferences(board_theme_id=manifest.pack_id)
+            )
+            self.assertEqual(effective.effective_board_theme_id, "classic")
+            self.assertTrue(effective.board_fallback_used)
+
     def test_uninstall_causes_builtin_fallback_and_builtin_is_immutable(self):
         with tempfile.TemporaryDirectory() as raw:
             store = VisualPackStore(Path(raw) / "packs")
