@@ -7,7 +7,10 @@ on:
   pull_request:
     paths:
       - 'acs/version2_upgrade.py'
+      - 'acs/version2_upgrade_base.py'
+      - 'acs/legacy_library_migration.py'
       - 'acs/settings.py'
+      - 'tests/test_v2_upgrade_schema0_integration.py'
       - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
       - 'tests/test_v2_upgrade_publish_race_audit.py'
       - '.github/workflows/v2-data-upgrade-v6.yml'
@@ -33,13 +36,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@v5
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12'
+          python-version: '3.12.10'
       - name: Exact owner ancestry and Product immutability
         shell: bash
         run: |
@@ -49,6 +58,9 @@ jobs:
           git diff --check "$DATA_OWNER" HEAD -- \
             acs/settings.py \
             acs/version2_upgrade.py \
+            acs/version2_upgrade_base.py \
+            acs/legacy_library_migration.py \
+            tests/test_v2_upgrade_schema0_integration.py \
             tests/test_v2_upgrade_publish_race_audit.py \
             tests/test_v2_upgrade_tracked_writer_conflict.py
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$D07_V6_BLOB"
@@ -60,15 +72,19 @@ jobs:
             }
           done <<'LOCKS'
           acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
-          acs/version2_upgrade.py=b92a2c75e23ffb5944b1a3a758e20c56da34315f
+          acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
+          acs/version2_upgrade_base.py=e290325edb205e29450986b0341d3b1b20fae214
+          acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
+          tests/test_v2_upgrade_schema0_integration.py=cf54c75ae464176a9afd9e4a7d91d1cd565bd8e5
           tests/test_v2_upgrade_publish_race_audit.py=b70d5fa08dae643c9c1a082d7abe98d913d8678a
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           LOCKS
       - name: Compile
         run: python -m compileall -q acs tests
-      - name: Existing upgrade regressions
+      - name: Existing upgrade and schema-0 regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_upgrade_schema0_integration
           tests.test_v2_upgrade_v6_successor
           tests.test_version2_upgrade
           tests.test_version2_upgrade_recovery_integrity
@@ -82,13 +98,19 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 55
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@v5
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12'
+          python-version: '3.12.10'
       - name: Install verification dependency
         run: python -m pip install -q pytest==8.4.2
       - name: Full unittest

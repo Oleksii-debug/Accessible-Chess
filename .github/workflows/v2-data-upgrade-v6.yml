@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - 'acs/version2_upgrade.py'
+      - 'acs/version2_upgrade_base.py'
+      - 'acs/legacy_library_migration.py'
       - 'acs/settings.py'
       - 'tests/test_version2_upgrade.py'
       - 'tests/test_version2_upgrade_stale_writer.py'
@@ -15,6 +17,7 @@ on:
       - 'tests/test_v2_upgrade_current_acsdb_identity_audit.py'
       - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
       - 'tests/test_v2_upgrade_publish_race_audit.py'
+      - 'tests/test_v2_upgrade_schema0_integration.py'
       - '.github/workflows/v2-data-upgrade-v6.yml'
       - '.github/workflows/v2-data-upgrade-tracked-writer.yml'
 
@@ -38,10 +41,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
       - name: Normalize worktree to canonical Git bytes
         shell: bash
         run: |
@@ -49,9 +58,9 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12'
+          python-version: '3.12.10'
       - name: Install verification dependency
         run: python -m pip install -q pytest==8.4.2
       - name: Exact data-owner ancestry and immutable Product/test locks
@@ -64,10 +73,13 @@ jobs:
           git diff --check "$DATA_OWNER" HEAD -- \
             acs/settings.py \
             acs/version2_upgrade.py \
+            acs/version2_upgrade_base.py \
+            acs/legacy_library_migration.py \
             tests/test_v2_upgrade_current_acsdb_identity_audit.py \
             tests/test_v2_upgrade_publish_race_audit.py \
             tests/test_v2_upgrade_tracked_writer_conflict.py \
             tests/test_v2_upgrade_v6_successor.py \
+            tests/test_v2_upgrade_schema0_integration.py \
             tests/test_version2_upgrade.py \
             tests/test_version2_upgrade_recovery_integrity.py \
             tests/test_version2_upgrade_stale_writer.py
@@ -79,20 +91,24 @@ jobs:
             }
           done <<'LOCKS'
           acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
-          acs/version2_upgrade.py=b92a2c75e23ffb5944b1a3a758e20c56da34315f
+          acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
+          acs/version2_upgrade_base.py=e290325edb205e29450986b0341d3b1b20fae214
+          acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_current_acsdb_identity_audit.py=931e02d1cbcea667df8a857b413c343ee19770f8
           tests/test_v2_upgrade_publish_race_audit.py=b70d5fa08dae643c9c1a082d7abe98d913d8678a
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           tests/test_v2_upgrade_v6_successor.py=163abc29f7c2709fdab3851c32fc710b3fcf4ddf
+          tests/test_v2_upgrade_schema0_integration.py=cf54c75ae464176a9afd9e4a7d91d1cd565bd8e5
           tests/test_version2_upgrade.py=649d08af5ad99d6f3588ed5293d8cc6b573a5e12
           tests/test_version2_upgrade_recovery_integrity.py=25a2c79060fd152c7efaff5ac094e7a357b0ddc9
           tests/test_version2_upgrade_stale_writer.py=c3967104ec33827a6027ce0f0af1ba5a18a04744
           LOCKS
       - name: Compile
         run: python -m compileall -q acs tests run_accessible_chess.py
-      - name: Focused V1 to V2 upgrade and D07 v6 integrity regressions
+      - name: Focused V1 to V2 upgrade, schema-0, and D07 v6 integrity regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_upgrade_schema0_integration
           tests.test_v2_upgrade_current_acsdb_identity_audit
           tests.test_v2_upgrade_v6_successor
           tests.test_v2_upgrade_publish_race_audit
@@ -111,13 +127,19 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 55
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@v5
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12'
+          python-version: '3.12.10'
       - name: Install verification dependency
         run: python -m pip install -q pytest==8.4.2
       - name: Full unittest
