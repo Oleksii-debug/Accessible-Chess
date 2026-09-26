@@ -1,0 +1,72 @@
+name: Classroom Realtime Media Contract
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/classroom_realtime_media.py'
+      - 'tests/test_classroom_realtime_media.py'
+      - '.github/workflows/classroom-realtime-media-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-realtime-media-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact realtime-media scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='${{ github.event.pull_request.base.sha }}'
+          mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-realtime-media-contract.yml'
+            'acs/classroom_realtime_media.py'
+            'tests/test_classroom_realtime_media.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected realtime-media PR scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'CLASSROOM_REALTIME_MEDIA_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile realtime-media boundary
+        run: >-
+          python -m py_compile
+          acs/classroom_realtime_media.py
+          tests/test_classroom_realtime_media.py
+
+      - name: Run realtime-media and adjacent remote contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_realtime_media
+          tests.test_remote_session
+          tests.test_dev1_classroom_remote_ui
+          tests.test_teaching_classroom_adapter
+          tests.test_teaching_classroom_floor_control
