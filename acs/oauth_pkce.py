@@ -9,7 +9,7 @@ surface and transport adapter.
 """
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import base64
 import hashlib
 import secrets
@@ -144,9 +144,9 @@ class AuthorizationRequest:
     client_id: str
     redirect_uri: str
     scopes: tuple[str, ...]
-    state: str
-    nonce: str
-    code_verifier: str
+    state: str = field(repr=False)
+    nonce: str = field(repr=False)
+    code_verifier: str = field(repr=False)
 
     @classmethod
     def create(
