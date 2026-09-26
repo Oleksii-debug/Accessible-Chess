@@ -84,8 +84,7 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("account_id=acct-8", output)
 
     def test_quoted_assignment_with_escaped_quote_redacts_the_entire_value(self) -> None:
-        raw = r'password="correct \"horse\" battery" account_id=acct-esc'
-        raw = raw.replace('password=\\"', 'password="', 1)
+        raw = 'password="correct \\"horse\\" battery" account_id=acct-esc'
         output = redact_text(raw)
         self.assertNotIn("correct", output)
         self.assertNotIn("horse", output)
@@ -94,14 +93,14 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("account_id=acct-esc", output)
 
     def test_json_like_secret_with_escaped_quote_redacts_the_entire_value(self) -> None:
-        raw = r'''payload={"access_token":"prefix\"escaped-token-tail","account_id":"acct-json"}'''
+        raw = '{"access_token":"prefix\\"escaped-token-tail","account_id":"acct-json"}'
         output = redact_text(raw)
         self.assertNotIn("prefix", output)
         self.assertNotIn("escaped-token-tail", output)
         self.assertIn('"access_token":"' + REDACTED + '"', output)
         self.assertIn('"account_id":"acct-json"', output)
 
-        single = r'''payload={'client_secret':'first\'secret-tail','account_id':'acct-single'}'''
+        single = "payload={'client_secret':'first\\'secret-tail','account_id':'acct-single'}"
         single_output = redact_text(single)
         self.assertNotIn("first", single_output)
         self.assertNotIn("secret-tail", single_output)
