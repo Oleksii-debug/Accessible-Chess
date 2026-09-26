@@ -36,10 +36,34 @@ const executeAction = shippingLine(
   line => line.startsWith('function executeAction('),
   'executeAction'
 );
+const onBoardKey = shippingLine(
+  line => line.startsWith('async function onBoardKey('),
+  'board keyboard handler'
+);
 assert(
-  executeAction.includes("'board.current':()=>announce(") &&
-    executeAction.includes("nextAnnouncementEvent())"),
+  declaration.includes('announcementQueue=[]') &&
+    declaration.includes('announcementPublishing=false'),
+  'shipping state must retain a serialized announcement queue'
+);
+assert(
+  announcement.includes('publishNextAnnouncement()') &&
+    announcement.includes('announcementQueue.push(message)') &&
+    !announcement.includes('clearTimeout(announceTimer)'),
+  'distinct pending result events must be queued rather than cancel one another'
+);
+assert(
+  announcement.includes('function announceUserAction(message)') &&
+    announcement.includes('nextAnnouncementEvent()'),
+  'direct user feedback must have a fresh event helper'
+);
+assert(
+  executeAction.includes("'board.current':()=>announceUserAction("),
   'direct board.current user feedback must carry a fresh event identity'
+);
+assert(
+  onBoardKey.includes('analysisViewingTemporaryPosition') &&
+    onBoardKey.includes('announceUserAction('),
+  'temporary-variation board action warning must carry a fresh event identity'
 );
 
 const writes = [];
@@ -81,7 +105,7 @@ const context = {
 vm.createContext(context);
 vm.runInContext(
   [declaration, helpers, announcement, apiAction,
-   'this.testApiAction=apiAction;this.testAnnounce=announce;this.testNextEvent=nextAnnouncementEvent;'].join('\n'),
+   'this.testApiAction=apiAction;this.testAnnounce=announce;this.testNextEvent=nextAnnouncementEvent;this.testUserAction=announceUserAction;'].join('\n'),
   context
 );
 
@@ -92,35 +116,46 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   // old 500 ms window must create two clear+publish cycles.
   writes.length = 0;
   await context.testApiAction('repeated_result');
-  await sleep(45);
+  await sleep(110);
   await context.testApiAction('repeated_result');
-  await sleep(45);
+  await sleep(110);
   assert.deepStrictEqual(
     writes,
     ['', 'Однаковий результат', '', 'Однаковий результат'],
     'two distinct user actions must remain two accessible result events'
   );
 
-  // The contract must not depend on the first 30 ms live-region publish timer
-  // firing before the next user result arrives. Distinct result events can be
-  // produced back-to-back by concurrent keyboard/API actions and both still
-  // need their own clear+publish cycle.
+  // The contract must not depend on the first live-region publish timer firing
+  // before the next user result arrives. Distinct result events can be produced
+  // back-to-back by keyboard/API actions and must be serialized, never cancelled.
   writes.length = 0;
   await context.testApiAction('repeated_result');
   await context.testApiAction('repeated_result');
-  await sleep(75);
+  await sleep(150);
   assert.deepStrictEqual(
     writes,
     ['', 'Однаковий результат', '', 'Однаковий результат'],
-    'rapid distinct user results must not cancel an earlier pending announcement'
+    'rapid distinct user results must be serialized without cancellation'
+  );
+
+  // Direct keyboard feedback follows the same event semantics even when it does
+  // not pass through apiAction.
+  writes.length = 0;
+  context.testUserAction('Повторне попередження');
+  context.testUserAction('Повторне попередження');
+  await sleep(150);
+  assert.deepStrictEqual(
+    writes,
+    ['', 'Повторне попередження', '', 'Повторне попередження'],
+    'distinct direct keyboard actions must both reach the live region'
   );
 
   // Passive/background duplicate suppression stays bounded and quiet.
   writes.length = 0;
   context.testAnnounce('Фоновий стан');
-  await sleep(45);
+  await sleep(110);
   context.testAnnounce('Фоновий стан');
-  await sleep(45);
+  await sleep(110);
   assert.deepStrictEqual(
     writes,
     ['', 'Фоновий стан'],
@@ -132,9 +167,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   writes.length = 0;
   const eventId = context.testNextEvent();
   context.testAnnounce('Один результат', eventId);
-  await sleep(45);
+  await sleep(110);
   context.testAnnounce('Один результат', eventId);
-  await sleep(45);
+  await sleep(110);
   assert.deepStrictEqual(
     writes,
     ['', 'Один результат'],
