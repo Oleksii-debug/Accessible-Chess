@@ -156,6 +156,36 @@ class ChallengeIntent:
         object.__setattr__(self, "version", MULTIPLAYER_SCHEMA_VERSION)
         object.__setattr__(self, "intent_id", _digest(canonical))
 
+    def to_record(self) -> dict[str, object]:
+        return {
+            "version": self.version,
+            "intent_id": self.intent_id,
+            "challenge_id": self.challenge_id,
+            "actor_id": self.actor_id,
+            "expected_revision": self.expected_revision,
+            "kind": self.kind.value,
+        }
+
+    @classmethod
+    def from_record(cls, value: Mapping[str, Any]) -> "ChallengeIntent":
+        data = _mapping(value, "challenge intent")
+        _exact_keys(
+            data,
+            {"version", "intent_id", "challenge_id", "actor_id", "expected_revision", "kind"},
+            "challenge intent",
+        )
+        supplied = _digest_text(data["intent_id"])
+        intent = cls(
+            version=data["version"],
+            challenge_id=data["challenge_id"],
+            actor_id=data["actor_id"],
+            expected_revision=data["expected_revision"],
+            kind=data["kind"],
+        )
+        if supplied != intent.intent_id:
+            raise MultiplayerContractError("challenge intent id does not match content")
+        return intent
+
 
 def validate_challenge_intent(
     snapshot: ChallengeSnapshot,
