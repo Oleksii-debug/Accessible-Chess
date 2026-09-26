@@ -48,6 +48,9 @@ jobs:
         with:
           python-version: '3.12.10'
 
+      - name: Install pinned full-suite test dependency
+        run: python -m pip install -q pytest==8.4.2
+
       - name: Compile notice SPDX and release-publication boundaries
         run: >-
           python -m compileall -q
