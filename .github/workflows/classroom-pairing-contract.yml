@@ -1,0 +1,33 @@
+name: Classroom Pairing Contract
+
+on:
+  pull_request:
+    paths:
+      - "acs/classroom_pairing.py"
+      - "tests/test_classroom_pairing.py"
+      - ".github/workflows/classroom-pairing-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pairing-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile pairing contract
+        run: python -m py_compile acs/classroom_pairing.py tests/test_classroom_pairing.py
+      - name: Run focused pairing contract
+        run: python -m unittest -v tests.test_classroom_pairing
+      - name: Run adjacent teaching and education regressions
+        run: python -m unittest -v tests.test_teaching_session tests.test_education_records tests.test_education_records_store
