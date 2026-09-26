@@ -23,6 +23,30 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
         self.assertNotIn("function conflictsFor", html)
         self.assertNotIn("const alias=keymap.find", html)
 
+    def test_board_grid_remap_uses_same_persisted_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            self.assertEqual(api.keymap_resolve_binding("board", "ArrowLeft")["actionId"], "board.cursor_left")
+            changed = api.keymap_save("board.cursor_left", "Ctrl+Alt+Left")
+            self.assertTrue(changed["ok"])
+            self.assertIsNone(api.keymap_resolve_binding("board", "ArrowLeft"))
+            self.assertEqual(
+                api.keymap_resolve_binding("board", "Ctrl+Alt+Left")["actionId"],
+                "board.cursor_left",
+            )
+
+    def test_input_submission_keys_use_persisted_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            self.assertEqual(api.keymap_resolve_binding("move_entry", "Enter")["actionId"], "move.submit")
+            self.assertEqual(api.keymap_resolve_binding("history", "Enter")["actionId"], "history.commit_go_to_move")
+            self.assertTrue(api.keymap_save("move.submit", "Ctrl+Enter")["ok"])
+            self.assertTrue(api.keymap_save("history.commit_go_to_move", "Alt+Enter")["ok"])
+            self.assertIsNone(api.keymap_resolve_binding("move_entry", "Enter"))
+            self.assertIsNone(api.keymap_resolve_binding("history", "Enter"))
+            self.assertEqual(api.keymap_resolve_binding("move_entry", "Ctrl+Enter")["actionId"], "move.submit")
+            self.assertEqual(api.keymap_resolve_binding("history", "Alt+Enter")["actionId"], "history.commit_go_to_move")
+
     def test_runtime_resolution_follows_persisted_remap_without_js_cache(self):
         with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
