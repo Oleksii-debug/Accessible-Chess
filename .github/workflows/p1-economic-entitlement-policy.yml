@@ -20,6 +20,9 @@ concurrency:
   group: p1-economic-entitlement-policy-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CURRENT_FULL_PRODUCT_BASE: 603caba648a8452e3db1e514019713bdefd1516f
+
 jobs:
   verify:
     strategy:
@@ -55,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base="${{ github.event.pull_request.base.sha }}"
+          base="$CURRENT_FULL_PRODUCT_BASE"
           git cat-file -e "${base}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
