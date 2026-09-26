@@ -17,11 +17,11 @@ from pathlib import Path
 import secrets
 
 from .classroom_collaboration import (
+    MAX_CHAT_BODY_CHARS,
     ClassroomCollaborationController,
     PreparedFile,
 )
 from .classroom_collaboration_storage import (
-    MAX_CHAT_BODY_CHARS,
     AttachmentMetadata,
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
