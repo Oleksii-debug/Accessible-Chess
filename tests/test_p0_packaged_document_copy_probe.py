@@ -22,14 +22,20 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("RootElement]::FindAll", self.text)
         self.assertNotIn("$desktop.FindAll", self.text)
 
-    def test_probe_selects_a_usable_connected_document_not_just_the_first(self) -> None:
+    def test_probe_requires_one_usable_connected_document_not_just_the_first(self) -> None:
+        self.assertIn("$usableDocuments=@()", self.text)
         self.assertIn("foreach($candidate in $documents)", self.text)
         self.assertIn("$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)", self.text)
         self.assertIn("$candidatePattern.SupportedTextSelection", self.text)
         self.assertIn("$candidateRange.FindText('Інформація про гру'", self.text)
         self.assertIn("$candidateRange.FindText('Game information'", self.text)
         self.assertIn("none exposes selectable stable static text", self.text)
+        self.assertIn("if($usableDocuments.Count -ne 1)", self.text)
+        self.assertIn("Ambiguous selectable Accessible Chess Documents", self.text)
+        self.assertIn("expected exactly one stable packaged document provider", self.text)
+        self.assertIn("document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'", self.text)
         self.assertNotIn("$document=$documents[0]", self.text)
+        self.assertNotIn("$document=$candidate", self.text)
 
     def test_probe_retains_real_textpattern_selection_and_native_copy(self) -> None:
         self.assertIn("TextPattern]::Pattern", self.text)
