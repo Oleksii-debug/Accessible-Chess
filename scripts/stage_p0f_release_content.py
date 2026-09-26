@@ -78,6 +78,8 @@ def stage_bundle(source_bundle: str | Path, product_root: str | Path) -> Path:
 
     The target must not already exist.  This makes repeated/stale package
     composition fail closed rather than silently replacing release evidence.
+    A release-content directory created by this call is also rolled back when
+    publication fails, so a failed transaction does not mutate the package tree.
     """
 
     source = _require_direct_directory(Path(source_bundle), label="P0-F source bundle")
@@ -103,23 +105,37 @@ def stage_bundle(source_bundle: str | Path, product_root: str | Path) -> Path:
         raise StageError("P0-F source manifest changed during validation")
 
     release_root = product / _TARGET_RELATIVE.parent
+    created_release_root = False
     if os.path.lexists(release_root):
         release = _require_direct_directory(release_root, label="Product release-content root")
     else:
         try:
             release_root.mkdir(mode=0o755)
+            created_release_root = True
         except OSError as exc:
             raise StageError("Product release-content root could not be created") from exc
-        release = _require_direct_directory(release_root, label="Product release-content root")
+        try:
+            release = _require_direct_directory(release_root, label="Product release-content root")
+        except StageError:
+            try:
+                release_root.rmdir()
+            except OSError:
+                pass
+            raise
 
     target = release / _TARGET_RELATIVE.name
     if os.path.lexists(target):
         raise StageError("P0-F W2 package target already exists")
 
-    raw_temp = tempfile.mkdtemp(prefix=".w2-starter-stage-", dir=str(release))
-    temporary = Path(raw_temp)
+    temporary: Path | None = None
     published = False
     try:
+        try:
+            raw_temp = tempfile.mkdtemp(prefix=".w2-starter-stage-", dir=str(release))
+        except OSError as exc:
+            raise StageError("P0-F temporary staging directory could not be created") from exc
+        temporary = Path(raw_temp)
+
         for name in _CANONICAL_FILES:
             _fsync_copy(source / name, temporary / name)
 
@@ -137,8 +153,15 @@ def stage_bundle(source_bundle: str | Path, product_root: str | Path) -> Path:
             raise StageError("P0-F W2 package target could not be published atomically") from exc
         published = True
     finally:
-        if not published and temporary.exists():
-            shutil.rmtree(temporary, ignore_errors=True)
+        if not published:
+            if temporary is not None and temporary.exists():
+                shutil.rmtree(temporary, ignore_errors=True)
+            if created_release_root:
+                try:
+                    release_root.rmdir()
+                except OSError:
+                    # Never remove a non-empty/externally changed release root.
+                    pass
 
     # A final post-publication validation catches filesystem interference at the
     # publication boundary before package checksums are generated.
