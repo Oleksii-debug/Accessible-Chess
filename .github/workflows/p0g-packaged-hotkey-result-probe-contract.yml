@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 env:
-  CURRENT_PRODUCT_BASE: 603caba648a8452e3db1e514019713bdefd1516f
+  CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
 
 jobs:
   contract:
