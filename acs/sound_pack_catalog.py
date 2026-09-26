@@ -13,7 +13,7 @@ from enum import Enum
 import re
 from typing import Mapping, Protocol
 
-from .sound_profiles import SoundPackManifest, SoundProfile
+from .sound_profiles import SoundPackManifest, SoundProfile, _safe_audio_path
 
 
 DEFAULT_MAX_SOUND_PACK_BYTES = 32 * 1024 * 1024
@@ -31,15 +31,15 @@ class SoundAssetDigest:
     sha256: str
 
     def __post_init__(self) -> None:
-        path = str(self.path).strip().replace("\\", "/")
-        if not path or path.startswith("/") or ".." in path.split("/"):
-            raise ValueError("sound asset digest path must stay below pack root")
+        path = _safe_audio_path(self.path)
         if isinstance(self.size_bytes, bool) or not isinstance(self.size_bytes, int):
             raise TypeError("sound asset size_bytes must be an integer")
         if self.size_bytes < 0:
             raise ValueError("sound asset size_bytes cannot be negative")
-        digest = str(self.sha256).strip().lower()
-        if not _SHA256_RE.fullmatch(digest):
+        if not isinstance(self.sha256, str):
+            raise TypeError("sound asset sha256 must be text")
+        digest = self.sha256.strip()
+        if digest != self.sha256 or not _SHA256_RE.fullmatch(digest):
             raise ValueError("sound asset sha256 must be 64 lowercase hex characters")
         object.__setattr__(self, "path", path)
         object.__setattr__(self, "sha256", digest)
@@ -62,11 +62,15 @@ class SoundPackCatalogEntry:
             raise TypeError("total_bytes must be an integer")
         if self.total_bytes < 0:
             raise ValueError("total_bytes cannot be negative")
+        if not isinstance(self.assets, Mapping):
+            raise TypeError("assets must be a mapping")
         normalized: dict[str, SoundAssetDigest] = {}
-        for path, digest in dict(self.assets).items():
+        for path, digest in self.assets.items():
+            if not isinstance(path, str):
+                raise TypeError("asset mapping keys must be text")
             if not isinstance(digest, SoundAssetDigest):
                 raise TypeError("assets must contain SoundAssetDigest values")
-            key = str(path).strip().replace("\\", "/")
+            key = _safe_audio_path(path)
             if key != digest.path:
                 raise ValueError("asset mapping key must match digest path")
             normalized[key] = digest
@@ -75,7 +79,9 @@ class SoundPackCatalogEntry:
             raise ValueError("catalog asset digests must exactly cover manifest audio files")
         if sum(item.size_bytes for item in normalized.values()) != self.total_bytes:
             raise ValueError("catalog total_bytes must equal the sum of asset sizes")
-        signature = None if self.signature is None else str(self.signature).strip()
+        if self.signature is not None and not isinstance(self.signature, str):
+            raise TypeError("signature must be text or null")
+        signature = None if self.signature is None else self.signature.strip()
         if signature == "":
             raise ValueError("signature cannot be blank")
         object.__setattr__(self, "assets", normalized)
