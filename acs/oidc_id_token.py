@@ -50,13 +50,7 @@ def validate_id_token(
     now: Clock = time.time,
     clock_skew_seconds: int = 60,
 ) -> TrustedOidcIdentity:
-    """Validate authenticated OIDC ID-token claims after JWS verification.
-
-    Cryptographic signature/JWK selection is intentionally delegated to
-    ``verifier``. This function never treats decoded-but-unverified JWT claims as
-    identity. It validates only the authenticated envelope returned by that
-    authority.
-    """
+    """Validate authenticated OIDC ID-token claims after JWS verification."""
 
     _require_nonempty_string(compact_token, "token")
     issuer = _require_nonempty_string(expected_issuer, "issuer")
@@ -70,8 +64,6 @@ def validate_id_token(
     try:
         envelope = verifier.verify(compact_token)
     except Exception:
-        # Never trust or expose provider/JWK-library exception text, even when a
-        # verifier happens to raise this module's public exception class.
         raise IdTokenError("signature verification failed") from None
 
     if not isinstance(envelope, VerifiedIdTokenEnvelope):
@@ -79,15 +71,7 @@ def validate_id_token(
     algorithm = _require_nonempty_string(envelope.algorithm, "algorithm")
     if algorithm.casefold() == "none":
         raise IdTokenError("unsecured token algorithm rejected")
-    if not isinstance(envelope.claims, Mapping):
-        raise IdTokenError("invalid verified claims")
-    claims = envelope.claims
-    try:
-        claim_count = len(claims)
-    except Exception:
-        raise IdTokenError("invalid verified claims") from None
-    if claim_count < 1 or claim_count > _MAX_AUTHENTICATED_CLAIMS:
-        raise IdTokenError("invalid verified claims")
+    claims = _snapshot_authenticated_claims(envelope.claims)
 
     token_issuer = _claim_string(claims, "iss")
     subject = _claim_string(claims, "sub")
@@ -138,6 +122,26 @@ def validate_id_token(
         issued_at=issued_at,
         expires_at=expires_at,
     )
+
+
+def _snapshot_authenticated_claims(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise IdTokenError("invalid verified claims")
+    result: dict[str, object] = {}
+    try:
+        for index, key in enumerate(value):
+            if index >= _MAX_AUTHENTICATED_CLAIMS:
+                raise IdTokenError("invalid verified claims")
+            if not isinstance(key, str) or not key or key in result:
+                raise IdTokenError("invalid verified claims")
+            result[key] = value[key]
+    except IdTokenError:
+        raise
+    except Exception:
+        raise IdTokenError("invalid verified claims") from None
+    if not result:
+        raise IdTokenError("invalid verified claims")
+    return result
 
 
 def _require_nonempty_string(value: object, dimension: str) -> str:
