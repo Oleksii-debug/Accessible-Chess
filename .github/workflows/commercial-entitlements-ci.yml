@@ -1,0 +1,34 @@
+name: Commercial Entitlement Contract
+
+on:
+  pull_request:
+    paths:
+      - "acs/entitlements.py"
+      - "tests/test_entitlements.py"
+      - ".github/workflows/commercial-entitlements-ci.yml"
+  push:
+    paths:
+      - "acs/entitlements.py"
+      - "tests/test_entitlements.py"
+      - ".github/workflows/commercial-entitlements-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  entitlement-contract:
+    name: Entitlement contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run entitlement contract tests
+        run: python -m unittest discover -s tests -p "test_entitlements.py" -v
