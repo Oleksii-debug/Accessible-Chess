@@ -5,6 +5,7 @@ on:
     branches:
       - fix/full-product-native-menu-binding-refresh-20260926
     paths:
+      - 'acs/keybindings.py'
       - 'acs/full_product_actions.py'
       - 'web/index.html'
       - 'web/full_product_pgn.js'
@@ -45,6 +46,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/remappable-pgn-tree-navigation.yml' \
             'acs/full_product_actions.py' \
+            'acs/keybindings.py' \
             'tests/js/pgn_surface_dom_test.js' \
             'tests/test_full_product_pgn_keybindings.py' \
             'web/full_product_pgn.js' \
@@ -62,6 +64,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/full_product_actions.py
+          acs/keybindings.py
           tests/test_full_product_pgn_keybindings.py
 
       - name: Prove registry defaults and persisted remap
