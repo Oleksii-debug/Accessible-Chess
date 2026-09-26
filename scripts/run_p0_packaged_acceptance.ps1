@@ -34,6 +34,15 @@ function Invoke-PythonVerifier(
   }
 }
 
+function Assert-NoMachineHumanClaim($Evidence,[string]$Label) {
+  foreach($name in @('human_tested','nvda_verified')){
+    $property=$Evidence.PSObject.Properties[$name]
+    if($null -ne $property -and $property.Value -eq $true){
+      throw "$Label machine evidence must never claim $name=true"
+    }
+  }
+}
+
 Assert-ExactSha $ProductSha
 $product=(Resolve-Path -LiteralPath $ProductRoot).Path
 $topology=(Resolve-Path -LiteralPath $TopologyScript).Path
@@ -81,8 +90,7 @@ $hotkey=(Get-Content -LiteralPath $hotkeyEvidence -Raw -Encoding UTF8 | ConvertF
 if(([string]$hotkey.product_sha).ToLowerInvariant() -cne $ProductSha.ToLowerInvariant()){
   throw 'P0-G evidence SHA changed after verifier completion'
 }
-if($copy.human_tested -eq $true -or $copy.nvda_verified -eq $true -or $hotkey.human_tested -eq $true -or $hotkey.nvda_verified -eq $true){
-  throw 'Machine P0 acceptance evidence must never claim HUMAN_TESTED/NVDA_VERIFIED'
-}
+Assert-NoMachineHumanClaim $copy 'document-copy'
+Assert-NoMachineHumanClaim $hotkey 'P0-G hotkey-result'
 
 Write-Host 'P0 PACKAGED ACCEPTANCE VERIFIED: COPY + HOTKEY RESULTS'
