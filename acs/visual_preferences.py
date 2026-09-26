@@ -24,7 +24,8 @@ _VERSION_RE = re.compile(
 )
 _LICENSE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_ALLOWED_ASSET_SUFFIXES = frozenset({".svg", ".png", ".webp", ".jpg", ".jpeg"})
+_ALLOWED_ASSET_SUFFIXES = frozenset({".png", ".webp", ".jpg", ".jpeg"})
+_REQUIRED_BOARD_ASSETS = frozenset({"light_square", "dark_square"})
 _REQUIRED_PIECE_ASSETS = frozenset(
     f"{side}_{piece}"
     for side in ("white", "black")
@@ -215,6 +216,12 @@ class VisualPackManifest:
             raise ValueError("visual pack must contain at least one asset")
         if len(normalized) > 128:
             raise ValueError("visual pack contains too many assets")
+        if self.kind is VisualPackKind.BOARD:
+            missing = sorted(_REQUIRED_BOARD_ASSETS - normalized.keys())
+            if missing:
+                raise ValueError(
+                    "board pack is missing required assets: " + ", ".join(missing)
+                )
         if self.kind is VisualPackKind.PIECES:
             missing = sorted(_REQUIRED_PIECE_ASSETS - normalized.keys())
             if missing:
