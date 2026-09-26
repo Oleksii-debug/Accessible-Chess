@@ -127,11 +127,17 @@ function FindControl($Elements,[string]$AutomationId,[string]$ControlType='') {
   return $null
 }
 
-function AssertAppFocus($Process,[string]$Phase,[string]$ExpectedAutomationId='') {
+function AssertProviderFocus($Roots,[string]$Phase,[string]$ExpectedAutomationId='') {
   $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
   if($null -eq $focused){throw "${Phase}: UIA focused element unavailable"}
-  if([int]$focused.Current.ProcessId -ne [int]$Process.Id){
-    throw "${Phase}: native keyboard focus escaped packaged process; focused_pid=$([int]$focused.Current.ProcessId) launched_pid=$($Process.Id)"
+  $focusedRuntime=RuntimeId $focused
+  if(-not $focusedRuntime){throw "${Phase}: focused element has no stable UIA runtime identity"}
+  $insideProvider=$false
+  foreach($candidate in @(ControlElements $Roots)){
+    if((RuntimeId $candidate) -eq $focusedRuntime){$insideProvider=$true;break}
+  }
+  if(-not $insideProvider){
+    throw "${Phase}: native keyboard focus escaped connected packaged provider roots"
   }
   if($ExpectedAutomationId -and [string]$focused.Current.AutomationId -ne $ExpectedAutomationId){
     throw "${Phase}: wrong focused control; expected='$ExpectedAutomationId' actual='$([string]$focused.Current.AutomationId)'"
@@ -155,7 +161,8 @@ $exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
 $process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
 try {
   $report=ReadTopology $process ($TimeoutSeconds*1000)
-  $elements=ControlElements (ProviderRoots $report)
+  $roots=ProviderRoots $report
+  $elements=ControlElements $roots
   $documents=@($elements | Where-Object {
     try {
       [string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Document' -and
@@ -199,7 +206,7 @@ try {
   $null=$shell.AppActivate($process.Id)
   try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
   Start-Sleep -Milliseconds 100
-  $focused=AssertAppFocus $process 'static document copy'
+  $focused=AssertProviderFocus $roots 'static document copy'
   if([string]$focused.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
     throw 'Static document copy focus landed in an edit control'
   }
@@ -207,11 +214,12 @@ try {
   Start-Sleep -Milliseconds 100
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
   Start-Sleep -Milliseconds 150
+  $null=AssertProviderFocus $roots 'static document copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard $selected
   Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
 
-  $elements=ControlElements (ProviderRoots $report)
+  $elements=ControlElements $roots
   $move=FindControl $elements 'move-input' 'ControlType.Edit'
   if($null -eq $move){throw 'Move Input UIA element not found from connected provider roots'}
   try {$value=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)}
@@ -221,9 +229,10 @@ try {
   $null=$shell.AppActivate($process.Id)
   $move.SetFocus()
   Start-Sleep -Milliseconds 100
-  $null=AssertAppFocus $process 'move input copy' 'move-input'
+  $null=AssertProviderFocus $roots 'move input copy' 'move-input'
   Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
   Start-Sleep -Milliseconds 100
+  $null=AssertProviderFocus $roots 'move input copy dispatch' 'move-input'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard 'e2e4'
@@ -233,6 +242,7 @@ try {
   $summary=[ordered]@{
     product_sha=$ProductSha
     discovery='connected provider-root ControlView from retained topology handles'
+    focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
     static_document_text=$selected
     static_document_outside_edit=$true
     native_copy_focus_verified=$true
