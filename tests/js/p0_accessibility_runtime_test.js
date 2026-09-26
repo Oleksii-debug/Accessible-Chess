@@ -41,6 +41,11 @@ const documentRef = {
   createTreeWalker() { throw new Error("collapsed test selection must not create a tree walker"); }
 };
 
+let pgnSurfaceInvoke = null;
+let pgnSurfaceAnnounce = null;
+let librarySurfaceInvoke = null;
+let librarySurfaceAnnounce = null;
+
 const fakeWindow = {
   document: documentRef,
   setTimeout,
@@ -57,14 +62,15 @@ const fakeWindow = {
   apiAction: async function () {},
   announce: function () {},
   AccessibleChessPgnSurface: Object.freeze({
-    render: function (_root, _snapshot, _invoke, announce) {
-      announce("Same product-surface result");
-      announce("Same product-surface result");
+    render: function (_root, _snapshot, invoke, announce) {
+      pgnSurfaceInvoke = invoke;
+      pgnSurfaceAnnounce = announce;
     }
   }),
   AccessibleChessLibrarySurface: Object.freeze({
-    render: function (_root, _snapshot, _invoke, announce) {
-      announce("Same library surface result");
+    render: function (_root, _snapshot, invoke, announce) {
+      librarySurfaceInvoke = invoke;
+      librarySurfaceAnnounce = announce;
     },
     apply: function (_root, _event, _invoke, announce) {
       announce("Passive library import result");
@@ -77,7 +83,7 @@ const fakeWindow = {
   })
 };
 
-vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math }, {
+vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math, Promise, Boolean }, {
   filename: "p0_accessibility_runtime.js"
 });
 
@@ -153,21 +159,40 @@ async function run() {
 
   let staleCallbackCalls = 0;
   const staleCallback = function () { staleCallbackCalls += 1; };
-  fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessLibrarySurface.render(null, null, null, staleCallback);
-  fakeWindow.AccessibleChessLibrarySurface.render(null, null, null, staleCallback);
+  const repeatPgnResult = async function () {
+    return { kind: "result", payload: { announcement: "Same product-surface result" } };
+  };
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, repeatPgnResult, staleCallback);
+  assert.strictEqual(typeof pgnSurfaceInvoke, "function", "P0 runtime must wrap the PGN invoke boundary");
+  assert.strictEqual(typeof pgnSurfaceAnnounce, "function", "P0 runtime must wrap the PGN announce boundary");
+  const pgnFirst = await pgnSurfaceInvoke("pgn.action", {});
+  pgnSurfaceAnnounce(pgnFirst.payload.announcement);
+  pgnSurfaceAnnounce(pgnFirst.payload.announcement);
+  const pgnSecond = await pgnSurfaceInvoke("pgn.action", {});
+  pgnSurfaceAnnounce(pgnSecond.payload.announcement);
+
+  const repeatLibraryResult = async function () {
+    return { kind: "result", payload: { announcement: "Same library surface result" } };
+  };
+  fakeWindow.AccessibleChessLibrarySurface.render(null, null, repeatLibraryResult, staleCallback);
+  assert.strictEqual(typeof librarySurfaceInvoke, "function", "P0 runtime must wrap the Library invoke boundary");
+  assert.strictEqual(typeof librarySurfaceAnnounce, "function", "P0 runtime must wrap the Library announce boundary");
+  const libraryFirst = await librarySurfaceInvoke("library.action", {});
+  librarySurfaceAnnounce(libraryFirst.payload.announcement);
+  const librarySecond = await librarySurfaceInvoke("library.action", {});
+  librarySurfaceAnnounce(librarySecond.payload.announcement);
+
   await new Promise(resolve => setTimeout(resolve, 360));
-  assert.strictEqual(staleCallbackCalls, 0, "explicit product render callbacks must use the P0 event-aware queue");
+  assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
     2,
-    "duplicate callbacks inside one surface action must coalesce, while a second action with the same result stays distinct"
+    "duplicate emission from one PGN action must coalesce while a second same-text action on the same render stays observable"
   );
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
     2,
-    "two equal Library user results must remain two live-region events"
+    "two equal Library user results on one rendered surface must remain two live-region events"
   );
 
   fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
