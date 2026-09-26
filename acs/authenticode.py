@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import base64
 import json
 import os
 from pathlib import Path
@@ -94,17 +95,30 @@ $result | ConvertTo-Json -Compress
         env = dict(os.environ)
         env["ACS_AUTHENTICODE_TARGET"] = str(target.resolve())
 
+        # Windows PowerShell's stdin command mode has varied across runner
+        # images. Use a static UTF-16LE EncodedCommand instead; the untrusted
+        # target path remains out of the command line and is supplied only via
+        # the environment variable above.
+        encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\\Windows"
+        powershell = str(
+            Path(system_root)
+            / "System32"
+            / "WindowsPowerShell"
+            / "v1.0"
+            / "powershell.exe"
+        )
         try:
             completed = self._runner(
                 [
-                    "powershell.exe",
+                    powershell,
                     "-NoLogo",
                     "-NoProfile",
                     "-NonInteractive",
-                    "-Command",
-                    "-",
+                    "-EncodedCommand",
+                    encoded_script,
                 ],
-                input=script,
+                input="",
                 text=True,
                 capture_output=True,
                 timeout=20,
