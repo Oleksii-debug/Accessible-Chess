@@ -50,6 +50,40 @@ jobs:
           test "$actual" = "$expected"
           echo "OAUTH_PKCE_EXACT_HEAD=$actual"
 
+      - name: Enforce bounded OAuth/OIDC PR scope
+        if: github.event_name == 'pull_request'
+        shell: python
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          import os
+          import subprocess
+
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", f"{os.environ['BASE_SHA']}...HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          allowed = {
+              ".github/workflows/security-oauth-pkce.yml",
+              "acs/oauth_pkce.py",
+              "acs/oauth_token_response.py",
+              "acs/oidc_metadata.py",
+              "tests/test_oauth_pkce.py",
+              "tests/test_oauth_pkce_explicit_inputs.py",
+              "tests/test_oauth_token_response.py",
+              "tests/test_oidc_issuer_binding.py",
+              "tests/test_oidc_metadata.py",
+          }
+          foreign = sorted(changed - allowed)
+          missing = sorted(allowed - changed)
+          if foreign or missing:
+              raise SystemExit(
+                  f"OAuth/OIDC PR scope mismatch: foreign={foreign}, missing={missing}"
+              )
+          print("OAUTH_PKCE_EXACT_SCOPE=PASS")
+
       - name: Compile contract and tests
         run: >-
           python -m py_compile
