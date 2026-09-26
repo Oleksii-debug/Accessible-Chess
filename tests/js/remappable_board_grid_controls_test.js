@@ -11,7 +11,7 @@ const chordEnd = html.indexOf('\nfunction normalizeChord', chordStart);
 assert.notStrictEqual(chordStart, -1, 'eventChord not found');
 assert.notStrictEqual(chordEnd, -1, 'eventChord terminator not found');
 const chordSource = html.slice(chordStart, chordEnd);
-eval(chordSource);
+const eventChord = new Function(chordSource + '; return eventChord;')();
 
 function event(key, modifiers = {}) {
   return {
