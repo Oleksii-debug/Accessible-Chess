@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import json
+import sys
 import unittest
 
 from acs.entitlements import EntitlementState
@@ -89,6 +90,38 @@ class SignedEntitlementPolicyTests(unittest.TestCase):
                 payload=payload(),
             ),
         )
+
+    def test_deep_json_parse_recursion_is_bounded(self) -> None:
+        depth = sys.getrecursionlimit() + 100
+        nested = ("[" * depth) + "0" + ("]" * depth)
+        raw = (
+            '{"schema":"' + SIGNED_POLICY_SCHEMA + '","key_id":"release-key-1","payload":' +
+            nested + ',"signature":"' + base64.urlsafe_b64encode(b"s" * 64).decode("ascii").rstrip("=") + '"}'
+        ).encode("utf-8")
+        self.assertLess(len(raw), 32 * 1024)
+        verifier = FakeVerifier()
+        with self.assertRaisesRegex(SignedEntitlementPolicyError, "not valid JSON") as caught:
+            verify_signed_entitlement_policy(raw, verifier=verifier)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertIsNone(verifier.last_message)
+
+    def test_deep_canonical_payload_recursion_is_bounded(self) -> None:
+        nested: dict[str, object] = {}
+        cursor = nested
+        for _ in range(sys.getrecursionlimit() + 100):
+            child: dict[str, object] = {}
+            cursor["x"] = child
+            cursor = child
+        p = payload(account_id=nested)
+        with self.assertRaisesRegex(
+            SignedEntitlementPolicyError, "not canonically serializable"
+        ) as caught:
+            canonical_entitlement_signature_message(
+                schema=SIGNED_POLICY_SCHEMA,
+                key_id="release-key-1",
+                payload=p,
+            )
+        self.assertIsNone(caught.exception.__cause__)
 
     def test_signature_failure_does_not_project_claims(self) -> None:
         with self.assertRaisesRegex(SignedEntitlementPolicyError, "signature is invalid"):
