@@ -365,6 +365,8 @@ def record_training_outcome(state: MasteryState, outcome: TrainingOutcome) -> Ma
         raise MasteryError("mastery sequence was reused with different event content")
     if outcome.sequence != state.revision + 1:
         raise MasteryError("mastery outcome sequence is stale or has a gap")
+    if state.last_event_id == outcome.event_id:
+        raise MasteryError("mastery event id was reused for a new sequence")
 
     practice_day = date.fromisoformat(outcome.practice_date)
     if state.last_practice_date is not None:
