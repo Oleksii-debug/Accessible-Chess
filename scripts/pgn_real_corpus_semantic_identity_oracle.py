@@ -68,6 +68,7 @@ class CorpusReport:
     recursive_rav: int = 0
     unicode_metadata: int = 0
     long_games_ge_200_plies: int = 0
+    unusual_result: int = 0
     max_mainline_plies: int = 0
     result_counts: dict[str, int] = field(default_factory=dict)
     recovery_warning_counts: dict[str, int] = field(default_factory=dict)
@@ -384,6 +385,7 @@ def _verify_record(report: CorpusReport, record: SelectedRecord, identities: dic
     report.recursive_rav += int("recursive_rav" in classes)
     report.unicode_metadata += int("unicode_metadata" in classes)
     report.long_games_ge_200_plies += int("long_game" in classes)
+    report.unusual_result += int("unusual_result" in classes)
     report.max_mainline_plies = max(report.max_mainline_plies, len(game.line.moves))
     result_key = game.tags.get("Result") or game.line.result or "<missing>"
     results = Counter(report.result_counts)
@@ -434,7 +436,7 @@ def _coverage_verdict(reports: list[CorpusReport]) -> dict[str, object]:
                 "recursive_rav": report.recursive_rav,
                 "unicode_metadata": report.unicode_metadata,
                 "long_games_ge_200_plies": report.long_games_ge_200_plies,
-                "unusual_result": report.result_counts.get("*", 0),
+                "unusual_result": report.unusual_result,
             }
         )
     # Real recursive-RAV and black-to-move SetUp/FEN are independently proven
