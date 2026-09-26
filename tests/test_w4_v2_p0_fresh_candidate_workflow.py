@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "w4-v2-p0-fresh-windows-candidate.yml"
+UPLOAD_ARTIFACT_V462 = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
 
 
 class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
@@ -58,7 +59,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         diagnostic = self.text.index("PACKAGED_EXE_P0F_DIAGNOSTIC=PASS")
         uia = self.text.index("FRESH_PACKAGED_UIA_BASELINE=PASS")
         p0 = self.text.index("& scripts\\run_p0_packaged_acceptance.ps1")
-        upload = self.text.index("actions/upload-artifact@v4")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
         self.assertLess(extract, preflight)
         self.assertLess(preflight, diagnostic)
         self.assertLess(diagnostic, uia)
@@ -70,6 +71,15 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("packaged-v2-document-copy-summary.json", self.text)
         self.assertIn("packaged-p0g-hotkey-result-summary.json", self.text)
         self.assertIn("FRESH_PACKAGED_P0_ACCEPTANCE=PASS", self.text)
+
+    def test_candidate_artifact_publication_is_exactly_pinned_and_contains_evidence(self) -> None:
+        self.assertIn(UPLOAD_ARTIFACT_V462, self.text)
+        self.assertNotIn("actions/upload-artifact@v4", self.text)
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        tail = self.text[upload:]
+        self.assertIn("Accessible-Chess-V2-*-NVDA-test-candidate.zip", tail)
+        self.assertIn("candidate-output/p0-evidence/*.json", tail)
+        self.assertIn("if-no-files-found: error", tail)
 
     def test_candidate_never_claims_human_or_nvda_acceptance(self) -> None:
         self.assertIn("HUMAN_TESTED=NO", self.text)
