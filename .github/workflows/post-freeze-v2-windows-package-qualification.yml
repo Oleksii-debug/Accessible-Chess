@@ -23,8 +23,8 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 4bcf76327943bdc633d185a053b1f0b858460d12
-  P0G_PROBE_BLOB_SHA: 675d93dbf9853c35e7fe4a19dd3531f0853d7d2e
+  P0G_QA_SHA: 9b2c555163f29389915583350d9039d68bef87fc
+  P0G_PROBE_BLOB_SHA: 94697b6f6dcf621f0102cbd4a36591d21b0efef8
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
   P0_DOCUMENT_QA_SHA: 690fc855182d3d99a40d1bbd2516dd085aecec45
   P0_DOCUMENT_PROBE_BLOB_SHA: 3fef48fd8834d547729b16d585bed6ceb5fe645c
@@ -104,6 +104,8 @@ jobs:
           grep -Fq 'function SelectedVariation($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'Could not establish opposite variation $opposite before Alt+$index' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'AccessibleChessP0GKeys]::Alt' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function AssertProductForeground($Process)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'foreground_product_verified=$true' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'function AssertProviderFocus' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'function ActivateProduct($Shell,$Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'function AssertProductForeground($Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
@@ -259,6 +261,7 @@ jobs:
           $summary=Get-Content -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -Raw | ConvertFrom-Json
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Packaged P0-G summary Product SHA mismatch'}
           if(-not [bool]$summary.native_keyboard_dispatch){throw 'Packaged P0-G did not prove native keyboard dispatch'}
+          if(-not [bool]$summary.foreground_product_verified){throw 'Packaged P0-G did not prove AccessibleChess.exe was the foreground native-key target'}
           if(-not [string]$summary.alt_1_precondition_selected_state -or -not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed){throw 'Alt+1 causal selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
           if(-not [string]$summary.alt_2_precondition_selected_state -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Alt+2 causal selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
           if([bool]$summary.board_application_entered){throw 'P0-G probe entered role=application unexpectedly'}
@@ -298,6 +301,7 @@ jobs:
           if($sourceHash -ne $readbackHash){throw 'Packaged P0-G evidence changed across upload/download readback'}
           $summary=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Readback P0-G evidence Product SHA mismatch'}
+          if(-not [bool]$summary.foreground_product_verified){throw 'Readback P0-G evidence did not preserve foreground Product proof'}
           if(-not [string]$summary.alt_1_precondition_selected_state -or -not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed -or -not [string]$summary.alt_2_precondition_selected_state -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Readback P0-G causal selected-state acceptance fields incomplete'}
           if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Readback evidence fabricated human/NVDA acceptance'}
           Write-Host "PACKAGED_P0G_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant())"
