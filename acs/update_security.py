@@ -271,6 +271,8 @@ def _validate_token(name: str, value: str, *, max_length: int) -> None:
 def _validate_https_download_url(value: str) -> None:
     if value != value.strip():
         raise ValueError("download_url must be canonical text")
+    if "\\" in value or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        raise ValueError("download_url contains ambiguous characters")
     parsed = urlsplit(value)
     if parsed.scheme.lower() != "https":
         raise ValueError("download_url must use HTTPS")
