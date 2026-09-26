@@ -32,11 +32,16 @@ def _candidate_bytes(*, tamper: str | None = None, nvda_verified: bool = False) 
         "AccessibleChess/release-content/w2-starter/sample_library.acsdb": b"sqlite-fixture",
         "AccessibleChess/web/index.html": b"<!doctype html>",
     }
-    checksums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(payload.items()))
-    files = dict(payload)
-    files["RELEASE_MANIFEST.json"] = json.dumps(
+    manifest = json.dumps(
         {"integration_sha": SHA, "nvda_verified": nvda_verified}
     ).encode()
+    checksummed = dict(payload)
+    checksummed["RELEASE_MANIFEST.json"] = manifest
+    checksums = "".join(
+        f"{hashlib.sha256(data).hexdigest()}  {name}\n"
+        for name, data in sorted(checksummed.items())
+    )
+    files = dict(checksummed)
     files["SHA256SUMS.txt"] = checksums.encode()
     if tamper is not None:
         files[tamper] = b"tampered"
@@ -110,7 +115,11 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
     def test_missing_release_critical_p0f_file_fails(self) -> None:
         candidate = _candidate_bytes()
         with zipfile.ZipFile(io.BytesIO(candidate), "r") as archive:
-            files = {name: archive.read(name) for name in archive.namelist() if name != "AccessibleChess/release-content/w2-starter/sample_library.acsdb"}
+            files = {
+                name: archive.read(name)
+                for name in archive.namelist()
+                if name != "AccessibleChess/release-content/w2-starter/sample_library.acsdb"
+            }
         self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
         with self.assertRaises(CandidateArtifactError):
             verify(self.path, SHA)
