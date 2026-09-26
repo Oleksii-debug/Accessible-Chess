@@ -598,7 +598,7 @@ def _nonnegative_int(value: object, label: str) -> int:
 
 
 def _existing_regular_file(value: object) -> Path:
-    if type(value) is not Path:
+    if not isinstance(value, Path):
         raise CollaborationError("local file path must be pathlib.Path")
     try:
         resolved = value.resolve(strict=True)
