@@ -8,6 +8,11 @@ on:
       - 'acs/update_security.py'
       - 'tests/test_update_security.py'
       - '.github/workflows/update-security-contract.yml'
+  push:
+    paths:
+      - 'acs/update_security.py'
+      - 'tests/test_update_security.py'
+      - '.github/workflows/update-security-contract.yml'
   workflow_dispatch:
 
 permissions:
