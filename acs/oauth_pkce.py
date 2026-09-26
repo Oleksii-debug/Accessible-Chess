@@ -42,6 +42,9 @@ _RESERVED_AUTHORIZATION_PARAMETERS = frozenset(
     }
 )
 _CALLBACK_PARAMETERS = frozenset({"code", "error", "state"})
+_MAX_SCOPES = 64
+_MAX_EXTRA_AUTHORIZATION_PARAMETERS = 64
+_MAX_AUTHORIZATION_URL = 16 * 1024
 
 
 def _require_text(name: str, value: object, *, max_length: int = 4096) -> str:
@@ -108,13 +111,20 @@ def _normalize_scopes(scopes: Iterable[str]) -> tuple[str, ...]:
         raise OAuthContractError("scopes must be an iterable of individual values")
     result: list[str] = []
     seen: set[str] = set()
-    for scope in scopes:
-        value = _require_text("scope", scope, max_length=256)
-        if any(char.isspace() for char in value):
-            raise OAuthContractError("individual scopes must not contain whitespace")
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
+    try:
+        for index, scope in enumerate(scopes):
+            if index >= _MAX_SCOPES:
+                raise OAuthContractError("scope count exceeds the accepted bound")
+            value = _require_text("scope", scope, max_length=256)
+            if any(char.isspace() for char in value):
+                raise OAuthContractError("individual scopes must not contain whitespace")
+            if value not in seen:
+                seen.add(value)
+                result.append(value)
+    except OAuthContractError:
+        raise
+    except Exception:
+        raise OAuthContractError("scopes could not be enumerated safely") from None
     if not result:
         raise OAuthContractError("at least one scope is required")
     return tuple(result)
@@ -218,14 +228,22 @@ class AuthorizationRequest:
             )
 
         extras: list[tuple[str, str]] = []
-        for key, raw_value in (extra_parameters or {}).items():
-            name = _require_text("extra parameter name", key, max_length=128)
-            value = _require_text("extra parameter value", raw_value, max_length=2048)
-            if name in _RESERVED_AUTHORIZATION_PARAMETERS:
-                raise OAuthContractError(
-                    f"extra parameter collides with reserved OAuth parameter: {name}"
-                )
-            extras.append((name, value))
+        try:
+            extra_items = (extra_parameters or {}).items()
+            for index, (key, raw_value) in enumerate(extra_items):
+                if index >= _MAX_EXTRA_AUTHORIZATION_PARAMETERS:
+                    raise OAuthContractError("extra authorization parameter count exceeds the accepted bound")
+                name = _require_text("extra parameter name", key, max_length=128)
+                value = _require_text("extra parameter value", raw_value, max_length=2048)
+                if name in _RESERVED_AUTHORIZATION_PARAMETERS:
+                    raise OAuthContractError(
+                        f"extra parameter collides with reserved OAuth parameter: {name}"
+                    )
+                extras.append((name, value))
+        except OAuthContractError:
+            raise
+        except Exception:
+            raise OAuthContractError("extra authorization parameters could not be enumerated safely") from None
 
         query = existing + [
             ("response_type", "code"),
@@ -237,7 +255,10 @@ class AuthorizationRequest:
             ("code_challenge", code_challenge_s256(self.code_verifier)),
             ("code_challenge_method", "S256"),
         ] + sorted(extras)
-        return urlunsplit(parsed._replace(query=urlencode(query)))
+        result = urlunsplit(parsed._replace(query=urlencode(query)))
+        if len(result) > _MAX_AUTHORIZATION_URL:
+            raise OAuthContractError("authorization URL exceeds the accepted size bound")
+        return result
 
     def authorization_code_from_callback(self, callback_url: str) -> str:
         """Validate redirect binding + state and return one authorization code.
