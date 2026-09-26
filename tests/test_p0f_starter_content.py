@@ -181,6 +181,32 @@ def test_packaged_starter_diagnostic_fails_closed_for_missing_or_incomplete_stat
     assert packaged_starter_materials_ready(malformed_items) is False
 
 
+def test_packaged_starter_diagnostic_rejects_duplicate_booklet_identity():
+    snapshot = _release_starter_snapshot()
+    snapshot["items"][-1] = {"material_id": "starter-booklet-23"}
+    assert packaged_starter_materials_ready(snapshot) is False
+
+
+def test_packaged_starter_diagnostic_rejects_unrelated_25_item_inventory():
+    snapshot = _release_starter_snapshot()
+    snapshot["items"] = [
+        {"material_id": "starter-course"},
+        *({"material_id": f"unrelated-{index:02d}"} for index in range(1, 25)),
+    ]
+    assert packaged_starter_materials_ready(snapshot) is False
+
+
+def test_packaged_starter_diagnostic_rejects_projected_count_inventory_disagreement():
+    snapshot = _release_starter_snapshot(booklet_count=25)
+    assert packaged_starter_materials_ready(snapshot) is False
+
+
+def test_packaged_starter_diagnostic_accepts_future_distinct_booklet_extension():
+    snapshot = _release_starter_snapshot(booklet_count=25)
+    snapshot["items"].append({"material_id": "starter-booklet-25"})
+    assert packaged_starter_materials_ready(snapshot) is True
+
+
 def test_packaged_w2_diagnostic_accepts_complete_library_snapshot():
     assert packaged_w2_library_ready(_release_w2_library_snapshot()) is True
 
