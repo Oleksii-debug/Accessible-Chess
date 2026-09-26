@@ -38,7 +38,8 @@ class Version2ReleaseDiagnosticCompositionTests(unittest.TestCase):
     def test_diagnostic_exercises_real_v2_library_projection(self) -> None:
         diagnostic = self._diagnostic_source()
         self.assertIn("v2_snapshot(", diagnostic)
-        self.assertIn('v2_state.get("library")', diagnostic)
+        self.assertIn('v2_state.get("library", {})', diagnostic)
+        self.assertIn("packaged_w2_library_ready(library_state)", diagnostic)
 
     def test_cleanup_is_confirmed_in_application_analysis_runtime_order(self) -> None:
         diagnostic = self._diagnostic_source()
