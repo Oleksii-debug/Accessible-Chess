@@ -115,6 +115,19 @@ function Invoke($Element,[string]$Name) {
   $pattern.Invoke()
 }
 
+function EnsureEngineEnabled($EngineToggle) {
+  if($null -eq $EngineToggle){throw 'engine-toggle missing from connected provider roots'}
+  $name=([string]$EngineToggle.Current.Name).Trim()
+  if($name -match '^(Увімкнути Stockfish|Enable Stockfish)$'){
+    Invoke $EngineToggle 'engine-toggle'
+    return 'enabled-by-probe'
+  }
+  if($name -match '^(Вимкнути Stockfish|Disable Stockfish)$'){
+    return 'already-enabled'
+  }
+  throw "Unrecognized engine-toggle accessible state: '$name'"
+}
+
 function SemanticText($Element) {
   if($null -eq $Element){return ''}
   try {
@@ -177,7 +190,7 @@ try {
 
   $shell=New-Object -ComObject WScript.Shell
   $null=$shell.AppActivate($process.Id)
-  Invoke $engineToggle 'engine-toggle'
+  $engineState=EnsureEngineEnabled $engineToggle
 
   $null=WaitFor {
     $fresh=ControlElements $roots
@@ -216,6 +229,7 @@ try {
     discovery='connected provider-root ControlView from retained topology handles'
     hotkey_focus_path='board-launcher SetFocus outside role=application so global analysis context receives native keys'
     board_application_entered=$false
+    engine_enable_state=$engineState
     native_keyboard_dispatch=$true
     alt_1_action_occurred=$true
     alt_1_accessible_result_exposed=$true
