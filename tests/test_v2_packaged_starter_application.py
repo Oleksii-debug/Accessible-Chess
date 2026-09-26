@@ -552,6 +552,40 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_implicit_existing_package_entry_always_reaches_validator(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-implicit-root-") as raw:
+            root = Path(raw)
+            package_entry = root / "w2-starter"
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with (
+                    mock.patch(
+                        "acs.version2_packaged_starter_application._default_bundle_root",
+                        return_value=package_entry,
+                    ),
+                    mock.patch(
+                        "acs.version2_packaged_starter_application.os.path.lexists",
+                        return_value=True,
+                    ) as lexists,
+                    mock.patch(
+                        "acs.version2_packaged_starter_application._load_manifest",
+                        side_effect=RuntimeError("package-root-validator-rejected"),
+                    ) as validator,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "package-root-validator-rejected"):
+                        Version2PackagedStarterApplication(
+                            database,
+                            progress_store=BookProgressStore(root / "book-progress.json"),
+                            engine_assistance=EngineAssistedWorkflowService(analysis),
+                            board_dispatch=lambda *_: None,
+                        )
+                lexists.assert_called_once_with(package_entry)
+                validator.assert_called_once_with(package_entry)
+            finally:
+                analysis.close()
+                database.close()
+
     def test_broken_implicit_bundle_link_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-broken-root-") as raw:
             root = Path(raw)
