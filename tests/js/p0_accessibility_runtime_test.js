@@ -157,7 +157,7 @@ async function run() {
   fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
   fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
   fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
-  await new Promise(resolve => setTimeout(resolve, 260));
+  await new Promise(resolve => setTimeout(resolve, 360));
   assert.strictEqual(staleCallbackCalls, 0, "product surfaces must not bypass the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
