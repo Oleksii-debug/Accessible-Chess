@@ -4,12 +4,19 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from acs.usage_sync import UsageAnalyticsPolicy, UsageEvent, UsageEventQueue, UsageSyncPort
 
 
 ENABLED = UsageAnalyticsPolicy(analytics_enabled=True)
+NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def make_queue(path: Path) -> UsageEventQueue:
+    return UsageEventQueue(path, now=lambda: NOW)
+
 
 
 class FakeUsageSync(UsageSyncPort):
@@ -60,11 +67,11 @@ class UsageSyncTests(unittest.TestCase):
                 kind="session",
                 counters={"sessions_started": 1, "active_seconds": 45},
             )
-            queue = UsageEventQueue(path)
+            queue = make_queue(path)
             self.assertTrue(queue.enqueue(queued, ENABLED))
             self.assertTrue(queue.enqueue(queued, ENABLED))
-            reopened = UsageEventQueue(path)
-            self.assertEqual(reopened.pending(), (queued,))
+            reopened = make_queue(path)
+            self.assertEqual(reopened.pending("install-1"), (queued,))
             connection = sqlite3.connect(path)
             try:
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
@@ -73,7 +80,7 @@ class UsageSyncTests(unittest.TestCase):
 
     def test_collection_is_opt_in_and_minor_collection_requires_consent_retention(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
             queued = event(kind="training", counters={"exercises_attempted": 1})
             self.assertFalse(queue.enqueue(queued, UsageAnalyticsPolicy()))
             self.assertFalse(
@@ -92,7 +99,7 @@ class UsageSyncTests(unittest.TestCase):
                     ),
                 )
             )
-            self.assertEqual(queue.pending(), ())
+            self.assertEqual(queue.pending("install-1"), ())
             minor_allowed = UsageAnalyticsPolicy(
                 analytics_enabled=True,
                 is_minor=True,
@@ -100,7 +107,7 @@ class UsageSyncTests(unittest.TestCase):
                 retention_days=30,
             )
             self.assertTrue(queue.enqueue(queued, minor_allowed))
-            self.assertEqual(queue.pending(), (queued,))
+            self.assertEqual(queue.pending("install-1"), (queued,))
 
     def test_policy_is_strict_and_fail_closed(self) -> None:
         with self.assertRaises(ValueError):
@@ -114,7 +121,7 @@ class UsageSyncTests(unittest.TestCase):
 
     def test_same_event_id_cannot_silently_overwrite_different_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
             self.assertTrue(
                 queue.enqueue(
                     event(kind="game", counters={"games_started": 1}),
@@ -148,19 +155,19 @@ class UsageSyncTests(unittest.TestCase):
 
     def test_remote_sync_requires_enabled_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
             queued = event()
             self.assertTrue(queue.enqueue(queued, ENABLED))
             port = FakeUsageSync()
-            self.assertEqual(queue.sync_pending(port, UsageAnalyticsPolicy()), 0)
+            self.assertEqual(queue.sync_pending(port, UsageAnalyticsPolicy(), "install-1"), 0)
             self.assertEqual(port.calls, [])
-            self.assertEqual(queue.sync_pending(port, ENABLED), 1)
+            self.assertEqual(queue.sync_pending(port, ENABLED, "install-1"), 1)
             self.assertEqual(len(port.calls), 1)
-            self.assertEqual(queue.pending(), ())
+            self.assertEqual(queue.pending("install-1"), ())
 
     def test_sync_rejects_duplicate_or_foreign_acknowledgements_and_bounds_batch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
             self.assertTrue(queue.enqueue(event("event-0"), ENABLED))
             self.assertTrue(
                 queue.enqueue(
@@ -169,16 +176,16 @@ class UsageSyncTests(unittest.TestCase):
                 )
             )
             with self.assertRaisesRegex(ValueError, "outside this batch"):
-                queue.sync_pending(FakeUsageSync(("event-0", "foreign-event")), ENABLED)
+                queue.sync_pending(FakeUsageSync(("event-0", "foreign-event")), ENABLED, "install-1")
             with self.assertRaisesRegex(ValueError, "duplicate"):
-                queue.sync_pending(FakeUsageSync(("event-0", "event-0")), ENABLED)
+                queue.sync_pending(FakeUsageSync(("event-0", "event-0")), ENABLED, "install-1")
             with self.assertRaisesRegex(ValueError, "between 0 and 250"):
-                queue.pending(limit=251)
-            self.assertEqual(len(queue.pending()), 2)
+                queue.pending("install-1", limit=251)
+            self.assertEqual(len(queue.pending("install-1")), 2)
 
     def test_export_delete_are_installation_scoped_and_content_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
             self.assertTrue(
                 queue.enqueue(
                     event(
@@ -220,14 +227,14 @@ class UsageSyncTests(unittest.TestCase):
 
     def test_provider_failures_and_invalid_ack_shape_are_bounded_without_state_loss(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
             queued = event()
             self.assertTrue(queue.enqueue(queued, ENABLED))
             with self.assertRaisesRegex(RuntimeError, "^aggregate usage sync provider failed$"):
-                queue.sync_pending(RaisingUsageSync(), ENABLED)
+                queue.sync_pending(RaisingUsageSync(), ENABLED, "install-1")
             with self.assertRaisesRegex(ValueError, "acknowledgements must be a sequence"):
-                queue.sync_pending(InvalidUsageSync(), ENABLED)
-            self.assertEqual(queue.pending(), (queued,))
+                queue.sync_pending(InvalidUsageSync(), ENABLED, "install-1")
+            self.assertEqual(queue.pending("install-1"), (queued,))
 
     def test_usage_event_rejects_non_mapping_counters(self) -> None:
         with self.assertRaisesRegex(ValueError, "counters must be a mapping"):
@@ -238,6 +245,81 @@ class UsageSyncTests(unittest.TestCase):
                 counters=[],  # type: ignore[arg-type]
                 created_at_utc="2026-08-16T10:00:00Z",
             )
+
+    def test_sync_is_installation_scoped_and_never_batches_another_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = make_queue(Path(tmp) / "usage-sync.sqlite")
+            self.assertTrue(q.enqueue(event("event-a"), ENABLED))
+            self.assertTrue(
+                q.enqueue(
+                    event(
+                        "event-b",
+                        installation_id="install-2",
+                        created_at_utc="2026-08-16T10:00:01Z",
+                    ),
+                    ENABLED,
+                )
+            )
+            port = FakeUsageSync()
+            self.assertEqual(q.sync_pending(port, ENABLED, "install-1"), 1)
+            self.assertEqual([e.installation_id for e in port.calls[0]], ["install-1"])
+            self.assertEqual([e.event_id for e in q.pending("install-2")], ["event-b"])
+
+    def test_retention_rejects_expired_collection_and_purges_on_next_operation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = make_queue(Path(tmp) / "usage-sync.sqlite")
+            policy = UsageAnalyticsPolicy(analytics_enabled=True, retention_days=3)
+            expired = event("old", created_at_utc="2026-08-16T11:59:59Z")
+            fresh = event("fresh", created_at_utc="2026-08-18T12:00:00Z")
+            self.assertFalse(q.enqueue(expired, policy))
+            self.assertTrue(q.enqueue(fresh, policy))
+            self.assertEqual([e.event_id for e in q.pending("install-1")], ["fresh"])
+
+            later = UsageEventQueue(
+                Path(tmp) / "usage-sync.sqlite",
+                now=lambda: datetime(2026, 8, 23, 12, 0, 1, tzinfo=timezone.utc),
+            )
+            self.assertEqual(later.purge_expired("install-1", policy), 1)
+            self.assertEqual(later.pending("install-1"), ())
+
+    def test_unversioned_foreign_usage_table_and_versioned_missing_table_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            foreign = Path(tmp) / "foreign.sqlite"
+            connection = sqlite3.connect(foreign)
+            try:
+                connection.execute("CREATE TABLE usage_events(event_id TEXT PRIMARY KEY)")
+                connection.commit()
+            finally:
+                connection.close()
+            with self.assertRaisesRegex(ValueError, "preexisting usage_events"):
+                make_queue(foreign)
+
+            incomplete = Path(tmp) / "incomplete.sqlite"
+            connection = sqlite3.connect(incomplete)
+            try:
+                connection.execute("PRAGMA user_version = 1")
+                connection.commit()
+            finally:
+                connection.close()
+            with self.assertRaisesRegex(ValueError, "schema is incomplete"):
+                make_queue(incomplete)
+
+    def test_versioned_wrong_table_shape_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "wrong.sqlite"
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "CREATE TABLE usage_events("
+                    "event_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL, kind TEXT NOT NULL, "
+                    "counters_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, sync_state TEXT NOT NULL)"
+                )
+                connection.execute("PRAGMA user_version = 1")
+                connection.commit()
+            finally:
+                connection.close()
+            with self.assertRaisesRegex(ValueError, "state constraint is missing"):
+                make_queue(path)
 
     def test_future_schema_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,7 +334,7 @@ class UsageSyncTests(unittest.TestCase):
                 ValueError,
                 "unsupported usage sync database schema",
             ):
-                UsageEventQueue(path)
+                make_queue(path)
 
 
 if __name__ == "__main__":
