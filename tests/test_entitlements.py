@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from acs.entitlements import (
     AccountSession,
     CORE_FEATURE_IDS,
+    USER_DATA_SAFETY_FEATURE_IDS,
     EntitlementSnapshot,
     EntitlementState,
     FeatureGate,
@@ -67,6 +68,57 @@ class EntitlementTests(unittest.TestCase):
         self.assertTrue(decision.allowed)
         self.assertEqual(decision.feature_id, "play.engine")
 
+    def test_v2_feature_catalog_is_stable_and_capability_based(self):
+        expected = {
+            "play.engine",
+            "analysis.engine",
+            "position.editor",
+            "history.review",
+            "data.import",
+            "data.export",
+            "data.recovery",
+            "pgn.workspace",
+            "library.search",
+            "books.reader",
+            "training.local",
+            "training.courses",
+            "teacher.local",
+            "classroom.local",
+            "education.management",
+            "settings.profiles",
+        }
+        self.assertEqual(CORE_FEATURE_IDS, frozenset(expected))
+        self.assertFalse(any(value.startswith("accessibility.") for value in CORE_FEATURE_IDS))
+        self.assertFalse(any("paid" in value or "price" in value for value in CORE_FEATURE_IDS))
+
+    def test_commercial_policy_can_grant_v2_domains_without_provider_logic(self):
+        snapshot = EntitlementSnapshot(
+            EntitlementState.PAID_YEARLY,
+            frozenset(
+                {
+                    FeatureId.PGN_WORKSPACE.value,
+                    FeatureId.LIBRARY_SEARCH.value,
+                    FeatureId.BOOKS_READER.value,
+                    FeatureId.TRAINING_COURSES.value,
+                    FeatureId.TEACHER_LOCAL.value,
+                    FeatureId.CLASSROOM_LOCAL.value,
+                    FeatureId.EDUCATION_MANAGEMENT.value,
+                }
+            ),
+        )
+        for feature in (
+            FeatureId.PGN_WORKSPACE,
+            FeatureId.LIBRARY_SEARCH,
+            FeatureId.BOOKS_READER,
+            FeatureId.TRAINING_COURSES,
+            FeatureId.TEACHER_LOCAL,
+            FeatureId.CLASSROOM_LOCAL,
+            FeatureId.EDUCATION_MANAGEMENT,
+        ):
+            with self.subTest(feature=feature):
+                self.assertTrue(self.gate().evaluate(feature, snapshot, now=NOW).allowed)
+        self.assertFalse(self.gate().evaluate(FeatureId.PLAY_ENGINE, snapshot, now=NOW).allowed)
+
     def test_free_beta_policy_enables_known_features_without_provider_or_network(self):
         policy = FreeBetaLicensePolicy()
         self.assertIsInstance(policy, LicensePolicy)
@@ -109,14 +161,42 @@ class EntitlementTests(unittest.TestCase):
         )
         self.assertTrue(self.gate().evaluate("future.feature", snapshot, now=NOW).allowed)
 
-    def test_revocation_always_wins_over_feature_claim(self):
+    def test_revocation_always_wins_over_protected_feature_claim(self):
         decision = self.gate().evaluate(
-            "data.export",
+            "play.engine",
             self.snapshot(EntitlementState.REVOKED),
             now=NOW,
         )
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "revoked")
+
+    def test_user_data_export_and_recovery_are_not_commercial_hostages(self):
+        self.assertEqual(
+            USER_DATA_SAFETY_FEATURE_IDS,
+            frozenset({FeatureId.DATA_EXPORT.value, FeatureId.DATA_RECOVERY.value}),
+        )
+        snapshots = (
+            None,
+            EntitlementSnapshot(EntitlementState.REVOKED),
+            EntitlementSnapshot(EntitlementState.EXPIRED),
+            EntitlementSnapshot(EntitlementState.UPDATE_REQUIRED),
+        )
+        for snapshot in snapshots:
+            for feature in (FeatureId.DATA_EXPORT, FeatureId.DATA_RECOVERY):
+                with self.subTest(snapshot=snapshot, feature=feature):
+                    decision = self.gate().evaluate(feature, snapshot, now=NOW)
+                    self.assertTrue(decision.allowed)
+                    self.assertEqual(decision.reason, "user_data_safety")
+
+    def test_data_safety_exception_does_not_unlock_other_features(self):
+        revoked = EntitlementSnapshot(
+            EntitlementState.REVOKED,
+            frozenset({FeatureId.PGN_WORKSPACE.value, FeatureId.DATA_EXPORT.value}),
+        )
+        self.assertTrue(self.gate().evaluate(FeatureId.DATA_EXPORT, revoked, now=NOW).allowed)
+        pgn = self.gate().evaluate(FeatureId.PGN_WORKSPACE, revoked, now=NOW)
+        self.assertFalse(pgn.allowed)
+        self.assertEqual(pgn.reason, "revoked")
 
     def test_minimum_supported_version_forces_update(self):
         snapshot = self.snapshot(
