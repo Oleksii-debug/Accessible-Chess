@@ -48,6 +48,56 @@ class SoundRuntimeSettings:
         return cls(enabled=enabled, volume=volume)  # type: ignore[arg-type]
 
 
+class LegacyProfiledSoundPlaybackAdapter:
+    """Compatibility wrapper for injected legacy playback fakes/adapters.
+
+    Production Windows playback has native profile support. This wrapper exists so
+    diagnostics that inject the historical play(event, volume=...) contract do not
+    become a second runtime. It can only represent the built-in classic mapping;
+    custom pack/sound requests fail closed.
+    """
+
+    def __init__(self, playback: SoundPlaybackPort) -> None:
+        if isinstance(playback, type) or not callable(getattr(playback, "play", None)):
+            raise TypeError("playback must expose callable play")
+        self._playback = playback
+
+    def play(self, event: SoundEvent, *, volume: int) -> None:
+        self._playback.play(event, volume=volume)
+
+    def play_profiled(
+        self,
+        event: SoundEvent,
+        *,
+        pack_id: str,
+        sound_id: str,
+        volume: int,
+    ) -> None:
+        if pack_id != "classic" or sound_id != event.value:
+            raise FileNotFoundError(
+                "legacy playback cannot resolve custom sound packs or sound ids"
+            )
+        self._playback.play(event, volume=volume)
+
+    def play_sound(
+        self,
+        *,
+        pack_id: str,
+        sound_id: str,
+        volume: int,
+        fallback_event: SoundEvent | None = None,
+    ) -> None:
+        if (
+            pack_id != "classic"
+            or fallback_event is None
+            or sound_id != fallback_event.value
+        ):
+            raise FileNotFoundError(
+                "legacy playback cannot resolve custom sound packs or sound ids"
+            )
+        self._playback.play(fallback_event, volume=volume)
+
+
 @dataclass(frozen=True)
 class SoundPlaybackFailure:
     event: SoundEvent
