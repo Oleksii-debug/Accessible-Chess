@@ -52,6 +52,14 @@ _CURATION_CRITERIA = {
     "maximum_scanned_games": 5000,
 }
 _MANIFEST_MAX_BYTES = 8 * 1024 * 1024
+# Runtime reads packaged payloads into memory for verification/PGN projection.
+# Manifest byte counts are untrusted release input, so keep every read inside a
+# conservative product envelope before using the declared length as read().
+_PAYLOAD_MAX_BYTES = {
+    "starter_uk.pgn": 32 * 1024 * 1024,
+    "stress_uk.pgn": 64 * 1024 * 1024,
+    "sample_library.acsdb": 128 * 1024 * 1024,
+}
 _EXPECTED_PAYLOAD_LICENSES = {
     "starter_uk.pgn": _CORPUS_LICENSE_ID,
     "stress_uk.pgn": CONTENT_LICENSE_ID,
@@ -442,9 +450,16 @@ def _verified_payload_bytes(
         raise RuntimeError(f"{label} hash metadata is invalid")
     if type(expected_bytes) is not int or expected_bytes < 1:
         raise RuntimeError(f"{label} byte metadata is invalid")
+    maximum_bytes = _PAYLOAD_MAX_BYTES.get(name)
+    if maximum_bytes is None:
+        raise RuntimeError(f"{label} payload name is unsupported")
+    if expected_bytes > maximum_bytes:
+        raise RuntimeError(f"{label} exceeds the safe size limit")
 
     path = root / name
     before = _safe_file(path, label=label)
+    if before.st_size > maximum_bytes:
+        raise RuntimeError(f"{label} exceeds the safe size limit")
     try:
         with path.open("rb") as handle:
             opened = os.fstat(handle.fileno())
