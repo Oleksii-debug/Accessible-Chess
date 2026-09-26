@@ -70,6 +70,21 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("account_id", output)
         self.assertGreaterEqual(output.count(REDACTED), 5)
 
+    def test_cookie_headers_redact_the_complete_header_value(self) -> None:
+        raw = (
+            "Cookie: sessionid=session-secret; theme=dark; csrftoken=csrf-secret\n"
+            "Set-Cookie: refresh=refresh-secret; Path=/; HttpOnly; SameSite=Lax\n"
+            "account_id=acct-7"
+        )
+        output = redact_text(raw)
+        for secret in ("session-secret", "csrf-secret", "refresh-secret"):
+            self.assertNotIn(secret, output)
+        self.assertNotIn("theme=dark", output)
+        self.assertNotIn("HttpOnly", output)
+        self.assertIn("Cookie: " + REDACTED, output)
+        self.assertIn("Set-Cookie: " + REDACTED, output)
+        self.assertIn("account_id=acct-7", output)
+
     def test_oauth_url_query_secrets_are_redacted_but_navigation_context_survives(self) -> None:
         raw = (
             "redirect https://login.example/callback?code=oauth-code&state=csrf-state&"
