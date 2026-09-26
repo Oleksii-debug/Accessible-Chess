@@ -38,9 +38,15 @@ function Hwnd([string]$Value) {
   return [IntPtr]([int64]$text)
 }
 
+function RuntimeId($Element) {
+  try { return (($Element.GetRuntimeId() | ForEach-Object {[string]$_}) -join '.') }
+  catch { return '' }
+}
+
 function ElementKey($Element) {
-  try { return 'rid:'+(($Element.GetRuntimeId() | ForEach-Object {[string]$_}) -join '.') }
-  catch { try { return 'obj:'+([string]$Element.GetHashCode()) } catch { return '' } }
+  $runtime=RuntimeId $Element
+  if($runtime){return 'rid:'+$runtime}
+  try {return 'obj:'+([string]$Element.GetHashCode())} catch {return ''}
 }
 
 function ProviderRoots($Report) {
