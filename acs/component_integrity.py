@@ -23,6 +23,7 @@ from typing import Any, Iterable
 INTEGRITY_MANIFEST_SCHEMA = "accessible-chess-component-integrity-v1"
 _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_COMPONENTS = 512
+_MAX_JSON_DEPTH = 16
 _DEFAULT_MAX_COMPONENT_BYTES = 512 * 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _TOP_FIELDS = frozenset({"schema", "components"})
@@ -130,10 +131,25 @@ def _parse_manifest(data: bytes) -> dict[str, Any]:
         raise
     except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         raise ComponentIntegrityError("component integrity manifest is not valid JSON") from None
+    _ensure_bounded_json_depth(value)
     document = _require_exact_mapping(value, _TOP_FIELDS, "component integrity manifest")
     if document["schema"] != INTEGRITY_MANIFEST_SCHEMA:
         raise ComponentIntegrityError("component integrity manifest schema is unsupported")
     return document
+
+
+def _ensure_bounded_json_depth(value: Any) -> None:
+    """Reject excessively nested JSON without recursive Python traversal."""
+
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > _MAX_JSON_DEPTH:
+            raise ComponentIntegrityError("component integrity manifest is not valid JSON")
+        if type(current) is dict:
+            stack.extend((item, depth + 1) for item in current.values())
+        elif type(current) is list:
+            stack.extend((item, depth + 1) for item in current)
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
