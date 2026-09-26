@@ -402,6 +402,53 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_packaged_sample_library_aggregate_drift_fails_closed_before_import(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-db-evidence-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            packaged_database = bundle / "sample_library.acsdb"
+
+            connection = sqlite3.connect(packaged_database)
+            try:
+                first_two = connection.execute(
+                    "SELECT id, pgn_text FROM games ORDER BY id LIMIT 2"
+                ).fetchall()
+                self.assertEqual(2, len(first_two))
+                connection.execute(
+                    "UPDATE games SET pgn_text = ? WHERE id = ?",
+                    (first_two[1][1], first_two[0][0]),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"]["sample_library.acsdb"]["sha256"] = _sha256(packaged_database)
+            manifest["files"]["sample_library.acsdb"]["bytes"] = packaged_database.stat().st_size
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            app, database, analysis = self._application(root, bundle)
+            try:
+                result = app.browser_command(
+                    "library", "library.import_packaged_sample_library", {}
+                )
+                self.assertEqual("error", result["kind"])
+                self.assertEqual(
+                    0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                )
+                self.assertEqual(
+                    0, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+                )
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
     def test_post_start_packaged_pgn_tamper_fails_closed_before_open(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-late-pgn-") as raw:
             root = Path(raw)
