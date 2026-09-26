@@ -162,6 +162,22 @@ function AssertLauncherFocus($Launcher) {
   }
 }
 
+function SelectedVariation($Roots,[int]$Index) {
+  $expected="^(Варіант|Variant)\s+$Index\."
+  foreach($element in @(ControlElements $Roots)){
+    try {
+      if([string]$element.Current.ControlType.ProgrammaticName -ne 'ControlType.Button'){continue}
+      $name=([string]$element.Current.Name).Trim()
+      if($name -notmatch $expected){continue}
+      $toggle=$element.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+      if($null -ne $toggle -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){
+        return $name
+      }
+    } catch {}
+  }
+  return $null
+}
+
 function AssertCleanAnnouncement([string]$Text,[int]$Index) {
   if(-not $Text.Trim()){throw "Alt+$Index produced no accessible result"}
   $lower=$Text.ToLowerInvariant()
@@ -205,23 +221,28 @@ try {
   } ([Math]::Min($TimeoutSeconds*1000,30000)) 'Packaged Stockfish did not expose two analysis variations in time'
 
   $announcements=@()
+  $selectedStates=@()
   foreach($case in @(@{index=1; key=0x31},@{index=2; key=0x32})){
     $null=$shell.AppActivate($process.Id)
     AssertLauncherFocus $launcher
     [AccessibleChessP0GKeys]::Alt([byte]$case.key)
     $index=[int]$case.index
+    $selected=WaitFor {
+      SelectedVariation $roots $index
+    } 5000 "Alt+$index did not select variation $index through the packaged UIA state"
     $text=WaitFor {
       $value=SemanticText $live
       if($value -and $value.ToLowerInvariant() -match "варіант\s+$index|variant\s+$index"){return $value}
       return $null
     } 5000 "Alt+$index did not expose a matching live-region result"
     AssertCleanAnnouncement $text $index
+    $selectedStates += $selected
     $announcements += $text
-    Write-Host "PACKAGED_P0G_ALT_${index}=PASS result='$text'"
+    Write-Host "PACKAGED_P0G_ALT_${index}=PASS selected='$selected' result='$text'"
   }
 
-  if($announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
-    throw 'Alt+1 and Alt+2 did not expose distinct resulting variation states'
+  if($selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
+    throw 'Alt+1 and Alt+2 did not prove distinct selected and accessible resulting variation states'
   }
 
   $summary=[ordered]@{
@@ -232,9 +253,11 @@ try {
     engine_enable_state=$engineState
     native_keyboard_dispatch=$true
     alt_1_action_occurred=$true
+    alt_1_selected_state=$selectedStates[0]
     alt_1_accessible_result_exposed=$true
     alt_1_result=$announcements[0]
     alt_2_action_occurred=$true
+    alt_2_selected_state=$selectedStates[1]
     alt_2_accessible_result_exposed=$true
     alt_2_result=$announcements[1]
     raw_uci_or_debug_exposed=$false
