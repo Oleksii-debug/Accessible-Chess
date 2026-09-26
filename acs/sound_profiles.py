@@ -9,6 +9,7 @@ an already-produced event but never invent chess state or reorder events.
 
 import json
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping, Protocol
@@ -33,6 +34,73 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
 
 _ALLOWED_AUDIO_SUFFIXES = {".wav"}
 _HEX = frozenset("0123456789abcdef")
+
+
+_SEMVER_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
+
+
+def _semantic_version(value: object, name: str = "version") -> str:
+    text = _required_text(value, name)
+    match = _SEMVER_RE.fullmatch(text)
+    if match is None:
+        raise ValueError(f"{name} must use Semantic Versioning (MAJOR.MINOR.PATCH)")
+    prerelease = match.group(4)
+    if prerelease:
+        for identifier in prerelease.split("."):
+            if identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0"):
+                raise ValueError(
+                    f"{name} has a numeric prerelease identifier with a leading zero"
+                )
+    return text
+
+
+def _semver_parts(value: str) -> tuple[int, int, int, tuple[str, ...] | None]:
+    match = _SEMVER_RE.fullmatch(value)
+    if match is None:
+        raise ValueError("invalid semantic version")
+    prerelease = (
+        tuple(match.group(4).split("."))
+        if match.group(4) is not None
+        else None
+    )
+    return int(match.group(1)), int(match.group(2)), int(match.group(3)), prerelease
+
+
+def compare_sound_pack_versions(left: str, right: str) -> int:
+    """Return -1/0/1 using SemVer precedence; build metadata is ignored."""
+
+    left = _semantic_version(left, "left version")
+    right = _semantic_version(right, "right version")
+    l_major, l_minor, l_patch, l_pre = _semver_parts(left)
+    r_major, r_minor, r_patch, r_pre = _semver_parts(right)
+    core_left = (l_major, l_minor, l_patch)
+    core_right = (r_major, r_minor, r_patch)
+    if core_left != core_right:
+        return -1 if core_left < core_right else 1
+    if l_pre is None and r_pre is None:
+        return 0
+    if l_pre is None:
+        return 1
+    if r_pre is None:
+        return -1
+
+    for l_id, r_id in zip(l_pre, r_pre):
+        if l_id == r_id:
+            continue
+        l_numeric = l_id.isdigit()
+        r_numeric = r_id.isdigit()
+        if l_numeric and r_numeric:
+            return -1 if int(l_id) < int(r_id) else 1
+        if l_numeric != r_numeric:
+            return -1 if l_numeric else 1
+        return -1 if l_id < r_id else 1
+    if len(l_pre) == len(r_pre):
+        return 0
+    return -1 if len(l_pre) < len(r_pre) else 1
 
 
 def _stable_id(value: object, *, allow_dot: bool = False) -> str:
@@ -148,7 +216,7 @@ class SoundPackManifest:
                 f"unsupported sound pack manifest schema: {self.schema_version}"
             )
         object.__setattr__(self, "pack_id", _stable_id(self.pack_id, allow_dot=True))
-        object.__setattr__(self, "version", _required_text(self.version, "version"))
+        object.__setattr__(self, "version", _semantic_version(self.version, "version"))
         object.__setattr__(self, "title", _required_text(self.title, "title"))
         object.__setattr__(
             self, "license_id", _required_text(self.license_id, "license_id")
@@ -265,7 +333,10 @@ class SoundPackCatalogEntry:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pack_id", _stable_id(self.pack_id, allow_dot=True))
-        for name in ("version", "title", "author", "license_id", "provenance"):
+        object.__setattr__(
+            self, "version", _semantic_version(self.version, "version")
+        )
+        for name in ("title", "author", "license_id", "provenance"):
             object.__setattr__(self, name, _required_text(getattr(self, name), name))
         object.__setattr__(
             self, "archive_sha256", _sha256(self.archive_sha256, "archive_sha256")
