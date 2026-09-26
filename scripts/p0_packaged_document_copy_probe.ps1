@@ -280,6 +280,7 @@ try {
   AssertProductForeground $process 'move input copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
   AssertProductForeground $process 'move input copy dispatch after Ctrl+A'
+  $null=AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard 'e2e4'
   $value.SetValue('')
