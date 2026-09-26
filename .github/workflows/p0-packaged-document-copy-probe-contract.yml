@@ -14,6 +14,8 @@ permissions:
 env:
   CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
   OWNER_HEAD: fix/p0-packaged-document-provider-root-probe-20260926
+  PROBE_BLOB: 6b6c3c7c37a3089c7bbf2f3ded6ad731998395ca
+  TEST_BLOB: e95a6c9c8df8c147f1b515212f6332a6fa081a3d
 
 jobs:
   contract:
@@ -46,6 +48,8 @@ jobs:
           git cat-file -e "${base}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
+          test "$(git rev-parse HEAD:scripts/p0_packaged_document_copy_probe.ps1)" = "$PROBE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_document_copy_probe.py)" = "$TEST_BLOB"
 
           head_ref='${{ github.event.pull_request.head.ref }}'
           if test "$head_ref" = "$OWNER_HEAD"; then
@@ -60,9 +64,7 @@ jobs:
             }
             echo 'P0_DOCUMENT_COPY_SCOPE_MODE=OWNER_EXACT'
           else
-            test -f scripts/p0_packaged_document_copy_probe.ps1
-            test -f tests/test_p0_packaged_document_copy_probe.py
-            echo 'P0_DOCUMENT_COPY_SCOPE_MODE=CONVERGENCE_RETAINED'
+            echo 'P0_DOCUMENT_COPY_SCOPE_MODE=CONVERGENCE_EXACT_BLOBS'
           fi
           echo "P0_DOCUMENT_COPY_CONTRACT_EXACT_HEAD=$actual"
           echo "P0_DOCUMENT_COPY_CONTRACT_EXACT_BASE=$base"

@@ -25,6 +25,9 @@ concurrency:
   group: p0g-event-aware-announcements-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  P0G_OWNER_HEAD: fix/p0g-event-aware-current-product-20260926
+
 jobs:
   verify:
     strategy:
@@ -47,16 +50,16 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove bounded P0-G scope
+      - name: Prove owner scope or retained convergence authority
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha }}"
+          head_ref='${{ github.event.pull_request.head.ref }}'
           git cat-file -e "${base}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
             '.github/workflows/p0-dynamic-selection-executable.yml' \
@@ -67,10 +70,22 @@ jobs:
             'tests/test_p0_dynamic_selection_action_delivery.py' \
             'web/index.html' \
             'web/p0_accessibility_runtime.js' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected P0-G scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+          if test "$head_ref" = "$P0G_OWNER_HEAD"; then
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected P0-G owner scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            echo 'P0_G_SCOPE_MODE=OWNER_EXACT'
+          else
+            while IFS= read -r path; do
+              test -f "$path" || {
+                printf 'Retained P0-G authority missing from convergence candidate: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$expected"
+            echo 'P0_G_SCOPE_MODE=CONVERGENCE_RETAINED'
+          fi
 
       - name: Parse complete shipping inline JavaScript
         shell: bash

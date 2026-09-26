@@ -20,6 +20,8 @@ permissions:
 env:
   CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
   OWNER_HEAD: qa/p0g-packaged-hotkey-result-20260926
+  PROBE_BLOB: 796d705c66b11f880b3173caddfb41e7af09de35
+  TEST_BLOB: e8b330c9d533ff8a8316d2a8bfa1166d73e97383
 
 jobs:
   contract:
@@ -52,6 +54,8 @@ jobs:
           git cat-file -e "${base}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
+          test "$(git rev-parse HEAD:scripts/p0g_packaged_hotkey_result_probe.ps1)" = "$PROBE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0g_packaged_hotkey_result_probe.py)" = "$TEST_BLOB"
 
           head_ref='${{ github.event.pull_request.head.ref }}'
           if test "$head_ref" = "$OWNER_HEAD"; then
@@ -66,9 +70,7 @@ jobs:
             }
             echo 'P0G_PACKAGED_SCOPE_MODE=OWNER_EXACT'
           else
-            test -f scripts/p0g_packaged_hotkey_result_probe.ps1
-            test -f tests/test_p0g_packaged_hotkey_result_probe.py
-            echo 'P0G_PACKAGED_SCOPE_MODE=CONVERGENCE_RETAINED'
+            echo 'P0G_PACKAGED_SCOPE_MODE=CONVERGENCE_EXACT_BLOBS'
           fi
           echo "P0G_PACKAGED_PROBE_EXACT_HEAD=$actual"
           echo "P0G_PACKAGED_PROBE_EXACT_BASE=$base"
