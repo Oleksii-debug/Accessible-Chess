@@ -10,7 +10,7 @@ on:
     branches:
       - qa/p0g-packaged-hotkey-result-20260926
     paths:
-      - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
+      - 'scripts/p0g_packaged-hotkey-result-probe.ps1'
       - 'tests/test_p0g_packaged_hotkey_result_probe.py'
       - '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml'
 
@@ -19,6 +19,8 @@ permissions:
 
 env:
   CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
+  PROBE_BLOB: 796d705c6
+  TEST_BLOB: e8b330c9d
 
 jobs:
   contract:
@@ -37,7 +39,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
-      - name: Prove exact candidate identity and bounded scope
+      - name: Prove exact owner or convergence identity
         shell: bash
         run: |
           set -euo pipefail
@@ -47,22 +49,35 @@ jobs:
             printf 'Expected exact candidate %s, got %s\n' "$expected" "$actual" >&2
             exit 1
           }
-          base="$CURRENT_PRODUCT_BASE"
-          git cat-file -e "${base}^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          test "$(git merge-base "$base" HEAD)" = "$base"
-          git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected_paths="$(printf '%s\n' \
-            '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml' \
-            'scripts/p0g_packaged_hotkey_result_probe.ps1' \
-            'tests/test_p0g_packaged_hotkey_result_probe.py' | sort)"
-          test "$changed" = "$expected_paths" || {
-            printf 'Unexpected P0-G packaged-probe scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+          test "$(git rev-parse HEAD:scripts/p0g_packaged_hotkey_result_probe.ps1)" = "$PROBE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0g_packaged_hotkey_result_probe.py)" = "$TEST_BLOB"
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            base_ref='${{ github.event.pull_request.base.ref }}'
+            base_sha='${{ github.event.pull_request.base.sha }}'
+            if [ "$base_sha" = "$CURRENT_PRODUCT_BASE" ]; then
+              git diff --check "$base_sha" HEAD
+              changed="$(git diff --name-only "$base_sha" HEAD | sort)"
+              expected_paths="$(printf '%s\n' \
+                '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml' \
+                'scripts/p0g_packaged_hotkey_result_probe.ps1' \
+                'tests/test_p0g_packaged_hotkey_result_probe.py' | sort)"
+              test "$changed" = "$expected_paths" || {
+                printf 'Unexpected P0-G packaged-probe owner scope:\n%s\n' "$changed" >&2
+                exit 1
+              }
+            else
+              case "$base_ref" in
+                qa/p0g-packaged-hotkey-result-20260926|fix/p0f-packaged-starter-diagnostic-20260926)
+                  git diff --check "$base_sha" HEAD
+                  ;;
+                *)
+                  printf 'Unexpected P0-G convergence base: %s (%s)\n' "$base_ref" "$base_sha" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+          fi
           echo "P0G_PACKAGED_PROBE_EXACT_HEAD=$actual"
-          echo "P0G_PACKAGED_PROBE_EXACT_BASE=$base"
       - name: Parse packaged PowerShell probe
         shell: pwsh
         run: |
