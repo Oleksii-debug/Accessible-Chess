@@ -341,7 +341,8 @@ class ActionRegistry:
                 "webview_reserved", action_id, None, definition.context, normalized,
                 f"{normalized} is commonly reserved by WebView/browser behavior", "warning"
             ))
-        if normalized in _LIKELY_NVDA or normalized.startswith("NVDA+"):
+        normalized_tokens = normalized.split("+")
+        if normalized in _LIKELY_NVDA or "NVDA" in normalized_tokens[:-1]:
             result.append(Conflict(
                 "nvda_likely", action_id, None, definition.context, normalized,
                 f"{normalized} is likely to conflict with NVDA", "warning"
