@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Mapping
 
 
@@ -100,11 +100,17 @@ class SoundPackManifest:
         if not isinstance(self.files, Mapping):
             raise TypeError("sound pack files must be a mapping")
         files: dict[str, str] = {}
+        path_spellings: dict[str, str] = {}
         for sound_id, value in self.files.items():
             key = _stable_id(sound_id, allow_dot=True)
             path = _safe_audio_path(value)
             if key in files:
                 raise ValueError(f"duplicate sound id: {key}")
+            folded = path.casefold()
+            previous = path_spellings.get(folded)
+            if previous is not None and previous != path:
+                raise ValueError("sound pack contains Windows case-colliding asset paths")
+            path_spellings[folded] = path
             files[key] = path
         missing = [event for event in CORE_SOUND_EVENTS if event not in files]
         if missing:
@@ -226,9 +232,20 @@ def _safe_audio_path(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("sound file path must be text")
     text = value.strip().replace("\\", "/")
-    path = PurePosixPath(text)
-    if not text or path.is_absolute() or ".." in path.parts:
+    if not text or "\x00" in text:
         raise ValueError("sound file path must stay below pack root")
-    if path.suffix.lower() not in _ALLOWED_AUDIO_SUFFIXES:
+    posix = PurePosixPath(text)
+    windows = PureWindowsPath(text)
+    if (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or ".." in posix.parts
+        or any(part in {"", "."} for part in posix.parts)
+    ):
+        raise ValueError("sound file path must stay below pack root")
+    if any(part.endswith((" ", ".")) for part in posix.parts):
+        raise ValueError("sound file path is not stable on Windows")
+    if posix.suffix.lower() not in _ALLOWED_AUDIO_SUFFIXES:
         raise ValueError("unsupported sound asset type")
-    return path.as_posix()
+    return posix.as_posix()
