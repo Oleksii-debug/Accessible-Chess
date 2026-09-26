@@ -53,34 +53,51 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         self.assertIn('const dispatchId = "api:" + String(++dispatchCounter)', self.runtime)
         self.assertIn('if (rememberDispatchMessage(dispatch, text)) return false', self.runtime)
 
+    def _run_node_oracle(self, node: str, script: Path, pass_marker: str) -> None:
+        completed = subprocess.run(
+            [node, str(script)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            msg=(
+                f"Node oracle failed: {script.name}\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            ),
+        )
+        self.assertIn(pass_marker, completed.stdout)
+
     def test_runtime_parses_and_repeated_action_oracle_passes(self) -> None:
         node = shutil.which("node")
         if node is None:
             self.skipTest("Node.js is unavailable")
-        subprocess.run(
+        syntax = subprocess.run(
             [node, "--check", str(ROOT / "web" / "p0_accessibility_runtime.js")],
             cwd=ROOT,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
-        completed = subprocess.run(
-            [node, str(ROOT / "tests" / "js" / "p0_accessibility_runtime_test.js")],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
+        self.assertEqual(
+            syntax.returncode,
+            0,
+            msg=f"P0 runtime syntax check failed:\n{syntax.stdout}\n{syntax.stderr}",
         )
-        self.assertIn("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS", completed.stdout)
-
-        dynamic = subprocess.run(
-            [node, str(ROOT / "tests" / "js" / "p0_dynamic_selection_runtime_test.js")],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
+        self._run_node_oracle(
+            node,
+            ROOT / "tests" / "js" / "p0_accessibility_runtime_test.js",
+            "P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS",
         )
-        self.assertIn("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS", dynamic.stdout)
+        self._run_node_oracle(
+            node,
+            ROOT / "tests" / "js" / "p0_dynamic_selection_runtime_test.js",
+            "P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS",
+        )
 
 
 if __name__ == "__main__":
