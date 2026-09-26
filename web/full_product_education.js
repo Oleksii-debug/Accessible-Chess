@@ -213,6 +213,14 @@
     const heading = node("h2", snapshot.heading || "");
     heading.id = "classroom-collaboration-heading";
     wrapper.appendChild(heading);
+    if (snapshot.available === false) {
+      const status = node("p", snapshot.status_message || "");
+      status.id = "classroom-collaboration-status";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "off");
+      wrapper.appendChild(status);
+      return wrapper;
+    }
 
     const chat = snapshot.chat && typeof snapshot.chat === "object" ? snapshot.chat : {};
     const chatSection = node("section");
