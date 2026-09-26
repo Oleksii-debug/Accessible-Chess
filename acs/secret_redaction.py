@@ -97,17 +97,15 @@ def redact_text(value: str) -> str:
     return _URL_RE.sub(lambda match: _redact_url(match.group(0)), text)
 
 
-def _redact_url(value: str) -> str:
+def _redact_url_parameters(value: str) -> tuple[str, bool]:
+    """Redact secret key/value pairs while leaving non-parameter fragments intact."""
+
+    if not value:
+        return value, False
     try:
-        parts = urlsplit(value)
+        pairs = parse_qsl(value, keep_blank_values=True, strict_parsing=False)
     except ValueError:
-        return value
-    if not parts.query:
-        return value
-    try:
-        pairs = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=False)
-    except ValueError:
-        return value
+        return value, False
     changed = False
     sanitized: list[tuple[str, str]] = []
     for key, raw in pairs:
@@ -117,8 +115,20 @@ def _redact_url(value: str) -> str:
         else:
             sanitized.append((key, raw))
     if not changed:
+        return value, False
+    return urlencode(sanitized), True
+
+
+def _redact_url(value: str) -> str:
+    try:
+        parts = urlsplit(value)
+    except ValueError:
         return value
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(sanitized), parts.fragment))
+    query, query_changed = _redact_url_parameters(parts.query)
+    fragment, fragment_changed = _redact_url_parameters(parts.fragment)
+    if not query_changed and not fragment_changed:
+        return value
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, fragment))
 
 
 def redact_diagnostic(value: Any, *, max_depth: int = 32) -> Any:
