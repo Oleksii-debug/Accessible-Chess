@@ -16,6 +16,7 @@ from acs.starter_content import (
     build_starter_pgn,
     build_stress_pgn,
 )
+from acs.version2_release_diagnostics import packaged_starter_materials_ready
 
 
 def _game_count(text: str) -> int:
@@ -117,3 +118,41 @@ def test_bundle_manifest_hashes_and_licenses_every_payload(tmp_path):
         assert len(payload) == expected["bytes"]
         assert hashlib.sha256(payload).hexdigest() == expected["sha256"]
         assert expected["license_id"] == CONTENT_LICENSE_ID
+
+
+def _release_starter_snapshot(*, booklet_count: int = 24, include_course: bool = True):
+    items = [
+        {"material_id": f"starter-booklet-{index:02d}"}
+        for index in range(1, 25)
+    ]
+    if include_course:
+        items.insert(0, {"material_id": "starter-course"})
+    return {
+        "current_id": "starter-course",
+        "booklet_count": booklet_count,
+        "items": items,
+    }
+
+
+def test_packaged_starter_diagnostic_accepts_complete_release_snapshot():
+    assert packaged_starter_materials_ready(_release_starter_snapshot()) is True
+
+
+def test_packaged_starter_diagnostic_fails_closed_for_missing_or_incomplete_state():
+    assert packaged_starter_materials_ready(None) is False
+    assert packaged_starter_materials_ready({}) is False
+
+    wrong_current = _release_starter_snapshot()
+    wrong_current["current_id"] = "starter-booklet-01"
+    assert packaged_starter_materials_ready(wrong_current) is False
+
+    assert packaged_starter_materials_ready(
+        _release_starter_snapshot(booklet_count=23)
+    ) is False
+    assert packaged_starter_materials_ready(
+        _release_starter_snapshot(include_course=False)
+    ) is False
+
+    malformed_items = _release_starter_snapshot()
+    malformed_items["items"] = {"material_id": "starter-course"}
+    assert packaged_starter_materials_ready(malformed_items) is False
