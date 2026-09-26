@@ -118,6 +118,8 @@ class SecureHttpTests(unittest.TestCase):
             "https://example.invalid/#fragment",
             "https://example.invalid/\\evil",
             "https://example.invalid/a\nb",
+            " https://example.invalid/",
+            "https://example.invalid/ ",
             "https:///missing-host",
             "https://example.invalid:99999/",
         ]
@@ -135,6 +137,9 @@ class SecureHttpTests(unittest.TestCase):
             {"X-Test\nInjected": "x"},
             {"X-Test": "ok\r\nInjected: yes"},
             {"X-Test": "bad\x00value"},
+            {"X-Test": "bad\x01value"},
+            {"X-Test": "bad\x0bvalue"},
+            {"X-Test": "bad\x7fvalue"},
             {"X-Test": 7},
             {"Host": "attacker.invalid"},
             {"Content-Length": "999"},
