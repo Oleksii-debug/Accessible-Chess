@@ -15,7 +15,7 @@ class RuntimeDependencySbomTests(unittest.TestCase):
     def _manifest(self, root: Path) -> Path:
         path = root / "PYTHON_RUNTIME_DEPENDENCIES.json"
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "scope": "qualified Python build/runtime dependency notice evidence",
             "python": {
                 "version": "3.12.10",
@@ -95,6 +95,21 @@ class RuntimeDependencySbomTests(unittest.TestCase):
                 if row["relationshipType"] == "DEPENDS_ON"
             }
             self.assertEqual(len(dependency_targets), 2)
+
+    def test_rejects_obsolete_notice_manifest_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            manifest = self._manifest(root)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["schema_version"] = 1
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeDependencySbomError, "schema is unsupported"):
+                build_runtime_dependency_spdx23(
+                    manifest,
+                    root / "sbom.json",
+                    document_name="Accessible Chess runtime",
+                    created_utc="2026-09-26T16:00:00Z",
+                )
 
     def test_rejects_duplicate_distribution_authority(self) -> None:
         with tempfile.TemporaryDirectory() as td:
