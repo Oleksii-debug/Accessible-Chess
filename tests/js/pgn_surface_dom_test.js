@@ -54,6 +54,9 @@ window.accessibleChessKeymapAction = function (event, context) {
 };
 
 function check(condition, message) { if (!condition) throw new Error(message); }
+const shellSource = fs.readFileSync("web/index.html", "utf8");
+check(shellSource.includes("window.accessibleChessKeymapAction=keymapActionForEvent"),
+  "shipping shell does not export the current-keymap event resolver");
 function snapshot(selectedId) {
   return {
     status: "ready",
