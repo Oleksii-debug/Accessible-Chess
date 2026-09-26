@@ -53,6 +53,10 @@ _RAW_SOURCE_SUFFIXES = {
     ".py", ".pyc", ".pyo", ".ipynb", ".c", ".cc", ".cpp", ".cxx",
     ".h", ".hpp", ".hh", ".rs",
 }
+_DEBUG_BUILD_SUFFIXES = {
+    ".pdb", ".dbg", ".ilk", ".exp", ".lib", ".obj", ".pch", ".idb",
+    ".dmp", ".mdmp",
+}
 _USER_STATE_NAMES = {
     "settings.json",
     "library.acsdb",
@@ -354,6 +358,8 @@ def _validate_file_policy(relative: str) -> None:
         _fail(f"secret-bearing file type is forbidden: {relative}")
     if _backend_payload(relative):
         _fail(f"optional external backend payload is forbidden: {relative}")
+    if token.suffix.casefold() in _DEBUG_BUILD_SUFFIXES:
+        _fail(f"debug/build artifact is forbidden in the default package: {relative}")
 
 
 def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]:

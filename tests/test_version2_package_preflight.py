@@ -312,6 +312,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ("token.json", b"{}", "secret-bearing"),
             ("uncbv.exe", b"MZ", "optional external backend"),
             ("libcbh.dll", b"MZ", "optional external backend"),
+            ("libcbh.lib", b"link library", "optional external backend"),
         )
         for name, payload, expected in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
@@ -321,6 +322,32 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 (root / "AccessibleChess" / name).write_bytes(payload)
                 _write_checksums(root)
                 with self.assertRaisesRegex(Version2PackagePreflightError, expected):
+                    _validate_tree(root)
+
+    def test_debug_build_and_crash_artifacts_are_rejected(self):
+        cases = (
+            "AccessibleChess.PDB",
+            "helper.dbg",
+            "AccessibleChess.ilk",
+            "bridge.exp",
+            "python312.lib",
+            "module.obj",
+            "precompiled.pch",
+            "compiler.idb",
+            "crash.dmp",
+            "minidump.mdmp",
+        )
+        for name in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "package"
+                root.mkdir()
+                _make_tree(root)
+                (root / "AccessibleChess" / name).write_bytes(b"development artifact")
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "debug/build artifact",
+                ):
                     _validate_tree(root)
 
     def test_private_paths_and_credentials_in_text_are_rejected_without_echo(self):
