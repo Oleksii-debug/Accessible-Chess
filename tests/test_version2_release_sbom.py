@@ -116,6 +116,13 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                 {"packageVerificationCodeValue": _package_verification_code(package, inventory)},
             )
             self.assertRegex(verification["packageVerificationCodeValue"], r"^[0-9a-f]{40}$")
+            self.assertEqual(
+                actual["documentNamespace"],
+                (
+                    "https://github.com/Oleksii-debug/Accessible-Chess/spdx/"
+                    f"{_SHA}/{verification['packageVerificationCodeValue']}"
+                ),
+            )
             stockfish = next(p for p in actual["packages"] if p["name"] == "Stockfish")
             self.assertEqual(stockfish["licenseDeclared"], "GPL-3.0-or-later")
             self.assertEqual(stockfish["versionInfo"], "18")
