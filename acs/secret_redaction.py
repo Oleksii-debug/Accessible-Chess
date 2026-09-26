@@ -51,6 +51,11 @@ _HEADER_RE = re.compile(
 # second cookie/attribute cannot survive after only the first token is hidden.
 _COOKIE_HEADER_RE = re.compile(r"(?im)(\b(?:cookie|set-cookie)\s*:\s*)[^\r\n]*")
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+\-/]+=*")
+_QUOTED_ASSIGNMENT_RE = re.compile(
+    r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
+    r"api[_-]?key|api[_-]?secret|license[_-]?key|session[_-]?token|password|passwd)"
+    r"\s*[=:]\s*)(?P<quote>[\"'])(.*?)(?P=quote)"
+)
 _ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
     r"api[_-]?key|api[_-]?secret|license[_-]?key|session[_-]?token|password|passwd)"
@@ -92,6 +97,10 @@ def redact_text(value: str) -> str:
     text = _COOKIE_HEADER_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _HEADER_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _BEARER_RE.sub("Bearer " + REDACTED, text)
+    text = _QUOTED_ASSIGNMENT_RE.sub(
+        lambda match: match.group(1) + match.group("quote") + REDACTED + match.group("quote"),
+        text,
+    )
     text = _ASSIGNMENT_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _JSONISH_RE.sub(lambda match: match.group(1) + REDACTED + match.group(3), text)
     return _URL_RE.sub(lambda match: _redact_url(match.group(0)), text)
