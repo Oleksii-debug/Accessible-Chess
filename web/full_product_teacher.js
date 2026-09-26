@@ -59,6 +59,59 @@
     return result;
   }
 
+  function safeImageUrl(value) {
+    const text = typeof value === "string" ? value : "";
+    return /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(text) ? text : "";
+  }
+
+  function pieceAssetId(symbol) {
+    const ids = {
+      K: "white_king", Q: "white_queen", R: "white_rook",
+      B: "white_bishop", N: "white_knight", P: "white_pawn",
+      k: "black_king", q: "black_queen", r: "black_rook",
+      b: "black_bishop", n: "black_knight", p: "black_pawn"
+    };
+    return ids[String(symbol || "")] || "";
+  }
+
+  function squareIsLight(square) {
+    if (!/^[a-h][1-8]$/.test(square)) return false;
+    return ((square.charCodeAt(0) - 97 + Number(square[1])) % 2) === 0;
+  }
+
+  function visibleCoordinate(square, mode, orientation) {
+    if (mode === "off") return "";
+    if (mode === "every_square") return square;
+    if (mode !== "edges") return square;
+    const bottomRank = orientation === "black" ? "8" : "1";
+    const leftFile = orientation === "black" ? "h" : "a";
+    let text = "";
+    if (square[1] === bottomRank) text += square[0];
+    if (square[0] === leftFile) text += square[1];
+    return text;
+  }
+
+  function withCachedVisualAssets(root, snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return snapshot;
+    const visual = snapshot.visual && typeof snapshot.visual === "object" ? snapshot.visual : null;
+    if (!visual) return snapshot;
+    if (visual.assets && typeof visual.assets === "object") {
+      root.__accessibleChessVisualAssets = visual.assets;
+      return snapshot;
+    }
+    if (!root.__accessibleChessVisualAssets) return snapshot;
+    const copy = Object.assign({}, snapshot);
+    copy.visual = Object.assign({}, visual, { assets: root.__accessibleChessVisualAssets });
+    return copy;
+  }
+
+  function optionNode(value, text, disabled) {
+    const option = node("option", text);
+    option.value = String(value);
+    option.disabled = Boolean(disabled);
+    return option;
+  }
+
   function applySquareState(button, snapshot) {
     const square = button.getAttribute("data-square");
     const pointer = snapshot.pointer && snapshot.pointer.square === square;
@@ -134,29 +187,217 @@
     const visual = node("section");
     visual.id = "teacher-visual-region";
     const boardState = snapshot.board || {};
+    const visualState = snapshot.visual && typeof snapshot.visual === "object" ? snapshot.visual : null;
+    const preferences = visualState && visualState.preferences && typeof visualState.preferences === "object"
+      ? visualState.preferences
+      : null;
+    const effective = visualState && visualState.effective && typeof visualState.effective === "object"
+      ? visualState.effective
+      : {};
+    const assets = visualState && visualState.assets && typeof visualState.assets === "object"
+      ? visualState.assets
+      : {};
+    const boardAssets = assets.board && typeof assets.board === "object" ? assets.board : {};
+    const pieceAssets = assets.pieces && typeof assets.pieces === "object" ? assets.pieces : {};
     const pieces = pieceMap(snapshot);
+
+    if (preferences) {
+      const controls = node("fieldset");
+      controls.id = "teacher-visual-controls";
+      controls.appendChild(node("legend", "Board appearance"));
+
+      function updateField(field, value) {
+        safeInvoke(invoke, "teacher.visual.update", { field: field, value: value }, function (result) {
+          applyTeacherEvent(visual.parentNode, result, invoke, announce, fallbackMessage);
+        }, announce, fallbackMessage);
+      }
+
+      function addSelect(id, labelText, field, rows, value) {
+        const label = node("label", labelText);
+        const select = node("select");
+        select.id = id;
+        label.htmlFor = id;
+        rows.forEach(function (item) {
+          if (!item || typeof item !== "object") return;
+          const option = optionNode(
+            item.pack_id || "",
+            String(item.title || item.pack_id || ""),
+            item.renderable === false
+          );
+          select.appendChild(option);
+        });
+        select.value = String(value || "classic");
+        select.addEventListener("change", function () {
+          updateField(field, String(select.value));
+        });
+        controls.appendChild(label);
+        controls.appendChild(select);
+      }
+
+      const themes = visualState.themes && typeof visualState.themes === "object" ? visualState.themes : {};
+      addSelect(
+        "teacher-visual-board-theme",
+        "Board theme",
+        "board_theme_id",
+        Array.isArray(themes.board) ? themes.board : [],
+        preferences.board_theme_id
+      );
+      addSelect(
+        "teacher-visual-piece-theme",
+        "Piece theme",
+        "piece_theme_id",
+        Array.isArray(themes.pieces) ? themes.pieces : [],
+        preferences.piece_theme_id
+      );
+
+      const coordinateLabel = node("label", "Visible coordinates");
+      const coordinate = node("select");
+      coordinate.id = "teacher-visual-coordinate-mode";
+      coordinateLabel.htmlFor = coordinate.id;
+      coordinate.appendChild(optionNode("off", "Off", false));
+      coordinate.appendChild(optionNode("edges", "Board edges", false));
+      coordinate.appendChild(optionNode("every_square", "Every square", false));
+      coordinate.value = String(preferences.coordinate_mode || "edges");
+      coordinate.addEventListener("change", function () {
+        updateField("coordinate_mode", String(coordinate.value));
+      });
+      controls.appendChild(coordinateLabel);
+      controls.appendChild(coordinate);
+
+      function addScale(id, labelText, field, value, minimum, maximum) {
+        const label = node("label", labelText);
+        const input = node("input");
+        input.id = id;
+        input.type = "number";
+        input.min = String(minimum);
+        input.max = String(maximum);
+        input.step = "5";
+        input.value = String(value);
+        label.htmlFor = id;
+        input.addEventListener("change", function () {
+          const parsed = Number(input.value);
+          if (Number.isInteger(parsed)) updateField(field, parsed);
+        });
+        controls.appendChild(label);
+        controls.appendChild(input);
+      }
+
+      addScale(
+        "teacher-visual-board-scale",
+        "Board size percent",
+        "board_scale_percent",
+        preferences.board_scale_percent,
+        50,
+        200
+      );
+      addScale(
+        "teacher-visual-piece-scale",
+        "Piece size percent",
+        "piece_scale_percent",
+        preferences.piece_scale_percent,
+        50,
+        150
+      );
+
+      function addFlag(id, labelText, field, checked) {
+        const label = node("label", labelText);
+        const input = node("input");
+        input.id = id;
+        input.type = "checkbox";
+        input.checked = checked === true;
+        label.htmlFor = id;
+        input.addEventListener("change", function () {
+          updateField(field, Boolean(input.checked));
+        });
+        controls.appendChild(label);
+        controls.appendChild(input);
+      }
+
+      addFlag(
+        "teacher-visual-show-last-move",
+        "Show last move",
+        "show_last_move",
+        preferences.show_last_move
+      );
+      addFlag(
+        "teacher-visual-reduced-motion",
+        "Reduce motion",
+        "reduced_motion",
+        preferences.reduced_motion
+      );
+
+      const reset = node("button", "Reset appearance");
+      reset.id = "teacher-visual-reset";
+      reset.type = "button";
+      reset.addEventListener("click", function () {
+        safeInvoke(invoke, "teacher.visual.reset", {}, function (result) {
+          applyTeacherEvent(visual.parentNode, result, invoke, announce, fallbackMessage);
+        }, announce, fallbackMessage);
+      });
+      controls.appendChild(reset);
+      visual.appendChild(controls);
+    }
     const boardWrap = node("div");
     boardWrap.id = "teacher-board-wrap";
     boardWrap.style.position = "relative";
+    boardWrap.setAttribute("data-board-theme", String(effective.board_theme_id || "classic"));
+    boardWrap.setAttribute(
+      "data-reduced-motion",
+      preferences && preferences.reduced_motion === true ? "true" : "false"
+    );
+    const boardScale = preferences ? Number(preferences.board_scale_percent) : 100;
+    if (Number.isInteger(boardScale) && boardScale >= 50 && boardScale <= 200) {
+      boardWrap.style.width = "min(100%, " + String(32 * boardScale / 100) + "rem)";
+    }
     const grid = node("div");
     grid.id = "teacher-visual-board";
     grid.setAttribute("role", "grid");
     grid.setAttribute("aria-label", "Teaching board");
+    grid.setAttribute("data-piece-theme", String(effective.piece_theme_id || "classic"));
     grid.style.display = "grid";
     grid.style.gridTemplateColumns = "repeat(8, minmax(2.5rem, 1fr))";
-    boardSquares(String(boardState.orientation || "white")).forEach(function (square) {
+    const orientation = String(boardState.orientation || "white");
+    const coordinateMode = boardState.coordinates_visible === false
+      ? "off"
+      : (preferences ? String(preferences.coordinate_mode || "edges") : "every_square");
+    grid.setAttribute("data-coordinate-mode", coordinateMode);
+    const pieceScale = preferences ? Number(preferences.piece_scale_percent) : 100;
+    boardSquares(orientation).forEach(function (square) {
       const cell = node("div");
       cell.setAttribute("role", "gridcell");
       const piece = pieces[square] || null;
-      const coordinateVisible = boardState.coordinates_visible !== false;
+      const coordinate = visibleCoordinate(square, coordinateMode, orientation);
       const glyph = piece ? String(piece.glyph || "") : "";
-      const visibleText = piece ? (glyph + (coordinateVisible ? " " + square : "")) : (coordinateVisible ? square : "");
+      const pieceId = piece ? pieceAssetId(piece.symbol) : "";
+      const pieceUrl = pieceId ? safeImageUrl(pieceAssets[pieceId]) : "";
+      const visibleText = piece
+        ? (pieceUrl ? coordinate : (glyph + (coordinate ? " " + coordinate : "")))
+        : coordinate;
       const button = node("button", visibleText);
       button.type = "button";
       button.id = "teacher-square-" + square;
       button.setAttribute("data-square", square);
       button.setAttribute("data-piece", piece ? String(piece.symbol || "") : "");
       button.setAttribute("aria-label", piece && piece.name ? square + ", " + String(piece.name) : square);
+      const squareAsset = safeImageUrl(
+        boardAssets[squareIsLight(square) ? "light_square" : "dark_square"]
+      );
+      if (squareAsset) {
+        button.style.backgroundImage = 'url("' + squareAsset + '")';
+        button.style.backgroundSize = "cover";
+      }
+      if (Number.isInteger(pieceScale) && pieceScale >= 50 && pieceScale <= 150) {
+        button.style.fontSize = String(pieceScale / 100) + "em";
+      }
+      if (pieceUrl) {
+        const image = node("img");
+        image.src = pieceUrl;
+        image.alt = "";
+        image.draggable = false;
+        image.setAttribute("aria-hidden", "true");
+        image.setAttribute("data-piece-image", pieceId);
+        button.appendChild(image);
+      }
       applySquareState(button, snapshot);
       button.addEventListener("mouseenter", function () {
         safeInvoke(invoke, "teacher.student_event", {
@@ -194,7 +435,8 @@
 
   function replaceVisual(root, snapshot, invoke, announce, fallbackMessage) {
     const previous = root.querySelector("#teacher-visual-region");
-    const replacement = renderVisual(snapshot, invoke, announce, fallbackMessage);
+    const hydrated = withCachedVisualAssets(root, snapshot);
+    const replacement = renderVisual(hydrated, invoke, announce, fallbackMessage);
     if (previous && typeof previous.replaceWith === "function") previous.replaceWith(replacement);
   }
 
@@ -266,7 +508,8 @@
       }, announce, fallbackMessage);
     });
     main.appendChild(orientation);
-    main.appendChild(renderVisual(snapshot, invoke, announce, fallbackMessage));
+    const hydrated = withCachedVisualAssets(root, snapshot);
+    main.appendChild(renderVisual(hydrated, invoke, announce, fallbackMessage));
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     focusTarget(root, requestedFocus || "");
