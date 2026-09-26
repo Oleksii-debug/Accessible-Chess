@@ -253,7 +253,10 @@ def build_version2_release_sbom(
         "dataLicense": DATA_LICENSE,
         "SPDXID": DOCUMENT_SPDX_ID,
         "name": f"Accessible Chess V2 package {sha[:12]}",
-        "documentNamespace": f"https://github.com/Oleksii-debug/Accessible-Chess/spdx/{sha}",
+        "documentNamespace": (
+            "https://github.com/Oleksii-debug/Accessible-Chess/spdx/"
+            f"{sha}/{verification_code}"
+        ),
         "creationInfo": {
             "created": "1980-01-01T00:00:00Z",
             "creators": ["Tool: Accessible-Chess deterministic release SBOM generator"],
