@@ -7,10 +7,12 @@ on:
     paths:
       - 'acs/oauth_pkce.py'
       - 'acs/oidc_metadata.py'
+      - 'acs/oauth_token_response.py'
       - 'tests/test_oauth_pkce.py'
       - 'tests/test_oauth_pkce_explicit_inputs.py'
       - 'tests/test_oidc_metadata.py'
       - 'tests/test_oidc_issuer_binding.py'
+      - 'tests/test_oauth_token_response.py'
       - '.github/workflows/security-oauth-pkce.yml'
   workflow_dispatch:
 
@@ -53,10 +55,12 @@ jobs:
           python -m py_compile
           acs/oauth_pkce.py
           acs/oidc_metadata.py
+          acs/oauth_token_response.py
           tests/test_oauth_pkce.py
           tests/test_oauth_pkce_explicit_inputs.py
           tests/test_oidc_metadata.py
           tests/test_oidc_issuer_binding.py
+          tests/test_oauth_token_response.py
 
       - name: Execute focused OAuth/OIDC contract
         run: >-
@@ -65,23 +69,32 @@ jobs:
           tests.test_oauth_pkce_explicit_inputs
           tests.test_oidc_metadata
           tests.test_oidc_issuer_binding
+          tests.test_oauth_token_response
 
       - name: Enforce provider-neutral boundary
         shell: python
         run: |
           from pathlib import Path
-          source = (
+          request_source = (
               Path('acs/oauth_pkce.py').read_text(encoding='utf-8')
               + '\n'
               + Path('acs/oidc_metadata.py').read_text(encoding='utf-8')
           )
-          forbidden = (
+          token_source = Path('acs/oauth_token_response.py').read_text(encoding='utf-8')
+          common_forbidden = (
               'requests', 'urllib.request', 'http.client', 'socket.',
-              'stripe', 'paypal', "'client_secret'", '"client_secret"',
-              "'refresh_token'", '"refresh_token"',
-              'acs.entitlements', 'acs.secret_store', 'webbrowser.',
+              'stripe', 'paypal', 'acs.entitlements', 'acs.secret_store',
+              'webbrowser.',
           )
-          found = [token for token in forbidden if token in source]
+          found = [
+              token for token in common_forbidden
+              if token in request_source or token in token_source
+          ]
+          request_only_forbidden = (
+              "'client_secret'", '"client_secret"',
+              "'refresh_token'", '"refresh_token"',
+          )
+          found.extend(token for token in request_only_forbidden if token in request_source)
           if found:
               raise SystemExit(f'provider-neutral OAuth boundary violation: {found}')
           print('OAUTH_PKCE_PROVIDER_NEUTRAL_BOUNDARY=PASS')
