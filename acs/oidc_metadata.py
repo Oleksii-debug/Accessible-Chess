@@ -132,6 +132,41 @@ class OidcProviderMetadata:
             raise OAuthContractError("OIDC discovery issuer does not match configured issuer")
         return metadata
 
+    def validated(self) -> "OidcProviderMetadata":
+        _canonical_issuer(self.issuer)
+        _validate_endpoint("authorization_endpoint", self.authorization_endpoint)
+        _validate_endpoint("token_endpoint", self.token_endpoint)
+
+        response_types = _string_array(
+            "response_types_supported", self.response_types_supported
+        )
+        challenge_methods = _string_array(
+            "code_challenge_methods_supported",
+            self.code_challenge_methods_supported,
+        )
+        token_auth_methods = _string_array(
+            "token_endpoint_auth_methods_supported",
+            self.token_endpoint_auth_methods_supported,
+        )
+        if "code" not in response_types:
+            raise OAuthContractError("OIDC provider does not advertise authorization code flow")
+        if "S256" not in challenge_methods:
+            raise OAuthContractError("OIDC provider does not advertise PKCE S256")
+        if "none" not in token_auth_methods:
+            raise OAuthContractError(
+                "OIDC provider does not advertise public-client token authentication"
+            )
+
+        if self.scopes_supported is not None:
+            scopes_supported = _string_array(
+                "scopes_supported", self.scopes_supported
+            )
+            if "openid" not in scopes_supported:
+                raise OAuthContractError(
+                    "OIDC provider metadata does not advertise openid scope"
+                )
+        return self
+
     def create_authorization_request(
         self,
         *,
@@ -139,6 +174,7 @@ class OidcProviderMetadata:
         redirect_uri: str,
         scopes: tuple[str, ...] = ("openid", "profile"),
     ) -> AuthorizationRequest:
+        self.validated()
         if "openid" not in scopes:
             raise OAuthContractError("OIDC authorization request requires openid scope")
         if self.scopes_supported is not None:
