@@ -30,6 +30,7 @@ _UK_LABELS = {
     "history.previous": "Попередня позиція в історії",
     "history.next": "Наступна позиція в історії",
     "history.go_to_move": "Перейти до ходу",
+    "history.commit_go_to_move": "Підтвердити перехід до введеного ходу",
     "edit.undo": "Скасувати хід",
     "edit.redo": "Повторити хід",
     "analysis.pv1": "Перший варіант Stockfish",
@@ -79,6 +80,7 @@ _UK_LABELS = {
     "board.previous_knight": "Попередній кінь",
     "board.previous_pawn": "Попередній пішак",
     "board.input": "Поле введення ходу",
+    "move.submit": "Зробити введений хід",
     "move.undo": "Команда undo",
     "move.redo": "Команда redo",
     "move.last": "Команда останнього ходу",
@@ -90,6 +92,8 @@ _UK_LABELS = {
 }
 
 _EN_LABELS: dict[str, str] = {
+    "history.commit_go_to_move": "Go to typed move",
+    "move.submit": "Submit move",
     "board.cursor_left": "Move board cursor left",
     "board.cursor_right": "Move board cursor right",
     "board.cursor_up": "Move board cursor up",
