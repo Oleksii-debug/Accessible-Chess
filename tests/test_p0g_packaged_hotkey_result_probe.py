@@ -18,6 +18,21 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         cls.web = WEB.read_text(encoding="utf-8")
         cls.keymap = json.loads(KEYMAP.read_text(encoding="utf-8"))
 
+    def test_probe_binds_claimed_sha_to_release_manifest_and_launched_exe_checksum(self) -> None:
+        self.assertIn("function AssertExactPackageBinding", self.text)
+        self.assertIn("RELEASE_MANIFEST.json", self.text)
+        self.assertIn("SHA256SUMS.txt", self.text)
+        self.assertIn("integration_sha mismatch", self.text)
+        self.assertIn("AccessibleChess/AccessibleChess\\.exe", self.text)
+        self.assertIn("Get-FileHash -LiteralPath $ExePath -Algorithm SHA256", self.text)
+        self.assertIn("AssertExactPackageBinding $root $ProductSha $exe", self.text)
+        self.assertIn("manifest_product_sha_verified=$true", self.text)
+        self.assertIn("executable_checksum_verified=$true", self.text)
+        self.assertLess(
+            self.text.index("AssertExactPackageBinding $root $ProductSha $exe"),
+            self.text.index("Start-Process -FilePath $exe"),
+        )
+
     def test_probe_launches_real_extracted_exe_and_uses_connected_provider_roots(self) -> None:
         self.assertIn("AccessibleChess.exe", self.text)
         self.assertIn("Start-Process -FilePath $exe", self.text)
