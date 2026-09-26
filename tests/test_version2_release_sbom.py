@@ -137,6 +137,42 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                     inventory=self._inventory(package),
                 )
 
+    def test_sound_license_attribution_requires_provenance_digest_match(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            sound = package / "AccessibleChess" / "assets" / "sounds" / "move.wav"
+            sound.write_bytes(b"RIFF-tampered-after-provenance")
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError,
+                "SHA-256 does not match packaged sound asset",
+            ):
+                build_version2_release_sbom(
+                    package,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
+                )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            provenance_path = package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["move"]["sha256"] = "not-a-sha256"
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError,
+                "SHA-256 identity is invalid",
+            ):
+                build_version2_release_sbom(
+                    package,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
+                )
+
     def test_sidecar_must_be_outside_package_tree(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
