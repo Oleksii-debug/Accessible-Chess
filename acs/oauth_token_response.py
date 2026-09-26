@@ -81,9 +81,39 @@ class OAuthTokenResponse:
             scope=scope,
             refresh_token=refresh_token,
             id_token=id_token,
-        )
+        ).validated()
+
+    def validated(self) -> "OAuthTokenResponse":
+        _token("access_token", self.access_token, required=True)
+        if self.token_type != "Bearer":
+            raise OAuthContractError("OAuth token response requires canonical Bearer token type")
+
+        if self.expires_in is not None and (
+            type(self.expires_in) is not int
+            or not 1 <= self.expires_in <= _MAX_EXPIRES_SECONDS
+        ):
+            raise OAuthContractError("OAuth expires_in is outside the accepted range")
+
+        if self.scope is not None:
+            if type(self.scope) is not tuple or not self.scope:
+                raise OAuthContractError("OAuth scope response must be a non-empty tuple")
+            if len(set(self.scope)) != len(self.scope):
+                raise OAuthContractError("OAuth scope response contains duplicate values")
+            for value in self.scope:
+                scope_value = _require_text("scope", value, max_length=_MAX_SCOPE_CHARS)
+                if any(char.isspace() for char in scope_value):
+                    raise OAuthContractError(
+                        "OAuth scope response contains non-canonical whitespace"
+                    )
+            if len(" ".join(self.scope)) > _MAX_SCOPE_CHARS:
+                raise OAuthContractError("OAuth scope response exceeds the accepted range")
+
+        _token("refresh_token", self.refresh_token, required=False)
+        _token("id_token", self.id_token, required=False)
+        return self
 
     def validate_for_request(self, request: AuthorizationRequest) -> "OAuthTokenResponse":
+        self.validated()
         if type(request) is not AuthorizationRequest:
             raise OAuthContractError("token response requires an AuthorizationRequest")
         request.validated()
