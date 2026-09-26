@@ -310,6 +310,21 @@ class SoundPackStoreTests(unittest.TestCase):
             self.assertFalse(state.update_available)
             self.assertEqual(state.reason, "incompatible_product_sound_api")
 
+    def test_catalogue_older_than_installed_pack_is_not_an_update(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SoundPackStore(root / "installed")
+            staging = root / "staging"
+            staging.mkdir()
+            _write_pack(staging, version="3.0.0")
+            store.install_from_staging(staging)
+
+            state = store.catalog_state(_catalog(version="2.9.9"))
+
+            self.assertTrue(state.installed)
+            self.assertFalse(state.update_available)
+            self.assertEqual(state.installed_version, "3.0.0")
+
     def test_classic_pack_cannot_be_installed_or_uninstalled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
