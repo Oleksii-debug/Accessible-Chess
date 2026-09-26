@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -41,11 +42,12 @@ class SecretStoreContractTests(unittest.TestCase):
             store = WindowsDpapiSecretStore(Path(td) / "secure")
             secret = b"refresh-token-value-that-must-not-hit-disk"
 
-            def protect(value: bytes) -> bytes:
-                return b"DPAPI-FIXTURE:" + value[::-1]
+            def protect(value: bytes, *, entropy: bytes) -> bytes:
+                binding = hashlib.sha256(entropy).digest()
+                return b"DPAPI-FIXTURE:" + binding + value[::-1]
 
-            def unprotect(value: bytes) -> bytes:
-                prefix = b"DPAPI-FIXTURE:"
+            def unprotect(value: bytes, *, entropy: bytes) -> bytes:
+                prefix = b"DPAPI-FIXTURE:" + hashlib.sha256(entropy).digest()
                 if not value.startswith(prefix):
                     raise SecretStoreError("fixture ciphertext rejected")
                 return value[len(prefix):][::-1]
@@ -64,6 +66,38 @@ class SecretStoreContractTests(unittest.TestCase):
                 self.assertTrue(store.delete("refresh-token"))
                 self.assertFalse(store.delete("refresh-token"))
                 self.assertIsNone(store.read("refresh-token"))
+
+    def test_ciphertext_cannot_be_swapped_between_logical_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            store = WindowsDpapiSecretStore(Path(td) / "secure")
+
+            def protect(value: bytes, *, entropy: bytes) -> bytes:
+                return b"BOUND:" + hashlib.sha256(entropy).digest() + value
+
+            def unprotect(value: bytes, *, entropy: bytes) -> bytes:
+                prefix = b"BOUND:" + hashlib.sha256(entropy).digest()
+                if not value.startswith(prefix):
+                    raise SecretStoreError("fixture slot binding rejected")
+                return value[len(prefix):]
+
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(secret_store, "_dpapi_protect", side_effect=protect),
+                mock.patch.object(secret_store, "_dpapi_unprotect", side_effect=unprotect),
+            ):
+                store.write("refresh-token", b"refresh-secret")
+                store.write("access-token", b"access-secret")
+                refresh_path = store._path("refresh-token")
+                access_path = store._path("access-token")
+                refresh_cipher = refresh_path.read_bytes()
+                access_cipher = access_path.read_bytes()
+                refresh_path.write_bytes(access_cipher)
+                access_path.write_bytes(refresh_cipher)
+
+                with self.assertRaisesRegex(SecretStoreError, "slot binding rejected"):
+                    store.read("refresh-token")
+                with self.assertRaisesRegex(SecretStoreError, "slot binding rejected"):
+                    store.read("access-token")
 
     def test_secret_and_ciphertext_size_limits_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
