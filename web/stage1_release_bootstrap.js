@@ -427,10 +427,19 @@ function applySoundState(state) {
         pack.hidden = !hasPacks;
         const packLabel = byId('sound-pack-label');
         if (packLabel) packLabel.hidden = !hasPacks;
-        if (hasPacks) pack.value = String(currentSoundState.pack_id || 'classic');
+        if (hasPacks) {
+            const effectivePack = String(
+                currentSoundState.effective_pack_id
+                || currentSoundState.pack_id
+                || 'classic'
+            );
+            pack.value = [...pack.options].some(option => option.value === effectivePack)
+                ? effectivePack
+                : 'classic';
+        }
         if (removePack) {
             removePack.hidden = !hasPacks || pack.value === 'classic';
-            removePack.disabled = pack.value === 'classic';
+            removePack.disabled = !hasPacks || pack.value === 'classic';
         }
     }
 
