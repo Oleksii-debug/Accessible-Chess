@@ -40,6 +40,23 @@ class OAuthPkceExplicitInputTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(OAuthContractError):
                 self.create(**{field: " "})
 
+    def test_text_subclass_cannot_execute_during_validation(self):
+        calls: list[str] = []
+
+        class HostileText(str):
+            def strip(self):
+                calls.append("strip")
+                raise AssertionError("OAuth validator must not call subclass strip")
+
+            def __eq__(self, other):
+                calls.append("eq")
+                raise AssertionError("OAuth validator must not call subclass equality")
+
+        with self.assertRaisesRegex(OAuthContractError, "must be text"):
+            self.create(client_id=HostileText("accessible-chess-desktop"))
+        self.assertEqual(calls, [])
+
+
 
 if __name__ == "__main__":
     unittest.main()
