@@ -13,8 +13,10 @@ a second PGN parser, database schema or persistence authority.
 from collections.abc import Mapping
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
+import stat
 import sys
 
 from .acsdb import ACSDB_SCHEMA_VERSION
@@ -55,7 +57,32 @@ _LABELS = {
 }
 
 
+def _is_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _safe_directory(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise RuntimeError("packaged starter content root cannot be inspected") from exc
+    if stat.S_ISLNK(info.st_mode) or _is_reparse(info) or not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError("packaged starter content root must be a regular directory")
+
+
+def _safe_file(path: Path, *, label: str) -> os.stat_result:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise RuntimeError(f"{label} cannot be inspected") from exc
+    if stat.S_ISLNK(info.st_mode) or _is_reparse(info) or not stat.S_ISREG(info.st_mode):
+        raise RuntimeError(f"{label} must be a regular non-reparse file")
+    return info
+
+
 def _sha256(path: Path) -> str:
+    _safe_file(path, label="packaged starter content file")
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -64,9 +91,17 @@ def _sha256(path: Path) -> str:
 
 
 def _load_manifest(root: Path) -> dict[str, object]:
-    actual = {entry.name for entry in root.iterdir() if entry.is_file()}
+    _safe_directory(root)
+    try:
+        entries = tuple(root.iterdir())
+    except OSError as exc:
+        raise RuntimeError("packaged starter content inventory cannot be read") from exc
+    actual = {entry.name for entry in entries}
     if actual != _EXPECTED_FILES:
         raise RuntimeError("packaged starter content file inventory is invalid")
+    for entry in entries:
+        _safe_file(entry, label="packaged starter content entry")
+
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 3:
@@ -96,6 +131,7 @@ def _load_manifest(root: Path) -> dict[str, object]:
     for name in _REQUIRED_PAYLOAD_FILES:
         metadata = files.get(name)
         path = root / name
+        info = _safe_file(path, label="packaged starter content payload")
         if not isinstance(metadata, Mapping):
             raise RuntimeError("packaged starter content file metadata is invalid")
         expected_hash = metadata.get("sha256")
@@ -104,7 +140,7 @@ def _load_manifest(root: Path) -> dict[str, object]:
             raise RuntimeError("packaged starter content hash metadata is invalid")
         if type(expected_bytes) is not int or expected_bytes < 1:
             raise RuntimeError("packaged starter content byte metadata is invalid")
-        if path.stat().st_size != expected_bytes or _sha256(path) != expected_hash.casefold():
+        if info.st_size != expected_bytes or _sha256(path) != expected_hash.casefold():
             raise RuntimeError(f"packaged starter content integrity failed for {name}")
     return manifest
 
@@ -122,8 +158,6 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         self._packaged_starter_root: Path | None = None
         self._packaged_starter_manifest: dict[str, object] | None = None
         if root.exists():
-            if not root.is_dir():
-                raise RuntimeError("packaged starter content root is not a directory")
             self._packaged_starter_manifest = _load_manifest(root)
             self._packaged_starter_root = root
         elif explicit:
@@ -162,11 +196,13 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         if root is None:
             raise ValueError("packaged starter content is unavailable")
         name = "stress_uk.pgn" if stress else "starter_uk.pgn"
+        path = root / name
+        _safe_file(path, label="packaged starter PGN")
         # Packaged starter files are immutable release content. Build a clean
         # canonical workspace without retaining a writable source fingerprint:
         # simply opening bundled content must not look like an unsaved edit, but
         # any later edit still requires the existing explicit Save As workflow.
-        text = (root / name).read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
         workspace = PgnWorkspace.from_text(text)
         session = PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
         self.set_document(session)
@@ -192,6 +228,7 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             raise RuntimeError("packaged starter Library count is invalid")
 
         path = root / "sample_library.acsdb"
+        _safe_file(path, label="packaged starter Library")
         uri = path.resolve(strict=True).as_uri() + "?mode=ro"
         connection = sqlite3.connect(uri, uri=True)
         try:
