@@ -37,6 +37,11 @@ class Version2ReleaseSbomTests(unittest.TestCase):
         (notices / "Stockfish-NOTICE.txt").write_text(
             "Stockfish 18\nLicense: GNU GPL v3 or later\n", encoding="utf-8"
         )
+        (notices / "Stockfish-COPYING.txt").write_text(
+            "GNU GENERAL PUBLIC LICENSE\nVersion 3\n"
+            "Redistribution is permitted under version 3 or any later version.\n",
+            encoding="utf-8",
+        )
         (sounds / "move.wav").write_bytes(b"RIFF-sound")
         (notices / "SOUND_PROVENANCE.json").write_text(
             json.dumps({
@@ -84,6 +89,7 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             self.assertEqual(names, list(inventory))
             self.assertIn("RELEASE_MANIFEST.json", names)
             self.assertIn("SHA256SUMS.txt", names)
+            self.assertIn("THIRD_PARTY_NOTICES/Stockfish-COPYING.txt", names)
             rows = {row["fileName"][2:]: row for row in actual["files"]}
             self.assertEqual(
                 rows["AccessibleChess/assets/sounds/move.wav"]["licenseConcluded"],
@@ -97,6 +103,7 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             stockfish = next(p for p in actual["packages"] if p["name"] == "Stockfish")
             self.assertEqual(stockfish["licenseDeclared"], "GPL-3.0-or-later")
             self.assertEqual(stockfish["versionInfo"], "18")
+            self.assertIn("Stockfish-COPYING.txt", stockfish["comment"])
 
     def test_sidecar_must_be_outside_package_tree(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -108,6 +115,20 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                     package / SBOM_NAME,
                     integration_sha=_SHA,
                     inventory=self._inventory(package),
+                )
+
+    def test_supplied_inventory_must_equal_real_package_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            inventory = tuple(
+                name for name in self._inventory(package) if name != "SHA256SUMS.txt"
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError, "does not exactly match package tree"
+            ):
+                build_version2_release_sbom(
+                    package, integration_sha=_SHA, inventory=inventory
                 )
 
     def test_validation_detects_payload_tamper_or_new_file(self) -> None:
@@ -137,15 +158,15 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                 package, sbom, integration_sha=_SHA, inventory=old_inventory
             )
             (package / "AccessibleChess" / "new-runtime.dll").write_bytes(b"new")
-            with self.assertRaisesRegex(Version2ReleaseSbomError, "does not exactly describe"):
+            with self.assertRaisesRegex(Version2ReleaseSbomError, "does not exactly match package tree"):
                 validate_version2_release_sbom(
                     package,
                     sbom,
                     integration_sha=_SHA,
-                    inventory=self._inventory(package),
+                    inventory=old_inventory,
                 )
 
-    def test_invalid_license_notice_and_existing_output_fail_closed(self) -> None:
+    def test_invalid_license_evidence_and_existing_output_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             package = self._package(root)
@@ -163,6 +184,17 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                 "Stockfish 18\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(Version2ReleaseSbomError, "GPL licensing"):
+                build_version2_release_sbom(package, integration_sha=_SHA)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            (package / "THIRD_PARTY_NOTICES" / "Stockfish-COPYING.txt").write_text(
+                "GNU GENERAL PUBLIC LICENSE\nVersion 3\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError, "does not prove GPL-3.0-or-later"
+            ):
                 build_version2_release_sbom(package, integration_sha=_SHA)
 
         with tempfile.TemporaryDirectory() as td:
