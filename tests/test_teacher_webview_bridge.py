@@ -70,6 +70,47 @@ class TeacherWebViewBridgeTests(unittest.TestCase):
                 self.assertNotIn("secret", repr(event).lower())
         self.assertEqual([], self.calls)
 
+    def test_rapid_visual_events_omit_heavy_assets_but_initial_snapshot_includes_them(self) -> None:
+        flags = []
+        state = {
+            "pointer_square": None,
+            "highlights": (),
+            "arrows": (),
+            "coordinates_visible": True,
+            "board_permission": "select_only",
+            "engine_visibility": "hidden",
+        }
+
+        def dispatch(action_id, payload):
+            if action_id == "teacher.pointer_input":
+                state["pointer_square"] = payload["square"]
+            return None
+
+        def visual_provider(include_assets):
+            flags.append(include_assets)
+            result = {"preferences": {"coordinate_mode": "edges"}}
+            if include_assets:
+                result["assets"] = {"board": {"light_square": "data:image/png;base64,AA=="}}
+            return result
+
+        teacher = TeacherPresentationState(dispatch, lambda: dict(state))
+        bridge = TeacherWebViewBridge(
+            TeacherWebViewProjection(
+                teacher,
+                visual_snapshot_provider=visual_provider,
+            ),
+            language=UILanguage.EN,
+        )
+
+        initial = bridge.dispatch("teacher.snapshot", {})
+        pointer = bridge.dispatch("teacher.pointer_input", {"coordinate": "f3"})
+        turned = bridge.dispatch("teacher.orientation.toggle", {})
+
+        self.assertEqual([True, False, False, False], flags)
+        self.assertIn("assets", initial.payload["snapshot"]["visual"])
+        self.assertNotIn("assets", pointer.payload["snapshot"]["visual"])
+        self.assertNotIn("assets", turned.payload["snapshot"]["visual"])
+
     def test_orientation_and_snapshot_are_bounded_presentation_events(self) -> None:
         before = self.bridge.dispatch("teacher.snapshot", {})
         turned = self.bridge.dispatch("teacher.orientation.toggle", {})

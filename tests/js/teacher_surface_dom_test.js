@@ -84,8 +84,8 @@ function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function snapshot(pointer, coordinatesVisible) {
-  return {
+function snapshot(pointer, coordinatesVisible, visual) {
+  const result = {
     board: {
       orientation: "white",
       coordinates_visible: coordinatesVisible !== false,
@@ -108,6 +108,43 @@ function snapshot(pointer, coordinatesVisible) {
     }],
     accessible_summary: pointer ? "Pointer " + pointer : "No teaching annotations.",
     feedback: []
+  };
+  if (visual) result.visual = visual;
+  return result;
+}
+
+function visualState() {
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  return {
+    preferences: {
+      board_theme_id: "high-contrast",
+      piece_theme_id: "large-pieces",
+      coordinate_mode: "edges",
+      board_scale_percent: 125,
+      piece_scale_percent: 110,
+      show_last_move: true,
+      reduced_motion: true
+    },
+    effective: {
+      board_theme_id: "high-contrast",
+      piece_theme_id: "large-pieces",
+      board_fallback_used: false,
+      piece_fallback_used: false
+    },
+    themes: {
+      board: [
+        { pack_id: "classic", title: "Built-in classic", renderable: true },
+        { pack_id: "high-contrast", title: "High contrast", renderable: true }
+      ],
+      pieces: [
+        { pack_id: "classic", title: "Built-in classic", renderable: true },
+        { pack_id: "large-pieces", title: "Large pieces", renderable: true }
+      ]
+    },
+    assets: {
+      board: { light_square: image, dark_square: image },
+      pieces: { white_pawn: image, black_king: image }
+    }
   };
 }
 
@@ -185,6 +222,86 @@ async function run() {
   const hiddenE4 = hiddenRoot.querySelector("#teacher-square-e4");
   check(hiddenE4.textContent === "♙", "hiding coordinates also hid the chess piece");
   check(hiddenE4.getAttribute("aria-label") === "e4, white pawn", "hidden coordinate mode lost semantic square/piece identity");
+
+  const visualCalls = [];
+  const themedInvoke = (command, payload) => {
+    visualCalls.push([command, payload]);
+    if (command === "teacher.visual.update") {
+      const nextVisual = visualState();
+      nextVisual.preferences[payload.field] = payload.value;
+      return {
+        kind: "render-visual",
+        payload: {
+          snapshot: snapshot(null, true, nextVisual),
+          focus_target: "teacher-visual-coordinate-mode",
+          announcement: ""
+        }
+      };
+    }
+    throw new Error("unexpected themed command " + command);
+  };
+  const themedRoot = new FakeElement("div");
+  window.AccessibleChessTeacherSurface.render(
+    themedRoot,
+    snapshot(null, true, visualState()),
+    themedInvoke,
+    function () {},
+    "",
+    "Action failed"
+  );
+  const themedBoard = themedRoot.querySelector("#teacher-visual-board");
+  const themedWrap = themedRoot.querySelector("#teacher-board-wrap");
+  const themedE4 = themedRoot.querySelector("#teacher-square-e4");
+  const themedA1 = themedRoot.querySelector("#teacher-square-a1");
+  const themedC1 = themedRoot.querySelector("#teacher-square-c1");
+  check(themedWrap.getAttribute("data-board-theme") === "high-contrast", "board theme identity missing");
+  check(themedBoard.getAttribute("data-piece-theme") === "large-pieces", "piece theme identity missing");
+  check(themedBoard.getAttribute("data-coordinate-mode") === "edges", "edge coordinate mode missing");
+  check(themedWrap.getAttribute("data-reduced-motion") === "true", "reduced-motion preference missing");
+  check(themedA1.textContent === "a1", "edge corner coordinate is wrong");
+  check(themedC1.textContent === "c", "bottom-edge file coordinate is wrong");
+  check(themedE4.textContent === "", "interior coordinate leaked in edge mode");
+  check(themedE4.getAttribute("aria-label") === "e4, white pawn", "theme changed semantic piece label");
+  check(String(themedE4.style.backgroundImage || "").includes("data:image/png;base64,"), "verified board artwork was not applied");
+  const themedPieceImage = themedE4.descendants().find((item) => item.getAttribute("data-piece-image") === "white_pawn");
+  check(Boolean(themedPieceImage), "verified piece artwork was not applied");
+  check(themedPieceImage.getAttribute("aria-hidden") === "true", "decorative piece art polluted accessibility tree");
+
+  const coordinateSelect = themedRoot.querySelector("#teacher-visual-coordinate-mode");
+  check(coordinateSelect.value === "edges", "coordinate selector did not reflect persisted preference");
+  coordinateSelect.value = "every_square";
+  coordinateSelect.listeners.change();
+  await flushPromises();
+  check(visualCalls.length === 1, "visual preference update did not dispatch exactly once");
+  check(visualCalls[0][0] === "teacher.visual.update", "visual preference used the wrong command");
+  check(visualCalls[0][1].field === "coordinate_mode", "visual preference field changed");
+  check(visualCalls[0][1].value === "every_square", "visual preference value changed");
+  const rerenderedE4 = themedRoot.querySelector("#teacher-square-e4");
+  check(rerenderedE4.textContent === "e4", "every-square coordinate mode was not rendered");
+  check(rerenderedE4.getAttribute("aria-label") === "e4, white pawn", "visual update changed semantic label");
+  check(document.activeElement === themedRoot.querySelector("#teacher-visual-coordinate-mode"), "visual selector focus was not restored");
+
+  const leanVisual = visualState();
+  leanVisual.preferences.coordinate_mode = "every_square";
+  delete leanVisual.assets;
+  window.AccessibleChessTeacherSurface.apply(
+    themedRoot,
+    {
+      kind: "render-pointer",
+      payload: {
+        snapshot: snapshot("f3", true, leanVisual),
+        focus_target: "",
+        announcement: ""
+      }
+    },
+    themedInvoke,
+    function () {},
+    "Action failed"
+  );
+  const cachedE4 = themedRoot.querySelector("#teacher-square-e4");
+  const cachedPieceImage = cachedE4.descendants().find((item) => item.getAttribute("data-piece-image") === "white_pawn");
+  check(Boolean(cachedPieceImage), "lean pointer snapshot lost cached verified piece artwork");
+  check(String(cachedE4.style.backgroundImage || "").includes("data:image/png;base64,"), "lean pointer snapshot lost cached board artwork");
 
   const input = root.querySelector("#teacher-pointer-input");
   check(document.activeElement === input, "pointer input did not receive focus");

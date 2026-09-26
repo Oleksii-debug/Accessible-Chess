@@ -25,6 +25,8 @@ from .teaching_session import (
     validate_lesson_session_scope,
 )
 from .version2_application import Version2Application
+from .visual_board_webview import VisualBoardWebViewState
+from .visual_pack_store import VisualPackStore, VisualPreferencesStore
 from .version2_final_product_profile import (
     build_final_product_router,
     build_final_product_shell,
@@ -46,6 +48,8 @@ class Version2FinalProductApplication(Version2Application):
         self,
         *args: Any,
         education_workspace_path: str | Path | None = None,
+        visual_pack_root: str | Path | None = None,
+        visual_preferences_path: str | Path | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -66,12 +70,25 @@ class Version2FinalProductApplication(Version2Application):
         )
         self.library.projection.search(GameSearchQuery())
 
+        data_root = self.progress_store.path.parent
         path = (
             Path(education_workspace_path)
             if education_workspace_path is not None
-            else self.progress_store.path.parent / "education-workspace.json"
+            else data_root / "education-workspace.json"
         )
         self.education_store = EducationWorkspaceStore(path)
+        self.visual = VisualBoardWebViewState(
+            VisualPackStore(
+                Path(visual_pack_root)
+                if visual_pack_root is not None
+                else data_root / "visual-packs"
+            ),
+            VisualPreferencesStore(
+                Path(visual_preferences_path)
+                if visual_preferences_path is not None
+                else data_root / "visual-preferences.json"
+            ),
+        )
         self._education_workspace: EducationWorkspace | None = None
         self._education_revision: str | None = None
         self._education_load_error = False
@@ -165,6 +182,7 @@ class Version2FinalProductApplication(Version2Application):
         projection = TeacherWebViewProjection.from_teaching_session(
             dispatch,
             state_provider,
+            visual_snapshot_provider=self._visual_snapshot,
         )
         bridge = TeacherWebViewBridge(
             projection,
@@ -173,6 +191,9 @@ class Version2FinalProductApplication(Version2Application):
         self._teacher_state_provider = state_provider
         self._teacher_dispatch = dispatch
         self.teacher = bridge
+
+    def _visual_snapshot(self, include_assets: bool) -> Mapping[str, object]:
+        return self.visual.snapshot(include_assets=include_assets)
 
     def _clear_teaching_binding(self) -> None:
         self.teacher = None
@@ -284,6 +305,7 @@ class Version2FinalProductApplication(Version2Application):
             projection = TeacherWebViewProjection.from_teaching_session(
                 self._teacher_dispatch,
                 self._teacher_state_provider,
+                visual_snapshot_provider=self._visual_snapshot,
             )
             self.teacher = TeacherWebViewBridge(projection, language=language)
 
@@ -297,6 +319,49 @@ class Version2FinalProductApplication(Version2Application):
         if area == "teacher":
             if self.teacher is None:
                 return self._error()
+            if command in {"teacher.visual.update", "teacher.visual.reset"}:
+                try:
+                    data = {} if payload is None else dict(payload)
+                    if payload is not None and (
+                        not isinstance(payload, Mapping)
+                        or any(type(key) is not str for key in payload)
+                    ):
+                        raise TypeError("teacher visual payload must be a mapping")
+                    if command == "teacher.visual.reset":
+                        if data:
+                            raise ValueError("teacher visual reset payload must be empty")
+                        self.visual.reset()
+                        focus_target = "teacher-visual-reset"
+                    else:
+                        if set(data) != {"field", "value"}:
+                            raise ValueError("teacher visual update payload fields are invalid")
+                        field = data["field"]
+                        self.visual.update_field(field, data["value"])
+                        focus_targets = {
+                            "board_theme_id": "teacher-visual-board-theme",
+                            "piece_theme_id": "teacher-visual-piece-theme",
+                            "coordinate_mode": "teacher-visual-coordinate-mode",
+                            "board_scale_percent": "teacher-visual-board-scale",
+                            "piece_scale_percent": "teacher-visual-piece-scale",
+                            "show_last_move": "teacher-visual-show-last-move",
+                            "reduced_motion": "teacher-visual-reduced-motion",
+                        }
+                        if type(field) is not str or field not in focus_targets:
+                            raise ValueError("teacher visual field is invalid")
+                        focus_target = focus_targets[field]
+                    return {
+                        "kind": "render-visual",
+                        "payload": {
+                            "snapshot": self.teacher.projection.snapshot(
+                                language=self.shell.language.value,
+                                include_visual_assets=True,
+                            ),
+                            "focus_target": focus_target,
+                            "announcement": "",
+                        },
+                    }
+                except Exception:
+                    return self._error()
             return asdict(self.teacher.dispatch(command, payload))
         if area in {"classes", "education"}:
             if self.education is None:
