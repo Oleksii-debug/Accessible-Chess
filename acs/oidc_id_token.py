@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Mapping, Protocol
 import math
 import time
@@ -30,7 +30,7 @@ class IdTokenSignatureVerifier(Protocol):
 @dataclass(frozen=True)
 class TrustedOidcIdentity:
     issuer: str
-    subject: str
+    subject: str = field(repr=False)
     audiences: tuple[str, ...]
     issued_at: int
     expires_at: int
@@ -68,9 +68,9 @@ def validate_id_token(
 
     try:
         envelope = verifier.verify(compact_token)
-    except IdTokenError:
-        raise
     except Exception:
+        # Never trust or expose provider/JWK-library exception text, even when a
+        # verifier happens to raise this module's public exception class.
         raise IdTokenError("signature verification failed") from None
 
     if not isinstance(envelope, VerifiedIdTokenEnvelope):
@@ -163,6 +163,8 @@ def _claim_audiences(claims: Mapping[str, object]) -> tuple[str, ...]:
     normalized: list[str] = []
     for item in values:
         if not isinstance(item, str) or not item or len(item) > 4096:
+            raise IdTokenError("invalid aud claim")
+        if "\x00" in item or "\r" in item or "\n" in item:
             raise IdTokenError("invalid aud claim")
         if item in normalized:
             raise IdTokenError("invalid aud claim")
