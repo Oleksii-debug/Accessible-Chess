@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Mapping
 
 
 class AuthenticodeStatus(str, Enum):
