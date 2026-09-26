@@ -238,7 +238,7 @@ class FeatureGate:
         now: datetime | None = None,
     ) -> AccessDecision:
         feature = _normalize_feature_id(feature_id)
-        current_time = _effective_now(now, snapshot.server_time if snapshot is not None else None)
+        current_time = _utc_now(now)
 
         if feature in USER_DATA_SAFETY_FEATURE_IDS:
             state = snapshot.state if snapshot is not None else EntitlementState.EXPIRED
@@ -336,17 +336,3 @@ def _utc_now(value: datetime | None) -> datetime:
     if value.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return value.astimezone(timezone.utc)
-
-
-def _effective_now(value: datetime | None, server_time: datetime | None) -> datetime:
-    """Use the latest trustworthy time observation for entitlement deadlines.
-
-    A previously observed server time is a lower bound for expiry/grace checks.
-    Rolling the local Windows clock backwards therefore cannot extend a cached
-    entitlement beyond a deadline the server clock has already passed.
-    """
-
-    local_time = _utc_now(value)
-    if server_time is None:
-        return local_time
-    return max(local_time, server_time.astimezone(timezone.utc))
