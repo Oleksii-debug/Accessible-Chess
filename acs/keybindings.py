@@ -22,6 +22,7 @@ class BindingContext(str, Enum):
     DATABASE = "database"
     BOOK_READER = "book_reader"
     PGN_TREE = "pgn_tree"
+    LIBRARY_RESULTS = "library_results"
 
 
 @dataclass(frozen=True)
