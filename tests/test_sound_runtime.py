@@ -283,5 +283,147 @@ class PackagedSoundResolverTests(unittest.TestCase):
             )
 
 
+class WindowsProfiledSoundPlaybackTests(unittest.TestCase):
+    @staticmethod
+    def _write_silent_wav(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(8000)
+            writer.writeframes(b"\x00\x00" * 8)
+
+    def _fake_winsound(self, calls):
+        return types.SimpleNamespace(
+            SND_FILENAME=0x00020000,
+            SND_NODEFAULT=0x00000002,
+            PlaySound=lambda sound, flags: calls.append((sound, flags)),
+        )
+
+    def test_custom_profile_resolves_exact_custom_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            classic = root / "classic.wav"
+            custom = root / "custom.wav"
+            self._write_silent_wav(classic)
+            self._write_silent_wav(custom)
+
+            class Classic:
+                def resolve(self, event):
+                    return classic
+
+            class Packs:
+                def resolve(self, pack_id, sound_id):
+                    self.request = (pack_id, sound_id)
+                    return custom
+
+            packs = Packs()
+            calls = []
+            adapter = WindowsSoundPlaybackAdapter(
+                Classic(),
+                cache_dir=root / "cache",
+                pack_resolver=packs,
+            )
+            fake = self._fake_winsound(calls)
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules, {"winsound": fake}
+            ):
+                adapter.play_profiled(
+                    SoundEvent.MOVE,
+                    pack_id="soft.wood",
+                    sound_id="alternate.move",
+                    volume=100,
+                )
+
+            self.assertEqual(packs.request, ("soft.wood", "alternate.move"))
+            self.assertEqual(calls[0][0], str(custom))
+
+    def test_missing_custom_core_sound_falls_back_to_packaged_semantic_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            classic = root / "classic.wav"
+            self._write_silent_wav(classic)
+
+            class Classic:
+                def resolve(self, event):
+                    self.event = event
+                    return classic
+
+            class Packs:
+                def resolve(self, pack_id, sound_id):
+                    raise FileNotFoundError("gone")
+
+            classic_resolver = Classic()
+            calls = []
+            adapter = WindowsSoundPlaybackAdapter(
+                classic_resolver,
+                cache_dir=root / "cache",
+                pack_resolver=Packs(),
+            )
+            fake = self._fake_winsound(calls)
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules, {"winsound": fake}
+            ):
+                adapter.play_profiled(
+                    SoundEvent.CHECK,
+                    pack_id="gone.pack",
+                    sound_id="custom.check",
+                    volume=100,
+                )
+
+            self.assertEqual(classic_resolver.event, SoundEvent.CHECK)
+            self.assertEqual(calls[0][0], str(classic))
+
+    def test_classroom_custom_sound_has_no_system_or_classic_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            classic = root / "classic.wav"
+            self._write_silent_wav(classic)
+
+            class Classic:
+                def resolve(self, event):
+                    raise AssertionError("classic resolver must not be touched")
+
+            class Packs:
+                def resolve(self, pack_id, sound_id):
+                    raise FileNotFoundError("gone")
+
+            adapter = WindowsSoundPlaybackAdapter(
+                Classic(),
+                cache_dir=root / "cache",
+                pack_resolver=Packs(),
+            )
+            with patch("acs.sound_windows.sys.platform", "win32"):
+                with self.assertRaises(FileNotFoundError):
+                    adapter.play_sound(
+                        pack_id="gone.pack",
+                        sound_id="classroom.join",
+                        volume=100,
+                        fallback_event=None,
+                    )
+
+    def test_scaled_cache_key_includes_source_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "one" / "move.wav"
+            second = root / "two" / "move.wav"
+            self._write_silent_wav(first)
+            self._write_silent_wav(second)
+
+            class Classic:
+                def resolve(self, event):
+                    return first
+
+            adapter = WindowsSoundPlaybackAdapter(
+                Classic(),
+                cache_dir=root / "cache",
+            )
+            one = adapter._scaled_copy(first, 50)
+            two = adapter._scaled_copy(second, 50)
+            self.assertNotEqual(one.name, two.name)
+            self.assertTrue(one.is_file())
+            self.assertTrue(two.is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
