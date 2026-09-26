@@ -321,17 +321,11 @@ class MultiplayerGameContractTests(unittest.TestCase):
                 GameIntent("game-1", "bob", 1, "offer_draw"),
             )
 
-    def test_resign_and_rematch_intents_have_correct_lifecycle_boundary(self) -> None:
+    def test_resign_and_rematch_intents_have_server_authoritative_handshake(self) -> None:
         snapshot = game_snapshot()
-        validate_game_intent(
-            snapshot,
-            GameIntent("game-1", "alice", 1, "resign"),
-        )
+        validate_game_intent(snapshot, GameIntent("game-1", "alice", 1, "resign"))
         with self.assertRaisesRegex(MultiplayerContractError, "finished game"):
-            validate_game_intent(
-                snapshot,
-                GameIntent("game-1", "alice", 1, "request_rematch"),
-            )
+            validate_game_intent(snapshot, GameIntent("game-1", "alice", 1, "request_rematch"))
 
         finished = game_snapshot(
             lifecycle=LifecycleSnapshot(
@@ -345,11 +339,38 @@ class MultiplayerGameContractTests(unittest.TestCase):
             finished,
             GameIntent("game-1", "alice", 1, "request_rematch"),
         )
+        with self.assertRaisesRegex(MultiplayerContractError, "no pending rematch"):
+            validate_game_intent(
+                finished,
+                GameIntent("game-1", "bob", 1, "accept_rematch"),
+            )
+
+        pending = game_snapshot(
+            lifecycle=finished.lifecycle,
+            rematch_requested_by="alice",
+        )
+        validate_game_intent(
+            pending,
+            GameIntent("game-1", "bob", 1, "accept_rematch"),
+        )
+        with self.assertRaisesRegex(MultiplayerContractError, "own rematch"):
+            validate_game_intent(
+                pending,
+                GameIntent("game-1", "alice", 1, "accept_rematch"),
+            )
+        with self.assertRaisesRegex(MultiplayerContractError, "already pending"):
+            validate_game_intent(
+                pending,
+                GameIntent("game-1", "bob", 1, "request_rematch"),
+            )
         with self.assertRaisesRegex(MultiplayerContractError, "active game"):
             validate_game_intent(
                 finished,
                 GameIntent("game-1", "alice", 1, "resign"),
             )
+
+        with self.assertRaisesRegex(MultiplayerContractError, "active game cannot carry"):
+            game_snapshot(rematch_requested_by="alice")
 
     def test_reconnect_intent_is_bounded_and_carries_only_sequence_checkpoint(self) -> None:
         snapshot = game_snapshot(
