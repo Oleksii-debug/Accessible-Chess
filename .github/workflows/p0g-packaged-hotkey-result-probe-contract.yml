@@ -10,7 +10,7 @@ on:
     branches:
       - qa/p0g-packaged-hotkey-result-20260926
     paths:
-      - 'scripts/p0g_packaged-hotkey-result-probe.ps1'
+      - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
       - 'tests/test_p0g_packaged_hotkey_result_probe.py'
       - '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml'
 
