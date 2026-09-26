@@ -103,6 +103,43 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("Dangerous", sanitized["object"])
         self.assertNotIn("super-secret", sanitized["blob"])
 
+    def test_hostile_mapping_key_fails_closed_without_text_conversion(self) -> None:
+        conversions: list[str] = []
+
+        class DangerousKey:
+            def __hash__(self) -> int:
+                return 1
+
+            def __repr__(self) -> str:
+                conversions.append("repr")
+                raise AssertionError("repr must not run")
+
+            def __str__(self) -> str:
+                conversions.append("str")
+                raise AssertionError("str must not run")
+
+        key = DangerousKey()
+        self.assertFalse(is_secret_key(key))
+        with self.assertRaisesRegex(SecretRedactionError, "mapping keys must be plain text"):
+            redact_diagnostic({key: "Bearer must-not-be-rendered"})
+        self.assertEqual(conversions, [])
+
+    def test_text_subclass_cannot_inject_custom_string_conversion(self) -> None:
+        conversions: list[str] = []
+
+        class DangerousText(str):
+            def __str__(self) -> str:
+                conversions.append("str")
+                raise AssertionError("str must not run")
+
+        value = DangerousText("Authorization: Bearer secret")
+        sanitized = redact_diagnostic({"value": value})
+        self.assertIn("DangerousText", sanitized["value"])
+        self.assertEqual(conversions, [])
+        with self.assertRaisesRegex(SecretRedactionError, "plain text"):
+            redact_text(value)
+        self.assertEqual(conversions, [])
+
     def test_cycles_and_excessive_depth_fail_closed(self) -> None:
         cyclic: dict[str, object] = {}
         cyclic["self"] = cyclic
