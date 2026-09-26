@@ -123,6 +123,24 @@ class OAuthPkceTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(OAuthContractError):
                 self.make_request(**overrides)
 
+    def test_url_backslashes_are_rejected_before_consumer_specific_parsing(self):
+        cases = (
+            {"authorization_endpoint": "https://accounts.example.test\\evil.test/authorize"},
+            {"token_endpoint": "https://accounts.example.test\\evil.test/token"},
+            {"redirect_uri": "https://app.example.test\\evil.test/callback"},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(
+                OAuthContractError, "ambiguous backslash"
+            ):
+                self.make_request(**overrides)
+
+        request = self.make_request()
+        with self.assertRaisesRegex(OAuthContractError, "ambiguous backslash"):
+            request.authorization_code_from_callback(
+                "http://127.0.0.1:43127\\evil.test/callback?code=abc&state=state-123"
+            )
+
     def test_userinfo_and_fragments_are_rejected(self):
         with self.assertRaises(OAuthContractError):
             self.make_request(
