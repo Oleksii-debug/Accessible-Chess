@@ -131,7 +131,10 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('id="moves" class="block" aria-live="off"', self.html)
         self.assertIn('id="engine-status" class="block" aria-live="off"', self.html)
         self.assertIn("recentAnnouncements=recentAnnouncements.filter(item=>now-item.at<500)", self.html)
-        self.assertIn("recentAnnouncements.some(item=>item.message===message&&item.eventId===eventId)", self.html)
+        self.assertIn("const eventKey=String(eventId)+'\\\\u0000'+String(message)", self.html)
+        self.assertIn("if(rememberedAnnouncementEvents.has(eventKey))return", self.html)
+        self.assertIn("rememberedAnnouncementEvents.add(eventKey)", self.html)
+        self.assertIn("recentAnnouncements.some(item=>item.message===message)", self.html)
 
 
 if __name__ == "__main__":
