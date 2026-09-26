@@ -37,6 +37,7 @@ class TrustedOidcIdentity:
 
 
 Clock = Callable[[], float]
+_MAX_AUTHENTICATED_CLAIMS = 128
 
 
 def validate_id_token(
@@ -81,6 +82,12 @@ def validate_id_token(
     if not isinstance(envelope.claims, Mapping):
         raise IdTokenError("invalid verified claims")
     claims = envelope.claims
+    try:
+        claim_count = len(claims)
+    except Exception:
+        raise IdTokenError("invalid verified claims") from None
+    if claim_count < 1 or claim_count > _MAX_AUTHENTICATED_CLAIMS:
+        raise IdTokenError("invalid verified claims")
 
     token_issuer = _claim_string(claims, "iss")
     subject = _claim_string(claims, "sub")
