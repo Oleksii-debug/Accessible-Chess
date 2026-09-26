@@ -142,6 +142,94 @@ class V2AccessibleBookCoreTests(unittest.TestCase):
         restored = BookReader.restore_snapshot(round_trip, snapshot)
         self.assertEqual(restored.location(), reader.location())
 
+    def test_embedded_pgn_blocks_delegate_to_canonical_bounded_ingress(self) -> None:
+        bad_pgn = '[Event "Broken"]\n[Result "*"]\n\n1. Qz9 *'
+        factories = (
+            lambda: Game(pgn=bad_pgn),
+            lambda: VariationTree(root_fen=LEGAL_FEN, pgn=bad_pgn),
+            lambda: Exercise(
+                fen=LEGAL_FEN,
+                prompt="Find the move",
+                solution_pgn=bad_pgn,
+            ),
+        )
+        for factory in factories:
+            with self.subTest(factory=factory):
+                with self.assertRaises(BookDocumentError) as caught:
+                    factory()
+                self.assertNotIn("Qz9", str(caught.exception))
+
+        valid_game = '[Event "Valid"]\n[Result "*"]\n\n1. e4 e5 *'
+        self.assertEqual(Game(pgn=valid_game).pgn, valid_game)
+
+    def test_embedded_semantic_pgn_requires_exactly_one_game(self) -> None:
+        two_games = (
+            '[Event "One"]\n[Result "*"]\n\n*\n\n'
+            '[Event "Two"]\n[Result "*"]\n\n*'
+        )
+        for factory in (
+            lambda: Game(pgn=two_games),
+            lambda: VariationTree(root_fen=LEGAL_FEN, pgn=two_games),
+            lambda: Exercise(
+                fen=LEGAL_FEN,
+                prompt="Solve",
+                solution_pgn=two_games,
+            ),
+        ):
+            with self.subTest(factory=factory):
+                with self.assertRaisesRegex(BookDocumentError, "exactly one canonical game"):
+                    factory()
+
+    def test_rooted_embedded_pgn_fen_metadata_must_match_semantic_position(self) -> None:
+        other_fen = "8/8/8/8/8/8/3K4/7k w - - 0 1"
+        mismatched = (
+            '[SetUp "1"]\n'
+            f'[FEN "{other_fen}"]\n'
+            '[Result "*"]\n\n*'
+        )
+        for factory in (
+            lambda: VariationTree(root_fen=LEGAL_FEN, pgn=mismatched),
+            lambda: Exercise(
+                fen=LEGAL_FEN,
+                prompt="Solve",
+                solution_pgn=mismatched,
+            ),
+        ):
+            with self.subTest(factory=factory):
+                with self.assertRaisesRegex(BookDocumentError, "does not match"):
+                    factory()
+
+        matching = (
+            '[SetUp "1"]\n'
+            f'[FEN "{LEGAL_FEN}"]\n'
+            '[Result "*"]\n\n*'
+        )
+        self.assertEqual(
+            VariationTree(root_fen=LEGAL_FEN, pgn=matching).pgn,
+            matching,
+        )
+
+    def test_embedded_pgn_position_metadata_and_post_mutation_export_fail_closed(self) -> None:
+        invalid_tagged_position = (
+            '[SetUp "1"]\n'
+            '[FEN "8/8/8/8/8/8/8/8 w - - 0 1"]\n'
+            '[Result "*"]\n\n*'
+        )
+        with self.assertRaises(BookDocumentError):
+            Game(pgn=invalid_tagged_position)
+
+        with self.assertRaisesRegex(BookDocumentError, "SetUp without a FEN tag"):
+            Game(pgn='[SetUp "1"]\n[Result "*"]\n\n*')
+
+        game = Game(pgn='[Result "*"]\n\n*', game_id=7)
+        game.pgn = '[Result "*"]\n\n1. Qz9 *'
+        with self.assertRaises(BookDocumentError):
+            game.as_dict()
+
+        reference = Game(game_id=7)
+        self.assertEqual(reference.game_id, 7)
+        self.assertEqual(reference.pgn, "")
+
     def test_list_semantics_fail_closed_instead_of_flattening_invalid_content(self) -> None:
         invalid_cases = (
             lambda: ListBlock(items=[]),
