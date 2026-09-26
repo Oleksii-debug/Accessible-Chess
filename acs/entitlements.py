@@ -81,6 +81,10 @@ class ProductVersion:
 class RemotePolicy:
     """Server-authored policy values consumed by the client.
 
+    `refresh_after` is an enforceable cache TTL boundary, not advisory metadata.
+    Once it is passed the pure FeatureGate fails closed unless a bounded
+    `grace_until` is still active. Transport code may refresh before evaluation.
+
     This type deliberately contains no transport, signature, payment-provider,
     or token-storage implementation. Those belong to infrastructure adapters.
     """
@@ -198,6 +202,12 @@ class FeatureGate:
     The gate never deletes data and never performs network or billing calls.
     A caller may preserve read/export/recovery features by granting their stable
     feature IDs even while paid functionality is unavailable.
+
+    When a server-authored snapshot supplies `server_time`, evaluation never
+    reasons about a time earlier than that trusted floor. This blocks the trivial
+    local-clock rollback where a user sets Windows time before a server-observed
+    expiry/refresh boundary. A transport/cache layer remains responsible for
+    persistence and cryptographic authenticity of server-issued policy.
     """
 
     def __init__(self, *, current_version: ProductVersion | str) -> None:
@@ -215,7 +225,7 @@ class FeatureGate:
         now: datetime | None = None,
     ) -> AccessDecision:
         feature = _normalize_feature_id(feature_id)
-        current_time = _utc_now(now)
+        local_time = _utc_now(now)
 
         if snapshot is None:
             return AccessDecision(
@@ -224,6 +234,8 @@ class FeatureGate:
                 "entitlement_unavailable",
                 feature,
             )
+
+        current_time = _effective_time(local_time, snapshot.server_time)
 
         minimum = snapshot.policy.minimum_supported_version
         if minimum is not None and self.current_version < minimum:
@@ -278,6 +290,24 @@ class FeatureGate:
                 using_grace=True,
             )
 
+        refresh_after = snapshot.policy.refresh_after
+        if refresh_after is not None and current_time > refresh_after:
+            grace_until = snapshot.policy.grace_until
+            if grace_until is not None and current_time <= grace_until:
+                return AccessDecision(
+                    True,
+                    EntitlementState.GRACE_PERIOD,
+                    "refresh_overdue_grace",
+                    feature,
+                    using_grace=True,
+                )
+            return AccessDecision(
+                False,
+                EntitlementState.EXPIRED,
+                "refresh_required",
+                feature,
+            )
+
         if snapshot.state in ACTIVE_STATES:
             return AccessDecision(True, snapshot.state, "entitled", feature)
 
@@ -304,3 +334,12 @@ def _utc_now(value: datetime | None) -> datetime:
     if value.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _effective_time(local_time: datetime, server_time: datetime | None) -> datetime:
+    """Return a time that never predates a known server-authored time floor."""
+
+    if server_time is None:
+        return local_time
+    server_utc = server_time.astimezone(timezone.utc)
+    return max(local_time, server_utc)
