@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from acs.book_game_content import resolve_book_game
 from acs.bookdocument import (
     BookDocument,
     BookDocumentError,
@@ -161,6 +162,17 @@ class V2AccessibleBookCoreTests(unittest.TestCase):
 
         valid_game = '[Event "Valid"]\n[Result "*"]\n\n1. e4 e5 *'
         self.assertEqual(Game(pgn=valid_game).pgn, valid_game)
+
+    def test_embedded_pgn_preserves_existing_recovery_warning_contract(self) -> None:
+        recoverable = (
+            '[Event "First"]\n'
+            '[Event "Second"]\n'
+            '[Result "*"]\n\n*'
+        )
+        block = Game(pgn=recoverable)
+        resolved = resolve_book_game(block)
+        self.assertEqual(resolved.game.tags["Event"], "Second")
+        self.assertTrue(any("duplicate tag" in warning for warning in resolved.warnings))
 
     def test_embedded_semantic_pgn_requires_exactly_one_game(self) -> None:
         two_games = (
