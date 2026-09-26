@@ -157,6 +157,22 @@ jobs:
           }
           echo 'W4_READBACK_EXACT_PRODUCT_WORKFLOW_BINDING=PASS'
 
+      - name: Recheck live Full Product freshness after build and upload
+        shell: bash
+        env:
+          PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
+        run: |
+          set -euo pipefail
+          canonical='work/full-product-teacher-education-reachability-20260911'
+          git fetch --no-tags origin "$canonical"
+          live="$(git rev-parse "origin/$canonical")"
+          test "$PRODUCT_SHA" = "$live" || {
+            printf 'STALE_W4_CANDIDATE product=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo "W4_POST_BUILD_LIVE_PRODUCT_SHA=$live"
+          echo 'W4_POST_BUILD_FRESHNESS=PASS'
+
       - name: Independently verify outer artifact, inner package, checksums, P0-F and P0 evidence
         shell: bash
         run: |
