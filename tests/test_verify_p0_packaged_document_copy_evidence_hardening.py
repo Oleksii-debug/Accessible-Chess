@@ -28,7 +28,7 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
         )
         self.evidence = self.root / "evidence.json"
         self.evidence.write_text(
-            "{" 
+            "{"
             '"static_document_text":"Game information",'
             '"static_document_outside_edit":true,'
             '"native_copy_focus_verified":true,'
