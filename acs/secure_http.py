@@ -4,15 +4,17 @@ from dataclasses import dataclass
 from enum import Enum
 import json
 import socket
+import ssl
 from typing import Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 
 class TransportErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
     TIMEOUT = "timeout"
+    TLS = "tls"
     NETWORK = "network"
     REDIRECT = "redirect"
     HTTP_STATUS = "http_status"
@@ -43,6 +45,14 @@ class _RejectRedirects(HTTPRedirectHandler):
         raise SecureHttpError(TransportErrorCode.REDIRECT, status=int(code))
 
 
+def _default_opener():
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    return build_opener(_RejectRedirects(), HTTPSHandler(context=context))
+
+
 class BoundedHttpsJsonTransport:
     """Provider-neutral HTTPS JSON transport with fail-closed resource bounds.
 
@@ -67,7 +77,7 @@ class BoundedHttpsJsonTransport:
         self.timeout_seconds = float(timeout_seconds)
         self.max_request_bytes = int(max_request_bytes)
         self.max_response_bytes = int(max_response_bytes)
-        self._opener = opener or build_opener(_RejectRedirects())
+        self._opener = opener or _default_opener()
 
     def get_json(
         self,
@@ -91,8 +101,8 @@ class BoundedHttpsJsonTransport:
                 separators=(",", ":"),
                 allow_nan=False,
             ).encode("utf-8")
-        except (TypeError, ValueError, UnicodeError) as exc:
-            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from exc
+        except (TypeError, ValueError, UnicodeError):
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
         return self._post_bytes(
             url,
             body,
@@ -116,8 +126,8 @@ class BoundedHttpsJsonTransport:
         if isinstance(encoded_form, str):
             try:
                 body = encoded_form.encode("ascii")
-            except UnicodeEncodeError as exc:
-                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from exc
+            except UnicodeEncodeError:
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
         elif isinstance(encoded_form, bytes):
             body = bytes(encoded_form)
         else:
@@ -174,21 +184,27 @@ class BoundedHttpsJsonTransport:
             if 300 <= int(exc.code) < 400:
                 raise SecureHttpError(TransportErrorCode.REDIRECT, status=int(exc.code)) from None
             raise SecureHttpError(TransportErrorCode.HTTP_STATUS, status=int(exc.code)) from None
-        except (TimeoutError, socket.timeout) as exc:
-            raise SecureHttpError(TransportErrorCode.TIMEOUT) from exc
-        except (URLError, OSError) as exc:
+        except (TimeoutError, socket.timeout):
+            raise SecureHttpError(TransportErrorCode.TIMEOUT) from None
+        except ssl.SSLError:
+            raise SecureHttpError(TransportErrorCode.TLS) from None
+        except URLError as exc:
             reason = getattr(exc, "reason", None)
             if isinstance(reason, (TimeoutError, socket.timeout)):
-                raise SecureHttpError(TransportErrorCode.TIMEOUT) from exc
-            raise SecureHttpError(TransportErrorCode.NETWORK) from exc
+                raise SecureHttpError(TransportErrorCode.TIMEOUT) from None
+            if isinstance(reason, ssl.SSLError):
+                raise SecureHttpError(TransportErrorCode.TLS) from None
+            raise SecureHttpError(TransportErrorCode.NETWORK) from None
+        except OSError:
+            raise SecureHttpError(TransportErrorCode.NETWORK) from None
 
         if len(payload) > self.max_response_bytes:
             raise SecureHttpError(TransportErrorCode.RESPONSE_TOO_LARGE)
         try:
             text = payload.decode("utf-8")
             value = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
-        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
-            raise SecureHttpError(TransportErrorCode.INVALID_JSON) from exc
+        except (UnicodeError, json.JSONDecodeError, ValueError):
+            raise SecureHttpError(TransportErrorCode.INVALID_JSON) from None
         return JsonResponse(status=status, value=value, content_type=content_type)
 
 
@@ -200,8 +216,8 @@ def _validated_https_url(value: str) -> str:
     try:
         parts = urlsplit(value)
         port = parts.port
-    except ValueError as exc:
-        raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from exc
+    except ValueError:
+        raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
     if parts.scheme.lower() != "https" or not parts.hostname:
         raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
     if parts.username is not None or parts.password is not None or parts.fragment:
