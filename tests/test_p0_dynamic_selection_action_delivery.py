@@ -45,8 +45,13 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         self.assertIn('documentRef.getElementById("live")', self.runtime)
         self.assertNotIn('createElement("div")', self.runtime)
         self.assertIn('const announcementQueue = []', self.runtime)
-        self.assertIn('dispatchId = ++dispatchCounter', self.runtime)
-        self.assertIn('dispatch === lastAnnouncementDispatch', self.runtime)
+        self.assertIn('const rememberedDispatchMessages = new Set()', self.runtime)
+        self.assertIn('const recentPassiveAnnouncements = new Map()', self.runtime)
+        self.assertIn('const MAX_REMEMBERED_DISPATCH_MESSAGES = 256', self.runtime)
+        self.assertIn('const MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS = 256', self.runtime)
+        self.assertIn('const dispatchId = "surface:" + String(++dispatchCounter)', self.runtime)
+        self.assertIn('const dispatchId = "api:" + String(++dispatchCounter)', self.runtime)
+        self.assertIn('if (rememberDispatchMessage(dispatch, text)) return false', self.runtime)
 
     def test_runtime_parses_and_repeated_action_oracle_passes(self) -> None:
         node = shutil.which("node")
