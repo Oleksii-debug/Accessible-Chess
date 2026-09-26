@@ -134,23 +134,36 @@ class UsageEvent:
 
 @dataclass(frozen=True)
 class UsageAnalyticsPolicy:
-    """Local product policy. Remote usage sync is opt-in and minors require consent + retention."""
+    """Optional analytics policy. Collection and sync are both fail-closed."""
 
     analytics_enabled: bool = False
     is_minor: bool = False
     consent_state: str = "unknown"
     retention_days: int | None = None
 
-    def allows_sync(self) -> bool:
+    def __post_init__(self) -> None:
+        if type(self.analytics_enabled) is not bool or type(self.is_minor) is not bool:
+            raise ValueError("analytics policy flags must be booleans")
+        consent = str(self.consent_state).strip().lower()
+        if consent not in {"unknown", "granted", "denied"}:
+            raise ValueError("unsupported analytics consent state")
+        retention = self.retention_days
+        if retention is not None:
+            if isinstance(retention, bool) or not isinstance(retention, int):
+                raise ValueError("retention_days must be an integer or None")
+            if not 0 < retention <= 3650:
+                raise ValueError("retention_days must be between 1 and 3650")
+        object.__setattr__(self, "consent_state", consent)
+
+    def allows_collection(self) -> bool:
         if not self.analytics_enabled:
             return False
         if not self.is_minor:
             return True
-        if self.consent_state != "granted":
-            return False
-        if isinstance(self.retention_days, bool) or not isinstance(self.retention_days, int):
-            return False
-        return 0 < self.retention_days <= 3650
+        return self.consent_state == "granted" and self.retention_days is not None
+
+    def allows_sync(self) -> bool:
+        return self.allows_collection()
 
 
 class UsageSyncPort(Protocol):
@@ -209,7 +222,9 @@ class UsageEventQueue:
             )
             connection.execute(f"PRAGMA user_version = {USAGE_SYNC_SCHEMA_VERSION}")
 
-    def enqueue(self, event: UsageEvent) -> None:
+    def enqueue(self, event: UsageEvent, policy: UsageAnalyticsPolicy) -> bool:
+        if not policy.allows_collection():
+            return False
         counters_json = json.dumps(
             dict(event.counters), sort_keys=True, separators=(",", ":"), ensure_ascii=True
         )
@@ -234,7 +249,7 @@ class UsageEventQueue:
                 )
                 if actual != expected:
                     raise ValueError("event_id already exists with different aggregate data")
-                return
+                return True
             connection.execute(
                 "INSERT INTO usage_events(event_id, installation_id, kind, counters_json, created_at_utc, sync_state) "
                 "VALUES (?, ?, ?, ?, ?, 'pending')",
@@ -246,6 +261,7 @@ class UsageEventQueue:
                     event.created_at_utc,
                 ),
             )
+        return True
 
     def pending(self, *, limit: int = 100) -> tuple[UsageEvent, ...]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= _MAX_BATCH:
