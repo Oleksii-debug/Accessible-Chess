@@ -7,7 +7,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from acs.update_security import UpdateSecurityError, verify_update_package
+from acs.update_security import (
+    UpdateSecurityError,
+    open_verified_update,
+    verify_update_package,
+)
 
 
 _NOW = datetime(2026, 9, 26, 18, 0, tzinfo=timezone.utc)
@@ -80,6 +84,44 @@ class UpdateSecurityTests(unittest.TestCase):
             )
             self.assertEqual(verified.package_sha256, hashlib.sha256(payload).hexdigest())
             self.assertEqual(verified.key_id, "release-2026")
+            with open_verified_update(verified, now=_NOW) as handle:
+                self.assertEqual(handle.read(), payload)
+
+    def test_replacement_after_verification_fails_at_consumption_boundary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = b"MZ-authentic-update"
+            package = self._package(root, payload)
+            verified = verify_update_package(
+                _metadata(payload),
+                package,
+                current_version="2.0.0",
+                verifier=_TestVerifier(),
+                now=_NOW,
+            )
+            replacement = b"MZ-attacker-update!"
+            self.assertEqual(len(payload), len(replacement))
+            package.write_bytes(replacement)
+            with self.assertRaisesRegex(UpdateSecurityError, "digest mismatch|changed"):
+                with open_verified_update(verified, now=_NOW):
+                    pass
+
+    def test_verified_consumption_rechecks_expiry(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = b"MZ-authentic-update"
+            package = self._package(root, payload)
+            verified = verify_update_package(
+                _metadata(payload),
+                package,
+                current_version="2.0.0",
+                verifier=_TestVerifier(),
+                now=_NOW,
+            )
+            expired = datetime(2026, 10, 4, 18, 0, tzinfo=timezone.utc)
+            with self.assertRaisesRegex(UpdateSecurityError, "expired"):
+                with open_verified_update(verified, now=expired):
+                    pass
 
     def test_unsigned_or_bad_signature_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
