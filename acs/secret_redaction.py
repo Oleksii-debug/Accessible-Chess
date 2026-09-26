@@ -54,7 +54,7 @@ _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+\-/]+=*")
 _QUOTED_ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
     r"api[_-]?key|api[_-]?secret|license[_-]?key|session[_-]?token|password|passwd)"
-    r"\s*[=:]\s*)(?P<quote>[\"'])(.*?)(?P=quote)"
+    r"\s*[=:]\s*)(?P<quote>[\"'])(?:\\.|(?!(?P=quote)).)*(?P=quote)"
 )
 _ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
