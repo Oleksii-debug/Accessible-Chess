@@ -23,6 +23,14 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _package_verification_code(package: Path, inventory: tuple[str, ...]) -> str:
+    hashes = sorted(
+        hashlib.sha1(package.joinpath(*relative.split("/")).read_bytes()).hexdigest()
+        for relative in inventory
+    )
+    return hashlib.sha1("".join(hashes).encode("ascii")).hexdigest()
+
+
 class Version2ReleaseSbomTests(unittest.TestCase):
     def _package(self, root: Path) -> Path:
         package = root / "package"
@@ -101,9 +109,17 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                     rows[relative]["checksums"][0]["checksumValue"],
                     _sha256(package.joinpath(*relative.split("/"))),
                 )
+            product = next(p for p in actual["packages"] if p["name"] == "Accessible Chess")
+            verification = product["packageVerificationCode"]
+            self.assertEqual(
+                verification,
+                {"packageVerificationCodeValue": _package_verification_code(package, inventory)},
+            )
+            self.assertRegex(verification["packageVerificationCodeValue"], r"^[0-9a-f]{40}$")
             stockfish = next(p for p in actual["packages"] if p["name"] == "Stockfish")
             self.assertEqual(stockfish["licenseDeclared"], "GPL-3.0-or-later")
             self.assertEqual(stockfish["versionInfo"], "18")
+            self.assertNotIn("packageVerificationCode", stockfish)
             self.assertIn("Stockfish-COPYING.txt", stockfish["comment"])
 
     def test_every_packaged_sound_requires_authoritative_provenance(self) -> None:
