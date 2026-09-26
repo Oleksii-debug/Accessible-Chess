@@ -86,6 +86,38 @@ jobs:
           print('P0_F_W2_RUNTIME_MANIFEST_AUTHORITY=PASS')
           PY
 
+      - name: Reject starter subset digest that disagrees with verified PGN bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import tempfile
+
+          from acs.version2_packaged_starter_application import _load_manifest
+          from tests.test_v2_packaged_starter_application import _write_bundle
+
+          with tempfile.TemporaryDirectory(prefix='accessible-chess-p0f-subset-digest-') as raw:
+              bundle = Path(raw) / 'w2-starter'
+              _write_bundle(bundle)
+              manifest_path = bundle / 'manifest.json'
+              manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+              manifest['starter_source']['subset_sha256'] = '0' * 64
+              manifest_path.write_text(
+                  json.dumps(manifest, sort_keys=True, indent=2) + '\n',
+                  encoding='utf-8',
+              )
+              try:
+                  _load_manifest(bundle)
+              except RuntimeError as exc:
+                  if 'subset_sha256 does not match starter PGN bytes' not in str(exc):
+                      raise
+              else:
+                  raise SystemExit('P0_F_W2_SUBSET_DIGEST_MISMATCH_ACCEPTED')
+          print('P0_F_W2_SUBSET_DIGEST_BINDING=PASS')
+          PY
+
       - name: Run packaged W2 discovery and retained W3 regressions
         run: >-
           python -m unittest -v
