@@ -185,6 +185,41 @@ class ChildCoachingRotationTests(unittest.TestCase):
         with self.assertRaisesRegex(ChildCoachingRotationError, "already completed"):
             current_round(plan, state)
 
+
+    def test_rotation_state_rejects_impossible_phase_revision_shapes(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-shapes")
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "pristine at round zero",
+        ):
+            RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+                phase=RotationPhase.PLANNED,
+                round_index=1,
+                revision=0,
+            )
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "positive revision",
+        ):
+            RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+                phase=RotationPhase.ACTIVE,
+                round_index=0,
+                revision=0,
+            )
+        with self.assertRaises(ChildCoachingRotationError):
+            RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+                phase=RotationPhase.ACTIVE,
+                round_index=64,
+                revision=1,
+            )
+
+
     def test_plan_and_state_json_are_closed_world_and_tamper_evident(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-json")
         state = start_rotation(plan)
