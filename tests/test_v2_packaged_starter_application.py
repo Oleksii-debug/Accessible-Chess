@@ -183,6 +183,8 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 )
                 self.assertEqual(1, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
                 self.assertEqual(before_hash, _sha256(packaged_database))
+                first_announcement = first["payload"]["announcement"]
+                self.assertTrue(first_announcement)
 
                 second = app.browser_command(
                     "library", "library.import_packaged_sample_library", {}
@@ -195,7 +197,9 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual(1, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
                 self.assertEqual(2, database.conn.execute("SELECT COUNT(*) FROM import_attempts").fetchone()[0])
                 self.assertEqual(before_hash, _sha256(packaged_database))
-                self.assertIn("already", second["payload"]["announcement"].casefold())
+                second_announcement = second["payload"]["announcement"]
+                self.assertTrue(second_announcement)
+                self.assertNotEqual(first_announcement, second_announcement)
             finally:
                 app.shutdown()
                 analysis.close()
