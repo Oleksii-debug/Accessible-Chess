@@ -151,16 +151,31 @@ try {
     } catch {$false}
   })
   if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
-  $document=$documents[0]
-  try {$textPattern=$document.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)}
-  catch {throw "Packaged WebView Document lacks TextPattern: $($_.Exception.Message)"}
-  if($null -eq $textPattern){throw 'Packaged WebView Document lacks TextPattern'}
-  if(([string]$textPattern.SupportedTextSelection) -match 'None$'){throw 'Packaged WebView Document reports no text selection support'}
 
-  $all=$textPattern.DocumentRange.Clone()
-  $target=$all.FindText('Інформація про гру',$false,$false)
-  if($null -eq $target){$target=$all.FindText('Game information',$false,$false)}
-  if($null -eq $target){throw 'Stable static document text not found through provider-root TextPattern'}
+  $document=$null
+  $textPattern=$null
+  $target=$null
+  foreach($candidate in $documents){
+    try {
+      $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+      if($null -eq $candidatePattern){continue}
+      if(([string]$candidatePattern.SupportedTextSelection) -match 'None$'){continue}
+      $candidateRange=$candidatePattern.DocumentRange.Clone()
+      $candidateTarget=$candidateRange.FindText('Інформація про гру',$false,$false)
+      if($null -eq $candidateTarget){$candidateTarget=$candidateRange.FindText('Game information',$false,$false)}
+      if($null -eq $candidateTarget){continue}
+      $document=$candidate
+      $textPattern=$candidatePattern
+      $target=$candidateTarget
+      break
+    } catch {
+      continue
+    }
+  }
+  if($null -eq $document){
+    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
+  }
+
   $selected=([string]$target.GetText(-1)).Trim()
   if(-not $selected){throw 'Static TextPattern target is empty'}
   $enclosing=$target.GetEnclosingElement()
@@ -177,7 +192,7 @@ try {
   Start-Sleep -Milliseconds 150
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard $selected
-  Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected'"
+  Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
 
   $elements=ControlElements (ProviderRoots $report)
   $move=FindControl $elements 'move-input' 'ControlType.Edit'
@@ -205,6 +220,8 @@ try {
     textpattern_selection_supported=$true
     ctrl_c_exact_clipboard=$true
     move_input_native_ctrl_a_ctrl_c=$true
+    document_process_id=[int]$document.Current.ProcessId
+    launched_process_id=$process.Id
     human_tested=$false
     nvda_verified=$false
   }
