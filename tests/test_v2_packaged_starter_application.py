@@ -480,11 +480,12 @@ class PackagedStarterApplicationTests(unittest.TestCase):
 
             app, database, analysis = self._application(root, bundle)
             try:
+                with self.assertRaisesRegex(RuntimeError, "game identity"):
+                    app._packaged_sample_games()
                 result = app.browser_command(
                     "library", "library.import_packaged_sample_library", {}
                 )
                 self.assertEqual("error", result["kind"])
-                self.assertIn("game identity", result["payload"]["message"])
                 self.assertEqual(
                     0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
                 )
