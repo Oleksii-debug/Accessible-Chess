@@ -18,9 +18,11 @@ on:
       - 'acs/library_webview_projection.py'
       - 'acs/stage1_release_ui.py'
       - 'web/version2_release_bootstrap.js'
+      - 'web/version2_final_product_bootstrap.js'
       - 'tests/test_version2_*.py'
       - 'tests/test_v2_windows_*.py'
       - 'tests/test_v2_board_analysis_hotkey_feedback.py'
+      - 'tests/test_p0_semantic_document_copy.py'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/js/version2_library_open_route_refresh_dom_test.js'
       - '.github/workflows/version2-windows-composition.yml'
@@ -175,6 +177,7 @@ jobs:
           tests.test_books_training_ui_integration
           tests.test_version2_formats_integration
           tests.test_nvda_p0_contract
+          tests.test_p0_semantic_document_copy
           tests.test_v2_board_analysis_hotkey_feedback
 
       - name: Version 2 data migration and atomicity regressions
