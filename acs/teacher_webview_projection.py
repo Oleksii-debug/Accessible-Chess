@@ -369,7 +369,10 @@ class TeacherWebViewProjection:
         orientation = self._teacher.toggle_orientation()
         return TeacherWebViewEvent(
             "render",
-            {"orientation": orientation.value, "snapshot": self.snapshot()},
+            {
+                "orientation": orientation.value,
+                "snapshot": self.snapshot(include_visual_assets=False),
+            },
         )
 
     def record_student_event(
