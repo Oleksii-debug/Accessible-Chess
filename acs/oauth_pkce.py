@@ -44,10 +44,22 @@ def _require_text(name: str, value: object, *, max_length: int = 4096) -> str:
     return value
 
 
+def _split_url(name: str, value: str):
+    try:
+        parsed = urlsplit(value)
+        # Accessing hostname/port performs additional structural validation and
+        # raises for malformed bracket/port forms that a raw split can retain.
+        _ = parsed.hostname
+        _ = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise OAuthContractError(f"{name} is not a valid URL") from exc
+    return parsed
+
+
 def _validate_endpoint(name: str, value: object) -> str:
     endpoint = _require_text(name, value)
-    parsed = urlsplit(endpoint)
-    if parsed.scheme != "https" or not parsed.netloc:
+    parsed = _split_url(name, endpoint)
+    if parsed.scheme != "https" or not parsed.netloc or not parsed.hostname:
         raise OAuthContractError(f"{name} must be an absolute HTTPS URL")
     if parsed.username is not None or parsed.password is not None or parsed.fragment:
         raise OAuthContractError(f"{name} must not contain userinfo or a fragment")
@@ -56,16 +68,18 @@ def _validate_endpoint(name: str, value: object) -> str:
 
 def _validate_redirect_uri(value: object) -> str:
     redirect_uri = _require_text("redirect_uri", value)
-    parsed = urlsplit(redirect_uri)
-    if not parsed.scheme or not parsed.netloc or parsed.fragment:
+    parsed = _split_url("redirect_uri", redirect_uri)
+    if not parsed.scheme or not parsed.netloc or not parsed.hostname or parsed.fragment:
         raise OAuthContractError("redirect_uri must be absolute and fragment-free")
     if parsed.username is not None or parsed.password is not None:
         raise OAuthContractError("redirect_uri must not contain userinfo")
     if parsed.scheme == "https":
         return redirect_uri
-    if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "::1", "localhost"}:
+    # RFC 8252 native-app loopback redirects use literal loopback addresses so
+    # local name resolution cannot redirect the callback to a non-loopback host.
+    if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "::1"}:
         return redirect_uri
-    raise OAuthContractError("redirect_uri must use HTTPS or a loopback HTTP host")
+    raise OAuthContractError("redirect_uri must use HTTPS or a literal loopback HTTP host")
 
 
 def _normalize_scopes(scopes: Iterable[str]) -> tuple[str, ...]:
@@ -164,7 +178,7 @@ class AuthorizationRequest:
         self, *, extra_parameters: Mapping[str, str] | None = None
     ) -> str:
         self.validated()
-        parsed = urlsplit(self.authorization_endpoint)
+        parsed = _split_url("authorization_endpoint", self.authorization_endpoint)
         existing = parse_qsl(parsed.query, keep_blank_values=True)
         existing_keys = {key for key, _ in existing}
         if existing_keys & _RESERVED_AUTHORIZATION_PARAMETERS:
