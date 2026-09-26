@@ -51,17 +51,29 @@ _LABELS = {
         "send": "Надіслати",
         "sync": "Оновити чат",
         "mark_read": "Позначити прочитаним",
+        "hide": "Приховати повідомлення",
+        "mute_sender": "Заборонити надсилання автору",
+        "allow_sender": "Дозволити надсилання автору",
+        "mute_all": "Заборонити чат усім учням",
+        "allow_all": "Дозволити чат усім учням",
         "no_messages": "Повідомлень немає.",
         "files": "Файли",
         "choose_upload": "Вибрати й надіслати файл",
         "no_files": "Файлів немає.",
         "save": "Зберегти",
+        "open": "Відкрити",
         "retry": "Повторити",
         "cancel": "Скасувати",
         "sent": "Повідомлення надіслано.",
         "read": "Повідомлення позначено прочитаними.",
+        "hidden": "Повідомлення приховано з активного класу.",
+        "muted": "Надсилання повідомлень заборонено.",
+        "allowed": "Надсилання повідомлень дозволено.",
+        "muted_all": "Чат для учнів вимкнено.",
+        "allowed_all": "Чат для учнів увімкнено.",
         "file_sent": "Файл надіслано.",
         "file_saved": "Файл передано до безпечного збереження.",
+        "file_opened": "Файл передано до явного відкриття.",
         "file_cancelled": "Передавання файлу скасовано.",
         "file_retried": "Повторне передавання завершено.",
         "new_many": "Нових повідомлень: {count}.",
@@ -78,17 +90,29 @@ _LABELS = {
         "send": "Send",
         "sync": "Refresh chat",
         "mark_read": "Mark read",
+        "hide": "Hide message",
+        "mute_sender": "Mute sender",
+        "allow_sender": "Allow sender",
+        "mute_all": "Mute all students",
+        "allow_all": "Allow all students",
         "no_messages": "No messages.",
         "files": "Files",
         "choose_upload": "Choose and send file",
         "no_files": "No files.",
         "save": "Save",
+        "open": "Open",
         "retry": "Retry",
         "cancel": "Cancel",
         "sent": "Message sent.",
         "read": "Messages marked read.",
+        "hidden": "Message hidden from the active classroom view.",
+        "muted": "Message sending disabled for the participant.",
+        "allowed": "Message sending enabled for the participant.",
+        "muted_all": "Student chat disabled.",
+        "allowed_all": "Student chat enabled.",
         "file_sent": "File sent.",
         "file_saved": "File passed to safe save.",
+        "file_opened": "File passed to explicit open.",
         "file_cancelled": "File transfer cancelled.",
         "file_retried": "File retry completed.",
         "new_many": "New messages: {count}.",
@@ -149,6 +173,8 @@ class ClassroomCollaborationWebView:
         language: UILanguage = UILanguage.UA,
         file_picker: Callable[[], Path | None] | None = None,
         file_saver: Callable[[str, str], object] | None = None,
+        file_opener: Callable[[str, str], object] | None = None,
+        moderation_allowed: Callable[[], bool] | None = None,
         id_factory: Callable[[str], str] = _default_id,
     ) -> None:
         if not isinstance(controller, ClassroomCollaborationController):
@@ -163,6 +189,10 @@ class ClassroomCollaborationWebView:
             raise TypeError("file_picker must be callable")
         if file_saver is not None and not callable(file_saver):
             raise TypeError("file_saver must be callable")
+        if file_opener is not None and not callable(file_opener):
+            raise TypeError("file_opener must be callable")
+        if moderation_allowed is not None and not callable(moderation_allowed):
+            raise TypeError("moderation_allowed must be callable")
         if not callable(id_factory):
             raise TypeError("id_factory must be callable")
         self._controller = controller
@@ -171,6 +201,8 @@ class ClassroomCollaborationWebView:
         self._language = language
         self._file_picker = file_picker
         self._file_saver = file_saver
+        self._file_opener = file_opener
+        self._moderation_allowed = moderation_allowed
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
@@ -194,6 +226,26 @@ class ClassroomCollaborationWebView:
             return _GENERIC_PARTICIPANT[self._language]
         label = " ".join(raw.split())[:120]
         return label or _GENERIC_PARTICIPANT[self._language]
+
+    def _moderator(self) -> bool:
+        if self._moderation_allowed is None:
+            return False
+        try:
+            return self._moderation_allowed() is True
+        except Exception:
+            return False
+
+    def _message_key(self, message_id: str) -> str:
+        material = f"{self._controller.room_id}\\0message\\0{message_id}".encode("utf-8")
+        return hmac.new(self._action_secret, material, sha256).hexdigest()
+
+    def _message_for_key(self, message_key: object) -> ChatMessageMetadata:
+        if type(message_key) is not str or len(message_key) != 64:
+            raise ValueError("invalid message action key")
+        for item in self._store.room_messages(self._controller.room_id):
+            if hmac.compare_digest(self._message_key(item.message_id), message_key):
+                return item
+        raise LookupError("message action key is not current")
 
     def _file_key(self, attachment_id: str) -> str:
         material = f"{self._controller.room_id}\0{attachment_id}".encode("utf-8")
@@ -221,6 +273,12 @@ class ClassroomCollaborationWebView:
             "sender": self._label(item.sender_id),
             "body": item.body,
             "unread": item.message_id in self._unread_message_ids,
+            "message_key": self._message_key(item.message_id),
+            "can_hide": self._moderator(),
+            "can_moderate_sender": (
+                self._moderator()
+                and item.sender_id != self._controller.local_participant_id
+            ),
         }
 
     def _file_view(self, item: AttachmentMetadata) -> dict[str, object]:
@@ -238,6 +296,11 @@ class ClassroomCollaborationWebView:
                 item.transfer_state == "stored"
                 and item.scan_state == "clean"
                 and self._file_saver is not None
+            ),
+            "can_open": (
+                item.transfer_state == "stored"
+                and item.scan_state == "clean"
+                and self._file_opener is not None
             ),
             "can_retry": item.transfer_state == "failed" and item.attachment_id in self._prepared,
             "can_cancel": item.transfer_state in {"pending", "uploading", "failed"},
@@ -262,6 +325,12 @@ class ClassroomCollaborationWebView:
                 "send_label": labels["send"],
                 "sync_label": labels["sync"],
                 "mark_read_label": labels["mark_read"],
+                "hide_label": labels["hide"],
+                "mute_sender_label": labels["mute_sender"],
+                "allow_sender_label": labels["allow_sender"],
+                "mute_all_label": labels["mute_all"],
+                "allow_all_label": labels["allow_all"],
+                "moderation_available": self._moderator(),
                 "empty_message": labels["no_messages"],
                 "unread_label": labels["unread"].format(count=unread_count),
                 "unread_count": unread_count,
@@ -273,6 +342,7 @@ class ClassroomCollaborationWebView:
                 "choose_upload_label": labels["choose_upload"],
                 "empty_message": labels["no_files"],
                 "save_label": labels["save"],
+                "open_label": labels["open"],
                 "retry_label": labels["retry"],
                 "cancel_label": labels["cancel"],
                 "can_choose_upload": self._file_picker is not None,
@@ -345,6 +415,47 @@ class ClassroomCollaborationWebView:
             announcement=_LABELS[self._language]["read"],
         )
 
+    def _hide_message(self, message_key: object) -> ClassroomCollaborationWebViewEvent:
+        message = self._message_for_key(message_key)
+        self._controller.hide_message(
+            actor_id=self._controller.local_participant_id,
+            message_id=message.message_id,
+            operation_id=self._id_factory("operation"),
+        )
+        self._unread_message_ids.discard(message.message_id)
+        return self._event(
+            "collaboration.chat.hidden",
+            announcement=_LABELS[self._language]["hidden"],
+        )
+
+    def _set_sender_allowed(
+        self,
+        message_key: object,
+        allowed: bool,
+    ) -> ClassroomCollaborationWebViewEvent:
+        message = self._message_for_key(message_key)
+        self._controller.set_chat_send_permission(
+            actor_id=self._controller.local_participant_id,
+            target_id=message.sender_id,
+            allowed=allowed,
+            operation_id=self._id_factory("operation"),
+        )
+        return self._event(
+            "collaboration.chat.permission",
+            announcement=_LABELS[self._language]["allowed" if allowed else "muted"],
+        )
+
+    def _set_all_students_allowed(self, allowed: bool) -> ClassroomCollaborationWebViewEvent:
+        self._controller.set_all_students_chat_send_permission(
+            actor_id=self._controller.local_participant_id,
+            allowed=allowed,
+            operation_id=self._id_factory("operation"),
+        )
+        return self._event(
+            "collaboration.chat.permission",
+            announcement=_LABELS[self._language]["allowed_all" if allowed else "muted_all"],
+        )
+
     def _choose_upload(self) -> ClassroomCollaborationWebViewEvent:
         if self._file_picker is None:
             raise RuntimeError("file picker is unavailable")
@@ -367,6 +478,17 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.file.sent",
             announcement=_LABELS[self._language]["file_sent"],
+        )
+
+    def _open_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
+        if self._file_opener is None:
+            raise RuntimeError("file open adapter is unavailable")
+        attachment = self._attachment_for_key(file_key)
+        token = self._controller.issue_download_token(attachment_id=attachment.attachment_id)
+        self._file_opener(token, attachment.display_name)
+        return self._event(
+            "collaboration.file.opened",
+            announcement=_LABELS[self._language]["file_opened"],
         )
 
     def _retry_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
@@ -436,6 +558,28 @@ class ClassroomCollaborationWebView:
                 if data:
                     raise ValueError("mark read accepts no fields")
                 return self._mark_read()
+            if command in {
+                "collaboration.chat.hide",
+                "collaboration.chat.mute_sender",
+                "collaboration.chat.allow_sender",
+            }:
+                if set(data) != {"message_key"}:
+                    raise ValueError("chat moderation fields are invalid")
+                if command.endswith("hide"):
+                    return self._hide_message(data["message_key"])
+                return self._set_sender_allowed(
+                    data["message_key"],
+                    allowed=command.endswith("allow_sender"),
+                )
+            if command in {
+                "collaboration.chat.mute_all_students",
+                "collaboration.chat.allow_all_students",
+            }:
+                if data:
+                    raise ValueError("global chat moderation accepts no fields")
+                return self._set_all_students_allowed(
+                    allowed=command.endswith("allow_all_students")
+                )
             if command == "collaboration.file.choose_upload":
                 if data:
                     raise ValueError("file picker accepts no browser fields")
@@ -444,6 +588,7 @@ class ClassroomCollaborationWebView:
                 "collaboration.file.retry",
                 "collaboration.file.cancel",
                 "collaboration.file.save",
+                "collaboration.file.open",
             }:
                 if set(data) != {"file_key"}:
                     raise ValueError("file action fields are invalid")
@@ -451,6 +596,8 @@ class ClassroomCollaborationWebView:
                     return self._retry_file(data["file_key"])
                 if command.endswith("cancel"):
                     return self._cancel_file(data["file_key"])
+                if command.endswith("open"):
+                    return self._open_file(data["file_key"])
                 return self._save_file(data["file_key"])
             raise ValueError("unsupported collaboration browser command")
         except Exception:
