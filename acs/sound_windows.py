@@ -94,9 +94,13 @@ class WindowsSoundPlaybackAdapter:
         resolver: PackagedSoundAssetResolver,
         *,
         cache_dir: str | Path,
+        pack_resolver: object | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._resolver = resolver
+        if pack_resolver is not None and not callable(getattr(pack_resolver, "resolve", None)):
+            raise TypeError("pack_resolver must expose callable resolve or be None")
+        self._pack_resolver = pack_resolver
         self._cache_dir = Path(cache_dir)
         self._logger = logger or logging.getLogger(__name__)
 
@@ -110,23 +114,100 @@ class WindowsSoundPlaybackAdapter:
 
         try:
             source = self._resolver.resolve(event)
-            playable = source if volume == 100 else self._scaled_copy(source, event, volume)
-            import winsound
-
-            # PlaySound is synchronous unless SND_ASYNC is requested. Avoid
-            # SND_SYNC because Python only exposes that alias from 3.14 onward;
-            # the packaged Windows runtime still supports Python 3.12.
-            winsound.PlaySound(
-                str(playable),
-                winsound.SND_FILENAME | winsound.SND_NODEFAULT,
-            )
+            self._play_path(source, volume=volume)
         except Exception:
             self._logger.exception("chess sound playback failed for event=%s", event.value)
             raise
 
-    def _scaled_copy(self, source: Path, event: SoundEvent, volume: int) -> Path:
+    def play_profiled(
+        self,
+        event: SoundEvent,
+        *,
+        pack_id: str,
+        sound_id: str,
+        volume: int,
+    ) -> None:
+        if not isinstance(event, SoundEvent):
+            raise TypeError("event must be SoundEvent")
+        self.play_sound(
+            pack_id=pack_id,
+            sound_id=sound_id,
+            volume=volume,
+            fallback_event=event,
+        )
+
+    def play_sound(
+        self,
+        *,
+        pack_id: str,
+        sound_id: str,
+        volume: int,
+        fallback_event: SoundEvent | None = None,
+    ) -> None:
+        if sys.platform != "win32":
+            raise RuntimeError("Windows sound playback adapter requires win32")
+        if not isinstance(pack_id, str) or not pack_id.strip():
+            raise TypeError("pack_id must be non-empty text")
+        if not isinstance(sound_id, str) or not sound_id.strip():
+            raise TypeError("sound_id must be non-empty text")
+        if isinstance(volume, bool) or not isinstance(volume, int) or not 0 <= volume <= 100:
+            raise ValueError("volume must be in 0..100")
+        if fallback_event is not None and not isinstance(fallback_event, SoundEvent):
+            raise TypeError("fallback_event must be SoundEvent or None")
+        if volume == 0:
+            return
+
+        source = None
+        if pack_id.strip().lower() != "classic" and self._pack_resolver is not None:
+            try:
+                source = self._pack_resolver.resolve(pack_id, sound_id)
+            except Exception as exc:
+                if fallback_event is None:
+                    raise
+                self._logger.warning(
+                    "custom sound pack fallback pack=%s sound=%s error=%s",
+                    pack_id,
+                    sound_id,
+                    type(exc).__name__,
+                )
+
+        if source is None:
+            if fallback_event is None:
+                raise FileNotFoundError(
+                    f"sound {sound_id!r} is unavailable without a built-in fallback event"
+                )
+            source = self._resolver.resolve(fallback_event)
+
+        try:
+            self._play_path(source, volume=volume)
+        except Exception:
+            self._logger.exception(
+                "profiled sound playback failed pack=%s sound=%s",
+                pack_id,
+                sound_id,
+            )
+            raise
+
+    def _play_path(self, source: Path, *, volume: int) -> None:
+        playable = source if volume == 100 else self._scaled_copy(source, volume)
+        import winsound
+
+        # PlaySound is synchronous unless SND_ASYNC is requested. Avoid
+        # SND_SYNC because Python only exposes that alias from 3.14 onward;
+        # the packaged Windows runtime still supports Python 3.12.
+        winsound.PlaySound(
+            str(playable),
+            winsound.SND_FILENAME | winsound.SND_NODEFAULT,
+        )
+
+    def _scaled_copy(self, source: Path, volume: int) -> Path:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        destination = self._cache_dir / f"{event.value}-v{volume}.wav"
+        import hashlib
+
+        cache_key = hashlib.sha256(
+            str(source.resolve()).encode("utf-8", "surrogatepass")
+        ).hexdigest()[:20]
+        destination = self._cache_dir / f"{cache_key}-v{volume}.wav"
         if destination.is_file() and destination.stat().st_mtime_ns >= source.stat().st_mtime_ns:
             return destination
 
