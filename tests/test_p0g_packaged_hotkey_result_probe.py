@@ -101,6 +101,13 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
             self.text.index("Alt+$index did not expose a matching live-region result"),
         )
 
+    def test_shipping_live_region_retains_status_and_atomic_polite_semantics(self) -> None:
+        self.assertIn(
+            '<div id="live" role="status" aria-live="polite" '
+            'aria-atomic="true" aria-relevant="text"></div>',
+            self.web,
+        )
+
     def test_probe_requires_accessible_result_semantics_not_handler_execution_only(self) -> None:
         self.assertIn("Accessible status live region #live", self.text)
         self.assertIn("Alt+$index did not expose a matching live-region result", self.text)
