@@ -68,8 +68,8 @@ def _sha256(path: Path) -> str:
 def _write_bundle(root: Path) -> None:
     root.mkdir(parents=True)
     starter_pgn = _starter_pgn()
-    (root / "starter_uk.pgn").write_text(starter_pgn, encoding="utf-8")
-    (root / "stress_uk.pgn").write_text(_STRESS_PGN, encoding="utf-8")
+    (root / "starter_uk.pgn").write_bytes(starter_pgn.encode("utf-8"))
+    (root / "stress_uk.pgn").write_bytes(_STRESS_PGN.encode("utf-8"))
     with AcsDatabase(root / "sample_library.acsdb") as database:
         report = database.import_pgn_text(starter_pgn, source_name="starter_uk.pgn")
         assert len(report.game_ids) == _STARTER_COUNT
