@@ -25,7 +25,7 @@ class RuntimeDependencyReleaseTests(unittest.TestCase):
         (bundle / "Python-LICENSE.txt").write_bytes(python_bytes)
         (bundle / "demo-1.2.3-NOTICE-01.txt").write_bytes(package_bytes)
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "scope": "qualified Python build/runtime dependency notice evidence",
             "python": {
                 "version": "3.12.10",
