@@ -26,6 +26,7 @@ from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapt
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
+from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
@@ -69,6 +70,8 @@ def _install_unsaved_pgn_close_guard(
     application: Version2Application,
     owner_control: object,
     dialogs: object,
+    *,
+    before_shutdown: Callable[[Version2Application], Any] | None = None,
 ):
     """Own confirmation and accepted cleanup at one native FormClosing boundary.
 
@@ -88,6 +91,8 @@ def _install_unsaved_pgn_close_guard(
     shutdown = getattr(application, "shutdown", None)
     if not callable(shutdown):
         raise TypeError("Version 2 application shutdown is unavailable")
+    if before_shutdown is not None and not callable(before_shutdown):
+        raise TypeError("Version 2 pre-shutdown hook must be callable or None")
     closing_event = getattr(owner_control, "FormClosing", None)
     if closing_event is None:
         raise RuntimeError("Version 2 native owner does not expose FormClosing")
@@ -129,6 +134,14 @@ def _install_unsaved_pgn_close_guard(
                     cancel_close(event)
                     return
 
+            if before_shutdown is not None:
+                try:
+                    before_shutdown(application)
+                except Exception as error:
+                    setattr(application, "_native_close_resume_error", error)
+                    cancel_close(event)
+                    return
+
             try:
                 shutdown_complete = shutdown() is True
             except Exception as error:
@@ -154,6 +167,8 @@ def _install_close_guard_or_shutdown(
     application: Version2Application,
     owner_control: object,
     dialogs: object,
+    *,
+    before_shutdown: Callable[[Version2Application], Any] | None = None,
 ):
     """Install the close guard or synchronously retire the unbound runtime.
 
@@ -164,7 +179,12 @@ def _install_close_guard_or_shutdown(
     """
 
     try:
-        _install_unsaved_pgn_close_guard(application, owner_control, dialogs)
+        _install_unsaved_pgn_close_guard(
+            application,
+            owner_control,
+            dialogs,
+            before_shutdown=before_shutdown,
+        )
     except Exception:
         cleanup_error = None
         try:
@@ -354,6 +374,9 @@ def create_version2_release_application(
         settings_path=settings_path,
         application_dir=app_dir,
     )
+    resume_coordinator = Version2GameTreeResumeCoordinator(
+        layout.root / "gametree-resume.json"
+    )
 
     engine_runtime: Any | None = None
     analysis: Any | None = None
@@ -413,6 +436,7 @@ def create_version2_release_application(
                 copy_text=copy_text,
                 language=language,
             )
+            resume_coordinator.restore(application)
             _share_v2_action_registry(api, application)
             api.bind_version2_application(application)
             return application
@@ -453,7 +477,11 @@ def create_version2_release_application(
             dialog_language_provider=dialog_language_provider,
         )
         file_runtime = _install_close_guard_or_shutdown(
-            file_runtime, application, owner_control, book_dialogs
+            file_runtime,
+            application,
+            owner_control,
+            book_dialogs,
+            before_shutdown=resume_coordinator.prepare_shutdown,
         )
         # Application-owned PGN replacements, including Library -> Open game,
         # reuse the exact owner-bound confirmation source used by native PGN Open.

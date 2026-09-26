@@ -1,0 +1,88 @@
+name: W1 D06 Bounded Model Materialization Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/pgn_roundtrip.py'
+      - 'acs/pgn_workspace.py'
+      - 'tests/test_w1_d06_bounded_model_materialization.py'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w1-d06-bounded-model-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained D06 bounded-materialization authority and current PR hygiene
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
+        run: |
+          set -euo pipefail
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          git diff --check "$base" HEAD
+          for path in \
+            acs/pgn_roundtrip.py \
+            acs/pgn_workspace.py \
+            tests/test_w1_d06_bounded_model_materialization.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
+          done
+
+      - name: Compile converged PGN modules
+        run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py
+
+      - name: Focused bounded-materialization and canonical PGN regression
+        run: python -m unittest -v tests.test_w1_d06_bounded_model_materialization tests.test_d06_pgn_roundtrip
+
+      - name: Final-product production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad repository pytest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q

@@ -1,0 +1,48 @@
+name: P0 Packaged Document Copy Probe Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/p0_packaged_document_copy_probe.ps1'
+      - 'tests/test_p0_packaged_document_copy_probe.py'
+      - '.github/workflows/p0-packaged-document-copy-probe-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Prove exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "P0_DOCUMENT_COPY_CONTRACT_EXACT_HEAD=$actual"
+      - name: Parse PowerShell helper
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/p0_packaged_document_copy_probe.ps1'),[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){$errors | ForEach-Object {Write-Error $_}; exit 1}
+          Write-Host 'PACKAGED_DOCUMENT_COPY_PROBE_POWERSHELL_PARSE=PASS'
+      - name: Execute focused contract regression
+        run: python -m unittest -v tests.test_p0_packaged_document_copy_probe

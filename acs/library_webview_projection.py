@@ -10,20 +10,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-import re
 from typing import Any
 
 from .full_product_presenters import LibraryPresenter, LibraryView, SurfaceStatus
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .library_import_service import LibraryImportProgress, LibraryImportResult
+from .presentation_privacy import redact_local_paths
 from .search_service import GameSearchQuery
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
-
-_WINDOWS_LOCAL_PATH = re.compile(r"(?i)(?<![\w])([a-z]:[\\/][^\r\n\t]*)")
-_POSIX_LOCAL_PATH = re.compile(
-    r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var/tmp|private/tmp)/[^\r\n\t ]*)"
-)
 
 _LABELS = {
     UILanguage.UA: {
@@ -118,9 +113,7 @@ def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> s
     if not isinstance(value, str):
         raise TypeError("library presentation text must be text")
     text = value.replace("\x00", "").strip()
-    replacement = _LABELS[language]["local_path"]
-    text = _WINDOWS_LOCAL_PATH.sub(replacement, text)
-    text = _POSIX_LOCAL_PATH.sub(replacement, text)
+    text = redact_local_paths(text, _LABELS[language]["local_path"])
     return text[:limit]
 
 
@@ -219,8 +212,12 @@ class LibraryImportWebViewProjection:
             "description": labels["description"],
             "processed_games": self._processed_games,
             "total_games": self._total_games,
-            "progress_label": self._status_message(),
-            "message": self._message,
+            "progress_label": _scrub_visible_text(
+                self._status_message(), language=self._language, limit=500
+            ),
+            "message": _scrub_visible_text(
+                self._message, language=self._language, limit=500
+            ),
             "actions": (
                 {
                     "action": "library.import",
@@ -632,5 +629,11 @@ class LibraryWebViewProjection:
         except Exception as exc:
             return LibraryWebViewEvent(
                 "error",
-                {"message": concise_user_error(exc, language=self._language)},
+                {
+                    "message": _scrub_visible_text(
+                        concise_user_error(exc, language=self._language),
+                        language=self._language,
+                        limit=500,
+                    )
+                },
             )

@@ -14,7 +14,7 @@ from acs.book_text_import import (
     BookTextImportErrorCode,
     import_text_book,
 )
-from acs.bookdocument import Diagram, Game, Heading, Note, Paragraph, Position
+from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph, Position
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.gametree import serialize_game
@@ -148,7 +148,7 @@ Starting board
             import_text_book("text", source_name="book.rtf", source_format="rtf")
         self.assertEqual(format_error.exception.code, BookTextImportErrorCode.UNSUPPORTED_FORMAT)
 
-    def test_markdown_lists_quotes_are_readable_but_structure_loss_is_explicit(self) -> None:
+    def test_markdown_lists_are_semantic_while_block_quote_loss_remains_explicit(self) -> None:
         source = '''# Notes
 
 - First item
@@ -157,11 +157,14 @@ Starting board
 > Quoted advice
 '''
         result = import_text_book(source, source_name="notes.md", source_format="markdown")
+        lists = [block for block in result.document.blocks if isinstance(block, ListBlock)]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["First item", "Second item"])
+        self.assertFalse(lists[0].ordered)
+        self.assertIsNone(lists[0].start)
         paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
-        self.assertIn("• First item", paragraphs)
-        self.assertIn("• Second item", paragraphs)
         self.assertIn("Quoted advice", paragraphs)
-        self.assertTrue(any("list structure" in warning for warning in result.warnings))
+        self.assertFalse(any("list structure" in warning for warning in result.warnings))
         self.assertTrue(any("block quote" in warning for warning in result.warnings))
 
     def test_markdown_game_navigation_exact_return_and_progress_reopen(self) -> None:

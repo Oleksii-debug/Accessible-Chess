@@ -65,6 +65,7 @@ _SOURCE_CODE_SUFFIXES = {
     ".hxx",
     ".inc",
 }
+_REQUIRED_WINFORMS_APPCONFIG = Path("AccessibleChess.exe.config")
 _REQUIRED_WEB_FILES = (
     Path("web") / "index.html",
     Path("web") / "stage1_release_bootstrap.js",
@@ -72,6 +73,9 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_pgn.js",
     Path("web") / "full_product_library.js",
     Path("web") / "full_product_books_training.js",
+    Path("web") / "full_product_teacher.js",
+    Path("web") / "full_product_education.js",
+    Path("web") / "version2_final_product_bootstrap.js",
     Path("web") / "version2_release_bootstrap.js",
 )
 _WINDOWS_RESERVED_NAMES = {
@@ -565,6 +569,11 @@ def _require_standalone_contract(standalone: Path) -> None:
     executable = standalone / "AccessibleChess.exe"
     if not executable.is_file() or executable.stat().st_size <= 0:
         raise Version2ReleasePayloadError("standalone AccessibleChess.exe is missing or empty")
+    app_config = standalone / _REQUIRED_WINFORMS_APPCONFIG
+    if not app_config.is_file() or app_config.stat().st_size <= 0:
+        raise Version2ReleasePayloadError(
+            "standalone WinForms accessibility app-config is missing or empty"
+        )
     for relative in _REQUIRED_WEB_FILES:
         path = standalone / relative
         if not path.is_file() or path.stat().st_size <= 0:

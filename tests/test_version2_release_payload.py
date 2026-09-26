@@ -25,6 +25,9 @@ _REQUIRED_WEB_FILES = (
     "full_product_pgn.js",
     "full_product_library.js",
     "full_product_books_training.js",
+    "full_product_teacher.js",
+    "full_product_education.js",
+    "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
 )
 
@@ -37,6 +40,9 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.standalone = self.root / "standalone"
         (self.standalone / "web").mkdir(parents=True)
         (self.standalone / "AccessibleChess.exe").write_bytes(b"MZ\0v2-standalone")
+        (self.standalone / "AccessibleChess.exe.config").write_text(
+            "<configuration><runtime /></configuration>\n", encoding="utf-8"
+        )
         for name in _REQUIRED_WEB_FILES:
             (self.standalone / "web" / name).write_text(
                 f"/* {name} */\n" if name.endswith(".js") else "<main>Accessible Chess</main>\n",
@@ -145,11 +151,32 @@ class Version2ReleasePayloadTests(unittest.TestCase):
     def _assert_no_publication(self, output: Path) -> None:
         self.assertFalse(output.exists(), f"unexpected published payload at {output}")
 
+    def test_missing_winforms_accessibility_app_config_fails_without_output(self) -> None:
+        (self.standalone / "AccessibleChess.exe.config").unlink()
+        output = self.root / "payload"
+        with patch.object(
+            payload,
+            "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+            self._digest(self.stockfish),
+        ):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "WinForms accessibility app-config is missing or empty",
+            ):
+                payload.prepare_version2_release_payload(
+                    self.standalone,
+                    self.stockfish,
+                    self.sounds,
+                    output,
+                )
+        self._assert_no_publication(output)
+
     def test_stages_canonical_stockfish_sounds_and_notices_atomically(self) -> None:
         result = self._prepare()
 
         self.assertEqual(result.root, self.root / "payload")
         self.assertTrue((result.product_dir / "AccessibleChess.exe").is_file())
+        self.assertTrue((result.product_dir / "AccessibleChess.exe.config").is_file())
         for name in _REQUIRED_WEB_FILES:
             self.assertTrue((result.product_dir / "web" / name).is_file())
         self.assertEqual(result.stockfish_executable.read_bytes(), self.stockfish_executable)

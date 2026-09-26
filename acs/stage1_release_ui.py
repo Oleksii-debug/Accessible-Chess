@@ -22,6 +22,33 @@ from .webapp_keymap import KeymapAwareAccessibleChessAPI
 class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     """Release API with the saturation board-command dispatcher enabled."""
 
+    @staticmethod
+    def _binding_context(value: object) -> str:
+        raw = getattr(value, "value", value)
+        return str(raw or "").strip().lower()
+
+    def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
+        """Keep analysis shortcuts usable while focus is inside the 64-square board.
+
+        The board application owns ordinary board keys, but analysis shortcuts are
+        intentionally global to the analysis workflow.  Resolve an exact board
+        binding first, then an exact analysis binding, and only then keep the
+        inherited GLOBAL fallback.  This preserves board precedence and makes the
+        existing ``apiAction`` announcement path reachable for Alt+1..Alt+5 and
+        every remapped analysis shortcut without adding a second speech layer.
+        """
+
+        direct = super().keymap_resolve_binding(context, binding)
+        if self._binding_context(context) != "board":
+            return direct
+        if direct is not None and self._binding_context(direct.get("context")) == "board":
+            return direct
+
+        analysis = super().keymap_resolve_binding("analysis", binding)
+        if analysis is not None and self._binding_context(analysis.get("context")) == "analysis":
+            return analysis
+        return direct
+
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
         actions = {
             "edit.undo": self.undo,
