@@ -66,6 +66,27 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("[int]$focused.Current.ProcessId -ne [int]$Process.Id", self.text)
         self.assertNotIn("try {$document.SetFocus()} catch {}", self.text)
 
+    def test_native_copy_is_bound_to_foreground_packaged_process(self) -> None:
+        self.assertIn("GetForegroundWindow", self.text)
+        self.assertIn("GetWindowThreadProcessId", self.text)
+        self.assertIn("function ActivateProduct($Shell,$Process,[string]$Phase)", self.text)
+        self.assertIn("if(-not $Shell.AppActivate($Process.Id))", self.text)
+        self.assertIn("function AssertProductForeground($Process,[string]$Phase)", self.text)
+        self.assertIn("foreground_product_verified=$true", self.text)
+        self.assertNotIn("$null=$shell.AppActivate($process.Id)", self.text)
+
+        static_assert = self.text.index("AssertProductForeground $process 'static document copy dispatch'")
+        static_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)")
+        self.assertLess(static_assert, static_copy)
+
+        edit_assert = self.text.index("AssertProductForeground $process 'move input copy dispatch'")
+        edit_select = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x41)")
+        edit_reassert = self.text.index("AssertProductForeground $process 'move input copy dispatch after Ctrl+A'")
+        edit_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", static_copy + 1)
+        self.assertLess(edit_assert, edit_select)
+        self.assertLess(edit_select, edit_reassert)
+        self.assertLess(edit_reassert, edit_copy)
+
     def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
         self.assertIn("if($last -ceq $Expected){return $last}", self.text)
         self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
