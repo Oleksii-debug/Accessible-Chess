@@ -242,6 +242,36 @@
       invokeCollaboration(invoke, "collaboration.chat.mark_read", {}, wrapper, announce, fallbackMessage);
     });
     chatActions.appendChild(markRead);
+    if (chat.moderation_available) {
+      const muteAll = node("button", chat.mute_all_label || "Mute all students");
+      muteAll.type = "button";
+      muteAll.setAttribute("data-command", "collaboration.chat.mute_all_students");
+      muteAll.addEventListener("click", function () {
+        invokeCollaboration(
+          invoke,
+          "collaboration.chat.mute_all_students",
+          {},
+          wrapper,
+          announce,
+          fallbackMessage
+        );
+      });
+      chatActions.appendChild(muteAll);
+      const allowAll = node("button", chat.allow_all_label || "Allow all students");
+      allowAll.type = "button";
+      allowAll.setAttribute("data-command", "collaboration.chat.allow_all_students");
+      allowAll.addEventListener("click", function () {
+        invokeCollaboration(
+          invoke,
+          "collaboration.chat.allow_all_students",
+          {},
+          wrapper,
+          announce,
+          fallbackMessage
+        );
+      });
+      chatActions.appendChild(allowAll);
+    }
     chatSection.appendChild(chatActions);
 
     const form = node("form");
@@ -287,6 +317,52 @@
         item.appendChild(node("strong", message.sender || ""));
         item.appendChild(document.createTextNode(": "));
         item.appendChild(node("span", message.body || ""));
+        if (message.can_hide && message.message_key) {
+          const hide = node("button", chat.hide_label || "Hide message");
+          hide.type = "button";
+          hide.setAttribute("data-command", "collaboration.chat.hide");
+          hide.addEventListener("click", function () {
+            invokeCollaboration(
+              invoke,
+              "collaboration.chat.hide",
+              { message_key: message.message_key },
+              wrapper,
+              announce,
+              fallbackMessage
+            );
+          });
+          item.appendChild(hide);
+        }
+        if (message.can_moderate_sender && message.message_key) {
+          const mute = node("button", chat.mute_sender_label || "Mute sender");
+          mute.type = "button";
+          mute.setAttribute("data-command", "collaboration.chat.mute_sender");
+          mute.addEventListener("click", function () {
+            invokeCollaboration(
+              invoke,
+              "collaboration.chat.mute_sender",
+              { message_key: message.message_key },
+              wrapper,
+              announce,
+              fallbackMessage
+            );
+          });
+          item.appendChild(mute);
+          const allow = node("button", chat.allow_sender_label || "Allow sender");
+          allow.type = "button";
+          allow.setAttribute("data-command", "collaboration.chat.allow_sender");
+          allow.addEventListener("click", function () {
+            invokeCollaboration(
+              invoke,
+              "collaboration.chat.allow_sender",
+              { message_key: message.message_key },
+              wrapper,
+              announce,
+              fallbackMessage
+            );
+          });
+          item.appendChild(allow);
+        }
         history.appendChild(item);
       });
       chatSection.appendChild(history);
@@ -335,6 +411,22 @@
             invokeCollaboration(invoke, "collaboration.file.save", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
           });
           item.appendChild(save);
+        }
+        if (file.can_open) {
+          const open = node("button", files.open_label || "Open");
+          open.type = "button";
+          open.setAttribute("data-command", "collaboration.file.open");
+          open.addEventListener("click", function () {
+            invokeCollaboration(
+              invoke,
+              "collaboration.file.open",
+              { file_key: file.file_key },
+              wrapper,
+              announce,
+              fallbackMessage
+            );
+          });
+          item.appendChild(open);
         }
         if (file.can_retry) {
           const retry = node("button", files.retry_label || "Retry");
