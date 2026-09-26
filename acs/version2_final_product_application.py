@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_collaboration_webview import ClassroomCollaborationWebView
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -83,6 +84,7 @@ class Version2FinalProductApplication(Version2Application):
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
         self._teaching_state: TeachingSessionState | None = None
+        self.collaboration: ClassroomCollaborationWebView | None = None
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -275,11 +277,33 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_state = None
         self._clear_teaching_binding()
 
+    def bind_classroom_collaboration(
+        self,
+        collaboration: ClassroomCollaborationWebView,
+    ) -> None:
+        """Bind #29 UI only after a trusted host composes canonical transports."""
+
+        self._assert_thread()
+        if not isinstance(collaboration, ClassroomCollaborationWebView):
+            raise TypeError("collaboration must be ClassroomCollaborationWebView")
+        if self.collaboration is not None:
+            raise RuntimeError("Classroom collaboration is already bound")
+        collaboration.set_language(self.shell.language)
+        self.collaboration = collaboration
+
+    def unbind_classroom_collaboration(self) -> None:
+        """Remove the presentation binding without mutating durable collaboration data."""
+
+        self._assert_thread()
+        self.collaboration = None
+
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
         if not isinstance(language, UILanguage):
             raise TypeError("full-product language must be UILanguage")
         self._rebuild_education_bridge(language)
+        if self.collaboration is not None:
+            self.collaboration.set_language(language)
         if self._teacher_state_provider is not None and self._teacher_dispatch is not None:
             projection = TeacherWebViewProjection.from_teaching_session(
                 self._teacher_dispatch,
@@ -299,10 +323,22 @@ class Version2FinalProductApplication(Version2Application):
                 return self._error()
             return asdict(self.teacher.dispatch(command, payload))
         if area in {"classes", "education"}:
+            if command.startswith("collaboration."):
+                if self.collaboration is None:
+                    return self._error()
+                return asdict(self.collaboration.dispatch(command, payload))
             if self.education is None:
                 return self._error()
             return asdict(self.education.dispatch(command, payload))
         return super().browser_command(area, command, payload)
+
+    def _education_browser_snapshot(self) -> dict[str, object] | None:
+        if self.education is None:
+            return None
+        snapshot = dict(self.education.projection.snapshot())
+        if self.collaboration is not None:
+            snapshot["collaboration"] = self.collaboration.snapshot()
+        return snapshot
 
     def snapshot(self) -> dict[str, object]:
         self._assert_thread()
@@ -316,15 +352,12 @@ class Version2FinalProductApplication(Version2Application):
                         language=self.shell.language.value
                     )
                 ),
-                "education": (
-                    None
-                    if self.education is None
-                    else self.education.projection.snapshot()
-                ),
+                "education": self._education_browser_snapshot(),
                 "product_status": {
                     "teacher_session_active": self.teacher is not None,
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
+                    "collaboration_available": self.collaboration is not None,
                     "remote_transport": "not_approved",
                 },
             }
