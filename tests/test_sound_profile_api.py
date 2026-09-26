@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 
 from acs.sound_pack_store import SoundPackStore
@@ -23,13 +25,25 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _wav_bytes(seed: bytes) -> bytes:
+    value = hashlib.sha256(seed).digest()[0]
+    sample = int((value - 128) * 128).to_bytes(2, "little", signed=True)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        writer.writeframes(sample * 16)
+    return buffer.getvalue()
+
+
 def _write_installable_pack(root: Path, pack_id="quiet.wood", version="1.0.0"):
     files = {}
     hashes = {}
     sound_ids = list(CORE_SOUND_EVENTS) + ["alternate.move"]
     for sound_id in sound_ids:
         relative = f"audio/{sound_id}.wav"
-        payload = b"RIFF" + sound_id.encode("ascii")
+        payload = _wav_bytes(sound_id.encode("ascii"))
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
