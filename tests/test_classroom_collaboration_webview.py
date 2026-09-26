@@ -11,8 +11,10 @@ from acs.classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
 )
 from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
+from acs.classroom_realtime_media import ClassroomMediaController
 from acs.full_product_ui_shell import UILanguage
 from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStore, FakeRoster
+from tests.test_classroom_realtime_media import FakeMedia
 
 
 class ClassroomCollaborationWebViewTests(unittest.TestCase):
@@ -160,6 +162,12 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
     def test_teacher_moderation_uses_core_permissions_without_browser_participant_ids(self) -> None:
         teacher_chat = FakeChat()
+        teacher_media = FakeMedia()
+        participant_moderation = ClassroomMediaController(
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            media=teacher_media,
+        )
         teacher_controller = ClassroomCollaborationController(
             room_id="room-1",
             local_participant_id="teacher-1",
@@ -184,11 +192,13 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             lambda participant_id: self.labels[participant_id],
             language=UILanguage.EN,
             moderation_allowed=lambda: True,
+            participant_moderation=participant_moderation,
             id_factory=self.next_id,
         )
         message = view.snapshot()["chat"]["messages"][0]
         self.assertTrue(message["can_hide"])
         self.assertTrue(message["can_moderate_sender"])
+        self.assertTrue(message["can_remove_sender"])
         self.assertNotIn("student-2", repr(message))
         message_key = message["message_key"]
 
@@ -214,6 +224,15 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             {item.target_id for item in teacher_chat.moderation_calls[-1]},
         )
 
+        blocked = view.dispatch(
+            "collaboration.participant.block_sender",
+            {"message_key": message_key},
+        )
+        self.assertEqual("collaboration.participant.removed", blocked.kind)
+        self.assertTrue(teacher_media.moderation_calls[-1][0].value)
+        self.assertEqual("student-2", teacher_media.moderation_calls[-1][0].target_id)
+        self.assertNotIn("student-2", repr(blocked.payload))
+
         hidden = view.dispatch(
             "collaboration.chat.hide",
             {"message_key": message_key},
@@ -227,6 +246,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         message = view.snapshot()["chat"]["messages"][0]
         self.assertFalse(message["can_hide"])
         self.assertFalse(message["can_moderate_sender"])
+        self.assertFalse(message["can_remove_sender"])
         self.assertNotIn("message_key", message)
 
     def test_failed_upload_exposes_bounded_retry_without_browser_path(self) -> None:
