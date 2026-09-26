@@ -312,6 +312,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ("token.json", b"{}", "secret-bearing"),
             ("uncbv.exe", b"MZ", "optional external backend"),
             ("libcbh.dll", b"MZ", "optional external backend"),
+            ("libcbh.lib", b"link library", "optional external backend"),
         )
         for name, payload, expected in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
