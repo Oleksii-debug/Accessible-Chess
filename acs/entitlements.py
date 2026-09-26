@@ -19,11 +19,15 @@ class EntitlementState(str, Enum):
 
 
 class FeatureId(str, Enum):
-    """Stable product-facing feature identifiers.
+    """Stable product-facing capability identifiers.
 
-    These values are intentionally provider-neutral. Product code may depend on
-    them, while billing/network adapters translate their own plans and claims to
-    these IDs at the infrastructure boundary.
+    These values describe product capabilities, never price tiers or billing
+    providers. Product code may depend on them while infrastructure adapters map
+    future commercial plans and server claims to these stable IDs.
+
+    Accessibility itself is intentionally absent from this catalog: keyboard,
+    screen-reader and semantic-document accessibility are product invariants,
+    not entitlements that can be sold or revoked.
     """
 
     PLAY_ENGINE = "play.engine"
@@ -32,17 +36,30 @@ class FeatureId(str, Enum):
     HISTORY_REVIEW = "history.review"
     DATA_IMPORT = "data.import"
     DATA_EXPORT = "data.export"
+    DATA_RECOVERY = "data.recovery"
+    PGN_WORKSPACE = "pgn.workspace"
+    LIBRARY_SEARCH = "library.search"
+    BOOKS_READER = "books.reader"
     TRAINING_LOCAL = "training.local"
+    TRAINING_COURSES = "training.courses"
+    TEACHER_LOCAL = "teacher.local"
+    CLASSROOM_LOCAL = "classroom.local"
+    EDUCATION_MANAGEMENT = "education.management"
     SETTINGS_PROFILES = "settings.profiles"
 
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
 
-# User-owned local data must remain exportable even when a commercial
-# entitlement is unavailable, expired, revoked or requires an update. This is a
-# data-safety/recovery invariant, not a paid feature grant. Keep this set narrow:
-# provider-backed premium content/export requires a distinct future feature ID.
-LOCAL_DATA_SAFETY_FEATURE_IDS: FrozenSet[str] = frozenset({FeatureId.DATA_EXPORT.value})
+# User-owned local data must remain exportable and recoverable even when a
+# commercial entitlement is unavailable, expired, revoked or requires an update.
+# This is a data-safety invariant, not a paid feature grant. Provider-backed
+# premium content/export requires distinct future capability IDs.
+LOCAL_DATA_SAFETY_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.DATA_EXPORT.value,
+        FeatureId.DATA_RECOVERY.value,
+    }
+)
 
 
 ACTIVE_STATES = frozenset(
@@ -206,7 +223,7 @@ class FeatureGate:
     """Pure policy evaluator for stable feature IDs.
 
     The gate never deletes data and never performs network or billing calls.
-    User-owned local data export is a narrow safety/recovery invariant and stays
+    User-owned local data export/recovery are narrow safety invariants and stay
     available independently of commercial entitlement state. Other features
     remain fail-closed unless explicitly entitled.
 
