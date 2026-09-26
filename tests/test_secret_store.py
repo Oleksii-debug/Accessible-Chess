@@ -154,6 +154,42 @@ class SecretStoreContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(SecretStoreError, "symlink or reparse point"):
                     store.read("refresh-token")
 
+    def test_read_rejects_target_swapped_to_symlink_after_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "secure"
+            root.mkdir()
+            store = WindowsDpapiSecretStore(root)
+            target = store._path("refresh-token")
+            target.write_bytes(b"original-ciphertext")
+            external = Path(td) / "external-ciphertext"
+            external.write_bytes(b"valid-but-replayed-ciphertext")
+            original_open = Path.open
+            raced = {"done": False}
+
+            def racing_open(path: Path, *args, **kwargs):
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == target and mode == "rb" and not raced["done"]:
+                    raced["done"] = True
+                    target.unlink()
+                    try:
+                        target.symlink_to(external)
+                    except (OSError, NotImplementedError) as exc:
+                        self.skipTest(f"symlink creation unavailable: {type(exc).__name__}")
+                return original_open(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(Path, "open", new=racing_open),
+                mock.patch.object(secret_store, "_dpapi_unprotect") as unprotect,
+            ):
+                with self.assertRaisesRegex(
+                    SecretStoreError,
+                    "changed before verified read|regular non-reparse file",
+                ):
+                    store.read("refresh-token")
+            self.assertTrue(raced["done"])
+            unprotect.assert_not_called()
+
     def test_symlink_ancestor_is_rejected_before_store_creation_or_dpapi(self) -> None:
         if not hasattr(Path, "symlink_to"):
             self.skipTest("symlinks unsupported")
