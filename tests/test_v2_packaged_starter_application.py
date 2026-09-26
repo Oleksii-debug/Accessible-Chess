@@ -10,6 +10,7 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode
 from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
 
 
@@ -115,17 +116,43 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual("pgn", app.shell.current_route.route_id)
                 self.assertIsNotNone(app.session)
                 self.assertEqual(1, app.session.view().game_count)
-                self.assertTrue(app.session.dirty)
+                self.assertFalse(app.session.dirty)
                 self.assertIsNone(app.session.view().source_path)
+                with self.assertRaises(PgnDocumentError) as raised:
+                    app.session.save()
+                self.assertEqual(PgnDocumentErrorCode.NO_SOURCE, raised.exception.code)
+
+                app.session.edit_tag("Event", "Edited starter sample")
+                self.assertTrue(app.session.dirty)
 
                 result = app.browser_command(
                     "library", "library.open_packaged_stress_pgn", {}
                 )
-                self.assertEqual("status", result["kind"])
-                self.assertEqual("pgn", app.shell.current_route.route_id)
-                self.assertEqual(1, app.session.view().game_count)
-                self.assertTrue(app.session.dirty)
+                # The existing unsaved-document guard owns the edit-preservation
+                # decision. This direct browser command must not silently replace
+                # an edited starter document.
+                self.assertEqual("error", result["kind"])
+                self.assertEqual("Edited starter sample", app.session.workspace.games()[0].tags["Event"])
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
+    def test_clean_packaged_starter_can_switch_to_stress_without_false_unsaved_prompt(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-clean-switch-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            app, database, analysis = self._application(root, bundle)
+            try:
+                first = app.browser_command("library", "library.open_packaged_starter_pgn", {})
+                self.assertEqual("status", first["kind"])
+                self.assertFalse(app.session.dirty)
+                second = app.browser_command("library", "library.open_packaged_stress_pgn", {})
+                self.assertEqual("status", second["kind"])
+                self.assertFalse(app.session.dirty)
                 self.assertIsNone(app.session.view().source_path)
+                self.assertEqual("Stress sample", app.session.workspace.games()[0].tags["Event"])
             finally:
                 app.shutdown()
                 analysis.close()
