@@ -256,10 +256,10 @@ def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
         for raw_name, raw_value in items:
             if not isinstance(raw_name, str) or not isinstance(raw_value, str):
                 raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-            if raw_name != raw_name.strip():
+            if raw_name != raw_name.strip() or raw_value != raw_value.strip():
                 raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
             name = raw_name
-            value = raw_value.strip()
+            value = raw_value
             folded = name.casefold()
             if not name or folded in seen or folded in reserved:
                 raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
