@@ -1,6 +1,16 @@
 name: Runtime Dependency SPDX SBOM
 
 on:
+  push:
+    branches:
+      - work/runtime-dependency-notices-current-20260924
+    paths:
+      - 'acs/runtime_dependency_notices.py'
+      - 'acs/runtime_dependency_sbom.py'
+      - 'tests/test_runtime_dependency_notices.py'
+      - 'tests/test_runtime_dependency_sbom.py'
+      - '.github/workflows/runtime-dependency-notices.yml'
+      - '.github/workflows/runtime-dependency-sbom.yml'
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -53,6 +63,13 @@ jobs:
 
       - name: Diff hygiene
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+          base="${PR_BASE_SHA:-}"
+          head="${PR_HEAD_SHA:-}"
+          if [ -z "$base" ]; then base="$(git rev-parse HEAD^1)"; fi
+          if [ -z "$head" ]; then head="$(git rev-parse HEAD)"; fi
+          git diff --check "$base" "$head"
