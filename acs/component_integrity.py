@@ -128,8 +128,8 @@ def _parse_manifest(data: bytes) -> dict[str, Any]:
         value = json.loads(text, object_pairs_hook=_reject_duplicate_pairs)
     except ComponentIntegrityError:
         raise
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        raise ComponentIntegrityError("component integrity manifest is not valid JSON") from exc
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+        raise ComponentIntegrityError("component integrity manifest is not valid JSON") from None
     document = _require_exact_mapping(value, _TOP_FIELDS, "component integrity manifest")
     if document["schema"] != INTEGRITY_MANIFEST_SCHEMA:
         raise ComponentIntegrityError("component integrity manifest schema is unsupported")
