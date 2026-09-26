@@ -99,6 +99,10 @@ class SignedEntitlementPolicyTests(unittest.TestCase):
             verify_signed_entitlement_policy(
                 envelope_bytes(), verifier=FakeVerifier(raise_error=True)
             )
+        self.assertEqual(
+            str(raised.exception), "signed entitlement policy verification failed"
+        )
+        self.assertIsNone(raised.exception.__cause__)
         self.assertNotIn("provider-private", str(raised.exception))
 
     def test_signature_binds_schema_key_id_and_payload(self) -> None:
