@@ -105,6 +105,21 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             self.assertEqual(stockfish["versionInfo"], "18")
             self.assertIn("Stockfish-COPYING.txt", stockfish["comment"])
 
+    def test_every_packaged_sound_requires_authoritative_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            sounds = package / "AccessibleChess" / "assets" / "sounds"
+            (sounds / "unlisted.wav").write_bytes(b"RIFF-unproven")
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError, "missing authoritative provenance"
+            ):
+                build_version2_release_sbom(
+                    package,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
+                )
+
     def test_sidecar_must_be_outside_package_tree(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
