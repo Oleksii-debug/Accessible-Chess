@@ -9,15 +9,17 @@ passed. Cryptographic key storage/rotation is supplied by a replaceable
 asymmetric ``SignatureVerifier``; no signing secret belongs in the client.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import stat
-from typing import Protocol
+from typing import BinaryIO, Iterator, Protocol
 from urllib.parse import urlsplit
 
 
@@ -58,6 +60,13 @@ class SignatureVerifier(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class VerifiedUpdate:
+    """Authenticated metadata plus the only safe package-consumption authority.
+
+    The pathname is informational. Code that consumes update bytes must use
+    :func:`open_verified_update`, which revalidates the signed identity against
+    an already-open read-only handle immediately before consumption.
+    """
+
     package_path: Path
     version: str
     download_url: str
@@ -102,6 +111,13 @@ def _utc_time(value: object, label: str) -> datetime:
     return parsed
 
 
+def _require_utc_instant(value: datetime | None) -> datetime:
+    instant = datetime.now(timezone.utc) if value is None else value
+    if instant.tzinfo is None or instant.utcoffset() != timezone.utc.utcoffset(instant):
+        raise ValueError("now must be timezone-aware UTC")
+    return instant
+
+
 def _download_url(value: object) -> str:
     if not isinstance(value, str) or not value or value != value.strip():
         raise UpdateSecurityError("download URL is invalid")
@@ -133,7 +149,7 @@ def _canonical_signed(value: dict[str, object]) -> bytes:
     ).encode("utf-8")
 
 
-def _regular_file(path: Path) -> stat.stat_result:
+def _regular_file(path: Path) -> os.stat_result:
     try:
         info = path.lstat()
     except OSError as exc:
@@ -144,15 +160,95 @@ def _regular_file(path: Path) -> stat.stat_result:
     return info
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
+def _regular_open_file(info: os.stat_result) -> None:
+    reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+    if reparse or not stat.S_ISREG(info.st_mode):
+        raise UpdateSecurityError("opened update package is not a regular non-reparse file")
+
+
+def _file_identity(info: os.stat_result) -> tuple[int, int, int, int]:
+    return (
+        int(getattr(info, "st_dev", 0)),
+        int(getattr(info, "st_ino", 0)),
+        int(info.st_size),
+        int(getattr(info, "st_mtime_ns", 0)),
+    )
+
+
+@contextmanager
+def _verified_package_handle(
+    path: Path,
+    *,
+    expected_size: int,
+    expected_digest: str,
+) -> Iterator[BinaryIO]:
+    """Open, authenticate, rewind, and retain one immutable read handle."""
+    before = _regular_file(path)
+    if before.st_size != expected_size:
+        raise UpdateSecurityError("update package size mismatch")
+
     try:
         with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
+            opened = os.fstat(handle.fileno())
+            _regular_open_file(opened)
+            if _file_identity(opened) != _file_identity(before):
+                raise UpdateSecurityError("update package changed before verified open")
+
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                block = handle.read(1024 * 1024)
+                if not block:
+                    break
+                total += len(block)
+                if total > expected_size:
+                    raise UpdateSecurityError("update package size mismatch")
                 digest.update(block)
+            opened_after = os.fstat(handle.fileno())
+            _regular_open_file(opened_after)
+            after = _regular_file(path)
+            if (
+                _file_identity(opened_after) != _file_identity(opened)
+                or _file_identity(after) != _file_identity(opened)
+            ):
+                raise UpdateSecurityError("update package changed during verification")
+            if total != expected_size:
+                raise UpdateSecurityError("update package size mismatch")
+            if digest.hexdigest() != expected_digest:
+                raise UpdateSecurityError("update package digest mismatch")
+
+            handle.seek(0)
+            yield handle
+    except UpdateSecurityError:
+        raise
     except OSError as exc:
         raise UpdateSecurityError("update package could not be read") from exc
-    return digest.hexdigest()
+
+
+@contextmanager
+def open_verified_update(
+    verified: VerifiedUpdate,
+    *,
+    now: datetime | None = None,
+) -> Iterator[BinaryIO]:
+    """Yield only the exact signed bytes still valid at consumption time.
+
+    Future update installers must consume this retained read-only handle (or bytes
+    derived from it), not reopen ``verified.package_path`` after verification.
+    """
+    if not isinstance(verified, VerifiedUpdate):
+        raise TypeError("verified must be a VerifiedUpdate capability")
+    instant = _require_utc_instant(now)
+    if instant < verified.published_at:
+        raise UpdateSecurityError("verified update is not yet valid")
+    if instant > verified.expires_at:
+        raise UpdateSecurityError("verified update is expired")
+    with _verified_package_handle(
+        verified.package_path,
+        expected_size=verified.package_size,
+        expected_digest=verified.package_sha256,
+    ) as handle:
+        yield handle
 
 
 def verify_update_package(
@@ -167,7 +263,9 @@ def verify_update_package(
     """Return a capability only for an authentic, applicable package.
 
     Callers must treat failure as non-applicable and must never execute or
-    install the candidate package on any exception from this function.
+    install the candidate package on any exception from this function. A caller
+    that later consumes package bytes must use :func:`open_verified_update` so
+    pathname replacement after this function returns cannot bypass verification.
     """
     if not isinstance(metadata, bytes) or not metadata or len(metadata) > _METADATA_LIMIT:
         raise UpdateSecurityError("update metadata is invalid")
@@ -232,36 +330,19 @@ def verify_update_package(
 
     published = _utc_time(signed.get("published_at"), "published time")
     expires = _utc_time(signed.get("expires_at"), "expiry time")
-    instant = datetime.now(timezone.utc) if now is None else now
-    if instant.tzinfo is None or instant.utcoffset() != timezone.utc.utcoffset(instant):
-        raise ValueError("now must be timezone-aware UTC")
+    instant = _require_utc_instant(now)
     if expires <= published or instant > expires:
         raise UpdateSecurityError("update metadata is expired")
     if published > instant:
         raise UpdateSecurityError("update metadata is not yet valid")
 
     package = Path(package_path)
-    info_before = _regular_file(package)
-    if info_before.st_size != package_size:
-        raise UpdateSecurityError("update package size mismatch")
-    actual_digest = _sha256(package)
-    info_after = _regular_file(package)
-    before_identity = (
-        info_before.st_dev,
-        info_before.st_ino,
-        info_before.st_size,
-        getattr(info_before, "st_mtime_ns", 0),
-    )
-    after_identity = (
-        info_after.st_dev,
-        info_after.st_ino,
-        info_after.st_size,
-        getattr(info_after, "st_mtime_ns", 0),
-    )
-    if after_identity != before_identity:
-        raise UpdateSecurityError("update package changed during verification")
-    if actual_digest != digest:
-        raise UpdateSecurityError("update package digest mismatch")
+    with _verified_package_handle(
+        package,
+        expected_size=package_size,
+        expected_digest=digest,
+    ):
+        pass
 
     return VerifiedUpdate(
         package_path=package,
@@ -273,3 +354,12 @@ def verify_update_package(
         published_at=published,
         expires_at=expires,
     )
+
+
+__all__ = [
+    "SignatureVerifier",
+    "UpdateSecurityError",
+    "VerifiedUpdate",
+    "open_verified_update",
+    "verify_update_package",
+]
