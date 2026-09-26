@@ -151,8 +151,8 @@ class BoundedHttpsJsonTransport:
     ) -> JsonResponse:
         if len(body) > self.max_request_bytes:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        supplied = dict(headers or {})
-        if any(str(name).strip().casefold() == "content-type" for name in supplied):
+        supplied = _validated_headers(headers or {})
+        if any(name.casefold() == "content-type" for name in supplied):
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
         supplied["Content-Type"] = content_type
         return self._request_json("POST", url, body=body, headers=supplied)
@@ -228,8 +228,14 @@ def _validated_https_url(value: str) -> str:
 
 
 def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
-    if len(headers) > 64:
-        raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+    try:
+        if len(headers) > 64:
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        items = headers.items()
+    except SecureHttpError:
+        raise
+    except Exception:
+        raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
     reserved = {
         "connection",
         "content-length",
@@ -244,22 +250,29 @@ def _validated_headers(headers: Mapping[str, str]) -> dict[str, str]:
     token_punctuation = set("!#$%&'*+-.^_`|~")
     result: dict[str, str] = {}
     seen: set[str] = set()
-    for raw_name, raw_value in headers.items():
-        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
-            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        name = raw_name.strip()
-        value = raw_value.strip()
-        folded = name.casefold()
-        if not name or folded in seen or folded in reserved:
-            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        if any(not (ch.isascii() and (ch.isalnum() or ch in token_punctuation)) for ch in name):
-            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        if len(name) > 128 or len(value) > 8192:
-            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        if any(ch in value for ch in ("\r", "\n", "\x00")):
-            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        seen.add(folded)
-        result[name] = value
+    try:
+        for raw_name, raw_value in items:
+            if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+            if raw_name != raw_name.strip():
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+            name = raw_name
+            value = raw_value.strip()
+            folded = name.casefold()
+            if not name or folded in seen or folded in reserved:
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+            if any(not (ch.isascii() and (ch.isalnum() or ch in token_punctuation)) for ch in name):
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+            if len(name) > 128 or len(value) > 8192:
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+            if any(ch in value for ch in ("\r", "\n", "\x00")):
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+            seen.add(folded)
+            result[name] = value
+    except SecureHttpError:
+        raise
+    except Exception:
+        raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
     return result
 
 
