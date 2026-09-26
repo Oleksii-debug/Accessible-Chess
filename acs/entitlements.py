@@ -19,11 +19,15 @@ class EntitlementState(str, Enum):
 
 
 class FeatureId(str, Enum):
-    """Stable product-facing feature identifiers.
+    """Stable product-facing capability identifiers.
 
-    These values are intentionally provider-neutral. Product code may depend on
-    them, while billing/network adapters translate their own plans and claims to
-    these IDs at the infrastructure boundary.
+    These values describe product capabilities, never price tiers or billing
+    providers. Application code may depend on these IDs while future policy and
+    provider adapters decide which commercial plan grants them.
+
+    Accessibility itself is intentionally absent from this catalog: keyboard,
+    screen-reader, semantic-document and recovery accessibility are product
+    invariants, not entitlements that can be sold or revoked.
     """
 
     PLAY_ENGINE = "play.engine"
@@ -32,11 +36,30 @@ class FeatureId(str, Enum):
     HISTORY_REVIEW = "history.review"
     DATA_IMPORT = "data.import"
     DATA_EXPORT = "data.export"
+    DATA_RECOVERY = "data.recovery"
+    PGN_WORKSPACE = "pgn.workspace"
+    LIBRARY_SEARCH = "library.search"
+    BOOKS_READER = "books.reader"
     TRAINING_LOCAL = "training.local"
+    TRAINING_COURSES = "training.courses"
+    TEACHER_LOCAL = "teacher.local"
+    CLASSROOM_LOCAL = "classroom.local"
+    EDUCATION_MANAGEMENT = "education.management"
     SETTINGS_PROFILES = "settings.profiles"
 
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
+
+# User-owned data must remain recoverable even when a commercial entitlement is
+# unavailable, expired, revoked, or requires an application update. Keeping this
+# list next to the canonical gate prevents payment policy from accidentally
+# becoming a data-hostage mechanism.
+USER_DATA_SAFETY_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.DATA_EXPORT.value,
+        FeatureId.DATA_RECOVERY.value,
+    }
+)
 
 
 ACTIVE_STATES = frozenset(
@@ -196,8 +219,8 @@ class FeatureGate:
     """Pure policy evaluator for stable feature IDs.
 
     The gate never deletes data and never performs network or billing calls.
-    A caller may preserve read/export/recovery features by granting their stable
-    feature IDs even while paid functionality is unavailable.
+    Export and recovery of user-owned data are explicitly outside commercial
+    denial so expiry/revocation cannot strand local user data.
     """
 
     def __init__(self, *, current_version: ProductVersion | str) -> None:
@@ -216,6 +239,15 @@ class FeatureGate:
     ) -> AccessDecision:
         feature = _normalize_feature_id(feature_id)
         current_time = _utc_now(now)
+
+        if feature in USER_DATA_SAFETY_FEATURE_IDS:
+            state = snapshot.state if snapshot is not None else EntitlementState.EXPIRED
+            return AccessDecision(
+                True,
+                state,
+                "user_data_safety",
+                feature,
+            )
 
         if snapshot is None:
             return AccessDecision(
