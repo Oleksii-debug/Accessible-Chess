@@ -59,6 +59,7 @@ const fakeWindow = {
   AccessibleChessPgnSurface: Object.freeze({
     render: function (_root, _snapshot, _invoke, announce) {
       announce("Same product-surface result");
+      announce("Same product-surface result");
     }
   }),
   AccessibleChessLibrarySurface: Object.freeze({
@@ -126,10 +127,6 @@ async function run() {
     "interleaved distinct passive status must still be exposed"
   );
 
-  // The final-product runtime is loaded after the Stage 1 inline script. It must
-  // preserve explicit event identity rather than reducing announce(message,eventId)
-  // back to message-only dedupe. A duplicate of event-1 remains a duplicate even
-  // when another event was published between the two emissions.
   fakeWindow.announce("First explicit event", "event-1");
   fakeWindow.announce("Interleaved explicit event", "event-2");
   fakeWindow.announce("First explicit event", "event-1");
@@ -145,7 +142,6 @@ async function run() {
     "the interleaved distinct event must still be exposed"
   );
 
-  // Equal result text from two different explicit user events is not a duplicate.
   fakeWindow.announce("Repeated explicit text", "event-3");
   fakeWindow.announce("Repeated explicit text", "event-4");
   await new Promise(resolve => setTimeout(resolve, 180));
@@ -155,9 +151,6 @@ async function run() {
     "distinct explicit event identities must preserve repeated result text"
   );
 
-  // Final-product render callbacks are installed into click/submit/keyboard action
-  // listeners. Route those through the canonical event-aware queue so repeated
-  // equal user results remain distinct accessibility events.
   let staleCallbackCalls = 0;
   const staleCallback = function () { staleCallbackCalls += 1; };
   fakeWindow.AccessibleChessPgnSurface.render(null, null, null, staleCallback);
@@ -169,7 +162,7 @@ async function run() {
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
     2,
-    "two equal PGN/product user results must remain two live-region events"
+    "duplicate callbacks inside one surface action must coalesce, while a second action with the same result stays distinct"
   );
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
@@ -177,9 +170,6 @@ async function run() {
     "two equal Library user results must remain two live-region events"
   );
 
-  // Library apply() is also used by asynchronous import progress, and Teacher
-  // render installs mouseenter handlers. They must not be upgraded blindly to
-  // fresh user-event dispatches or passive activity could spam the screen reader.
   fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
   fakeWindow.AccessibleChessTeacherSurface.render(null, null, null, staleCallback);
   assert.strictEqual(
