@@ -18,6 +18,7 @@ from pathlib import Path
 import sqlite3
 import stat
 import sys
+import tempfile
 
 from .acsdb import ACSDB_SCHEMA_VERSION
 from .full_product_ui_shell import UILanguage
@@ -79,6 +80,24 @@ def _safe_file(path: Path, *, label: str) -> os.stat_result:
     if stat.S_ISLNK(info.st_mode) or _is_reparse(info) or not stat.S_ISREG(info.st_mode):
         raise RuntimeError(f"{label} must be a regular non-reparse file")
     return info
+
+
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare stable file identity where the host exposes one.
+
+    Windows/POSIX Python normally supplies ``st_dev`` and ``st_ino``. Some
+    unusual filesystems may report a zero inode; in that case byte identity is
+    still enforced by the manifest hash below rather than inventing an identity.
+    """
+
+    left_ino = getattr(left, "st_ino", 0)
+    right_ino = getattr(right, "st_ino", 0)
+    if left_ino and right_ino:
+        return (getattr(left, "st_dev", None), left_ino) == (
+            getattr(right, "st_dev", None),
+            right_ino,
+        )
+    return True
 
 
 def _sha256(path: Path) -> str:
@@ -145,6 +164,59 @@ def _load_manifest(root: Path) -> dict[str, object]:
     return manifest
 
 
+def _verified_payload_bytes(
+    root: Path,
+    manifest: Mapping[str, object],
+    name: str,
+    *,
+    label: str,
+) -> bytes:
+    """Read exactly the bytes pinned by the already-validated manifest.
+
+    Startup discovery proves the package was intact when the application was
+    composed. User actions can happen much later, so never trust the pathname
+    again merely because it still resolves to a regular file. Bind each action to
+    one opened handle, verify the bytes actually consumed, and reject a pathname
+    replacement observed before/after that read.
+    """
+
+    files = manifest.get("files")
+    metadata = files.get(name) if isinstance(files, Mapping) else None
+    if not isinstance(metadata, Mapping):
+        raise RuntimeError(f"{label} metadata is unavailable")
+    expected_hash = metadata.get("sha256")
+    expected_bytes = metadata.get("bytes")
+    if type(expected_hash) is not str or len(expected_hash) != 64:
+        raise RuntimeError(f"{label} hash metadata is invalid")
+    if type(expected_bytes) is not int or expected_bytes < 1:
+        raise RuntimeError(f"{label} byte metadata is invalid")
+
+    path = root / name
+    before = _safe_file(path, label=label)
+    try:
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if _is_reparse(opened) or not stat.S_ISREG(opened.st_mode):
+                raise RuntimeError(f"{label} opened object is not a regular file")
+            if not _same_file_identity(before, opened):
+                raise RuntimeError(f"{label} changed before verified read")
+            payload = handle.read(expected_bytes + 1)
+            opened_after = os.fstat(handle.fileno())
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError(f"{label} cannot be read") from exc
+
+    after = _safe_file(path, label=label)
+    if not _same_file_identity(opened, opened_after) or not _same_file_identity(opened, after):
+        raise RuntimeError(f"{label} changed during verified read")
+    if len(payload) != expected_bytes:
+        raise RuntimeError(f"{label} byte length does not match the manifest")
+    if hashlib.sha256(payload).hexdigest() != expected_hash.casefold():
+        raise RuntimeError(f"{label} bytes do not match the manifest")
+    return payload
+
+
 def _default_bundle_root() -> Path:
     return Path(sys.executable).resolve().parent / "release-content" / "w2-starter"
 
@@ -193,16 +265,19 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
 
     def _open_packaged_pgn(self, *, stress: bool) -> dict[str, object]:
         root = self._packaged_starter_root
-        if root is None:
+        manifest = self._packaged_starter_manifest
+        if root is None or manifest is None:
             raise ValueError("packaged starter content is unavailable")
         name = "stress_uk.pgn" if stress else "starter_uk.pgn"
-        path = root / name
-        _safe_file(path, label="packaged starter PGN")
+        payload = _verified_payload_bytes(root, manifest, name, label="packaged starter PGN")
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("packaged starter PGN is not valid UTF-8") from exc
         # Packaged starter files are immutable release content. Build a clean
         # canonical workspace without retaining a writable source fingerprint:
         # simply opening bundled content must not look like an unsaved edit, but
         # any later edit still requires the existing explicit Save As workflow.
-        text = path.read_text(encoding="utf-8")
         workspace = PgnWorkspace.from_text(text)
         session = PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
         self.set_document(session)
@@ -227,20 +302,34 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         if type(expected_count) is not int or expected_count < 200:
             raise RuntimeError("packaged starter Library count is invalid")
 
-        path = root / "sample_library.acsdb"
-        _safe_file(path, label="packaged starter Library")
-        uri = path.resolve(strict=True).as_uri() + "?mode=ro"
-        connection = sqlite3.connect(uri, uri=True)
-        try:
-            quick = connection.execute("PRAGMA quick_check").fetchone()
-            if quick is None or str(quick[0]).casefold() != "ok":
-                raise RuntimeError("packaged starter Library integrity check failed")
-            schema = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if schema != ACSDB_SCHEMA_VERSION:
-                raise RuntimeError("packaged starter Library schema is unsupported")
-            rows = connection.execute("SELECT pgn_text FROM games ORDER BY id").fetchall()
-        finally:
-            connection.close()
+        payload = _verified_payload_bytes(
+            root,
+            manifest,
+            "sample_library.acsdb",
+            label="packaged starter Library",
+        )
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-packaged-library-") as raw:
+            snapshot = Path(raw) / "sample_library.acsdb"
+            try:
+                with snapshot.open("xb") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except OSError as exc:
+                raise RuntimeError("verified packaged starter Library snapshot cannot be created") from exc
+
+            uri = snapshot.resolve(strict=True).as_uri() + "?mode=ro&immutable=1"
+            connection = sqlite3.connect(uri, uri=True)
+            try:
+                quick = connection.execute("PRAGMA quick_check").fetchone()
+                if quick is None or str(quick[0]).casefold() != "ok":
+                    raise RuntimeError("packaged starter Library integrity check failed")
+                schema = int(connection.execute("PRAGMA user_version").fetchone()[0])
+                if schema != ACSDB_SCHEMA_VERSION:
+                    raise RuntimeError("packaged starter Library schema is unsupported")
+                rows = connection.execute("SELECT pgn_text FROM games ORDER BY id").fetchall()
+            finally:
+                connection.close()
         if len(rows) != expected_count:
             raise RuntimeError("packaged starter Library game count does not match the manifest")
         text = "\n\n".join(str(row[0]) for row in rows)
