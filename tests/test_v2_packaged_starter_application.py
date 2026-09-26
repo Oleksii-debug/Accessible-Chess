@@ -227,6 +227,55 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_extra_packaged_entry_fails_closed_before_application_start(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-extra-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            (bundle / "unexpected").mkdir()
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "inventory is invalid"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_symlink_payload_fails_closed_even_when_target_bytes_match(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-symlink-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            payload = bundle / "starter_uk.pgn"
+            target = root / "same-starter.pgn"
+            target.write_bytes(payload.read_bytes())
+            payload.unlink()
+            try:
+                payload.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlink creation unavailable on this host: {type(exc).__name__}")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "regular non-reparse file"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
     def test_missing_explicit_bundle_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-missing-") as raw:
             root = Path(raw)
