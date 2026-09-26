@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from acs.entitlements import (
     AccountSession,
     CORE_FEATURE_IDS,
+    LOCAL_DATA_SAFETY_FEATURE_IDS,
     EntitlementSnapshot,
     EntitlementState,
     FeatureGate,
@@ -67,6 +68,36 @@ class EntitlementTests(unittest.TestCase):
         self.assertTrue(decision.allowed)
         self.assertEqual(decision.feature_id, "play.engine")
 
+    def test_local_data_safety_scope_is_explicitly_narrow(self):
+        self.assertEqual(LOCAL_DATA_SAFETY_FEATURE_IDS, frozenset({FeatureId.DATA_EXPORT.value}))
+
+    def test_user_owned_local_export_survives_entitlement_failures(self):
+        cases = (
+            None,
+            self.snapshot(EntitlementState.EXPIRED),
+            self.snapshot(EntitlementState.REVOKED),
+            self.snapshot(EntitlementState.UPDATE_REQUIRED),
+            self.snapshot(
+                EntitlementState.PAID_MONTHLY,
+                policy=RemotePolicy(minimum_supported_version=ProductVersion.parse("9.0.0")),
+            ),
+            self.snapshot(
+                EntitlementState.PAID_MONTHLY,
+                policy=RemotePolicy(refresh_after=NOW - timedelta(days=1)),
+            ),
+        )
+        for snapshot in cases:
+            with self.subTest(snapshot=snapshot):
+                decision = self.gate().evaluate(FeatureId.DATA_EXPORT, snapshot, now=NOW)
+                self.assertTrue(decision.allowed)
+                self.assertEqual(decision.reason, "local_data_safety")
+                self.assertFalse(decision.requires_update)
+
+    def test_local_data_safety_does_not_unlock_other_features(self):
+        revoked = self.snapshot(EntitlementState.REVOKED)
+        self.assertFalse(self.gate().evaluate(FeatureId.PLAY_ENGINE, revoked, now=NOW).allowed)
+        self.assertFalse(self.gate().evaluate(FeatureId.DATA_IMPORT, None, now=NOW).allowed)
+
     def test_free_beta_policy_enables_known_features_without_provider_or_network(self):
         policy = FreeBetaLicensePolicy()
         self.assertIsInstance(policy, LicensePolicy)
@@ -111,7 +142,7 @@ class EntitlementTests(unittest.TestCase):
 
     def test_revocation_always_wins_over_feature_claim(self):
         decision = self.gate().evaluate(
-            "data.export",
+            "play.engine",
             self.snapshot(EntitlementState.REVOKED),
             now=NOW,
         )
