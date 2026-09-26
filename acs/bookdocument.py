@@ -2,10 +2,11 @@ from __future__ import annotations
 
 """Presentation-neutral semantic chess-book model.
 
-BookDocument is deliberately independent from DOCX, HTML, PGN and ChessBase.
-Importers convert source material into these semantic blocks; accessible UIs and
-exporters consume the blocks without needing to understand the source format.
-Chess position validation is delegated to the canonical chess core.
+BookDocument is deliberately independent from DOCX, HTML and ChessBase source
+containers. Importers convert source material into these semantic blocks;
+accessible UIs and exporters consume the blocks without needing to understand the
+source format. Chess position validation and embedded PGN validation are delegated
+to the canonical chess core and bounded PGN ingress respectively.
 """
 
 from dataclasses import dataclass, field
@@ -90,13 +91,15 @@ def _embedded_pgn_text(
     The BookDocument layer owns neither PGN tokenization nor chess legality. It
     keeps the original source text unchanged, but refuses to publish a semantic
     Game/VariationTree/Exercise solution that the shared PGN contract cannot
-    represent as exactly one strict game. Explicit PGN FEN metadata is validated
+    represent as exactly one bounded canonical game. Recovery warnings remain part
+    of the established Book game contract instead of being silently discarded.
+    Explicit PGN FEN metadata is validated
     by the same canonical Board authority used by Position/Diagram blocks.
     """
 
     text = _required_text(value, field_name)
     try:
-        games = parse_pgn_text(text, strict=True)
+        games = parse_pgn_text(text, strict=False)
     except (PgnRoundTripError, RecursionError, TypeError, ValueError):
         raise BookDocumentError(
             f"{field_name} is not accepted by canonical PGN validation",
