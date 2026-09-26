@@ -18,12 +18,23 @@ using System.Runtime.InteropServices;
 public static class AccessibleChessCopyKeys {
   [DllImport("user32.dll")]
   private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")]
+  private static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")]
+  private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
   private const uint KEYEVENTF_KEYUP = 0x0002;
   public static void Ctrl(byte key) {
     keybd_event(0x11, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     keybd_event(0x11, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+  public static int ForegroundProcessId() {
+    IntPtr hwnd = GetForegroundWindow();
+    if (hwnd == IntPtr.Zero) return 0;
+    uint pid;
+    GetWindowThreadProcessId(hwnd, out pid);
+    return unchecked((int)pid);
   }
 }
 "@
@@ -127,6 +138,370 @@ function FindControl($Elements,[string]$AutomationId,[string]$ControlType='') {
   return $null
 }
 
+function WaitFor($Script,[int]$TimeoutMs,[string]$Failure) {
+  $watch=[System.Diagnostics.Stopwatch]::StartNew()
+  while($watch.ElapsedMilliseconds -lt $TimeoutMs){
+    $value=& $Script
+    if($value){return $value}
+    Start-Sleep -Milliseconds 50
+  }
+  throw $Failure
+}
+
+function ActivateProduct($Shell,$Process,[string]$Phase) {
+  if(-not $Shell.AppActivate($Process.Id)){
+    throw "${Phase}: could not activate packaged AccessibleChess process $($Process.Id)"
+  }
+  $null=WaitFor {
+    if([AccessibleChessCopyKeys]::ForegroundProcessId() -eq $Process.Id){return $true}
+    return $null
+  } 2000 "${Phase}: AccessibleChess.exe did not become the foreground native-key target"
+}
+
+function AssertProductForeground($Process,[string]$Phase) {
+  $foreground=[AccessibleChessCopyKeys]::ForegroundProcessId()
+  if($foreground -ne $Process.Id){
+    throw "${Phase}: native copy target is not AccessibleChess.exe: foreground_pid=$foreground expected=$($Process.Id)"
+  }
+}
+
+function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha,[string]$ExePath) {
+  if($ExpectedSha -notmatch '^[0-9A-Fa-f]{40}  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $focused){throw "${Phase}: UIA focused element unavailable"}
+  $focusedRuntime=RuntimeId $focused
+  if(-not $focusedRuntime){throw "${Phase}: focused element has no stable UIA runtime identity"}
+  $insideProvider=$false
+  foreach($candidate in @(ControlElements $Roots)){
+    if((RuntimeId $candidate) -eq $focusedRuntime){$insideProvider=$true;break}
+  }
+  if(-not $insideProvider){
+    throw "${Phase}: native keyboard focus escaped connected packaged provider roots"
+  }
+  if($ExpectedAutomationId -and [string]$focused.Current.AutomationId -ne $ExpectedAutomationId){
+    throw "${Phase}: wrong focused control; expected='$ExpectedAutomationId' actual='$([string]$focused.Current.AutomationId)'"
+  }
+  return $focused
+}
+
+function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
+  $watch=[System.Diagnostics.Stopwatch]::StartNew()
+  $last=''
+  while($watch.ElapsedMilliseconds -lt $TimeoutMs){
+    try {$last=[string](Get-Clipboard -Raw -ErrorAction Stop)} catch {$last=''}
+    if($last -ceq $Expected){return $last}
+    Start-Sleep -Milliseconds 100
+  }
+  throw "Clipboard did not receive exact selected text; expected='$Expected' actual='$last'"
+}
+
+$root=(Resolve-Path -LiteralPath $ProductRoot).Path
+$exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
+AssertExactPackageBinding $root $ProductSha $exe
+$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+try {
+  $report=ReadTopology $process ($TimeoutSeconds*1000)
+  $roots=ProviderRoots $report
+  $elements=ControlElements $roots
+  $documents=@($elements | Where-Object {
+    try {
+      [string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Document' -and
+      [string]$_.Current.Name -eq 'Accessible Chess'
+    } catch {$false}
+  })
+  if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
+
+  $usableDocuments=@()
+  foreach($candidate in $documents){
+    try {
+      $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+      if($null -eq $candidatePattern){continue}
+      if(([string]$candidatePattern.SupportedTextSelection) -match 'None$'){continue}
+      $candidateRange=$candidatePattern.DocumentRange.Clone()
+      $candidateTarget=$candidateRange.FindText('Інформація про гру',$false,$false)
+      if($null -eq $candidateTarget){$candidateTarget=$candidateRange.FindText('Game information',$false,$false)}
+      if($null -eq $candidateTarget){continue}
+      $usableDocuments += ,[pscustomobject]@{
+        document=$candidate
+        text_pattern=$candidatePattern
+        target=$candidateTarget
+      }
+    } catch {
+      continue
+    }
+  }
+  if($usableDocuments.Count -eq 0){
+    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
+  }
+  if($usableDocuments.Count -ne 1){
+    throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
+  }
+  $document=$usableDocuments[0].document
+  $textPattern=$usableDocuments[0].text_pattern
+  $target=$usableDocuments[0].target
+
+  $selected=([string]$target.GetText(-1)).Trim()
+  if(-not $selected){throw 'Static TextPattern target is empty'}
+  $enclosing=$target.GetEnclosingElement()
+  if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static text proof accidentally targeted an edit control'
+  }
+
+  $shell=New-Object -ComObject WScript.Shell
+  ActivateProduct $shell $process 'static document copy'
+  try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
+  Start-Sleep -Milliseconds 100
+  $focused=AssertProviderFocus $roots 'static document copy'
+  if([string]$focused.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static document copy focus landed in an edit control'
+  }
+  $target.Select()
+  Start-Sleep -Milliseconds 100
+  Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
+  Start-Sleep -Milliseconds 150
+  $null=AssertProviderFocus $roots 'static document copy dispatch'
+  AssertProductForeground $process 'static document copy dispatch'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+  $null=WaitClipboard $selected
+  Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
+
+  $elements=ControlElements $roots
+  $move=FindControl $elements 'move-input' 'ControlType.Edit'
+  if($null -eq $move){throw 'Move Input UIA element not found from connected provider roots'}
+  try {$value=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)}
+  catch {throw "Move Input lacks ValuePattern: $($_.Exception.Message)"}
+  if($null -eq $value){throw 'Move Input lacks ValuePattern'}
+  $value.SetValue('e2e4')
+  ActivateProduct $shell $process 'move input copy'
+  $move.SetFocus()
+  Start-Sleep -Milliseconds 100
+  $null=AssertProviderFocus $roots 'move input copy' 'move-input'
+  Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
+  Start-Sleep -Milliseconds 100
+  $null=AssertProviderFocus $roots 'move input copy dispatch' 'move-input'
+  AssertProductForeground $process 'move input copy dispatch'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
+  AssertProductForeground $process 'move input copy dispatch after Ctrl+A'
+  $null=AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+  $null=WaitClipboard 'e2e4'
+  $value.SetValue('')
+  Write-Host 'PACKAGED_MOVE_INPUT_NATIVE_CTRL_A_CTRL_C=PASS'
+
+  $summary=[ordered]@{
+    product_sha=$ProductSha
+    discovery='connected provider-root ControlView from retained topology handles'
+    document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'
+    focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
+    static_document_text=$selected
+    static_document_outside_edit=$true
+    native_copy_focus_verified=$true
+    foreground_product_verified=$true
+    manifest_product_sha_verified=$true
+    executable_checksum_verified=$true
+    textpattern_selection_supported=$true
+    clipboard_equality='case-sensitive exact string equality'
+    ctrl_c_exact_clipboard=$true
+    move_input_focus_verified=$true
+    move_input_native_ctrl_a_ctrl_c=$true
+    document_process_id=[int]$document.Current.ProcessId
+    launched_process_id=$process.Id
+    human_tested=$false
+    nvda_verified=$false
+  }
+  $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+}
+finally {
+  $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+  if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+}
+
+if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){throw 'Packaged document-copy evidence missing'}
+$bounded=Get-Content -LiteralPath $OutputPath -Raw
+if($bounded.Contains(':\') -or $bounded -match '(?i)/home/|/Users/|/tmp/'){throw 'Local path leaked into document-copy evidence'}){
+    throw 'ProductSha must be one exact 40-hex integration commit'
+  }
+  $expected=$ExpectedSha.ToLowerInvariant()
+  $packageRoot=(Resolve-Path -LiteralPath (Join-Path $ProductRootPath '..')).Path
+  $manifestPath=Join-Path $packageRoot 'RELEASE_MANIFEST.json'
+  $checksumsPath=Join-Path $packageRoot 'SHA256SUMS.txt'
+  if(-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)){
+    throw 'Canonical RELEASE_MANIFEST.json is missing beside packaged product root'
+  }
+  if(-not (Test-Path -LiteralPath $checksumsPath -PathType Leaf)){
+    throw 'Canonical SHA256SUMS.txt is missing beside packaged product root'
+  }
+
+  $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $manifestSha=([string]$manifest.integration_sha).ToLowerInvariant()
+  if($manifestSha -cne $expected){
+    throw "Packaged release manifest integration_sha mismatch: manifest=$manifestSha expected=$expected"
+  }
+
+  $checksum=$null
+  $matches=0
+  foreach($line in @(Get-Content -LiteralPath $checksumsPath -Encoding UTF8)){
+    if($line -cmatch '^(?<digest>[0-9A-Fa-f]{64})  AccessibleChess/AccessibleChess\.exe  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $focused){throw "${Phase}: UIA focused element unavailable"}
+  $focusedRuntime=RuntimeId $focused
+  if(-not $focusedRuntime){throw "${Phase}: focused element has no stable UIA runtime identity"}
+  $insideProvider=$false
+  foreach($candidate in @(ControlElements $Roots)){
+    if((RuntimeId $candidate) -eq $focusedRuntime){$insideProvider=$true;break}
+  }
+  if(-not $insideProvider){
+    throw "${Phase}: native keyboard focus escaped connected packaged provider roots"
+  }
+  if($ExpectedAutomationId -and [string]$focused.Current.AutomationId -ne $ExpectedAutomationId){
+    throw "${Phase}: wrong focused control; expected='$ExpectedAutomationId' actual='$([string]$focused.Current.AutomationId)'"
+  }
+  return $focused
+}
+
+function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
+  $watch=[System.Diagnostics.Stopwatch]::StartNew()
+  $last=''
+  while($watch.ElapsedMilliseconds -lt $TimeoutMs){
+    try {$last=[string](Get-Clipboard -Raw -ErrorAction Stop)} catch {$last=''}
+    if($last -ceq $Expected){return $last}
+    Start-Sleep -Milliseconds 100
+  }
+  throw "Clipboard did not receive exact selected text; expected='$Expected' actual='$last'"
+}
+
+$root=(Resolve-Path -LiteralPath $ProductRoot).Path
+$exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
+$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+try {
+  $report=ReadTopology $process ($TimeoutSeconds*1000)
+  $roots=ProviderRoots $report
+  $elements=ControlElements $roots
+  $documents=@($elements | Where-Object {
+    try {
+      [string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Document' -and
+      [string]$_.Current.Name -eq 'Accessible Chess'
+    } catch {$false}
+  })
+  if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
+
+  $usableDocuments=@()
+  foreach($candidate in $documents){
+    try {
+      $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+      if($null -eq $candidatePattern){continue}
+      if(([string]$candidatePattern.SupportedTextSelection) -match 'None$'){continue}
+      $candidateRange=$candidatePattern.DocumentRange.Clone()
+      $candidateTarget=$candidateRange.FindText('Інформація про гру',$false,$false)
+      if($null -eq $candidateTarget){$candidateTarget=$candidateRange.FindText('Game information',$false,$false)}
+      if($null -eq $candidateTarget){continue}
+      $usableDocuments += ,[pscustomobject]@{
+        document=$candidate
+        text_pattern=$candidatePattern
+        target=$candidateTarget
+      }
+    } catch {
+      continue
+    }
+  }
+  if($usableDocuments.Count -eq 0){
+    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
+  }
+  if($usableDocuments.Count -ne 1){
+    throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
+  }
+  $document=$usableDocuments[0].document
+  $textPattern=$usableDocuments[0].text_pattern
+  $target=$usableDocuments[0].target
+
+  $selected=([string]$target.GetText(-1)).Trim()
+  if(-not $selected){throw 'Static TextPattern target is empty'}
+  $enclosing=$target.GetEnclosingElement()
+  if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static text proof accidentally targeted an edit control'
+  }
+
+  $shell=New-Object -ComObject WScript.Shell
+  ActivateProduct $shell $process 'static document copy'
+  try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
+  Start-Sleep -Milliseconds 100
+  $focused=AssertProviderFocus $roots 'static document copy'
+  if([string]$focused.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static document copy focus landed in an edit control'
+  }
+  $target.Select()
+  Start-Sleep -Milliseconds 100
+  Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
+  Start-Sleep -Milliseconds 150
+  $null=AssertProviderFocus $roots 'static document copy dispatch'
+  AssertProductForeground $process 'static document copy dispatch'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+  $null=WaitClipboard $selected
+  Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
+
+  $elements=ControlElements $roots
+  $move=FindControl $elements 'move-input' 'ControlType.Edit'
+  if($null -eq $move){throw 'Move Input UIA element not found from connected provider roots'}
+  try {$value=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)}
+  catch {throw "Move Input lacks ValuePattern: $($_.Exception.Message)"}
+  if($null -eq $value){throw 'Move Input lacks ValuePattern'}
+  $value.SetValue('e2e4')
+  ActivateProduct $shell $process 'move input copy'
+  $move.SetFocus()
+  Start-Sleep -Milliseconds 100
+  $null=AssertProviderFocus $roots 'move input copy' 'move-input'
+  Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
+  Start-Sleep -Milliseconds 100
+  $null=AssertProviderFocus $roots 'move input copy dispatch' 'move-input'
+  AssertProductForeground $process 'move input copy dispatch'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
+  AssertProductForeground $process 'move input copy dispatch after Ctrl+A'
+  $null=AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+  $null=WaitClipboard 'e2e4'
+  $value.SetValue('')
+  Write-Host 'PACKAGED_MOVE_INPUT_NATIVE_CTRL_A_CTRL_C=PASS'
+
+  $summary=[ordered]@{
+    product_sha=$ProductSha
+    discovery='connected provider-root ControlView from retained topology handles'
+    document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'
+    focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
+    static_document_text=$selected
+    static_document_outside_edit=$true
+    native_copy_focus_verified=$true
+    foreground_product_verified=$true
+    textpattern_selection_supported=$true
+    clipboard_equality='case-sensitive exact string equality'
+    ctrl_c_exact_clipboard=$true
+    move_input_focus_verified=$true
+    move_input_native_ctrl_a_ctrl_c=$true
+    document_process_id=[int]$document.Current.ProcessId
+    launched_process_id=$process.Id
+    human_tested=$false
+    nvda_verified=$false
+  }
+  $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+}
+finally {
+  $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+  if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+}
+
+if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){throw 'Packaged document-copy evidence missing'}
+$bounded=Get-Content -LiteralPath $OutputPath -Raw
+if($bounded.Contains(':\') -or $bounded -match '(?i)/home/|/Users/|/tmp/'){throw 'Local path leaked into document-copy evidence'}){
+      $matches++
+      $checksum=$Matches['digest'].ToLowerInvariant()
+    }
+  }
+  if($matches -ne 1 -or -not $checksum){
+    throw 'SHA256SUMS.txt must contain exactly one canonical checksum for AccessibleChess/AccessibleChess.exe'
+  }
+  $actual=(Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if($actual -cne $checksum){
+    throw 'Packaged AccessibleChess.exe SHA-256 does not match canonical checksum inventory'
+  }
+}
+
 function AssertProviderFocus($Roots,[string]$Phase,[string]$ExpectedAutomationId='') {
   $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
   if($null -eq $focused){throw "${Phase}: UIA focused element unavailable"}
@@ -208,7 +583,7 @@ try {
   }
 
   $shell=New-Object -ComObject WScript.Shell
-  $null=$shell.AppActivate($process.Id)
+  ActivateProduct $shell $process 'static document copy'
   try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
   Start-Sleep -Milliseconds 100
   $focused=AssertProviderFocus $roots 'static document copy'
@@ -220,6 +595,7 @@ try {
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
   Start-Sleep -Milliseconds 150
   $null=AssertProviderFocus $roots 'static document copy dispatch'
+  AssertProductForeground $process 'static document copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard $selected
   Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
@@ -231,14 +607,17 @@ try {
   catch {throw "Move Input lacks ValuePattern: $($_.Exception.Message)"}
   if($null -eq $value){throw 'Move Input lacks ValuePattern'}
   $value.SetValue('e2e4')
-  $null=$shell.AppActivate($process.Id)
+  ActivateProduct $shell $process 'move input copy'
   $move.SetFocus()
   Start-Sleep -Milliseconds 100
   $null=AssertProviderFocus $roots 'move input copy' 'move-input'
   Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
   Start-Sleep -Milliseconds 100
   $null=AssertProviderFocus $roots 'move input copy dispatch' 'move-input'
+  AssertProductForeground $process 'move input copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
+  AssertProductForeground $process 'move input copy dispatch after Ctrl+A'
+  $null=AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard 'e2e4'
   $value.SetValue('')
@@ -252,6 +631,7 @@ try {
     static_document_text=$selected
     static_document_outside_edit=$true
     native_copy_focus_verified=$true
+    foreground_product_verified=$true
     textpattern_selection_supported=$true
     clipboard_equality='case-sensitive exact string equality'
     ctrl_c_exact_clipboard=$true

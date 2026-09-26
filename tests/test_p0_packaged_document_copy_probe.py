@@ -13,6 +13,21 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = PROBE.read_text(encoding="utf-8")
 
+    def test_probe_binds_claimed_sha_to_release_manifest_and_launched_exe_checksum(self) -> None:
+        self.assertIn("function AssertExactPackageBinding", self.text)
+        self.assertIn("RELEASE_MANIFEST.json", self.text)
+        self.assertIn("SHA256SUMS.txt", self.text)
+        self.assertIn("integration_sha mismatch", self.text)
+        self.assertIn("AccessibleChess/AccessibleChess\\.exe", self.text)
+        self.assertIn("Get-FileHash -LiteralPath $ExePath -Algorithm SHA256", self.text)
+        self.assertIn("AssertExactPackageBinding $root $ProductSha $exe", self.text)
+        self.assertIn("manifest_product_sha_verified=$true", self.text)
+        self.assertIn("executable_checksum_verified=$true", self.text)
+        self.assertLess(
+            self.text.index("AssertExactPackageBinding $root $ProductSha $exe"),
+            self.text.index("Start-Process -FilePath $exe"),
+        )
+
     def test_probe_uses_retained_provider_roots_not_desktop_document_search(self) -> None:
         self.assertIn("ProviderRoots($Report)", self.text)
         self.assertIn("AutomationElement]::FromHandle", self.text)
@@ -65,6 +80,31 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("function AssertAppFocus", self.text)
         self.assertNotIn("[int]$focused.Current.ProcessId -ne [int]$Process.Id", self.text)
         self.assertNotIn("try {$document.SetFocus()} catch {}", self.text)
+
+    def test_native_copy_is_bound_to_foreground_packaged_process(self) -> None:
+        self.assertIn("GetForegroundWindow", self.text)
+        self.assertIn("GetWindowThreadProcessId", self.text)
+        self.assertIn("function ActivateProduct($Shell,$Process,[string]$Phase)", self.text)
+        self.assertIn("if(-not $Shell.AppActivate($Process.Id))", self.text)
+        self.assertIn("function AssertProductForeground($Process,[string]$Phase)", self.text)
+        self.assertIn("foreground_product_verified=$true", self.text)
+        self.assertNotIn("$null=$shell.AppActivate($process.Id)", self.text)
+
+        static_assert = self.text.index("AssertProductForeground $process 'static document copy dispatch'")
+        static_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)")
+        self.assertLess(static_assert, static_copy)
+
+        edit_assert = self.text.index("AssertProductForeground $process 'move input copy dispatch'")
+        edit_select = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x41)")
+        edit_reassert = self.text.index("AssertProductForeground $process 'move input copy dispatch after Ctrl+A'")
+        edit_focus_reassert = self.text.index(
+            "AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'"
+        )
+        edit_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", static_copy + 1)
+        self.assertLess(edit_assert, edit_select)
+        self.assertLess(edit_select, edit_reassert)
+        self.assertLess(edit_reassert, edit_focus_reassert)
+        self.assertLess(edit_focus_reassert, edit_copy)
 
     def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
         self.assertIn("if($last -ceq $Expected){return $last}", self.text)
