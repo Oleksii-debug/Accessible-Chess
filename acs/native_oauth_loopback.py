@@ -11,6 +11,7 @@ remain outside this transport boundary.
 
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import math
 import time
 from typing import Callable
 from urllib.parse import urlsplit
@@ -66,7 +67,7 @@ def _validated_authorization_url(value: object) -> str:
         parsed = urlsplit(value)
         _ = parsed.hostname
         _ = parsed.port
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError):
         raise NativeLoopbackError("invalid authorization URL") from None
     if parsed.scheme != "https" or not parsed.netloc or not parsed.hostname:
         raise NativeLoopbackError("authorization URL must use HTTPS")
@@ -122,7 +123,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             self._respond(403, _ERROR_HTML)
             return
         expected_host = f"127.0.0.1:{self.server.server_port}"
-        if self.headers.get("Host") != expected_host:
+        if self.headers.get_all("Host", []) != [expected_host]:
             self._respond(400, _ERROR_HTML)
             return
         target = self.path
@@ -137,9 +138,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path != self.server.callback_path:
             self._respond(404, _ERROR_HTML)
             return
-        self.server.accepted_callback = (
-            f"http://127.0.0.1:{self.server.server_port}{target}"
-        )
+        self.server.accepted_callback = f"http://127.0.0.1:{self.server.server_port}{target}"
         self._respond(200, _SUCCESS_HTML)
 
     def do_POST(self) -> None:
@@ -203,8 +202,12 @@ class NativeLoopbackCallback:
             raise NativeLoopbackError("loopback listener is closed")
         if self._used:
             raise NativeLoopbackError("loopback listener is single-use")
+        try:
+            url = _validated_authorization_url(authorization_url)
+        except NativeLoopbackError:
+            self.close()
+            raise
         self._used = True
-        url = _validated_authorization_url(authorization_url)
         try:
             opened = opener(url)
         except Exception:
@@ -215,9 +218,12 @@ class NativeLoopbackCallback:
             raise NativeLoopbackError("authorization browser could not be opened")
 
         try:
-            start = float(self.clock())
-            if not start >= 0:
-                raise ValueError
+            try:
+                start = float(self.clock())
+            except Exception:
+                raise NativeLoopbackError("callback clock unavailable") from None
+            if not math.isfinite(start) or start < 0:
+                raise NativeLoopbackError("callback clock unavailable")
             deadline = start + self.timeout_seconds
             attempts_at_start = self._server.request_count
             while self._server.accepted_callback is None:
@@ -225,6 +231,8 @@ class NativeLoopbackCallback:
                     now = float(self.clock())
                 except Exception:
                     raise NativeLoopbackError("callback clock unavailable") from None
+                if not math.isfinite(now) or now < 0:
+                    raise NativeLoopbackError("callback clock unavailable")
                 remaining = deadline - now
                 if remaining <= 0:
                     raise NativeLoopbackError("authorization callback timed out")
