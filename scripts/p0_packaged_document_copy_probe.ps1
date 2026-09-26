@@ -18,12 +18,23 @@ using System.Runtime.InteropServices;
 public static class AccessibleChessCopyKeys {
   [DllImport("user32.dll")]
   private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")]
+  private static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")]
+  private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
   private const uint KEYEVENTF_KEYUP = 0x0002;
   public static void Ctrl(byte key) {
     keybd_event(0x11, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     keybd_event(0x11, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+  public static int ForegroundProcessId() {
+    IntPtr hwnd = GetForegroundWindow();
+    if (hwnd == IntPtr.Zero) return 0;
+    uint pid;
+    GetWindowThreadProcessId(hwnd, out pid);
+    return unchecked((int)pid);
   }
 }
 "@
@@ -127,6 +138,71 @@ function FindControl($Elements,[string]$AutomationId,[string]$ControlType='') {
   return $null
 }
 
+function WaitFor($Script,[int]$TimeoutMs,[string]$Failure) {
+  $watch=[System.Diagnostics.Stopwatch]::StartNew()
+  while($watch.ElapsedMilliseconds -lt $TimeoutMs){
+    $value=& $Script
+    if($value){return $value}
+    Start-Sleep -Milliseconds 50
+  }
+  throw $Failure
+}
+
+function ActivateProduct($Shell,$Process,[string]$Phase) {
+  if(-not $Shell.AppActivate($Process.Id)){
+    throw "${Phase}: could not activate packaged AccessibleChess process $($Process.Id)"
+  }
+  $null=WaitFor {
+    if([AccessibleChessCopyKeys]::ForegroundProcessId() -eq $Process.Id){return $true}
+    return $null
+  } 2000 "${Phase}: AccessibleChess.exe did not become the foreground native-key target"
+}
+
+function AssertProductForeground($Process,[string]$Phase) {
+  $foreground=[AccessibleChessCopyKeys]::ForegroundProcessId()
+  if($foreground -ne $Process.Id){
+    throw "${Phase}: native copy target is not AccessibleChess.exe: foreground_pid=$foreground expected=$($Process.Id)"
+  }
+}
+
+function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha,[string]$ExePath) {
+  if($ExpectedSha -notmatch '^[0-9A-Fa-f]{40}$'){
+    throw 'ProductSha must be one exact 40-hex integration commit'
+  }
+  $expected=$ExpectedSha.ToLowerInvariant()
+  $packageRoot=(Resolve-Path -LiteralPath (Join-Path $ProductRootPath '..')).Path
+  $manifestPath=Join-Path $packageRoot 'RELEASE_MANIFEST.json'
+  $checksumsPath=Join-Path $packageRoot 'SHA256SUMS.txt'
+  if(-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)){
+    throw 'Canonical RELEASE_MANIFEST.json is missing beside packaged product root'
+  }
+  if(-not (Test-Path -LiteralPath $checksumsPath -PathType Leaf)){
+    throw 'Canonical SHA256SUMS.txt is missing beside packaged product root'
+  }
+
+  $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $manifestSha=([string]$manifest.integration_sha).ToLowerInvariant()
+  if($manifestSha -cne $expected){
+    throw "Packaged release manifest integration_sha mismatch: manifest=$manifestSha expected=$expected"
+  }
+
+  $checksum=$null
+  $matches=0
+  foreach($line in @(Get-Content -LiteralPath $checksumsPath -Encoding UTF8)){
+    if($line -cmatch '^(?<digest>[0-9A-Fa-f]{64})  AccessibleChess/AccessibleChess\.exe$'){
+      $matches++
+      $checksum=$Matches['digest'].ToLowerInvariant()
+    }
+  }
+  if($matches -ne 1 -or -not $checksum){
+    throw 'SHA256SUMS.txt must contain exactly one canonical checksum for AccessibleChess/AccessibleChess.exe'
+  }
+  $actual=(Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if($actual -cne $checksum){
+    throw 'Packaged AccessibleChess.exe SHA-256 does not match canonical checksum inventory'
+  }
+}
+
 function AssertProviderFocus($Roots,[string]$Phase,[string]$ExpectedAutomationId='') {
   $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
   if($null -eq $focused){throw "${Phase}: UIA focused element unavailable"}
@@ -158,6 +234,7 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
 
 $root=(Resolve-Path -LiteralPath $ProductRoot).Path
 $exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
+AssertExactPackageBinding $root $ProductSha $exe
 $process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
 try {
   $report=ReadTopology $process ($TimeoutSeconds*1000)
@@ -208,7 +285,7 @@ try {
   }
 
   $shell=New-Object -ComObject WScript.Shell
-  $null=$shell.AppActivate($process.Id)
+  ActivateProduct $shell $process 'static document copy'
   try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
   Start-Sleep -Milliseconds 100
   $focused=AssertProviderFocus $roots 'static document copy'
@@ -220,6 +297,7 @@ try {
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
   Start-Sleep -Milliseconds 150
   $null=AssertProviderFocus $roots 'static document copy dispatch'
+  AssertProductForeground $process 'static document copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard $selected
   Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
@@ -231,14 +309,17 @@ try {
   catch {throw "Move Input lacks ValuePattern: $($_.Exception.Message)"}
   if($null -eq $value){throw 'Move Input lacks ValuePattern'}
   $value.SetValue('e2e4')
-  $null=$shell.AppActivate($process.Id)
+  ActivateProduct $shell $process 'move input copy'
   $move.SetFocus()
   Start-Sleep -Milliseconds 100
   $null=AssertProviderFocus $roots 'move input copy' 'move-input'
   Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
   Start-Sleep -Milliseconds 100
   $null=AssertProviderFocus $roots 'move input copy dispatch' 'move-input'
+  AssertProductForeground $process 'move input copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
+  AssertProductForeground $process 'move input copy dispatch after Ctrl+A'
+  $null=AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
   $null=WaitClipboard 'e2e4'
   $value.SetValue('')
@@ -252,6 +333,9 @@ try {
     static_document_text=$selected
     static_document_outside_edit=$true
     native_copy_focus_verified=$true
+    foreground_product_verified=$true
+    manifest_product_sha_verified=$true
+    executable_checksum_verified=$true
     textpattern_selection_supported=$true
     clipboard_equality='case-sensitive exact string equality'
     ctrl_c_exact_clipboard=$true
