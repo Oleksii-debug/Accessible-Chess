@@ -190,6 +190,8 @@
   const recentPassiveAnnouncements = new Map();
   const MAX_REMEMBERED_DISPATCH_MESSAGES = 256;
   const MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS = 256;
+  const SURFACE_EVENT_PREFIX = "\uE000AccessibleChessEvent:";
+  const SURFACE_EVENT_SEPARATOR = "\uE001";
 
   function rememberDispatchMessage(dispatch, text) {
     if (dispatch === null) return false;
@@ -259,6 +261,37 @@
     return Boolean(payload.announcement || (result.kind === "error" && payload.message));
   }
 
+  function taggedSurfaceMessage(message, dispatchId) {
+    return SURFACE_EVENT_PREFIX + String(dispatchId) + SURFACE_EVENT_SEPARATOR + String(message);
+  }
+
+  function decodeSurfaceMessage(message) {
+    const text = String(message || "");
+    if (!text.startsWith(SURFACE_EVENT_PREFIX)) return null;
+    const boundary = text.indexOf(SURFACE_EVENT_SEPARATOR, SURFACE_EVENT_PREFIX.length);
+    if (boundary < 0) return null;
+    const dispatch = text.slice(SURFACE_EVENT_PREFIX.length, boundary);
+    if (!/^surface:\d+$/.test(dispatch)) return null;
+    return { dispatch: dispatch, text: text.slice(boundary + SURFACE_EVENT_SEPARATOR.length) };
+  }
+
+  function bindSurfaceResultEvent(result, dispatchId) {
+    if (!surfaceResultWillAnnounce(result)) return result;
+    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    const taggedPayload = {};
+    Object.keys(payload).forEach(function (key) { taggedPayload[key] = payload[key]; });
+    if (payload.announcement) {
+      taggedPayload.announcement = taggedSurfaceMessage(payload.announcement, dispatchId);
+    }
+    if (result.kind === "error" && payload.message) {
+      taggedPayload.message = taggedSurfaceMessage(payload.message, dispatchId);
+    }
+    const taggedResult = {};
+    Object.keys(result).forEach(function (key) { taggedResult[key] = result[key]; });
+    taggedResult.payload = taggedPayload;
+    return taggedResult;
+  }
+
   function wrapSurfaceRenderAnnouncement(surfaceName) {
     const surface = global[surfaceName];
     if (!surface || typeof surface !== "object" || typeof surface.render !== "function") return false;
@@ -272,9 +305,7 @@
       if (args.length > 3 && typeof args[2] === "function") {
         const originalInvoke = args[2];
         const originalAnnounce = typeof args[3] === "function" ? args[3] : null;
-        const pendingDispatches = [];
-        let activeDispatch = null;
-        let activeDispatchTimer = null;
+        const rejectedDispatches = [];
 
         args[2] = function () {
           const invokeArgs = Array.prototype.slice.call(arguments);
@@ -283,31 +314,26 @@
           try {
             result = originalInvoke.apply(this, invokeArgs);
           } catch (error) {
-            pendingDispatches.push(dispatchId);
+            rejectedDispatches.push(dispatchId);
             throw error;
           }
           return Promise.resolve(result).then(
             function (resolved) {
-              if (surfaceResultWillAnnounce(resolved)) pendingDispatches.push(dispatchId);
-              return resolved;
+              return bindSurfaceResultEvent(resolved, dispatchId);
             },
             function (error) {
-              pendingDispatches.push(dispatchId);
+              rejectedDispatches.push(dispatchId);
               throw error;
             }
           );
         };
 
         args[3] = function (message) {
-          if (pendingDispatches.length) {
-            activeDispatch = pendingDispatches.shift();
-            if (activeDispatchTimer !== null) global.clearTimeout(activeDispatchTimer);
-            activeDispatchTimer = global.setTimeout(function () {
-              activeDispatch = null;
-              activeDispatchTimer = null;
-            }, 0);
+          const tagged = decodeSurfaceMessage(message);
+          if (tagged) return exposeAnnouncement(tagged.text, tagged.dispatch);
+          if (rejectedDispatches.length) {
+            return exposeAnnouncement(message, rejectedDispatches.shift());
           }
-          if (activeDispatch !== null) return exposeAnnouncement(message, activeDispatch);
           if (originalAnnounce) return originalAnnounce(message);
           return exposeAnnouncement(message, null);
         };
