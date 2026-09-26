@@ -109,6 +109,25 @@ class ComponentIntegrityTests(unittest.TestCase):
                     required_paths=("acs/online.py", "acs/provider.json"),
                 )
 
+    def test_required_paths_iteration_is_bounded_before_materialization(self) -> None:
+        manifest = manifest_bytes([("acs/online.py", b"online")])
+        yielded = 0
+
+        def unbounded_paths():
+            nonlocal yielded
+            while True:
+                yielded += 1
+                yield f"acs/component-{yielded:04d}.py"
+
+        with self.assertRaisesRegex(ComponentIntegrityError, "bounded and non-empty"):
+            verify_protected_components(
+                manifest,
+                trusted_manifest_sha256=trusted_digest(manifest),
+                installation_root=".",
+                required_paths=unbounded_paths(),
+            )
+        self.assertEqual(yielded, 513)
+
     def test_traversal_absolute_drive_and_backslash_paths_fail_closed(self) -> None:
         bad_paths = [
             "../secret.txt",
