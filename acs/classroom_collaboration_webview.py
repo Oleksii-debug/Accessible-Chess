@@ -268,18 +268,20 @@ class ClassroomCollaborationWebView:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
 
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
-        return {
+        moderator = self._moderator()
+        view: dict[str, object] = {
             "dom_id": "collaboration-message-" + sha256(item.message_id.encode("utf-8")).hexdigest()[:16],
             "sender": self._label(item.sender_id),
             "body": item.body,
             "unread": item.message_id in self._unread_message_ids,
-            "message_key": self._message_key(item.message_id),
-            "can_hide": self._moderator(),
+            "can_hide": moderator,
             "can_moderate_sender": (
-                self._moderator()
-                and item.sender_id != self._controller.local_participant_id
+                moderator and item.sender_id != self._controller.local_participant_id
             ),
         }
+        if moderator:
+            view["message_key"] = self._message_key(item.message_id)
+        return view
 
     def _file_view(self, item: AttachmentMetadata) -> dict[str, object]:
         labels = _LABELS[self._language]
