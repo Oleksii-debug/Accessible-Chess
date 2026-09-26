@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from acs.entitlements import (
     AccountSession,
     CORE_FEATURE_IDS,
-    USER_DATA_SAFETY_FEATURE_IDS,
+    LOCAL_DATA_SAFETY_FEATURE_IDS,
     EntitlementSnapshot,
     EntitlementState,
     FeatureGate,
@@ -119,6 +119,41 @@ class EntitlementTests(unittest.TestCase):
                 self.assertTrue(self.gate().evaluate(feature, snapshot, now=NOW).allowed)
         self.assertFalse(self.gate().evaluate(FeatureId.PLAY_ENGINE, snapshot, now=NOW).allowed)
 
+    def test_local_data_safety_scope_covers_export_and_recovery_only(self):
+        self.assertEqual(
+            LOCAL_DATA_SAFETY_FEATURE_IDS,
+            frozenset({FeatureId.DATA_EXPORT.value, FeatureId.DATA_RECOVERY.value}),
+        )
+
+    def test_user_owned_local_export_and_recovery_survive_entitlement_failures(self):
+        cases = (
+            None,
+            self.snapshot(EntitlementState.EXPIRED),
+            self.snapshot(EntitlementState.REVOKED),
+            self.snapshot(EntitlementState.UPDATE_REQUIRED),
+            self.snapshot(
+                EntitlementState.PAID_MONTHLY,
+                policy=RemotePolicy(minimum_supported_version=ProductVersion.parse("9.0.0")),
+            ),
+            self.snapshot(
+                EntitlementState.PAID_MONTHLY,
+                policy=RemotePolicy(refresh_after=NOW - timedelta(days=1)),
+            ),
+        )
+        for snapshot in cases:
+            for feature in (FeatureId.DATA_EXPORT, FeatureId.DATA_RECOVERY):
+                with self.subTest(snapshot=snapshot, feature=feature):
+                    decision = self.gate().evaluate(feature, snapshot, now=NOW)
+                    self.assertTrue(decision.allowed)
+                    self.assertEqual(decision.reason, "local_data_safety")
+                    self.assertFalse(decision.requires_update)
+
+    def test_local_data_safety_does_not_unlock_other_features(self):
+        revoked = self.snapshot(EntitlementState.REVOKED)
+        self.assertFalse(self.gate().evaluate(FeatureId.PLAY_ENGINE, revoked, now=NOW).allowed)
+        self.assertFalse(self.gate().evaluate(FeatureId.DATA_IMPORT, None, now=NOW).allowed)
+        self.assertFalse(self.gate().evaluate(FeatureId.PGN_WORKSPACE, None, now=NOW).allowed)
+
     def test_free_beta_policy_enables_known_features_without_provider_or_network(self):
         policy = FreeBetaLicensePolicy()
         self.assertIsInstance(policy, LicensePolicy)
@@ -161,7 +196,7 @@ class EntitlementTests(unittest.TestCase):
         )
         self.assertTrue(self.gate().evaluate("future.feature", snapshot, now=NOW).allowed)
 
-    def test_revocation_always_wins_over_protected_feature_claim(self):
+    def test_revocation_always_wins_over_feature_claim(self):
         decision = self.gate().evaluate(
             "play.engine",
             self.snapshot(EntitlementState.REVOKED),
@@ -169,34 +204,6 @@ class EntitlementTests(unittest.TestCase):
         )
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "revoked")
-
-    def test_user_data_export_and_recovery_are_not_commercial_hostages(self):
-        self.assertEqual(
-            USER_DATA_SAFETY_FEATURE_IDS,
-            frozenset({FeatureId.DATA_EXPORT.value, FeatureId.DATA_RECOVERY.value}),
-        )
-        snapshots = (
-            None,
-            EntitlementSnapshot(EntitlementState.REVOKED),
-            EntitlementSnapshot(EntitlementState.EXPIRED),
-            EntitlementSnapshot(EntitlementState.UPDATE_REQUIRED),
-        )
-        for snapshot in snapshots:
-            for feature in (FeatureId.DATA_EXPORT, FeatureId.DATA_RECOVERY):
-                with self.subTest(snapshot=snapshot, feature=feature):
-                    decision = self.gate().evaluate(feature, snapshot, now=NOW)
-                    self.assertTrue(decision.allowed)
-                    self.assertEqual(decision.reason, "user_data_safety")
-
-    def test_data_safety_exception_does_not_unlock_other_features(self):
-        revoked = EntitlementSnapshot(
-            EntitlementState.REVOKED,
-            frozenset({FeatureId.PGN_WORKSPACE.value, FeatureId.DATA_EXPORT.value}),
-        )
-        self.assertTrue(self.gate().evaluate(FeatureId.DATA_EXPORT, revoked, now=NOW).allowed)
-        pgn = self.gate().evaluate(FeatureId.PGN_WORKSPACE, revoked, now=NOW)
-        self.assertFalse(pgn.allowed)
-        self.assertEqual(pgn.reason, "revoked")
 
     def test_minimum_supported_version_forces_update(self):
         snapshot = self.snapshot(
@@ -232,6 +239,72 @@ class EntitlementTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.state, EntitlementState.EXPIRED)
 
+    def test_refresh_after_is_an_enforced_cache_ttl(self):
+        snapshot = self.snapshot(
+            policy=RemotePolicy(refresh_after=NOW - timedelta(seconds=1)),
+        )
+        decision = self.gate().evaluate("play.engine", snapshot, now=NOW)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.state, EntitlementState.EXPIRED)
+        self.assertEqual(decision.reason, "refresh_required")
+
+    def test_refresh_boundary_itself_remains_valid(self):
+        snapshot = self.snapshot(policy=RemotePolicy(refresh_after=NOW))
+        decision = self.gate().evaluate("play.engine", snapshot, now=NOW)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.reason, "entitled")
+
+    def test_overdue_refresh_can_use_only_bounded_grace(self):
+        snapshot = self.snapshot(
+            policy=RemotePolicy(
+                refresh_after=NOW - timedelta(hours=1),
+                grace_until=NOW + timedelta(hours=3),
+            ),
+        )
+        decision = self.gate().evaluate("play.engine", snapshot, now=NOW)
+        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.using_grace)
+        self.assertEqual(decision.state, EntitlementState.GRACE_PERIOD)
+        self.assertEqual(decision.reason, "refresh_overdue_grace")
+
+        after_grace = self.gate().evaluate(
+            "play.engine", snapshot, now=NOW + timedelta(hours=4)
+        )
+        self.assertFalse(after_grace.allowed)
+        self.assertEqual(after_grace.reason, "refresh_required")
+
+    def test_server_time_is_floor_against_local_clock_rollback(self):
+        rollback_local_time = NOW - timedelta(days=30)
+        snapshot = self.snapshot(
+            expires_at=NOW - timedelta(seconds=1),
+        )
+        decision = self.gate().evaluate(
+            "play.engine", snapshot, now=rollback_local_time
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "expired")
+
+    def test_server_time_floor_also_enforces_refresh_ttl(self):
+        rollback_local_time = NOW - timedelta(days=30)
+        snapshot = self.snapshot(
+            policy=RemotePolicy(refresh_after=NOW - timedelta(seconds=1)),
+        )
+        decision = self.gate().evaluate(
+            "play.engine", snapshot, now=rollback_local_time
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "refresh_required")
+
+    def test_local_time_can_advance_beyond_server_time(self):
+        snapshot = self.snapshot(
+            expires_at=NOW + timedelta(hours=1),
+        )
+        decision = self.gate().evaluate(
+            "play.engine", snapshot, now=NOW + timedelta(hours=2)
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "expired")
+
     def test_unavailable_entitlement_fails_closed_for_protected_feature(self):
         decision = self.gate().evaluate("play.engine", None, now=NOW)
         self.assertFalse(decision.allowed)
@@ -240,6 +313,14 @@ class EntitlementTests(unittest.TestCase):
     def test_datetime_inputs_must_be_timezone_aware(self):
         with self.assertRaises(ValueError):
             RemotePolicy(grace_until=datetime(2026, 8, 14, 20, 0))
+        with self.assertRaises(ValueError):
+            RemotePolicy(refresh_after=datetime(2026, 8, 14, 20, 0))
+        with self.assertRaises(ValueError):
+            EntitlementSnapshot(
+                EntitlementState.FREE_BETA,
+                frozenset({"play.engine"}),
+                server_time=datetime(2026, 8, 14, 20, 0),
+            )
         with self.assertRaises(ValueError):
             self.gate().evaluate("play.engine", self.snapshot(), now=datetime(2026, 8, 14, 20, 0))
 
