@@ -95,13 +95,18 @@
     if (!snapshot || typeof snapshot !== "object") return snapshot;
     const visual = snapshot.visual && typeof snapshot.visual === "object" ? snapshot.visual : null;
     if (!visual) return snapshot;
+    const existingRegion = root && typeof root.querySelector === "function"
+      ? root.querySelector("#teacher-visual-region")
+      : null;
+    const owner = existingRegion && existingRegion.parentNode ? existingRegion.parentNode : root;
+    if (!owner) return snapshot;
     if (visual.assets && typeof visual.assets === "object") {
-      root.__accessibleChessVisualAssets = visual.assets;
+      owner.__accessibleChessVisualAssets = visual.assets;
       return snapshot;
     }
-    if (!root.__accessibleChessVisualAssets) return snapshot;
+    if (!owner.__accessibleChessVisualAssets) return snapshot;
     const copy = Object.assign({}, snapshot);
-    copy.visual = Object.assign({}, visual, { assets: root.__accessibleChessVisualAssets });
+    copy.visual = Object.assign({}, visual, { assets: owner.__accessibleChessVisualAssets });
     return copy;
   }
 
@@ -508,7 +513,7 @@
       }, announce, fallbackMessage);
     });
     main.appendChild(orientation);
-    const hydrated = withCachedVisualAssets(root, snapshot);
+    const hydrated = withCachedVisualAssets(main, snapshot);
     main.appendChild(renderVisual(hydrated, invoke, announce, fallbackMessage));
     fragment.appendChild(main);
     root.replaceChildren(fragment);
