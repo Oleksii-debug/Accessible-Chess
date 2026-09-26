@@ -99,6 +99,27 @@ class SecretStoreContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(SecretStoreError, "slot binding rejected"):
                     store.read("access-token")
 
+    def test_empty_plaintext_fails_closed_on_write_and_read(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            store = WindowsDpapiSecretStore(Path(td) / "secure")
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(secret_store, "_dpapi_protect") as protect,
+            ):
+                with self.assertRaisesRegex(SecretStoreError, "must not be empty"):
+                    store.write("refresh-token", b"")
+                protect.assert_not_called()
+
+            store._prepare_root()
+            target = store._path("refresh-token")
+            target.write_bytes(b"non-empty-ciphertext")
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(secret_store, "_dpapi_unprotect", return_value=b""),
+            ):
+                with self.assertRaisesRegex(SecretStoreError, "unprotected secret is empty"):
+                    store.read("refresh-token")
+
     def test_secret_and_ciphertext_size_limits_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             store = WindowsDpapiSecretStore(Path(td) / "secure")
