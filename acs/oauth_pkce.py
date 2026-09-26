@@ -143,17 +143,27 @@ class AuthorizationRequest:
         ).validated()
 
     def validated(self) -> "AuthorizationRequest":
-        # Revalidate verifier even for direct dataclass construction by callers.
+        _validate_endpoint("authorization_endpoint", self.authorization_endpoint)
+        _validate_endpoint("token_endpoint", self.token_endpoint)
+        _require_text("client_id", self.client_id, max_length=512)
+        _validate_redirect_uri(self.redirect_uri)
+        normalized_scopes = _normalize_scopes(self.scopes)
+        if normalized_scopes != self.scopes:
+            raise OAuthContractError("scopes must be a normalized tuple without duplicates")
+        _require_text("state", self.state, max_length=512)
+        _require_text("nonce", self.nonce, max_length=512)
         code_challenge_s256(self.code_verifier)
         return self
 
     @property
     def code_challenge(self) -> str:
+        self.validated()
         return code_challenge_s256(self.code_verifier)
 
     def authorization_url(
         self, *, extra_parameters: Mapping[str, str] | None = None
     ) -> str:
+        self.validated()
         parsed = urlsplit(self.authorization_endpoint)
         existing = parse_qsl(parsed.query, keep_blank_values=True)
         existing_keys = {key for key, _ in existing}
@@ -179,12 +189,13 @@ class AuthorizationRequest:
             ("scope", " ".join(self.scopes)),
             ("state", self.state),
             ("nonce", self.nonce),
-            ("code_challenge", self.code_challenge),
+            ("code_challenge", code_challenge_s256(self.code_verifier)),
             ("code_challenge_method", "S256"),
         ] + sorted(extras)
         return urlunsplit(parsed._replace(query=urlencode(query)))
 
     def token_exchange_form(self, authorization_code: str) -> tuple[tuple[str, str], ...]:
+        self.validated()
         code = _require_text("authorization_code", authorization_code, max_length=8192)
         return (
             ("grant_type", "authorization_code"),
