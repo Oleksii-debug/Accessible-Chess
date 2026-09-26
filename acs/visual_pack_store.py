@@ -826,12 +826,15 @@ class VisualPackStore:
         )
         if not destination.exists():
             return False
-        manifest = self.load_manifest(
-            selected,
-            identity,
-            version,
+        # Removal must remain available for a damaged installed pack. The
+        # validated kind/id/version path is authoritative for deletion; requiring
+        # a parseable manifest or good asset digest here would make corruption
+        # impossible to recover through the store. Refuse only non-real package
+        # roots, then remove exactly that bounded version directory.
+        _real_dir(
+            destination,
+            "visual pack directory",
         )
-        self.verify(manifest)
         try:
             shutil.rmtree(
                 destination
