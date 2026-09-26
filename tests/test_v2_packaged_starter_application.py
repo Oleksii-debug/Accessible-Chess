@@ -36,7 +36,14 @@ def _starter_pgn() -> str:
     return "\n".join(_game_record(index) for index in range(1, _STARTER_COUNT + 1))
 
 
-_STRESS_PGN = _game_record(1, event_prefix="Stress sample")
+def _stress_pgn() -> str:
+    return "\n".join(
+        _game_record(index, event_prefix="Stress sample")
+        for index in range(1, _STRESS_COUNT + 1)
+    )
+
+
+_STRESS_PGN = _stress_pgn()
 
 
 def _sha256(path: Path) -> str:
@@ -155,9 +162,33 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertEqual("status", second["kind"])
                 self.assertFalse(app.session.dirty)
                 self.assertIsNone(app.session.view().source_path)
+                self.assertEqual(_STRESS_COUNT, app.session.view().game_count)
                 self.assertEqual(
                     "Stress sample 001", app.session.workspace.games()[0].tags["Event"]
                 )
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
+    def test_manifest_game_count_mismatch_fails_closed_before_pgn_open(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-count-mismatch-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["counts"]["stress_games"] = _STRESS_COUNT + 1
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+            )
+            app, database, analysis = self._application(root, bundle)
+            try:
+                result = app.browser_command(
+                    "library", "library.open_packaged_stress_pgn", {}
+                )
+                self.assertEqual("error", result["kind"])
+                self.assertIsNone(app.session)
             finally:
                 app.shutdown()
                 analysis.close()
