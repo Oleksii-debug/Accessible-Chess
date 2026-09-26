@@ -7,9 +7,12 @@ on:
       - "acs/child_coaching_store.py"
       - "acs/child_coaching_application.py"
       - "acs/child_coaching_projection.py"
+      - "acs/child_coaching_rotation.py"
+      - "acs/child_coaching_rotation_store.py"
       - "tests/test_child_coaching.py"
       - "tests/test_child_coaching_application.py"
       - "tests/test_child_coaching_projection.py"
+      - "tests/test_child_coaching_rotation.py"
       - "acs/teaching_session.py"
       - "acs/interaction_contracts.py"
       - ".github/workflows/child-coaching-current-product.yml"
@@ -40,9 +43,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile current child-coaching modules
-        run: python -m py_compile acs/child_coaching.py acs/child_coaching_store.py acs/child_coaching_application.py acs/child_coaching_projection.py
+        run: python -m py_compile acs/child_coaching.py acs/child_coaching_store.py acs/child_coaching_application.py acs/child_coaching_projection.py acs/child_coaching_rotation.py acs/child_coaching_rotation_store.py
       - name: Run child-coaching contract tests
-        run: python -m unittest -v tests.test_child_coaching tests.test_child_coaching_application tests.test_child_coaching_projection
+        run: python -m unittest -v tests.test_child_coaching tests.test_child_coaching_application tests.test_child_coaching_projection tests.test_child_coaching_rotation
       - name: Run adjacent canonical teaching-session regressions
         run: python -m unittest -v tests.test_teaching_session
       - name: Run final-product teaching composition regressions
