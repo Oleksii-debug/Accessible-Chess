@@ -80,6 +80,40 @@ class P0FReleaseContentStagingTests(unittest.TestCase):
 
             self.assertFalse((product / "release-content" / "w2-starter").exists())
 
+    def test_failed_copy_rolls_back_release_root_created_by_transaction(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="p0f-stage-rollback-") as raw:
+            source, product = self._fixture(Path(raw))
+            release_root = product / "release-content"
+
+            with mock.patch.object(
+                staging,
+                "_fsync_copy",
+                side_effect=staging.StageError("synthetic copy failure"),
+            ):
+                with self.assertRaisesRegex(staging.StageError, "synthetic copy failure"):
+                    staging.stage_bundle(source, product)
+
+            self.assertFalse(release_root.exists())
+
+    def test_failed_copy_preserves_preexisting_release_root(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="p0f-stage-preserve-root-") as raw:
+            source, product = self._fixture(Path(raw))
+            release_root = product / "release-content"
+            release_root.mkdir()
+            marker = release_root / "owner.txt"
+            marker.write_text("keep", encoding="utf-8")
+
+            with mock.patch.object(
+                staging,
+                "_fsync_copy",
+                side_effect=staging.StageError("synthetic copy failure"),
+            ):
+                with self.assertRaisesRegex(staging.StageError, "synthetic copy failure"):
+                    staging.stage_bundle(source, product)
+
+            self.assertEqual("keep", marker.read_text(encoding="utf-8"))
+            self.assertEqual({"owner.txt"}, {item.name for item in release_root.iterdir()})
+
     def test_missing_executable_rejects_staging(self) -> None:
         with tempfile.TemporaryDirectory(prefix="p0f-stage-no-exe-") as raw:
             source, product = self._fixture(Path(raw))
