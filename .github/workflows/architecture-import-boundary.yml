@@ -71,7 +71,7 @@ jobs:
           tests.test_core_release_contracts
           tests.test_ui_review_adapter
           tests.test_bookdocument
-          tests.test_gametree_contracts
+          tests.test_gametree
 
       - name: Full repository unittest on Ubuntu
         if: matrix.os == 'ubuntu-22.04'
