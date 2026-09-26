@@ -18,6 +18,10 @@ using System.Runtime.InteropServices;
 public static class AccessibleChessP0GKeys {
   [DllImport("user32.dll")]
   private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")]
+  private static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")]
+  private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
   private const uint KEYEVENTF_KEYUP = 0x0002;
   private const byte VK_MENU = 0x12;
   public static void Alt(byte key) {
@@ -25,6 +29,13 @@ public static class AccessibleChessP0GKeys {
     keybd_event(key, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+  public static int ForegroundProcessId() {
+    IntPtr hwnd = GetForegroundWindow();
+    if (hwnd == IntPtr.Zero) return 0;
+    uint pid;
+    GetWindowThreadProcessId(hwnd, out pid);
+    return unchecked((int)pid);
   }
 }
 "@
@@ -151,6 +162,23 @@ function WaitFor($Script,[int]$TimeoutMs,[string]$Failure) {
   throw $Failure
 }
 
+function ActivateProduct($Shell,$Process) {
+  if(-not $Shell.AppActivate($Process.Id)){
+    throw "Could not activate packaged AccessibleChess process $($Process.Id)"
+  }
+  $null=WaitFor {
+    if([AccessibleChessP0GKeys]::ForegroundProcessId() -eq $Process.Id){return $true}
+    return $null
+  } 2000 'AccessibleChess.exe did not become the foreground native-key target'
+}
+
+function AssertProductForeground($Process) {
+  $foreground=[AccessibleChessP0GKeys]::ForegroundProcessId()
+  if($foreground -ne $Process.Id){
+    throw "Native analysis hotkey target is not AccessibleChess.exe: foreground_pid=$foreground expected=$($Process.Id)"
+  }
+}
+
 function AssertLauncherFocus($Launcher) {
   if($null -eq $Launcher){throw 'board-launcher is missing from connected provider roots'}
   $Launcher.SetFocus()
@@ -213,7 +241,7 @@ try {
   if($null -eq $live){throw 'Accessible status live region #live missing from connected provider roots'}
 
   $shell=New-Object -ComObject WScript.Shell
-  $null=$shell.AppActivate($process.Id)
+  ActivateProduct $shell $process
   $engineState=EnsureEngineEnabled $engineToggle
 
   $null=WaitFor {
@@ -242,8 +270,9 @@ try {
       SelectedVariation $roots $opposite
     } 5000 "Could not establish opposite variation $opposite before Alt+$index"
 
-    $null=$shell.AppActivate($process.Id)
+    ActivateProduct $shell $process
     AssertLauncherFocus $launcher
+    AssertProductForeground $process
     [AccessibleChessP0GKeys]::Alt([byte]$case.key)
     $selected=WaitFor {
       SelectedVariation $roots $index
@@ -271,6 +300,7 @@ try {
     board_application_entered=$false
     engine_enable_state=$engineState
     native_keyboard_dispatch=$true
+    foreground_product_verified=$true
     alt_1_precondition_selected_state=$preconditionStates[0]
     alt_1_action_occurred=$true
     alt_1_selected_state=$selectedStates[0]
