@@ -3,20 +3,23 @@ from __future__ import annotations
 """Bind the packaged P0-F W2 starter Library/PGN payload to the final V2 UI.
 
 The package qualification lineage materializes an immutable four-file W2 bundle
-beside ``AccessibleChess.exe`` under ``release-content/w2-starter``.  This layer
+beside ``AccessibleChess.exe`` under ``release-content/w2-starter``. This layer
 only discovers and validates that already-qualified payload and exposes explicit
-read-only PGN open actions through the existing Library surface.  It never
-silently imports sample games into the user's ACSDB, never downloads content at
-runtime, and does not introduce a second PGN parser or persistence authority.
+user actions through the existing Library/PGN authorities. It never silently
+imports sample games, never downloads content at runtime, and does not introduce
+a second PGN parser, database schema or persistence authority.
 """
 
 from collections.abc import Mapping
 import hashlib
 import json
 from pathlib import Path
+import sqlite3
 import sys
 
+from .acsdb import ACSDB_SCHEMA_VERSION
 from .full_product_ui_shell import UILanguage
+from .library_import_service import LibraryImportService
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .version2_starter_content_application import Version2StarterContentApplication
@@ -28,19 +31,26 @@ _EXPECTED_FILES = frozenset(
 _REQUIRED_PAYLOAD_FILES = ("starter_uk.pgn", "stress_uk.pgn", "sample_library.acsdb")
 _STARTER_ACTION = "library.open_packaged_starter_pgn"
 _STRESS_ACTION = "library.open_packaged_stress_pgn"
+_LIBRARY_ACTION = "library.import_packaged_sample_library"
 
 _LABELS = {
     UILanguage.UA: {
         "starter": "Відкрити вбудовані 240 навчальних партій",
         "stress": "Відкрити вбудований великий PGN (1200 партій)",
+        "sample_library": "Додати вбудовану стартову бібліотеку (240 партій)",
         "starter_opened": "Вбудовані навчальні партії відкрито.",
         "stress_opened": "Вбудований великий PGN відкрито.",
+        "library_imported": "Вбудовану стартову бібліотеку додано. Партій: {count}.",
+        "library_reused": "Вбудована стартова бібліотека вже додана. Партій: {count}.",
     },
     UILanguage.EN: {
         "starter": "Open the built-in 240-game starter PGN",
         "stress": "Open the built-in large PGN (1200 games)",
+        "sample_library": "Add the built-in starter library (240 games)",
         "starter_opened": "Built-in starter games opened.",
         "stress_opened": "Built-in large PGN opened.",
+        "library_imported": "Built-in starter library added. Games: {count}.",
+        "library_reused": "Built-in starter library is already added. Games: {count}.",
     },
 }
 
@@ -104,7 +114,7 @@ def _default_bundle_root() -> Path:
 
 
 class Version2PackagedStarterApplication(Version2StarterContentApplication):
-    """Expose qualified packaged W2 PGNs without mutating the user's Library."""
+    """Expose qualified packaged W2 content without mutating it in place."""
 
     def __init__(self, *args, packaged_starter_root: str | Path | None = None, **kwargs) -> None:
         explicit = packaged_starter_root is not None
@@ -127,6 +137,7 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         return (
             {"action": _STARTER_ACTION, "label": labels["starter"], "enabled": True},
             {"action": _STRESS_ACTION, "label": labels["stress"], "enabled": True},
+            {"action": _LIBRARY_ACTION, "label": labels["sample_library"], "enabled": True},
         )
 
     def _decorate_library_snapshot(self, snapshot: Mapping[str, object]) -> dict[str, object]:
@@ -168,12 +179,78 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             },
         }
 
+    def _packaged_sample_games(self):
+        root = self._packaged_starter_root
+        manifest = self._packaged_starter_manifest
+        if root is None or manifest is None:
+            raise ValueError("packaged starter content is unavailable")
+        counts = manifest.get("counts")
+        if not isinstance(counts, Mapping):
+            raise RuntimeError("packaged starter content counts are unavailable")
+        expected_count = counts.get("starter_games")
+        if type(expected_count) is not int or expected_count < 200:
+            raise RuntimeError("packaged starter Library count is invalid")
+
+        path = root / "sample_library.acsdb"
+        uri = path.resolve(strict=True).as_uri() + "?mode=ro"
+        connection = sqlite3.connect(uri, uri=True)
+        try:
+            quick = connection.execute("PRAGMA quick_check").fetchone()
+            if quick is None or str(quick[0]).casefold() != "ok":
+                raise RuntimeError("packaged starter Library integrity check failed")
+            schema = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if schema != ACSDB_SCHEMA_VERSION:
+                raise RuntimeError("packaged starter Library schema is unsupported")
+            rows = connection.execute("SELECT pgn_text FROM games ORDER BY id").fetchall()
+        finally:
+            connection.close()
+        if len(rows) != expected_count:
+            raise RuntimeError("packaged starter Library game count does not match the manifest")
+        text = "\n\n".join(str(row[0]) for row in rows)
+        workspace = PgnWorkspace.from_text(text)
+        if workspace.game_count != expected_count:
+            raise RuntimeError("packaged starter Library PGN rows are inconsistent")
+        return workspace.games()
+
+    def _import_packaged_sample_library(self) -> dict[str, object]:
+        root = self._packaged_starter_root
+        manifest = self._packaged_starter_manifest
+        if root is None or manifest is None:
+            raise ValueError("packaged starter content is unavailable")
+        metadata = manifest["files"]["sample_library.acsdb"]
+        if not isinstance(metadata, Mapping):
+            raise RuntimeError("packaged starter Library metadata is invalid")
+        source_sha256 = metadata.get("sha256")
+        if type(source_sha256) is not str:
+            raise RuntimeError("packaged starter Library hash is invalid")
+
+        games = self._packaged_sample_games()
+        result = LibraryImportService(self.database).import_games(
+            games,
+            source_name="Accessible Chess built-in starter library",
+            source_format="acsdb",
+            source_sha256=source_sha256,
+        )
+        self.shell.open_route("library")
+        rendered = self.library.projection.reset_filters()
+        payload = dict(rendered.payload)
+        snapshot = payload.get("snapshot")
+        if isinstance(snapshot, Mapping):
+            payload["snapshot"] = self._decorate_library_snapshot(snapshot)
+        labels = _LABELS[self.shell.language]
+        payload["announcement"] = labels[
+            "library_reused" if result.reused else "library_imported"
+        ].format(count=result.game_count)
+        return {"kind": rendered.kind, "payload": payload}
+
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
-        if area == "library" and command in {_STARTER_ACTION, _STRESS_ACTION}:
+        if area == "library" and command in {_STARTER_ACTION, _STRESS_ACTION, _LIBRARY_ACTION}:
             try:
                 if payload not in (None, {}):
                     raise ValueError("packaged starter content action accepts no payload")
+                if command == _LIBRARY_ACTION:
+                    return self._import_packaged_sample_library()
                 return self._open_packaged_pgn(stress=command == _STRESS_ACTION)
             except Exception:
                 return self._error()
