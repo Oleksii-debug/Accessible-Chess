@@ -268,6 +268,13 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         manifest = self._packaged_starter_manifest
         if root is None or manifest is None:
             raise ValueError("packaged starter content is unavailable")
+        counts = manifest.get("counts")
+        if not isinstance(counts, Mapping):
+            raise RuntimeError("packaged starter content counts are unavailable")
+        count_key = "stress_games" if stress else "starter_games"
+        expected_count = counts.get(count_key)
+        if type(expected_count) is not int or expected_count < 1:
+            raise RuntimeError("packaged starter PGN count is invalid")
         name = "stress_uk.pgn" if stress else "starter_uk.pgn"
         payload = _verified_payload_bytes(root, manifest, name, label="packaged starter PGN")
         try:
@@ -279,6 +286,8 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         # simply opening bundled content must not look like an unsaved edit, but
         # any later edit still requires the existing explicit Save As workflow.
         workspace = PgnWorkspace.from_text(text)
+        if workspace.game_count != expected_count:
+            raise RuntimeError("packaged starter PGN game count does not match the manifest")
         session = PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
         self.set_document(session)
         labels = _LABELS[self.shell.language]
