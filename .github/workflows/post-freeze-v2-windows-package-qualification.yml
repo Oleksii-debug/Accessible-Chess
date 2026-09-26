@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 603caba / p0g 4bcf763
+# exact-package-reconvergence: 603caba / p0g 4bcf763 / p0-document 6d92513
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -26,8 +26,8 @@ env:
   P0G_QA_SHA: 4bcf76327943bdc633d185a053b1f0b858460d12
   P0G_PROBE_BLOB_SHA: 675d93dbf9853c35e7fe4a19dd3531f0853d7d2e
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 603caba648a8452e3db1e514019713bdefd1516f
-  P0_DOCUMENT_PROBE_BLOB_SHA: 1beb6cfb7bd497755c215bea0a15e7425e284556
+  P0_DOCUMENT_QA_SHA: 6d92513ef49ccf6e5cfb2e9b2e815d466118a3f1
+  P0_DOCUMENT_PROBE_BLOB_SHA: 56d01b5ee54303103e8c573c9370e5b521c617c8
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -105,8 +105,11 @@ jobs:
           grep -Fq 'Could not establish opposite variation $opposite before Alt+$index' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'AccessibleChessP0GKeys]::Alt' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'function AssertProviderFocus' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function ActivateProduct($Shell,$Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function AssertProductForeground($Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
           grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'" .p0-packaged-document-copy-probe.ps1
           grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
@@ -226,7 +229,7 @@ jobs:
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Hardened document-copy summary Product SHA mismatch'}
           if(-not [bool]$summary.static_document_outside_edit -or -not [bool]$summary.textpattern_selection_supported){throw 'Hardened document-copy semantic selection proof incomplete'}
           if([string]$summary.document_provider_cardinality -ne 'exactly one selectable Accessible Chess document containing stable static target text'){throw 'Hardened document-copy provider cardinality proof incomplete'}
-          if(-not [bool]$summary.ctrl_c_exact_clipboard -or -not [bool]$summary.native_copy_focus_verified){throw 'Hardened native Ctrl+C focus/copy proof incomplete'}
+          if(-not [bool]$summary.ctrl_c_exact_clipboard -or -not [bool]$summary.native_copy_focus_verified -or -not [bool]$summary.foreground_product_verified){throw 'Hardened native Ctrl+C focus/foreground/copy proof incomplete'}
           if(-not [bool]$summary.move_input_native_ctrl_a_ctrl_c -or -not [bool]$summary.move_input_focus_verified){throw 'Hardened Move Input focus/copy proof incomplete'}
           if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine document-copy evidence must not claim physical NVDA acceptance'}
           Write-Host 'PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS'
