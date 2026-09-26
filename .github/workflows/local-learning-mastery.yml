@@ -5,6 +5,9 @@ on:
     paths:
       - 'acs/learning_mastery.py'
       - 'tests/test_learning_mastery.py'
+      - 'acs/learning_mastery_store.py'
+      - 'acs/learning_mastery_training.py'
+      - 'tests/test_learning_mastery_integration.py'
       - '.github/workflows/local-learning-mastery.yml'
   workflow_dispatch:
 
@@ -49,17 +52,17 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' '.github/workflows/local-learning-mastery.yml' 'acs/learning_mastery.py' 'tests/test_learning_mastery.py' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/local-learning-mastery.yml' 'acs/learning_mastery.py' 'acs/learning_mastery_store.py' 'acs/learning_mastery_training.py' 'tests/test_learning_mastery.py' 'tests/test_learning_mastery_integration.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected local-mastery scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
       - name: Compile mastery contract and tests
-        run: python -m compileall -q acs/learning_mastery.py tests/test_learning_mastery.py
+        run: python -m compileall -q acs/learning_mastery.py acs/learning_mastery_store.py acs/learning_mastery_training.py tests/test_learning_mastery.py tests/test_learning_mastery_integration.py
 
       - name: Execute mastery contract tests
-        run: python -m unittest -v tests.test_learning_mastery
+        run: python -m unittest -v tests.test_learning_mastery tests.test_learning_mastery_integration
 
       - name: Core selftest
         run: python -m acs.selftest
