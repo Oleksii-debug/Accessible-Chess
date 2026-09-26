@@ -19,10 +19,10 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
     def test_board_grid_interaction_keys_are_central_and_remappable(self):
         registry = ActionRegistry()
         defaults = {
-            "board.cursor_left": "ArrowLeft",
-            "board.cursor_right": "ArrowRight",
-            "board.cursor_up": "ArrowUp",
-            "board.cursor_down": "ArrowDown",
+            "board.cursor_left": "Left",
+            "board.cursor_right": "Right",
+            "board.cursor_up": "Up",
+            "board.cursor_down": "Down",
             "board.activate": "Enter",
             "board.activate_alternative": "Space",
             "board.exit": "Escape",
@@ -35,7 +35,7 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
                 self.assertEqual(resolved.action_id, action_id)
 
         registry.set_binding("board.cursor_left", "Ctrl+Alt+Left")
-        self.assertIsNone(registry.resolve_binding(BindingContext.BOARD, "ArrowLeft"))
+        self.assertIsNone(registry.resolve_binding(BindingContext.BOARD, "Left"))
         self.assertEqual(
             registry.resolve_binding(BindingContext.BOARD, "Ctrl+Alt+Left").action_id,
             "board.cursor_left",
