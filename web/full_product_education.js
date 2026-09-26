@@ -371,6 +371,36 @@
           });
           item.appendChild(allow);
         }
+        if (message.can_remove_sender && message.message_key) {
+          const remove = node("button", chat.remove_sender_label || "Remove participant");
+          remove.type = "button";
+          remove.setAttribute("data-command", "collaboration.participant.remove_sender");
+          remove.addEventListener("click", function () {
+            invokeCollaboration(
+              invoke,
+              "collaboration.participant.remove_sender",
+              { message_key: message.message_key },
+              wrapper,
+              announce,
+              fallbackMessage
+            );
+          });
+          item.appendChild(remove);
+          const block = node("button", chat.block_sender_label || "Remove and block participant");
+          block.type = "button";
+          block.setAttribute("data-command", "collaboration.participant.block_sender");
+          block.addEventListener("click", function () {
+            invokeCollaboration(
+              invoke,
+              "collaboration.participant.block_sender",
+              { message_key: message.message_key },
+              wrapper,
+              announce,
+              fallbackMessage
+            );
+          });
+          item.appendChild(block);
+        }
         history.appendChild(item);
       });
       chatSection.appendChild(history);
