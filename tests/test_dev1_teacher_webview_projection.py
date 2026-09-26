@@ -9,7 +9,13 @@ from acs.teacher_webview_projection import TeacherWebViewProjection
 
 
 class TeacherWebViewProjectionTests(unittest.TestCase):
-    def make_projection(self, state=None, *, position_fen_provider=None):
+    def make_projection(
+        self,
+        state=None,
+        *,
+        position_fen_provider=None,
+        visual_snapshot_provider=None,
+    ):
         calls = []
         canonical = dict(
             state
@@ -40,6 +46,7 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
             TeacherWebViewProjection(
                 teacher,
                 position_fen_provider=position_fen_provider,
+                visual_snapshot_provider=visual_snapshot_provider,
             ),
             teacher,
             canonical,
@@ -234,6 +241,37 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
         projection, _, _, _ = self.make_projection()
         with self.assertRaises(ValueError):
             projection.record_student_event("move", "e4")
+
+    def test_visual_snapshot_provider_is_presentation_only(self):
+        reads = []
+
+        def visual_provider(include_assets):
+            reads.append(include_assets)
+            return {
+                "preferences": {"coordinate_mode": "edges"},
+                "assets": {"board": {}} if include_assets else {},
+            }
+
+        projection, _, _, calls = self.make_projection(
+            position_fen_provider=lambda: Board.START,
+            visual_snapshot_provider=visual_provider,
+        )
+        snapshot = projection.snapshot()
+        self.assertEqual([True], reads)
+        self.assertEqual("edges", snapshot["visual"]["preferences"]["coordinate_mode"])
+        self.assertEqual([], calls)
+
+        lean = projection.snapshot(include_visual_assets=False)
+        self.assertEqual([True, False], reads)
+        self.assertEqual({}, lean["visual"]["assets"])
+        self.assertEqual([], calls)
+
+    def test_visual_snapshot_provider_must_return_text_key_mapping(self):
+        projection, _, _, _ = self.make_projection(
+            visual_snapshot_provider=lambda _include_assets: ("not", "a", "mapping")
+        )
+        with self.assertRaises(TypeError):
+            projection.snapshot()
 
     def test_visual_projection_does_not_dispatch(self):
         projection, _, _, calls = self.make_projection(
