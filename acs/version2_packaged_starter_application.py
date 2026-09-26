@@ -611,6 +611,30 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
                 schema = int(connection.execute("PRAGMA user_version").fetchone()[0])
                 if schema != ACSDB_SCHEMA_VERSION:
                     raise RuntimeError("packaged starter Library schema is unsupported")
+                sample_evidence = manifest.get("sample_library")
+                if not isinstance(sample_evidence, Mapping):
+                    raise RuntimeError("packaged starter sample_library evidence is unavailable")
+                evidence_keys = (
+                    "games",
+                    "distinct_games",
+                    "distinct_player_pairs",
+                    "distinct_events",
+                )
+                expected_evidence = tuple(sample_evidence.get(key) for key in evidence_keys)
+                if any(type(value) is not int or value < 1 for value in expected_evidence):
+                    raise RuntimeError("packaged starter sample_library evidence is invalid")
+                actual_evidence = tuple(
+                    int(value)
+                    for value in connection.execute(
+                        "SELECT COUNT(*), COUNT(DISTINCT pgn_text), "
+                        "COUNT(DISTINCT white || char(0) || black), "
+                        "COUNT(DISTINCT event) FROM games"
+                    ).fetchone()
+                )
+                if actual_evidence != expected_evidence:
+                    raise RuntimeError(
+                        "packaged starter Library aggregate evidence does not match the manifest"
+                    )
                 rows = connection.execute("SELECT pgn_text FROM games ORDER BY id").fetchall()
             finally:
                 connection.close()
