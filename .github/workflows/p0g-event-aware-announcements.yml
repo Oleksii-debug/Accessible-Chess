@@ -6,6 +6,7 @@ on:
       - work/p0g-event-aware-announcements-20260924
   pull_request:
     paths:
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - 'web/index.html'
       - 'web/p0_accessibility_runtime.js'
       - 'tests/js/p0g_event_aware_announcement_test.js'
@@ -55,6 +56,7 @@ jobs:
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
             '.github/workflows/p0g-event-aware-announcements.yml' \
             'tests/js/p0_accessibility_runtime_test.js' \
             'tests/js/p0g_event_aware_announcement_test.js' \
