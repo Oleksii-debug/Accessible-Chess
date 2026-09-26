@@ -18,7 +18,7 @@ from urllib.parse import quote
 
 _SPDX_VERSION = "SPDX-2.3"
 _DATA_LICENSE = "CC0-1.0"
-_NOTICE_SCHEMA_VERSION = 1
+_NOTICE_SCHEMA_VERSION = 2
 _SAFE_LICENSE_EXPRESSION = re.compile(r"^[A-Za-z0-9.+()\-: ]+$")
 
 
