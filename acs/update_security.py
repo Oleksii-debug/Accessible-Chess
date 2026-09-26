@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """Provider-neutral, fail-closed verification for future update payloads.
 
-This module deliberately does not download, execute, or install anything.  It
+This module deliberately does not download, execute, or install anything. It
 turns an update package into a ``VerifiedUpdate`` capability only after signed
-metadata, version policy, expiry, size and SHA-256 binding have all passed.
-Cryptographic key storage/rotation is supplied by a replaceable asymmetric
-``SignatureVerifier``; no signing secret belongs in the client.
+metadata, version policy, expiry, source URL, size and SHA-256 binding have all
+passed. Cryptographic key storage/rotation is supplied by a replaceable
+asymmetric ``SignatureVerifier``; no signing secret belongs in the client.
 """
 
 from dataclasses import dataclass
@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import stat
 from typing import Protocol
+from urllib.parse import urlsplit
 
 
 _METADATA_LIMIT = 64 * 1024
@@ -35,6 +36,7 @@ _SIGNED_KEYS = frozenset(
         "minimum_current_version",
         "published_at",
         "expires_at",
+        "download_url",
         "package_sha256",
         "package_size",
         "key_id",
@@ -58,6 +60,7 @@ class SignatureVerifier(Protocol):
 class VerifiedUpdate:
     package_path: Path
     version: str
+    download_url: str
     package_sha256: str
     package_size: int
     key_id: str
@@ -97,6 +100,27 @@ def _utc_time(value: object, label: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise UpdateSecurityError(f"{label} is invalid")
     return parsed
+
+
+def _download_url(value: object) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise UpdateSecurityError("download URL is invalid")
+    if "\\" in value or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        raise UpdateSecurityError("download URL is invalid")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise UpdateSecurityError("download URL is invalid") from exc
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise UpdateSecurityError("download URL must use HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise UpdateSecurityError("download URL must not contain userinfo")
+    if parsed.fragment:
+        raise UpdateSecurityError("download URL must not contain a fragment")
+    if port is not None and not (1 <= port <= 65535):
+        raise UpdateSecurityError("download URL has an invalid port")
+    return value
 
 
 def _canonical_signed(value: dict[str, object]) -> bytes:
@@ -174,6 +198,7 @@ def verify_update_package(
     key_id = signed.get("key_id")
     if not isinstance(key_id, str) or _KEY_ID_RE.fullmatch(key_id) is None:
         raise UpdateSecurityError("update signing key id is invalid")
+    download_url = _download_url(signed.get("download_url"))
     digest = signed.get("package_sha256")
     if not isinstance(digest, str) or _SHA256_RE.fullmatch(digest) is None:
         raise UpdateSecurityError("update package digest is invalid")
@@ -241,6 +266,7 @@ def verify_update_package(
     return VerifiedUpdate(
         package_path=package,
         version=str(signed["version"]),
+        download_url=download_url,
         package_sha256=digest,
         package_size=package_size,
         key_id=key_id,
