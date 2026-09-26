@@ -2,7 +2,8 @@ from __future__ import annotations
 
 """Provider-neutral secret storage with a Windows current-user DPAPI adapter."""
 
-from ctypes import POINTER, Structure, byref, c_byte, c_char_p, c_void_p, cast, create_string_buffer, memmove, sizeof, string_at, windll
+import ctypes
+from ctypes import POINTER, Structure, byref, c_byte, c_void_p, cast, create_string_buffer, string_at
 from ctypes.wintypes import BOOL, DWORD, LPWSTR
 from dataclasses import dataclass
 import hashlib
@@ -18,6 +19,8 @@ from typing import Protocol, runtime_checkable
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _CRYPTPROTECT_UI_FORBIDDEN = 0x1
 _ENTROPY = b"Accessible Chess SecretStore v1"
+_MAX_SECRET_BYTES = 64 * 1024
+_MAX_CIPHERTEXT_BYTES = 1024 * 1024
 
 
 class SecretStoreError(RuntimeError):
@@ -32,10 +35,11 @@ class SecretStore(Protocol):
 
 
 def _name(value: str) -> str:
-    text = str(value)
-    if not _NAME_RE.fullmatch(text):
+    # Secret-slot validation is a security boundary. Never invoke arbitrary
+    # __str__ while resolving a disk path or formatting an error.
+    if type(value) is not str or not _NAME_RE.fullmatch(value):
         raise SecretStoreError("secret name must be a safe stable identifier")
-    return text
+    return value
 
 
 def _is_reparse(info: os.stat_result) -> bool:
@@ -71,8 +75,8 @@ if sys.platform == "win32":
         source, source_buffer = _blob(data)
         entropy, entropy_buffer = _blob(_ENTROPY)
         output = _DATA_BLOB()
-        crypt32 = windll.crypt32
-        kernel32 = windll.kernel32
+        crypt32 = ctypes.windll.crypt32
+        kernel32 = ctypes.windll.kernel32
         crypt32.CryptProtectData.argtypes = [
             POINTER(_DATA_BLOB), LPWSTR, POINTER(_DATA_BLOB), c_void_p, c_void_p,
             DWORD, POINTER(_DATA_BLOB),
@@ -97,8 +101,8 @@ if sys.platform == "win32":
         entropy, entropy_buffer = _blob(_ENTROPY)
         output = _DATA_BLOB()
         description = LPWSTR()
-        crypt32 = windll.crypt32
-        kernel32 = windll.kernel32
+        crypt32 = ctypes.windll.crypt32
+        kernel32 = ctypes.windll.kernel32
         crypt32.CryptUnprotectData.argtypes = [
             POINTER(_DATA_BLOB), POINTER(LPWSTR), POINTER(_DATA_BLOB), c_void_p,
             c_void_p, DWORD, POINTER(_DATA_BLOB),
@@ -141,7 +145,7 @@ class WindowsDpapiSecretStore:
         local = os.environ.get("LOCALAPPDATA")
         if not local:
             raise SecretStoreError("LOCALAPPDATA is unavailable")
-        if not _NAME_RE.fullmatch(app_name):
+        if type(app_name) is not str or not _NAME_RE.fullmatch(app_name):
             raise SecretStoreError("app_name must be a safe stable identifier")
         return cls(Path(local) / app_name / "secure")
 
@@ -166,12 +170,16 @@ class WindowsDpapiSecretStore:
     def write(self, name: str, value: bytes) -> None:
         if sys.platform != "win32":
             raise SecretStoreError("Windows DPAPI is unavailable on this platform")
-        if not isinstance(value, bytes):
+        if type(value) is not bytes:
             raise SecretStoreError("secret value must be bytes")
+        if len(value) > _MAX_SECRET_BYTES:
+            raise SecretStoreError("secret value exceeds size limit")
         self._prepare_root()
         target = self._path(name)
         _reject_link(target, label="secret file")
         protected = _dpapi_protect(value)
+        if not protected or len(protected) > _MAX_CIPHERTEXT_BYTES:
+            raise SecretStoreError("Windows DPAPI returned invalid ciphertext")
         temp_path: Path | None = None
         try:
             fd, raw_temp = tempfile.mkstemp(prefix=".secret-", suffix=".tmp", dir=self.root)
@@ -208,6 +216,16 @@ class WindowsDpapiSecretStore:
         target = self._path(name)
         _reject_link(target, label="secret file")
         try:
+            info = target.stat()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise SecretStoreError(f"secret ciphertext cannot be inspected: {type(exc).__name__}") from exc
+        if info.st_size <= 0:
+            raise SecretStoreError("secret ciphertext is empty")
+        if info.st_size > _MAX_CIPHERTEXT_BYTES:
+            raise SecretStoreError("secret ciphertext exceeds size limit")
+        try:
             data = target.read_bytes()
         except FileNotFoundError:
             return None
@@ -215,7 +233,12 @@ class WindowsDpapiSecretStore:
             raise SecretStoreError(f"secret ciphertext cannot be read: {type(exc).__name__}") from exc
         if not data:
             raise SecretStoreError("secret ciphertext is empty")
-        return _dpapi_unprotect(data)
+        if len(data) > _MAX_CIPHERTEXT_BYTES:
+            raise SecretStoreError("secret ciphertext exceeds size limit")
+        plaintext = _dpapi_unprotect(data)
+        if len(plaintext) > _MAX_SECRET_BYTES:
+            raise SecretStoreError("unprotected secret exceeds size limit")
+        return plaintext
 
     def delete(self, name: str) -> bool:
         if sys.platform != "win32":
