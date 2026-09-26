@@ -71,6 +71,36 @@ if(-not (Test-Path -LiteralPath $copyEvidence -PathType Leaf)){
 Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=COPY_VERIFY'
 Invoke-PythonVerifier $copyVerifier $copyEvidence $product $ProductSha
 
+# The copy verifier above independently binds ProductSha to RELEASE_MANIFEST.json,
+# SHA256SUMS.txt and the exact direct packaged executable before we execute that
+# executable for the P0-F reachability diagnostic.  This keeps the orchestrator
+# on the incumbent package-identity authority instead of inventing a second one.
+$exe=Join-Path $product 'AccessibleChess.exe'
+$starterRoot=Join-Path $product 'release-content\w2-starter'
+if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){
+  throw 'Packaged AccessibleChess.exe is missing before P0-F diagnostic'
+}
+if(-not (Test-Path -LiteralPath $starterRoot -PathType Container)){
+  throw 'Packaged P0-F W2 starter root is missing'
+}
+
+Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=STARTER_DIAGNOSTIC'
+$diagnosticLines=@(& $exe --diagnostic 2>&1)
+$diagnosticExit=$LASTEXITCODE
+if($diagnosticExit -ne 0){
+  throw "Packaged P0-F diagnostic failed with exit code $diagnosticExit"
+}
+$starterPass=$false
+foreach($line in $diagnosticLines){
+  if(([string]$line).Trim() -ceq 'P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS'){
+    $starterPass=$true
+  }
+}
+if(-not $starterPass){
+  throw 'Packaged P0-F diagnostic did not prove W2 Library reachability'
+}
+Write-Host 'P0_PACKAGED_STARTER_REACHABILITY=VERIFIED'
+
 Write-Host 'P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_PROBE'
 & $hotkeyProbe `
   -ProductRoot $product `
@@ -93,4 +123,4 @@ if(([string]$hotkey.product_sha).ToLowerInvariant() -cne $ProductSha.ToLowerInva
 Assert-NoMachineHumanClaim $copy 'document-copy'
 Assert-NoMachineHumanClaim $hotkey 'P0-G hotkey-result'
 
-Write-Host 'P0 PACKAGED ACCEPTANCE VERIFIED: COPY + HOTKEY RESULTS'
+Write-Host 'P0 PACKAGED ACCEPTANCE VERIFIED: COPY + STARTER + HOTKEY RESULTS'
