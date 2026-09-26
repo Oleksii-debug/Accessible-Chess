@@ -660,12 +660,15 @@ class VisualPackStore:
                         compatible = (
                             manifest.compatible
                         )
-                        usable = (
-                            compatible
-                            and self.verify(
-                                manifest
-                            )
-                        )
+                        usable = False
+                        reason = "incompatible" if not compatible else "damaged"
+                        if compatible:
+                            try:
+                                usable = self.verify(manifest)
+                            except VisualPackStoreError:
+                                usable = False
+                            else:
+                                reason = ""
                         entries.append(
                             VisualPackCatalogEntry(
                                 manifest.pack_id,
@@ -682,15 +685,7 @@ class VisualPackStore:
                                     and manifest.version
                                     == latest
                                 ),
-                                (
-                                    ""
-                                    if usable
-                                    else (
-                                        "incompatible"
-                                        if not compatible
-                                        else "damaged"
-                                    )
-                                ),
+                                reason,
                             )
                         )
                     except (
