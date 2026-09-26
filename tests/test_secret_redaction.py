@@ -96,6 +96,22 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("account_id=acct-5", output)
         self.assertIn("lang=uk", output)
 
+    def test_oauth_url_fragment_secrets_are_redacted_without_losing_safe_context(self) -> None:
+        raw = (
+            "callback https://login.example/callback?lang=uk#access_token=fragment-secret&"
+            "state=fragment-state&account_id=acct-9"
+        )
+        output = redact_text(raw)
+        self.assertNotIn("fragment-secret", output)
+        self.assertNotIn("fragment-state", output)
+        self.assertIn("lang=uk", output)
+        self.assertIn("account_id=acct-9", output)
+        self.assertIn("access_token=%5BREDACTED%5D", output)
+        self.assertEqual(
+            redact_text("open https://docs.example/guide#keyboard-navigation"),
+            "open https://docs.example/guide#keyboard-navigation",
+        )
+
     def test_chess_text_is_not_misclassified_as_secret(self) -> None:
         ordinary = (
             '[Event "Training"]\n[Site "Local"]\n1. e4 e5 2. Nf3 Nc6\n'
