@@ -255,6 +255,10 @@ def test_packaged_w2_diagnostic_rejects_misleading_or_duplicate_accessible_actio
     misleading["actions"][0]["label"] = "Open the built-in 240-game starter PGN"
     assert packaged_w2_library_ready(misleading) is False
 
+    substring_false_pass = _release_w2_library_snapshot(starter_games=200, stress_games=801)
+    substring_false_pass["actions"][0]["label"] = "Open the built-in 1200-game starter PGN"
+    assert packaged_w2_library_ready(substring_false_pass) is False
+
     missing_label = _release_w2_library_snapshot()
     del missing_label["actions"][1]["label"]
     assert packaged_w2_library_ready(missing_label) is False
