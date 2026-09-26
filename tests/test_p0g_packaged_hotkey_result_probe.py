@@ -41,6 +41,22 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertNotIn("dispatch_action", self.text)
         self.assertNotIn("keymap_resolve_binding", self.text)
 
+    def test_probe_proves_packaged_process_is_foreground_native_key_target(self) -> None:
+        self.assertIn("GetForegroundWindow", self.text)
+        self.assertIn("GetWindowThreadProcessId", self.text)
+        self.assertIn("ForegroundProcessId", self.text)
+        self.assertIn("function ActivateProduct($Shell,$Process)", self.text)
+        self.assertIn("if(-not $Shell.AppActivate($Process.Id))", self.text)
+        self.assertIn("AccessibleChess.exe did not become the foreground native-key target", self.text)
+        self.assertIn("function AssertProductForeground($Process)", self.text)
+        self.assertIn("AssertProductForeground $process", self.text)
+        self.assertIn("foreground_product_verified=$true", self.text)
+        self.assertNotIn("$null=$shell.AppActivate($process.Id)", self.text)
+        self.assertLess(
+            self.text.index("AssertProductForeground $process"),
+            self.text.index("[AccessibleChessP0GKeys]::Alt([byte]$case.key)"),
+        )
+
     def test_probe_enables_stockfish_idempotently(self) -> None:
         self.assertIn("function EnsureEngineEnabled($EngineToggle)", self.text)
         self.assertIn("^(Увімкнути Stockfish|Enable Stockfish)$", self.text)
