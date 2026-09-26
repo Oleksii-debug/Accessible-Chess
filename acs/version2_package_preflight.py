@@ -106,6 +106,7 @@ _SOUND_PROVENANCE_SCHEMA_VERSION = 1
 _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
+_REQUIRED_WINFORMS_APPCONFIG = "AccessibleChess/AccessibleChess.exe.config"
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -710,6 +711,12 @@ def _validate_required_runtime_resources(
     inventory: tuple[str, ...],
     limits: PackageLimits,
 ) -> None:
+    _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_WINFORMS_APPCONFIG,
+        label="WinForms accessibility app-config",
+    )
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
             root,
