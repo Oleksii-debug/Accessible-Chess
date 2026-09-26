@@ -38,6 +38,7 @@ def _metadata(package: bytes, **changes) -> bytes:
         "minimum_current_version": "2.0.0",
         "published_at": "2026-09-26T17:00:00Z",
         "expires_at": "2026-10-03T17:00:00Z",
+        "download_url": "https://updates.example.invalid/releases/2.1.0/AccessibleChess.exe",
         "package_sha256": hashlib.sha256(package).hexdigest(),
         "package_size": len(package),
         "key_id": "release-2026",
@@ -73,6 +74,10 @@ class UpdateSecurityTests(unittest.TestCase):
             )
             self.assertEqual(verified.version, "2.1.0")
             self.assertEqual(verified.package_path, package)
+            self.assertEqual(
+                verified.download_url,
+                "https://updates.example.invalid/releases/2.1.0/AccessibleChess.exe",
+            )
             self.assertEqual(verified.package_sha256, hashlib.sha256(payload).hexdigest())
             self.assertEqual(verified.key_id, "release-2026")
 
@@ -154,12 +159,49 @@ class UpdateSecurityTests(unittest.TestCase):
                     verifier=_TestVerifier(), now=_NOW,
                 )
 
+    def test_download_url_is_signed_https_only_and_unambiguous(self):
+        with tempfile.TemporaryDirectory() as td:
+            payload = b"MZ-update"
+            package = self._package(Path(td), payload)
+            invalid_urls = (
+                "http://updates.example.invalid/update.exe",
+                "https://user:secret@updates.example.invalid/update.exe",
+                "https://updates.example.invalid/update.exe#fragment",
+                "https://updates.example.invalid\\update.exe",
+                "HTTPS://updates.example.invalid/update.exe",
+            )
+            for value in invalid_urls:
+                with self.subTest(download_url=value):
+                    with self.assertRaisesRegex(UpdateSecurityError, "download URL"):
+                        verify_update_package(
+                            _metadata(payload, download_url=value),
+                            package,
+                            current_version="2.0.0",
+                            verifier=_TestVerifier(),
+                            now=_NOW,
+                        )
+
+    def test_download_url_tamper_breaks_signature(self):
+        with tempfile.TemporaryDirectory() as td:
+            payload = b"MZ-update"
+            package = self._package(Path(td), payload)
+            envelope = json.loads(_metadata(payload))
+            envelope["signed"]["download_url"] = "https://mirror.example.invalid/update.exe"
+            with self.assertRaisesRegex(UpdateSecurityError, "signature verification failed"):
+                verify_update_package(
+                    json.dumps(envelope).encode(),
+                    package,
+                    current_version="2.0.0",
+                    verifier=_TestVerifier(),
+                    now=_NOW,
+                )
+
     def test_extra_fields_and_duplicate_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             payload = b"MZ-update"
             package = self._package(Path(td), payload)
             envelope = json.loads(_metadata(payload))
-            envelope["signed"]["download_url"] = "https://attacker.invalid/update"
+            envelope["signed"]["unexpected"] = "https://attacker.invalid/update"
             with self.assertRaisesRegex(UpdateSecurityError, "signed update metadata is invalid"):
                 verify_update_package(
                     json.dumps(envelope).encode(), package,
