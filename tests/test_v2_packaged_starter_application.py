@@ -86,7 +86,7 @@ def _write_bundle(root: Path) -> None:
             "license_id": license_id,
         }
     selected_games = [
-        {"record_sha256": hashlib.sha256(_game_record(index).encode("utf-8")).hexdigest()}
+        {"record_sha256": hashlib.sha256(_game_record(index).strip().encode("utf-8")).hexdigest()}
         for index in range(1, _STARTER_COUNT + 1)
     ]
     manifest = {
@@ -289,6 +289,30 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             analysis = AnalysisService(lambda: None)
             try:
                 with self.assertRaisesRegex(RuntimeError, "criteria authority"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_selected_record_digest_drift_fails_closed_before_application_start(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-record-drift-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["starter_source"]["curation"]["selected_games"][0]["record_sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "record_sha256 evidence does not match"):
                     Version2PackagedStarterApplication(
                         database,
                         packaged_starter_root=bundle,
