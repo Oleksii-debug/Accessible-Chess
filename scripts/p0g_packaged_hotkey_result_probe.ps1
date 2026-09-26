@@ -162,19 +162,27 @@ function AssertLauncherFocus($Launcher) {
   }
 }
 
-function SelectedVariation($Roots,[int]$Index) {
+function FindVariationButton($Roots,[int]$Index) {
   $expected="^(Варіант|Variant)\s+$Index\."
   foreach($element in @(ControlElements $Roots)){
     try {
       if([string]$element.Current.ControlType.ProgrammaticName -ne 'ControlType.Button'){continue}
       $name=([string]$element.Current.Name).Trim()
-      if($name -notmatch $expected){continue}
-      $toggle=$element.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-      if($null -ne $toggle -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){
-        return $name
-      }
+      if($name -match $expected){return $element}
     } catch {}
   }
+  return $null
+}
+
+function SelectedVariation($Roots,[int]$Index) {
+  $button=FindVariationButton $Roots $Index
+  if($null -eq $button){return $null}
+  try {
+    $toggle=$button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if($null -ne $toggle -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){
+      return ([string]$button.Current.Name).Trim()
+    }
+  } catch {}
   return $null
 }
 
@@ -220,29 +228,40 @@ try {
     return $null
   } ([Math]::Min($TimeoutSeconds*1000,30000)) 'Packaged Stockfish did not expose two analysis variations in time'
 
-  $announcements=@()
+  $preconditionStates=@()
   $selectedStates=@()
+  $announcements=@()
   foreach($case in @(@{index=1; key=0x31},@{index=2; key=0x32})){
+    $index=[int]$case.index
+    $opposite=if($index -eq 1){2}else{1}
+    $preconditionButton=WaitFor {
+      FindVariationButton $roots $opposite
+    } 5000 "Could not find opposite variation $opposite for Alt+$index causal precondition"
+    Invoke $preconditionButton "analysis variation $opposite precondition"
+    $precondition=WaitFor {
+      SelectedVariation $roots $opposite
+    } 5000 "Could not establish opposite variation $opposite before Alt+$index"
+
     $null=$shell.AppActivate($process.Id)
     AssertLauncherFocus $launcher
     [AccessibleChessP0GKeys]::Alt([byte]$case.key)
-    $index=[int]$case.index
     $selected=WaitFor {
       SelectedVariation $roots $index
-    } 5000 "Alt+$index did not select variation $index through the packaged UIA state"
+    } 5000 "Alt+$index did not change packaged selected state from variation $opposite to variation $index"
     $text=WaitFor {
       $value=SemanticText $live
       if($value -and $value.ToLowerInvariant() -match "варіант\s+$index|variant\s+$index"){return $value}
       return $null
     } 5000 "Alt+$index did not expose a matching live-region result"
     AssertCleanAnnouncement $text $index
+    $preconditionStates += $precondition
     $selectedStates += $selected
     $announcements += $text
-    Write-Host "PACKAGED_P0G_ALT_${index}=PASS selected='$selected' result='$text'"
+    Write-Host "PACKAGED_P0G_ALT_${index}=PASS precondition='$precondition' selected='$selected' result='$text'"
   }
 
-  if($selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
-    throw 'Alt+1 and Alt+2 did not prove distinct selected and accessible resulting variation states'
+  if($preconditionStates.Count -ne 2 -or $selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
+    throw 'Alt+1 and Alt+2 did not prove causal selected-state transitions and distinct accessible results'
   }
 
   $summary=[ordered]@{
@@ -252,10 +271,12 @@ try {
     board_application_entered=$false
     engine_enable_state=$engineState
     native_keyboard_dispatch=$true
+    alt_1_precondition_selected_state=$preconditionStates[0]
     alt_1_action_occurred=$true
     alt_1_selected_state=$selectedStates[0]
     alt_1_accessible_result_exposed=$true
     alt_1_result=$announcements[0]
+    alt_2_precondition_selected_state=$preconditionStates[1]
     alt_2_action_occurred=$true
     alt_2_selected_state=$selectedStates[1]
     alt_2_accessible_result_exposed=$true
