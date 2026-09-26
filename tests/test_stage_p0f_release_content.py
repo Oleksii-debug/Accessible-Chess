@@ -20,6 +20,16 @@ class P0FReleaseContentStagingTests(unittest.TestCase):
         (product / "AccessibleChess.exe").write_bytes(b"MZ-test-package-executable")
         return source, product
 
+    def test_direct_directory_allows_resolver_to_normalize_path_spelling(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="p0f-stage-path-spelling-") as raw:
+            direct = Path(raw)
+            normalized = direct.parent / (direct.name + "-normalized-spelling")
+            with mock.patch.object(Path, "resolve", return_value=normalized):
+                self.assertEqual(
+                    normalized,
+                    staging._require_direct_directory(direct, label="direct fixture"),
+                )
+
     def test_stages_exact_validated_bundle_at_runtime_discovery_path(self) -> None:
         with tempfile.TemporaryDirectory(prefix="p0f-stage-success-") as raw:
             source, product = self._fixture(Path(raw))
