@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 55
     env:
       FROZEN_V2_BASE: 0b8fa275890cd82565eceece71063cb4353ea8c8
-      REMOTE_CONTRACT_HEAD: bd849204bf0ce0d510815a7525ff2cec59ee16d7
+      FULL_PRODUCT_BASE: cadbbba94858f38d5094ccf026c92b5043ddb7b4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,14 +58,14 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove post-freeze ancestry and bounded scope
+      - name: Prove Full Product ancestry and bounded reconvergence scope
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$FROZEN_V2_BASE" "$REMOTE_CONTRACT_HEAD"
-          git merge-base --is-ancestor "$REMOTE_CONTRACT_HEAD" HEAD
-          git diff --check "$REMOTE_CONTRACT_HEAD" HEAD
-          changed="$(git diff --name-only "$REMOTE_CONTRACT_HEAD" HEAD | sort)"
+          git merge-base --is-ancestor "$FROZEN_V2_BASE" "$FULL_PRODUCT_BASE"
+          git merge-base --is-ancestor "$FULL_PRODUCT_BASE" HEAD
+          git diff --check "$FULL_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$FULL_PRODUCT_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/post-freeze-remote-connectivity.yml' \
             'acs/remote_connectivity.py' \
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code "$REMOTE_CONTRACT_HEAD" HEAD -- \
+          git diff --exit-code "$FULL_PRODUCT_BASE" HEAD -- \
             acs/remote_session.py \
             acs/teaching_session.py \
             acs/teaching_session_adapter.py \
