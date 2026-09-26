@@ -1,4 +1,4 @@
-# exact-package-reconvergence: e61b570 / p0g a8552ee / p0-document 4b35977
+# exact-package-reconvergence: e61b570 / p0g 4a5f329 / p0-document d028e12
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -23,11 +23,11 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: a8552eeab7479c2c81b8b2f00a98ad6f9c0ddf56
+  P0G_QA_SHA: 4a5f329e6ded11316b21cdd29d2be29d40571583
   P0G_PROBE_BLOB_SHA: 796d705c66b11f880b3173caddfb41e7af09de35
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 4b359773e2b157f0ee4337a724a78cac26dc2056
-  P0_DOCUMENT_PROBE_BLOB_SHA: e9236589ac8c6ab1b662264ebbdcfa3b1bbf7c10
+  P0_DOCUMENT_QA_SHA: d028e1224f166f27767c61bea9c754f7caebcfb9
+  P0_DOCUMENT_PROBE_BLOB_SHA: 6b6c3c7c37a3089c7bbf2f3ded6ad731998395ca
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
