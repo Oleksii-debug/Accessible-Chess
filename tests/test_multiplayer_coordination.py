@@ -36,6 +36,7 @@ def game_snapshot(
     white_presence: PresenceState = PresenceState.CONNECTED,
     black_presence: PresenceState = PresenceState.CONNECTED,
     rematch_of: str | None = None,
+    rematch_requested_by: str | None = None,
 ) -> MultiplayerGameSnapshot:
     if clock is None:
         if lifecycle.status is GameStatus.ACTIVE:
@@ -60,6 +61,7 @@ def game_snapshot(
         white_presence=white_presence,
         black_presence=black_presence,
         rematch_of=rematch_of,
+        rematch_requested_by=rematch_requested_by,
     )
 
 
