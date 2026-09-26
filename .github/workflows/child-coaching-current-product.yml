@@ -1,16 +1,6 @@
 name: Child coaching current-product contract
 
 on:
-  push:
-    branches:
-      - "work/current-child-coaching-*"
-    paths:
-      - "acs/child_coaching.py"
-      - "acs/child_coaching_store.py"
-      - "tests/test_child_coaching.py"
-      - "acs/teaching_session.py"
-      - "acs/interaction_contracts.py"
-      - ".github/workflows/child-coaching-current-product.yml"
   pull_request:
     paths:
       - "acs/child_coaching.py"
@@ -23,6 +13,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: child-coaching-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   contract:
