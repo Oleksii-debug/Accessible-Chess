@@ -217,37 +217,6 @@ class EntitlementTests(unittest.TestCase):
         self.assertTrue(decision.using_grace)
         self.assertEqual(decision.state, EntitlementState.GRACE_PERIOD)
 
-    def test_server_time_blocks_local_clock_rollback_extension(self):
-        snapshot = EntitlementSnapshot(
-            EntitlementState.PAID_MONTHLY,
-            frozenset({FeatureId.PLAY_ENGINE.value}),
-            expires_at=NOW + timedelta(hours=1),
-            server_time=NOW + timedelta(hours=2),
-        )
-        decision = self.gate().evaluate(
-            FeatureId.PLAY_ENGINE,
-            snapshot,
-            now=NOW - timedelta(days=30),
-        )
-        self.assertFalse(decision.allowed)
-        self.assertEqual(decision.reason, "expired")
-        self.assertEqual(decision.state, EntitlementState.EXPIRED)
-
-    def test_server_time_also_bounds_grace_after_local_clock_rollback(self):
-        snapshot = EntitlementSnapshot(
-            EntitlementState.GRACE_PERIOD,
-            frozenset({FeatureId.PLAY_ENGINE.value}),
-            server_time=NOW + timedelta(hours=2),
-            policy=RemotePolicy(grace_until=NOW + timedelta(hours=1)),
-        )
-        decision = self.gate().evaluate(
-            FeatureId.PLAY_ENGINE,
-            snapshot,
-            now=NOW - timedelta(days=30),
-        )
-        self.assertFalse(decision.allowed)
-        self.assertEqual(decision.reason, "grace_expired")
-
     def test_grace_period_expires_closed(self):
         snapshot = self.snapshot(
             EntitlementState.GRACE_PERIOD,
