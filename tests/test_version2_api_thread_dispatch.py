@@ -22,6 +22,8 @@ from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 class _OwnerLoop:
     """Deterministic Form.Invoke transport, with a genuinely separate owner thread."""
+
+    _WAIT_SECONDS = 30
     def __init__(self):
         self.tasks = Queue()
         self.ready = threading.Event()
