@@ -56,6 +56,16 @@ jobs:
           git cat-file -e "$CLAIM_BASE^{commit}"
           git merge-base --is-ancestor "$CLAIM_BASE" HEAD
 
+          require_blob() {
+            path="$1"
+            expected="$2"
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Retained P0-F lawful authority drift: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          }
+
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
             git cat-file -e "$base^{commit}"
@@ -68,17 +78,9 @@ jobs:
             # this historical four-file lane. Instead freeze the three actual
             # lawful-corpus owner payloads to their qualified identities and
             # let the executable bundle/test jobs below prove their semantics.
-            while IFS='=' read -r path expected; do
-              actual="$(git rev-parse "HEAD:$path")"
-              test "$actual" = "$expected" || {
-                printf 'Retained P0-F lawful authority drift: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
-                exit 1
-              }
-            done <<LOCKS
-            docs/P0F_STARTER_CONTENT_PROVENANCE.md=$PROVENANCE_BLOB
-            tests/test_p0f_lawful_starter_bundle.py=$LAWFUL_TEST_BLOB
-            tools/p0f_lawful_starter_bundle.py=$LAWFUL_BUILDER_BLOB
-            LOCKS
+            require_blob docs/P0F_STARTER_CONTENT_PROVENANCE.md "$PROVENANCE_BLOB"
+            require_blob tests/test_p0f_lawful_starter_bundle.py "$LAWFUL_TEST_BLOB"
+            require_blob tools/p0f_lawful_starter_bundle.py "$LAWFUL_BUILDER_BLOB"
             echo 'P0F_LAWFUL_TOPOLOGY=PRODUCT_CONVERGENCE'
           else
             # Preserve the original isolated owner contract for its dedicated
