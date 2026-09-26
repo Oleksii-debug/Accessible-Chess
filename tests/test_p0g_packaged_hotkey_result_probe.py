@@ -23,9 +23,13 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertNotIn("RootElement]::FindAll", self.text)
         self.assertNotIn("$desktop.FindAll", self.text)
 
-    def test_probe_enters_semantic_board_and_sends_native_alt_1_and_alt_2(self) -> None:
+    def test_probe_keeps_focus_outside_board_application_and_sends_native_alt_1_and_alt_2(self) -> None:
         self.assertIn("board-launcher", self.text)
-        self.assertIn("Invoke $launcher", self.text)
+        self.assertIn("AssertLauncherFocus $launcher", self.text)
+        self.assertIn("AutomationElement]::FocusedElement", self.text)
+        self.assertIn("hotkey_focus_path='board-launcher SetFocus outside role=application", self.text)
+        self.assertIn("board_application_entered=$false", self.text)
+        self.assertNotIn("Invoke $launcher", self.text)
         self.assertIn("engine-toggle", self.text)
         self.assertIn("AccessibleChessP0GKeys]::Alt", self.text)
         self.assertIn("@{index=1; key=0x31}", self.text)
