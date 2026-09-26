@@ -7,8 +7,10 @@ on:
     paths:
       - 'acs/runtime_dependency_notices.py'
       - 'acs/runtime_dependency_sbom.py'
+      - 'acs/runtime_dependency_release.py'
       - 'tests/test_runtime_dependency_notices.py'
       - 'tests/test_runtime_dependency_sbom.py'
+      - 'tests/test_runtime_dependency_release.py'
       - '.github/workflows/runtime-dependency-notices.yml'
       - '.github/workflows/runtime-dependency-sbom.yml'
   pull_request:
@@ -17,8 +19,10 @@ on:
     paths:
       - 'acs/runtime_dependency_notices.py'
       - 'acs/runtime_dependency_sbom.py'
+      - 'acs/runtime_dependency_release.py'
       - 'tests/test_runtime_dependency_notices.py'
       - 'tests/test_runtime_dependency_sbom.py'
+      - 'tests/test_runtime_dependency_release.py'
       - '.github/workflows/runtime-dependency-notices.yml'
       - '.github/workflows/runtime-dependency-sbom.yml'
   workflow_dispatch:
@@ -44,19 +48,22 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile notice and SPDX boundaries
+      - name: Compile notice SPDX and release-publication boundaries
         run: >-
           python -m compileall -q
           acs/runtime_dependency_notices.py
           acs/runtime_dependency_sbom.py
+          acs/runtime_dependency_release.py
           tests/test_runtime_dependency_notices.py
           tests/test_runtime_dependency_sbom.py
+          tests/test_runtime_dependency_release.py
 
       - name: Focused deterministic fail-closed release evidence tests
         run: >-
           python -m unittest -v
           tests.test_runtime_dependency_notices
           tests.test_runtime_dependency_sbom
+          tests.test_runtime_dependency_release
 
       - name: Product-wide regression safety
         run: python -m unittest discover -s tests -v
