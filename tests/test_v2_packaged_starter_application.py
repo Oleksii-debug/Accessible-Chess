@@ -85,10 +85,26 @@ def _write_bundle(root: Path) -> None:
             "bytes": path.stat().st_size,
             "license_id": license_id,
         }
+    result_cycle = ("1-0", "0-1", "1/2-1/2")
+    length_cycle = ("20-59", "60-99", "100+")
     selected_games = [
-        {"record_sha256": hashlib.sha256(_game_record(index).strip().encode("utf-8")).hexdigest()}
+        {
+            "record_sha256": hashlib.sha256(_game_record(index).strip().encode("utf-8")).hexdigest(),
+            "result": result_cycle[(index - 1) % len(result_cycle)],
+            "length_band": length_cycle[(index - 1) % len(length_cycle)],
+            "opening_prefix": [f"fixture-{(index - 1) % 12}-{ply}" for ply in range(4)],
+        }
         for index in range(1, _STARTER_COUNT + 1)
     ]
+    selected_result_counts = {
+        result: sum(1 for selected in selected_games if selected["result"] == result)
+        for result in sorted(result_cycle)
+    }
+    selected_length_band_counts = {
+        band: sum(1 for selected in selected_games if selected["length_band"] == band)
+        for band in sorted(length_cycle)
+    }
+    distinct_opening_prefixes = len({tuple(selected["opening_prefix"]) for selected in selected_games})
     manifest = {
         "schema_version": 3,
         "bundle_kind": "lawful-curated-real-game-starter",
@@ -108,6 +124,9 @@ def _write_bundle(root: Path) -> None:
                 "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
                 "criteria": _CURATION_CRITERIA,
                 "selected_games": selected_games,
+                "selected_result_counts": selected_result_counts,
+                "selected_length_band_counts": selected_length_band_counts,
+                "distinct_opening_prefixes": distinct_opening_prefixes,
             },
         },
         "licenses": {
@@ -289,6 +308,31 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             analysis = AnalysisService(lambda: None)
             try:
                 with self.assertRaisesRegex(RuntimeError, "criteria authority"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_curation_aggregate_drift_fails_closed_before_application_start(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-aggregate-drift-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            curation = manifest["starter_source"]["curation"]
+            curation["selected_result_counts"]["1-0"] -= 1
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "curation aggregate evidence failed"):
                     Version2PackagedStarterApplication(
                         database,
                         packaged_starter_root=bundle,
