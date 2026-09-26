@@ -100,6 +100,25 @@ class SoundPackManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._pack(files=files)
 
+    def test_windows_drive_unc_and_unstable_paths_are_rejected(self) -> None:
+        for unsafe in (
+            r"C:\\temp\\move.wav",
+            r"\\\\server\\share\\move.wav",
+            "audio/../move.wav",
+            "audio./move.wav ",
+        ):
+            files = {event: f"{event}.wav" for event in CORE_SOUND_EVENTS}
+            files["move"] = unsafe
+            with self.subTest(path=unsafe), self.assertRaises(ValueError):
+                self._pack(files=files)
+
+    def test_windows_case_colliding_asset_paths_are_rejected(self) -> None:
+        files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+        files["move"] = "Audio/shared.wav"
+        files["capture"] = "audio/SHARED.WAV"
+        with self.assertRaisesRegex(ValueError, "case-colliding"):
+            self._pack(files=files)
+
 
 class SoundProfileStrictScalarTests(unittest.TestCase):
     def test_profile_and_event_volumes_do_not_coerce_strings_floats_or_booleans(self) -> None:
