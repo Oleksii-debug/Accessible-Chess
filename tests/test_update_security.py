@@ -174,13 +174,56 @@ class UpdateSecurityTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.code, UpdateDecisionCode.PAYLOAD_HASH_MISMATCH)
 
-    def test_manifest_rejects_non_https_and_credentialed_urls(self):
+    def test_non_bytes_payload_fails_closed_before_verifier_or_hashing(self):
+        verifier = ExactVerifier()
+        decision = verify_update(
+            self.manifest(),
+            current_version="2.0.0",
+            payload="not-bytes",
+            signature_verifier=verifier,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.code, UpdateDecisionCode.INVALID_PAYLOAD)
+        self.assertEqual(verifier.calls, [])
+
+    def test_wrong_manifest_object_fails_closed(self):
+        decision = verify_update(
+            manifest_mapping(),
+            current_version="2.0.0",
+            payload=PAYLOAD,
+            signature_verifier=ExactVerifier(),
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.code, UpdateDecisionCode.INVALID_METADATA)
+
+    def test_direct_manifest_construction_with_wrong_runtime_types_fails_closed(self):
+        malformed = UpdateManifest(
+            version="2.1.0",
+            minimum_source_version=None,
+            payload_sha256=DIGEST,
+            payload_size=len(PAYLOAD),
+            download_url="https://updates.example.invalid/update.exe",
+            key_id="release-2026",
+            signature="signed-metadata",
+        )
+        decision = verify_update(
+            malformed,
+            current_version="2.0.0",
+            payload=PAYLOAD,
+            signature_verifier=ExactVerifier(),
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.code, UpdateDecisionCode.INVALID_METADATA)
+
+    def test_manifest_rejects_non_https_ambiguous_and_credentialed_urls(self):
         invalid_urls = (
             "http://updates.example.invalid/update.exe",
             "file:///C:/update.exe",
             "https://user:pass@updates.example.invalid/update.exe",
             "https://updates.example.invalid/update.exe#fragment",
             "https:///update.exe",
+            "https://updates.example.invalid\\@other.example/update.exe",
+            "https://updates.example.invalid/update\n.exe",
         )
         for url in invalid_urls:
             with self.subTest(url=url):
