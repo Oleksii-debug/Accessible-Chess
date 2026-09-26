@@ -1,0 +1,30 @@
+name: Signed Update Security
+
+on:
+  pull_request:
+    paths:
+      - "acs/update_security.py"
+      - "tests/test_update_security.py"
+      - ".github/workflows/signed-update-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile update security module
+        run: python -m py_compile acs/update_security.py tests/test_update_security.py
+      - name: Run signed update security contract
+        run: python -m unittest -v tests.test_update_security
