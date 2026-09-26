@@ -171,9 +171,7 @@ try {
   })
   if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
 
-  $document=$null
-  $textPattern=$null
-  $target=$null
+  $usableDocuments=@()
   foreach($candidate in $documents){
     try {
       $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
@@ -183,17 +181,24 @@ try {
       $candidateTarget=$candidateRange.FindText('Інформація про гру',$false,$false)
       if($null -eq $candidateTarget){$candidateTarget=$candidateRange.FindText('Game information',$false,$false)}
       if($null -eq $candidateTarget){continue}
-      $document=$candidate
-      $textPattern=$candidatePattern
-      $target=$candidateTarget
-      break
+      $usableDocuments += ,[pscustomobject]@{
+        document=$candidate
+        text_pattern=$candidatePattern
+        target=$candidateTarget
+      }
     } catch {
       continue
     }
   }
-  if($null -eq $document){
+  if($usableDocuments.Count -eq 0){
     throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
   }
+  if($usableDocuments.Count -ne 1){
+    throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
+  }
+  $document=$usableDocuments[0].document
+  $textPattern=$usableDocuments[0].text_pattern
+  $target=$usableDocuments[0].target
 
   $selected=([string]$target.GetText(-1)).Trim()
   if(-not $selected){throw 'Static TextPattern target is empty'}
@@ -242,6 +247,7 @@ try {
   $summary=[ordered]@{
     product_sha=$ProductSha
     discovery='connected provider-root ControlView from retained topology handles'
+    document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'
     focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
     static_document_text=$selected
     static_document_outside_edit=$true
