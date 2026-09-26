@@ -187,7 +187,9 @@
   const announcementQueue = [];
   const rememberedDispatches = new Set();
   const rememberedDispatchOrder = [];
+  const recentPassiveAnnouncements = new Map();
   const MAX_REMEMBERED_DISPATCHES = 256;
+  const MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS = 256;
 
   function rememberDispatch(dispatch) {
     if (dispatch === null) return false;
@@ -196,6 +198,17 @@
     rememberedDispatchOrder.push(dispatch);
     while (rememberedDispatchOrder.length > MAX_REMEMBERED_DISPATCHES) {
       rememberedDispatches.delete(rememberedDispatchOrder.shift());
+    }
+    return false;
+  }
+
+  function rememberPassiveAnnouncement(text, now) {
+    const previous = recentPassiveAnnouncements.get(text);
+    if (previous !== undefined && now - previous < 500) return true;
+    if (recentPassiveAnnouncements.has(text)) recentPassiveAnnouncements.delete(text);
+    recentPassiveAnnouncements.set(text, now);
+    while (recentPassiveAnnouncements.size > MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS) {
+      recentPassiveAnnouncements.delete(recentPassiveAnnouncements.keys().next().value);
     }
     return false;
   }
@@ -223,7 +236,7 @@
     const dispatch = dispatchId === null || dispatchId === undefined ? null : String(dispatchId);
     if (dispatch !== null) {
       if (rememberDispatch(dispatch)) return false;
-    } else if (text === lastAnnouncement && now - lastAnnouncementAt < 500 && lastAnnouncementDispatch === null) {
+    } else if (rememberPassiveAnnouncement(text, now)) {
       return false;
     }
     lastAnnouncement = text;
