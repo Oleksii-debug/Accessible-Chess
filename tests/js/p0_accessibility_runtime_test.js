@@ -186,6 +186,18 @@ async function run() {
   const pgnSecond = await pgnSurfaceInvoke("pgn.action", {});
   pgnSurfaceAnnounce(pgnSecond.payload.announcement);
 
+  const concurrentPgnResult = async function () {
+    return { kind: "result", payload: { announcement: "Concurrent product-surface result" } };
+  };
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, concurrentPgnResult, staleCallback);
+  const concurrentResults = await Promise.all([
+    pgnSurfaceInvoke("pgn.concurrent", { ordinal: 1 }),
+    pgnSurfaceInvoke("pgn.concurrent", { ordinal: 2 })
+  ]);
+  pgnSurfaceAnnounce(concurrentResults[0].payload.announcement);
+  pgnSurfaceAnnounce(concurrentResults[0].payload.announcement);
+  pgnSurfaceAnnounce(concurrentResults[1].payload.announcement);
+
   const repeatLibraryResult = async function () {
     return { kind: "result", payload: { announcement: "Same library surface result" } };
   };
@@ -197,7 +209,7 @@ async function run() {
   const librarySecond = await librarySurfaceInvoke("library.action", {});
   librarySurfaceAnnounce(librarySecond.payload.announcement);
 
-  await new Promise(resolve => setTimeout(resolve, 360));
+  await new Promise(resolve => setTimeout(resolve, 520));
   assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
@@ -205,9 +217,18 @@ async function run() {
     "duplicate emission from one PGN action must coalesce while a second same-text action on the same render stays observable"
   );
   assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Concurrent product-surface result").length,
+    2,
+    "concurrent same-text surface actions must retain separate event identities while one-action duplicates coalesce"
+  );
+  assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
     2,
     "two equal Library user results on one rendered surface must remain two live-region events"
+  );
+  assert.ok(
+    nonEmptyLiveWrites.every(value => value.indexOf("AccessibleChessEvent:") === -1),
+    "internal surface event identity must never leak into the live-region text"
   );
 
   fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
