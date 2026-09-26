@@ -70,6 +70,19 @@ class SecretRedactionTests(unittest.TestCase):
         self.assertIn("account_id", output)
         self.assertGreaterEqual(output.count(REDACTED), 5)
 
+    def test_quoted_assignments_redact_entire_secret_value(self) -> None:
+        raw = (
+            'password="correct horse battery" '
+            "client_secret='two word secret' account_id=acct-8"
+        )
+        output = redact_text(raw)
+        self.assertNotIn("correct horse battery", output)
+        self.assertNotIn("horse battery", output)
+        self.assertNotIn("two word secret", output)
+        self.assertIn('password="' + REDACTED + '"', output)
+        self.assertIn("client_secret='" + REDACTED + "'", output)
+        self.assertIn("account_id=acct-8", output)
+
     def test_cookie_headers_redact_the_complete_header_value(self) -> None:
         raw = (
             "Cookie: sessionid=session-secret; theme=dark; csrftoken=csrf-secret\n"
