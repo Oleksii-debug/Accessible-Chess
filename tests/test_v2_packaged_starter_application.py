@@ -18,6 +18,20 @@ from acs.version2_packaged_starter_application import Version2PackagedStarterApp
 _STARTER_COUNT = 200
 _STRESS_COUNT = 1200
 _PROJECT_LICENSE_ID = "LicenseRef-Accessible-Chess-Starter-Content-1.0"
+_CORPUS_NAME = "lichess-standard-rated-2013-01"
+_CORPUS_URL = "https://database.lichess.org/standard/lichess_db_standard_rated_2013-01.pgn.zst"
+_CORPUS_SHA256 = "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635"
+_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
+_CURATION_CRITERIA = {
+    "minimum_plies": 20,
+    "valid_results": ["0-1", "1-0", "1/2-1/2"],
+    "required_metadata": ["Event", "White", "Black"],
+    "result_minimums": {"1-0": 20, "0-1": 20, "1/2-1/2": 8},
+    "length_band_minimums": {"20-59": 20, "60-99": 20, "100+": 8},
+    "minimum_distinct_opening_prefixes": 12,
+    "opening_prefix_plies": 4,
+    "maximum_scanned_games": 5000,
+}
 
 
 def _game_record(index: int, *, event_prefix: str = "Starter sample") -> str:
@@ -71,19 +85,42 @@ def _write_bundle(root: Path) -> None:
             "bytes": path.stat().st_size,
             "license_id": license_id,
         }
+    selected_games = [
+        {"record_sha256": hashlib.sha256(_game_record(index).encode("utf-8")).hexdigest()}
+        for index in range(1, _STARTER_COUNT + 1)
+    ]
     manifest = {
         "schema_version": 3,
         "bundle_kind": "lawful-curated-real-game-starter",
         "runtime_network_required": False,
         "starter_source": {
+            "name": _CORPUS_NAME,
+            "url": _CORPUS_URL,
             "license_id": "CC0-1.0",
+            "published_games": 121_332,
+            "compressed_sha256": _CORPUS_SHA256,
+            "compressed_bytes": 1,
+            "selection": _POLICY_ID,
+            "subset_sha256": hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest(),
             "selected_games": _STARTER_COUNT,
+            "curation": {
+                "policy_id": _POLICY_ID,
+                "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+                "criteria": _CURATION_CRITERIA,
+                "selected_games": selected_games,
+            },
         },
         "licenses": {
             "CC0-1.0": {"type": "public-domain-dedication"},
             _PROJECT_LICENSE_ID: {"type": "project-owned-redistribution-grant"},
         },
         "counts": {"starter_games": _STARTER_COUNT, "stress_games": _STRESS_COUNT},
+        "sample_library": {
+            "games": _STARTER_COUNT,
+            "distinct_games": _STARTER_COUNT,
+            "distinct_player_pairs": _STARTER_COUNT,
+            "distinct_events": _STARTER_COUNT,
+        },
         "files": files,
     }
     (root / "manifest.json").write_text(
@@ -125,20 +162,12 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertIn("library.open_packaged_stress_pgn", actions)
                 self.assertIn("library.import_packaged_sample_library", actions)
                 self.assertTrue(actions["library.open_packaged_starter_pgn"]["enabled"])
-                self.assertIn(
-                    str(_STARTER_COUNT), actions["library.open_packaged_starter_pgn"]["label"]
-                )
-                self.assertIn(
-                    str(_STRESS_COUNT), actions["library.open_packaged_stress_pgn"]["label"]
-                )
-                self.assertIn(
-                    str(_STARTER_COUNT), actions["library.import_packaged_sample_library"]["label"]
-                )
+                self.assertIn(str(_STARTER_COUNT), actions["library.open_packaged_starter_pgn"]["label"])
+                self.assertIn(str(_STRESS_COUNT), actions["library.open_packaged_stress_pgn"]["label"])
+                self.assertIn(str(_STARTER_COUNT), actions["library.import_packaged_sample_library"]["label"])
                 self.assertNotIn("240", actions["library.open_packaged_starter_pgn"]["label"])
 
-                result = app.browser_command(
-                    "library", "library.open_packaged_starter_pgn", {}
-                )
+                result = app.browser_command("library", "library.open_packaged_starter_pgn", {})
                 self.assertEqual("status", result["kind"])
                 self.assertEqual("pgn", app.shell.current_route.route_id)
                 self.assertIsNotNone(app.session)
@@ -151,13 +180,9 @@ class PackagedStarterApplicationTests(unittest.TestCase):
 
                 app.session.edit_tag("Event", "Edited starter sample")
                 self.assertTrue(app.session.dirty)
-                result = app.browser_command(
-                    "library", "library.open_packaged_stress_pgn", {}
-                )
+                result = app.browser_command("library", "library.open_packaged_stress_pgn", {})
                 self.assertEqual("error", result["kind"])
-                self.assertEqual(
-                    "Edited starter sample", app.session.workspace.games()[0].tags["Event"]
-                )
+                self.assertEqual("Edited starter sample", app.session.workspace.games()[0].tags["Event"])
             finally:
                 app.shutdown()
                 analysis.close()
@@ -178,9 +203,7 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertFalse(app.session.dirty)
                 self.assertIsNone(app.session.view().source_path)
                 self.assertEqual(_STRESS_COUNT, app.session.view().game_count)
-                self.assertEqual(
-                    "Stress sample 001", app.session.workspace.games()[0].tags["Event"]
-                )
+                self.assertEqual("Stress sample 001", app.session.workspace.games()[0].tags["Event"])
             finally:
                 app.shutdown()
                 analysis.close()
@@ -194,14 +217,10 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             manifest_path = bundle / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["counts"]["stress_games"] = _STRESS_COUNT + 1
-            manifest_path.write_text(
-                json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
-            )
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
             app, database, analysis = self._application(root, bundle)
             try:
-                result = app.browser_command(
-                    "library", "library.open_packaged_stress_pgn", {}
-                )
+                result = app.browser_command("library", "library.open_packaged_stress_pgn", {})
                 self.assertEqual("error", result["kind"])
                 self.assertIsNone(app.session)
             finally:
@@ -217,13 +236,59 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             manifest_path = bundle / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["files"]["starter_uk.pgn"]["license_id"] = _PROJECT_LICENSE_ID
-            manifest_path.write_text(
-                json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
-            )
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
             database = AcsDatabase(root / "user-library.acsdb")
             analysis = AnalysisService(lambda: None)
             try:
                 with self.assertRaisesRegex(RuntimeError, "license failed"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_corpus_identity_drift_fails_closed_before_application_start(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-source-drift-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["starter_source"]["compressed_sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "compressed_sha256"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_curation_policy_drift_fails_closed_before_application_start(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-policy-drift-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["starter_source"]["curation"]["criteria"]["minimum_plies"] = 1
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "criteria authority"):
                     Version2PackagedStarterApplication(
                         database,
                         packaged_starter_root=bundle,
@@ -245,28 +310,18 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             app, database, analysis = self._application(root, bundle)
             try:
                 self.assertEqual(0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
-                first = app.browser_command(
-                    "library", "library.import_packaged_sample_library", {}
-                )
+                first = app.browser_command("library", "library.import_packaged_sample_library", {})
                 self.assertEqual("render", first["kind"])
                 self.assertEqual("library", app.shell.current_route.route_id)
-                self.assertEqual(
-                    _STARTER_COUNT,
-                    database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
-                )
+                self.assertEqual(_STARTER_COUNT, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
                 self.assertEqual(1, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
                 self.assertEqual(before_hash, _sha256(packaged_database))
                 first_announcement = first["payload"]["announcement"]
                 self.assertTrue(first_announcement)
 
-                second = app.browser_command(
-                    "library", "library.import_packaged_sample_library", {}
-                )
+                second = app.browser_command("library", "library.import_packaged_sample_library", {})
                 self.assertEqual("render", second["kind"])
-                self.assertEqual(
-                    _STARTER_COUNT,
-                    database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
-                )
+                self.assertEqual(_STARTER_COUNT, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
                 self.assertEqual(1, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
                 self.assertEqual(2, database.conn.execute("SELECT COUNT(*) FROM import_attempts").fetchone()[0])
                 self.assertEqual(before_hash, _sha256(packaged_database))
@@ -287,14 +342,10 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             try:
                 with (bundle / "starter_uk.pgn").open("a", encoding="utf-8") as handle:
                     handle.write("\n{post-start tamper}\n")
-                result = app.browser_command(
-                    "library", "library.open_packaged_starter_pgn", {}
-                )
+                result = app.browser_command("library", "library.open_packaged_starter_pgn", {})
                 self.assertEqual("error", result["kind"])
                 self.assertIsNone(app.session)
-                self.assertEqual(
-                    0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
-                )
+                self.assertEqual(0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
             finally:
                 app.shutdown()
                 analysis.close()
@@ -320,23 +371,14 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 quick = sqlite3.connect(packaged_database)
                 try:
                     self.assertEqual("ok", quick.execute("PRAGMA quick_check").fetchone()[0])
-                    self.assertEqual(
-                        _STARTER_COUNT,
-                        quick.execute("SELECT COUNT(*) FROM games").fetchone()[0],
-                    )
+                    self.assertEqual(_STARTER_COUNT, quick.execute("SELECT COUNT(*) FROM games").fetchone()[0])
                 finally:
                     quick.close()
 
-                result = app.browser_command(
-                    "library", "library.import_packaged_sample_library", {}
-                )
+                result = app.browser_command("library", "library.import_packaged_sample_library", {})
                 self.assertEqual("error", result["kind"])
-                self.assertEqual(
-                    0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
-                )
-                self.assertEqual(
-                    0, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
-                )
+                self.assertEqual(0, database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
+                self.assertEqual(0, database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0])
             finally:
                 app.shutdown()
                 analysis.close()
@@ -352,7 +394,7 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             database = AcsDatabase(root / "user-library.acsdb")
             analysis = AnalysisService(lambda: None)
             try:
-                with self.assertRaisesRegex(RuntimeError, "integrity failed"):
+                with self.assertRaisesRegex(RuntimeError, "byte length"):
                     Version2PackagedStarterApplication(
                         database,
                         packaged_starter_root=bundle,
@@ -396,6 +438,34 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             payload.unlink()
             try:
                 payload.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlink creation unavailable on this host: {type(exc).__name__}")
+            database = AcsDatabase(root / "user-library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "regular non-reparse file"):
+                    Version2PackagedStarterApplication(
+                        database,
+                        packaged_starter_root=bundle,
+                        progress_store=BookProgressStore(root / "book-progress.json"),
+                        engine_assistance=EngineAssistedWorkflowService(analysis),
+                        board_dispatch=lambda *_: None,
+                    )
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_symlink_manifest_fails_closed_even_when_target_bytes_match(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-manifest-symlink-") as raw:
+            root = Path(raw)
+            bundle = root / "w2-starter"
+            _write_bundle(bundle)
+            manifest_path = bundle / "manifest.json"
+            target = root / "same-manifest.json"
+            target.write_bytes(manifest_path.read_bytes())
+            manifest_path.unlink()
+            try:
+                manifest_path.symlink_to(target)
             except OSError as exc:
                 self.skipTest(f"symlink creation unavailable on this host: {type(exc).__name__}")
             database = AcsDatabase(root / "user-library.acsdb")
