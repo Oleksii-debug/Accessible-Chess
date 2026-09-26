@@ -1,0 +1,56 @@
+name: Authenticode Verification Contract
+
+on:
+  pull_request:
+    paths:
+      - 'acs/authenticode.py'
+      - 'tests/test_authenticode.py'
+      - '.github/workflows/authenticode-verification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authenticode-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove isolated verification-only scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          changed="$(git diff --name-only "$base" HEAD | grep -E '^(acs/authenticode\.py|tests/test_authenticode\.py|\.github/workflows/authenticode-verification\.yml)$' | sort || true)"
+          expected="$(printf '%s\n' '.github/workflows/authenticode-verification.yml' 'acs/authenticode.py' 'tests/test_authenticode.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Authenticode owned paths:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile verifier and tests
+        run: python -m compileall -q acs/authenticode.py tests/test_authenticode.py
+
+      - name: Execute Authenticode contract tests
+        run: python -m unittest -v tests.test_authenticode
+
+      - name: Core selftest
+        run: python -m acs.selftest
