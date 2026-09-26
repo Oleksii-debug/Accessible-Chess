@@ -120,6 +120,16 @@ class PackagedStarterApplicationTests(unittest.TestCase):
                 self.assertIn("library.open_packaged_stress_pgn", actions)
                 self.assertIn("library.import_packaged_sample_library", actions)
                 self.assertTrue(actions["library.open_packaged_starter_pgn"]["enabled"])
+                self.assertIn(
+                    str(_STARTER_COUNT), actions["library.open_packaged_starter_pgn"]["label"]
+                )
+                self.assertIn(
+                    str(_STRESS_COUNT), actions["library.open_packaged_stress_pgn"]["label"]
+                )
+                self.assertIn(
+                    str(_STARTER_COUNT), actions["library.import_packaged_sample_library"]["label"]
+                )
+                self.assertNotIn("240", actions["library.open_packaged_starter_pgn"]["label"])
 
                 result = app.browser_command(
                     "library", "library.open_packaged_starter_pgn", {}
