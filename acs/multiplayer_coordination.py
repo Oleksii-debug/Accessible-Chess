@@ -511,6 +511,15 @@ def validate_game_intent(
     if intent.kind in {GameIntentKind.REQUEST_REMATCH, GameIntentKind.ACCEPT_REMATCH}:
         if snapshot.lifecycle.status is not GameStatus.FINISHED:
             raise MultiplayerContractError("rematch intent requires a finished game")
+    if intent.kind is GameIntentKind.REQUEST_REMATCH:
+        if snapshot.rematch_requested_by is not None:
+            raise MultiplayerContractError("a rematch request is already pending")
+    if intent.kind is GameIntentKind.ACCEPT_REMATCH:
+        requester = snapshot.rematch_requested_by
+        if requester is None:
+            raise MultiplayerContractError("there is no pending rematch request")
+        if requester == intent.actor_id:
+            raise MultiplayerContractError("a player cannot accept their own rematch request")
 
 
 class MultiplayerSnapshotTracker:
