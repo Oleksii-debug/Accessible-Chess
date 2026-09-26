@@ -315,7 +315,11 @@
             result = originalInvoke.apply(this, invokeArgs);
           } catch (error) {
             rejectedDispatches.push(dispatchId);
-            throw error;
+            // Always expose the wrapped invoke as a Promise boundary. Some
+            // shipping surfaces use Promise.resolve(invoke(...)).catch(...);
+            // rethrowing here would escape before their accessible fallback
+            // announcement can run.
+            return Promise.reject(error);
           }
           return Promise.resolve(result).then(
             function (resolved) {
