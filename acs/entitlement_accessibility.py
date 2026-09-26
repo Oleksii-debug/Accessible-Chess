@@ -78,14 +78,14 @@ class EntitlementAccessibilityPresenter:
     def _view(self) -> EntitlementView:
         try:
             payload = self._state_provider()
+            if payload is not None and not isinstance(payload, Mapping):
+                payload = None
+            view = project_entitlement(payload, lang=self._language)
         except Exception:
-            # Provider internals must not cross the presentation boundary.  The
-            # existing projection deliberately treats missing state as blocking
-            # while preserving local user data and offering a retry intent.
-            payload = None
-        if payload is not None and not isinstance(payload, Mapping):
-            payload = None
-        view = project_entitlement(payload, lang=self._language)
+            # Provider or malformed projection internals must not cross the
+            # presentation boundary.  Missing state is the canonical blocking,
+            # data-preserving recovery projection and remains keyboard reachable.
+            view = project_entitlement(None, lang=self._language)
         if view.action_id is not None and view.action_id not in _ALLOWED_ACTIONS:
             raise ValueError("entitlement projection exposed an unsupported action")
         return view
