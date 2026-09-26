@@ -440,7 +440,11 @@ def _sqlite_state_sha256(connection: sqlite3.Connection) -> str:
     return digest.hexdigest()
 
 
-def _library_state_sha256(path: Path) -> str:
+def _library_state_sha256(
+    path: Path,
+    *,
+    schema_validator: Callable[[sqlite3.Connection], int] = _canonical_library_schema,
+) -> str:
     connection = None
     try:
         connection = sqlite3.connect(
@@ -449,7 +453,7 @@ def _library_state_sha256(path: Path) -> str:
             timeout=0.0,
         )
         connection.execute("PRAGMA busy_timeout=0")
-        _canonical_library_schema(connection)
+        schema_validator(connection)
         return _sqlite_state_sha256(connection)
     except Version2UpgradeError:
         raise
@@ -461,7 +465,10 @@ def _library_state_sha256(path: Path) -> str:
 
 
 def _sqlite_backup(
-    source: Path, destination: Path
+    source: Path,
+    destination: Path,
+    *,
+    schema_validator: Callable[[sqlite3.Connection], int] = _canonical_library_schema,
 ) -> tuple[int, str, int, str]:
     info = _safe_stat(source, "library source")
     if not stat.S_ISREG(info.st_mode):
@@ -486,12 +493,12 @@ def _sqlite_backup(
                 timeout=0.0,
             )
             reader.execute("PRAGMA busy_timeout=0")
-            version = _canonical_library_schema(reader)
+            version = schema_validator(reader)
             state_digest = _sqlite_state_sha256(reader)
             target = sqlite3.connect(str(temp))
             reader.backup(target)
             target.commit()
-            if _canonical_library_schema(target) != version:
+            if schema_validator(target) != version:
                 raise Version2UpgradeError("library backup schema mismatch")
             if _sqlite_state_sha256(target) != state_digest:
                 raise Version2UpgradeError("library backup logical-state mismatch")
@@ -596,6 +603,10 @@ class Version2UpgradeCoordinator:
         self._last_backup: Path | None = None
         self._last_manifest: dict[str, object] | None = None
 
+    def _validate_library_schema(self, connection: sqlite3.Connection) -> int:
+        """Validate one Library connection for this coordinator instance."""
+        return _canonical_library_schema(connection)
+
     def _notify(self, phase: str) -> None:
         if self.phase_hook is not None:
             self.phase_hook(phase)
@@ -670,7 +681,9 @@ class Version2UpgradeCoordinator:
                 state_digest = None
                 if relative == self.layout.library_name:
                     size, digest, library_schema, state_digest = _sqlite_backup(
-                        source, destination
+                        source,
+                        destination,
+                        schema_validator=self._validate_library_schema,
                     )
                 else:
                     size, digest = _stable_copy(source, destination)
@@ -947,7 +960,9 @@ class Version2UpgradeCoordinator:
         if not stat.S_ISREG(info.st_mode):
             raise Version2UpgradeError("tracked user data must be a file")
         if name == self.layout.library_name:
-            return _library_state_sha256(path)
+            return _library_state_sha256(
+                path, schema_validator=self._validate_library_schema
+            )
         return _hash(path)
 
     def _assert_tracked_original(
@@ -1018,7 +1033,7 @@ class Version2UpgradeCoordinator:
                 str(self.layout.library_path), timeout=0.0
             )
             connection.execute("PRAGMA busy_timeout=0")
-            _canonical_library_schema(connection)
+            self._validate_library_schema(connection)
             if _sqlite_state_sha256(connection) != expected_original:
                 raise Version2UpgradeError(
                     "tracked user data changed after the upgrade snapshot"
@@ -1065,7 +1080,13 @@ class Version2UpgradeCoordinator:
             if connection is not None:
                 connection.close()
 
-        if _library_state_sha256(self.layout.library_path) != expected_original:
+        if (
+            _library_state_sha256(
+                self.layout.library_path,
+                schema_validator=self._validate_library_schema,
+            )
+            != expected_original
+        ):
             raise Version2UpgradeError(
                 "tracked user data changed after the upgrade snapshot"
             )
@@ -1195,7 +1216,7 @@ class Version2UpgradeCoordinator:
                 )
                 try:
                     connection.execute("PRAGMA busy_timeout=0")
-                    restored_schema = _canonical_library_schema(connection)
+                    restored_schema = self._validate_library_schema(connection)
                 finally:
                     connection.close()
                 if restored_schema != manifest.get("library_schema_before"):
@@ -1280,7 +1301,7 @@ class Version2UpgradeCoordinator:
                 timeout=0.0,
             )
             connection.execute("PRAGMA busy_timeout=0")
-            return _canonical_library_schema(connection)
+            return self._validate_library_schema(connection)
         except Version2UpgradeError:
             raise
         except sqlite3.DatabaseError as exc:
@@ -1449,7 +1470,11 @@ class Version2UpgradeCoordinator:
                 close()
             database = None
 
-            _, _, publish_schema, publish_state = _sqlite_backup(work, publish)
+            _, _, publish_schema, publish_state = _sqlite_backup(
+                work,
+                publish,
+                schema_validator=self._validate_library_schema,
+            )
             if publish_schema != ACSDB_SCHEMA_VERSION:
                 raise Version2UpgradeError(
                     "library migration did not reach the target schema"
@@ -1477,8 +1502,14 @@ class Version2UpgradeCoordinator:
             guard: Path | None = _publication_guard(self.layout.library_path)
             try:
                 if (
-                    _library_state_sha256(guard) != original_state
-                    or _library_state_sha256(self.layout.library_path)
+                    _library_state_sha256(
+                        guard, schema_validator=self._validate_library_schema
+                    )
+                    != original_state
+                    or _library_state_sha256(
+                        self.layout.library_path,
+                        schema_validator=self._validate_library_schema,
+                    )
                     != original_state
                 ):
                     raise Version2UpgradeError(
@@ -1486,7 +1517,12 @@ class Version2UpgradeCoordinator:
                     )
                 os.replace(publish, self.layout.library_path)
                 _fsync_dir(self.layout.root)
-                if _library_state_sha256(guard) != original_state:
+                if (
+                    _library_state_sha256(
+                        guard, schema_validator=self._validate_library_schema
+                    )
+                    != original_state
+                ):
                     # Preserve a writer that committed to the authenticated old
                     # inode after the final re-authentication but before replace.
                     os.replace(guard, self.layout.library_path)
