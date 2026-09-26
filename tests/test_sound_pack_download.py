@@ -222,6 +222,34 @@ class HttpsZipSoundPackAcquirerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlinks"):
                 acquirer.acquire(_entry(archive), staging_parent=Path(tmp))
 
+    def test_executable_unix_mode_is_rejected_even_for_wav_name(self):
+        files = _pack_files()
+        executable = zipfile.ZipInfo("audio/executable.wav")
+        executable.create_system = 3
+        executable.external_attr = (stat.S_IFREG | 0o755) << 16
+        archive = _zip_bytes(
+            files,
+            extra_infos=((executable, _wav_bytes(b"executable")),),
+        )
+        acquirer = HttpsZipSoundPackAcquirer(opener=_Opener(archive))
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "executable file mode"):
+                acquirer.acquire(_entry(archive), staging_parent=Path(tmp))
+
+    def test_fifo_or_device_style_zip_member_is_rejected(self):
+        files = _pack_files()
+        fifo = zipfile.ZipInfo("audio/fifo.wav")
+        fifo.create_system = 3
+        fifo.external_attr = (stat.S_IFIFO | 0o644) << 16
+        archive = _zip_bytes(
+            files,
+            extra_infos=((fifo, _wav_bytes(b"fifo")),),
+        )
+        acquirer = HttpsZipSoundPackAcquirer(opener=_Opener(archive))
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "special file"):
+                acquirer.acquire(_entry(archive), staging_parent=Path(tmp))
+
     def test_case_colliding_paths_are_rejected_before_windows_extraction(self):
         files = _pack_files()
         files["Audio/MOVE.wav"] = b"RIFFcollision"
