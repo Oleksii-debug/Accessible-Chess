@@ -3,13 +3,12 @@ name: V2 Accessible Book Core
 on:
   push:
     branches:
-      - work/v2-accessible-book-core-20260831
+      - fix/current-book-semantic-pgn-gate-20260926
   pull_request:
     branches:
-      - work/version2-integration-formats-20260827
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/bookdocument.py'
-      - 'acs/book_index.py'
       - 'tests/test_v2_accessible_book_core.py'
       - '.github/workflows/v2-accessible-book-core.yml'
   workflow_dispatch:
@@ -31,6 +30,7 @@ jobs:
     timeout-minutes: 55
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CLAIMED_PRODUCT_SHA: e61b570761207ecd1db0322bfc80c3e302b63e2f
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,40 +58,25 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             upstream="$PR_BASE_SHA"
-            mode="current-pr"
           else
-            upstream="$(git merge-base 575ec0088982d2f90adb47c040a5714d68186b0e HEAD)"
-            mode="branch-push"
+            upstream="$CLAIMED_PRODUCT_SHA"
           fi
           test -n "$upstream"
           git merge-base --is-ancestor "$upstream" HEAD
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          test -n "$changed"
-          while IFS= read -r path; do
-            case "$path" in
-              .github/workflows/v2-accessible-book-core.yml|acs/bookdocument.py|acs/book_index.py|tests/test_v2_accessible_book_core.py)
-                ;;
-              *)
-                echo "Unexpected path outside Accessible Book Core ownership: $path" >&2
-                exit 1
-                ;;
-            esac
-          done <<< "$changed"
-          if [ "$mode" = "current-pr" ]; then
-            expected="$(printf '%s\n' \
-              '.github/workflows/v2-accessible-book-core.yml' \
-              'acs/bookdocument.py' \
-              'acs/book_index.py' \
-              'tests/test_v2_accessible_book_core.py' | sort)"
-            test "$changed" = "$expected"
-          fi
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-accessible-book-core.yml' \
+            'acs/bookdocument.py' \
+            'tests/test_v2_accessible_book_core.py' | sort)"
+          test "$changed" = "$expected"
 
           git diff --quiet "$upstream" HEAD -- \
             acs/chesscore.py \
             acs/gametree.py \
             acs/pgn_roundtrip.py \
+            acs/book_index.py \
             acs/bookreader.py \
             acs/book_training.py \
             acs/book_progress_store.py \
@@ -107,7 +92,6 @@ jobs:
         run: >-
           python -m compileall -q
           acs/bookdocument.py
-          acs/book_index.py
           tests/test_v2_accessible_book_core.py
 
       - name: Focused semantic Book regressions
@@ -117,6 +101,9 @@ jobs:
           tests.test_bookdocument
           tests.test_book_index
           tests.test_bookreader
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
