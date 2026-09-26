@@ -25,6 +25,7 @@ from .full_product_ui_shell import UILanguage
 from .library_import_service import LibraryImportService
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
+from .starter_content import CONTENT_LICENSE_ID
 from .version2_starter_content_application import Version2StarterContentApplication
 
 
@@ -32,6 +33,12 @@ _EXPECTED_FILES = frozenset(
     {"starter_uk.pgn", "stress_uk.pgn", "sample_library.acsdb", "manifest.json"}
 )
 _REQUIRED_PAYLOAD_FILES = ("starter_uk.pgn", "stress_uk.pgn", "sample_library.acsdb")
+_CORPUS_LICENSE_ID = "CC0-1.0"
+_EXPECTED_PAYLOAD_LICENSES = {
+    "starter_uk.pgn": _CORPUS_LICENSE_ID,
+    "stress_uk.pgn": CONTENT_LICENSE_ID,
+    "sample_library.acsdb": _CORPUS_LICENSE_ID,
+}
 _STARTER_ACTION = "library.open_packaged_starter_pgn"
 _STRESS_ACTION = "library.open_packaged_stress_pgn"
 _LIBRARY_ACTION = "library.import_packaged_sample_library"
@@ -83,12 +90,7 @@ def _safe_file(path: Path, *, label: str) -> os.stat_result:
 
 
 def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare stable file identity where the host exposes one.
-
-    Windows/POSIX Python normally supplies ``st_dev`` and ``st_ino``. Some
-    unusual filesystems may report a zero inode; in that case byte identity is
-    still enforced by the manifest hash below rather than inventing an identity.
-    """
+    """Compare stable file identity where the host exposes one."""
 
     left_ino = getattr(left, "st_ino", 0)
     right_ino = getattr(right, "st_ino", 0)
@@ -125,6 +127,8 @@ def _load_manifest(root: Path) -> dict[str, object]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 3:
         raise RuntimeError("packaged starter content manifest schema is invalid")
+    if manifest.get("bundle_kind") != "lawful-curated-real-game-starter":
+        raise RuntimeError("packaged starter content bundle kind is invalid")
     if manifest.get("runtime_network_required") is not False:
         raise RuntimeError("packaged starter content must not require runtime network access")
 
@@ -139,10 +143,20 @@ def _load_manifest(root: Path) -> dict[str, object]:
         raise RuntimeError("packaged starter stress corpus is not larger than the starter corpus")
 
     source = manifest.get("starter_source")
-    if not isinstance(source, dict) or source.get("license_id") != "CC0-1.0":
+    if not isinstance(source, dict) or source.get("license_id") != _CORPUS_LICENSE_ID:
         raise RuntimeError("packaged starter source license is invalid")
     if source.get("selected_games") != starter_count:
         raise RuntimeError("packaged starter source count does not match the manifest")
+
+    licenses = manifest.get("licenses")
+    if not isinstance(licenses, Mapping):
+        raise RuntimeError("packaged starter content license inventory is unavailable")
+    corpus_license = licenses.get(_CORPUS_LICENSE_ID)
+    project_license = licenses.get(CONTENT_LICENSE_ID)
+    if not isinstance(corpus_license, Mapping) or corpus_license.get("type") != "public-domain-dedication":
+        raise RuntimeError("packaged starter corpus license authority is invalid")
+    if not isinstance(project_license, Mapping) or project_license.get("type") != "project-owned-redistribution-grant":
+        raise RuntimeError("packaged starter project license authority is invalid")
 
     files = manifest.get("files")
     if not isinstance(files, dict) or set(files) != set(_REQUIRED_PAYLOAD_FILES):
@@ -153,6 +167,8 @@ def _load_manifest(root: Path) -> dict[str, object]:
         info = _safe_file(path, label="packaged starter content payload")
         if not isinstance(metadata, Mapping):
             raise RuntimeError("packaged starter content file metadata is invalid")
+        if metadata.get("license_id") != _EXPECTED_PAYLOAD_LICENSES[name]:
+            raise RuntimeError(f"packaged starter content license failed for {name}")
         expected_hash = metadata.get("sha256")
         expected_bytes = metadata.get("bytes")
         if type(expected_hash) is not str or len(expected_hash) != 64:
@@ -171,14 +187,7 @@ def _verified_payload_bytes(
     *,
     label: str,
 ) -> bytes:
-    """Read exactly the bytes pinned by the already-validated manifest.
-
-    Startup discovery proves the package was intact when the application was
-    composed. User actions can happen much later, so never trust the pathname
-    again merely because it still resolves to a regular file. Bind each action to
-    one opened handle, verify the bytes actually consumed, and reject a pathname
-    replacement observed before/after that read.
-    """
+    """Read exactly the bytes pinned by the already-validated manifest."""
 
     files = manifest.get("files")
     metadata = files.get(name) if isinstance(files, Mapping) else None
