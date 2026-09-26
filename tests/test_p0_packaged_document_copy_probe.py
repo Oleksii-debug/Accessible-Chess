@@ -82,10 +82,14 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         edit_assert = self.text.index("AssertProductForeground $process 'move input copy dispatch'")
         edit_select = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x41)")
         edit_reassert = self.text.index("AssertProductForeground $process 'move input copy dispatch after Ctrl+A'")
+        edit_focus_reassert = self.text.index(
+            "AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'"
+        )
         edit_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", static_copy + 1)
         self.assertLess(edit_assert, edit_select)
         self.assertLess(edit_select, edit_reassert)
-        self.assertLess(edit_reassert, edit_copy)
+        self.assertLess(edit_reassert, edit_focus_reassert)
+        self.assertLess(edit_focus_reassert, edit_copy)
 
     def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
         self.assertIn("if($last -ceq $Expected){return $last}", self.text)
