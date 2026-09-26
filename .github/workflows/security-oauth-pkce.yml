@@ -1,0 +1,103 @@
+name: Security OAuth PKCE Contract
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/oauth_pkce.py'
+      - 'acs/oidc_metadata.py'
+      - 'acs/oauth_token_response.py'
+      - 'tests/test_oauth_pkce.py'
+      - 'tests/test_oauth_pkce_explicit_inputs.py'
+      - 'tests/test_oidc_metadata.py'
+      - 'tests/test_oidc_issuer_binding.py'
+      - 'tests/test_oauth_token_response.py'
+      - '.github/workflows/security-oauth-pkce.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-oauth-pkce-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "OAUTH_PKCE_EXACT_HEAD=$actual"
+
+      - name: Compile contract and tests
+        run: >-
+          python -m py_compile
+          acs/oauth_pkce.py
+          acs/oidc_metadata.py
+          acs/oauth_token_response.py
+          tests/test_oauth_pkce.py
+          tests/test_oauth_pkce_explicit_inputs.py
+          tests/test_oidc_metadata.py
+          tests/test_oidc_issuer_binding.py
+          tests/test_oauth_token_response.py
+
+      - name: Execute focused OAuth/OIDC contract
+        run: >-
+          python -m unittest -v
+          tests.test_oauth_pkce
+          tests.test_oauth_pkce_explicit_inputs
+          tests.test_oidc_metadata
+          tests.test_oidc_issuer_binding
+          tests.test_oauth_token_response
+
+      - name: Enforce provider-neutral boundary
+        shell: python
+        run: |
+          from pathlib import Path
+          request_source = (
+              Path('acs/oauth_pkce.py').read_text(encoding='utf-8')
+              + '\n'
+              + Path('acs/oidc_metadata.py').read_text(encoding='utf-8')
+          )
+          token_source = Path('acs/oauth_token_response.py').read_text(encoding='utf-8')
+          common_forbidden = (
+              'requests', 'urllib.request', 'http.client', 'socket.',
+              'stripe', 'paypal', 'acs.entitlements', 'acs.secret_store',
+              'webbrowser.',
+          )
+          found = [
+              token for token in common_forbidden
+              if token in request_source or token in token_source
+          ]
+          request_only_forbidden = (
+              "'client_secret'", '"client_secret"',
+              "'refresh_token'", '"refresh_token"',
+          )
+          found.extend(token for token in request_only_forbidden if token in request_source)
+          if found:
+              raise SystemExit(f'provider-neutral OAuth boundary violation: {found}')
+          print('OAUTH_PKCE_PROVIDER_NEUTRAL_BOUNDARY=PASS')
+
+      - name: Core selftest
+        run: python -m acs.selftest
