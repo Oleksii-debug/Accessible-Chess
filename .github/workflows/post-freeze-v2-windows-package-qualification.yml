@@ -95,6 +95,33 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Bind canonical WinForms config into inherited standalone build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sourcePath='.package-qualification-source.yml'
+          $text=Get-Content -LiteralPath $sourcePath -Raw
+          $needle="          Write-Host 'STANDALONE_BUILD=PASS'"
+          $count=([regex]::Matches($text,[regex]::Escape($needle))).Count
+          if($count -ne 1){throw "Inherited standalone build marker drifted: count=$count"}
+          $replacement=@"
+          `$config=(Resolve-Path 'packaging\AccessibleChess.exe.config').Path
+          `$target=Join-Path `$dist 'AccessibleChess.exe.config'
+          Copy-Item -LiteralPath `$config -Destination `$target -Force
+          if(-not (Test-Path -LiteralPath `$target -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}
+          if((Get-Item -LiteralPath `$target).Length -le 0){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_EMPTY'}
+          `$sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath `$config).Hash
+          `$targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath `$target).Hash
+          if(`$sourceHash -ne `$targetHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
+          Write-Host "STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=`$(`$targetHash.ToLowerInvariant())"
+$needle
+"@
+          $patched=$text.Replace($needle,$replacement)
+          Set-Content -LiteralPath $sourcePath -Value $patched -Encoding utf8 -NoNewline
+          $readback=Get-Content -LiteralPath $sourcePath -Raw
+          if($readback -notmatch 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS'){throw 'Inherited standalone build app-config patch missing after write'}
+          Write-Host 'INHERITED_STANDALONE_APPCONFIG_BIND=PASS'
+
       - name: Execute exact previous topology-aware pre-artifact executor with restored pins
         shell: pwsh
         run: |
