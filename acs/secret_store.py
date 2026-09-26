@@ -94,8 +94,10 @@ def _read_ciphertext_pinned(path: Path) -> bytes | None:
         raise SecretStoreError(
             f"secret ciphertext cannot be inspected: {type(exc).__name__}"
         ) from exc
-    if stat.S_ISLNK(before.st_mode) or _is_reparse(before) or not stat.S_ISREG(before.st_mode):
-        raise SecretStoreError("secret file must be a regular non-reparse file")
+    if stat.S_ISLNK(before.st_mode) or _is_reparse(before):
+        raise SecretStoreError("secret file must not be a symlink or reparse point")
+    if not stat.S_ISREG(before.st_mode):
+        raise SecretStoreError("secret file must be a regular file")
     if before.st_size <= 0:
         raise SecretStoreError("secret ciphertext is empty")
     if before.st_size > _MAX_CIPHERTEXT_BYTES:
