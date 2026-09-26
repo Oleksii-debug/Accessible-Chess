@@ -1,0 +1,51 @@
+name: Licensing Privacy Boundary
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/entitlements.py'
+      - 'acs/licensing_privacy.py'
+      - 'tests/test_licensing_privacy.py'
+      - '.github/workflows/licensing-privacy-boundary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: licensing-privacy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile privacy boundary
+        run: >-
+          python -m py_compile
+          acs/entitlements.py
+          acs/licensing_privacy.py
+          tests/test_licensing_privacy.py
+
+      - name: Run privacy and canonical entitlement regressions
+        run: >-
+          python -m pytest -q
+          tests/test_licensing_privacy.py
+          tests/test_entitlements.py
