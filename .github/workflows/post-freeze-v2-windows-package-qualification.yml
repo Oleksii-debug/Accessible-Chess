@@ -22,8 +22,8 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 9b1c47711cd4c326b7302f283e7ce97186f8ce0f
-  P0G_PROBE_BLOB_SHA: 485e4d6e9da21899d89775aabc329e08409de68c
+  P0G_QA_SHA: 02e335c5a251c04dbace32684e72f0d7f16fceec
+  P0G_PROBE_BLOB_SHA: e1986cc9316ce148dfcf4536d9d63ca542b6ba8c
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -90,6 +90,7 @@ jobs:
           grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .previous-package-qualification.yml
           grep -Fq "MENUBAR_OVERRIDE = r\"\"\"" .previous-package-qualification.yml
           grep -Fq 'function EnsureEngineEnabled($EngineToggle)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function SelectedVariation($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'AccessibleChessP0GKeys]::Alt' .p0g-packaged-hotkey-result-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
@@ -206,12 +207,12 @@ jobs:
           $summary=Get-Content -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -Raw | ConvertFrom-Json
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Packaged P0-G summary Product SHA mismatch'}
           if(-not [bool]$summary.native_keyboard_dispatch){throw 'Packaged P0-G did not prove native keyboard dispatch'}
-          if(-not [bool]$summary.alt_1_action_occurred -or -not [bool]$summary.alt_1_accessible_result_exposed){throw 'Alt+1 ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
-          if(-not [bool]$summary.alt_2_action_occurred -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Alt+2 ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if(-not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed){throw 'Alt+1 selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if(-not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Alt+2 selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
           if([bool]$summary.board_application_entered){throw 'P0-G probe entered role=application unexpectedly'}
           if([bool]$summary.raw_uci_or_debug_exposed){throw 'P0-G probe exposed raw engine/provider/debug text'}
           if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine P0-G evidence must not claim physical NVDA acceptance'}
-          Write-Host 'PACKAGED_P0G_ACTION_OCCURRED_ACCESSIBLE_RESULT_EXPOSED=PASS'
+          Write-Host 'PACKAGED_P0G_SELECTED_STATE_ACTION_OCCURRED_ACCESSIBLE_RESULT_EXPOSED=PASS'
 
       - name: Upload post-freeze Windows package qualification artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -245,7 +246,7 @@ jobs:
           if($sourceHash -ne $readbackHash){throw 'Packaged P0-G evidence changed across upload/download readback'}
           $summary=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Readback P0-G evidence Product SHA mismatch'}
-          if(-not [bool]$summary.alt_1_action_occurred -or -not [bool]$summary.alt_1_accessible_result_exposed -or -not [bool]$summary.alt_2_action_occurred -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Readback P0-G acceptance fields incomplete'}
+          if(-not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Readback P0-G selected-state acceptance fields incomplete'}
           if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Readback evidence fabricated human/NVDA acceptance'}
           Write-Host "PACKAGED_P0G_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant())"
 
