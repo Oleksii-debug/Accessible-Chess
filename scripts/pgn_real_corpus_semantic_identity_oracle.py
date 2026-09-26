@@ -35,6 +35,7 @@ RECOVERY_WARNING_PREFIXES = (
     "invalid header Result ",
     "recovered malformed result token ",
     "nested brace comment delimiters normalized to parentheses",
+    "duplicate tag ",
 )
 TAG_LINE_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
 MOVE_NUMBER_RE = re.compile(r"(?<!\S)(\d+)\.(?:\.\.)?(?=\s)")
