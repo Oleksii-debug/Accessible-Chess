@@ -81,6 +81,16 @@ global.window = {};
 const source = fs.readFileSync("web/full_product_library.js", "utf8");
 vm.runInThisContext(source, { filename: "full_product_library.js" });
 
+const libraryBindings = {
+  ArrowUp: "library.previous_result",
+  ArrowDown: "library.next_result",
+  Enter: "library.open_game"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "library_results") return "";
+  return libraryBindings[event.key] || "";
+};
+
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -150,4 +160,113 @@ window.AccessibleChessLibrarySurface.apply(
 check(root.replaceChildrenCalls === wholeRenders, "second progress replaced the whole Library surface");
 check(document.activeElement === root.querySelector("#library-import-cancel"), "cancel focus was not restored");
 
-console.log("Library partial progress DOM contract PASS");
+
+async function flush() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function runNavigationContract() {
+  const navigationCalls = [];
+  const navigationSnapshot = {
+    ...snapshot,
+    import: importState("idle", 0),
+    rows: [
+      { game_id: 11, dom_id: "library-game-a", label: "A", source_label: "", selected: true },
+      { game_id: 12, dom_id: "library-game-b", label: "B", source_label: "", selected: false }
+    ],
+    actions: [{ action: "library.open_game", label: "Open", enabled: true }],
+    summary: "2 games",
+    message: ""
+  };
+  const navigationRoot = new FakeElement("div");
+  const navigationInvoke = (command, payload) => {
+    navigationCalls.push([command, payload || {}]);
+    return Promise.resolve(null);
+  };
+  window.AccessibleChessLibrarySurface.render(
+    navigationRoot, navigationSnapshot, navigationInvoke, announce, "library-game-a"
+  );
+  const options = navigationRoot.querySelectorAll('[role="option"]');
+  check(options.length === 2, "library result options missing");
+
+  let downPrevented = false;
+  let downStopped = false;
+  options[0].listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { downPrevented = true; },
+    stopPropagation: () => { downStopped = true; }
+  });
+  check(downPrevented && downStopped, "default Library Down binding was not locally owned");
+  await flush();
+  check(navigationCalls.length === 1, "default Library Down binding did not dispatch exactly once");
+  check(navigationCalls[0][0] === "library.move" && navigationCalls[0][1].delta === 1,
+    "default Library Down binding used wrong bridge command");
+
+  delete libraryBindings.ArrowDown;
+  libraryBindings.j = "library.next_result";
+  const staleStart = navigationCalls.length;
+  let stalePrevented = false;
+  options[0].listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { stalePrevented = true; },
+    stopPropagation: () => {}
+  });
+  await flush();
+  check(!stalePrevented, "old Library ArrowDown binding survived remap");
+  check(navigationCalls.length === staleStart, "old Library ArrowDown still dispatched");
+
+  let remapPrevented = false;
+  let remapStopped = false;
+  options[0].listeners.keydown({
+    key: "j",
+    preventDefault: () => { remapPrevented = true; },
+    stopPropagation: () => { remapStopped = true; }
+  });
+  check(remapPrevented && remapStopped, "remapped Library next-result key was not handled");
+  await flush();
+  check(navigationCalls.length === staleStart + 1, "remapped Library next-result key did not dispatch exactly once");
+  check(navigationCalls[navigationCalls.length - 1][0] === "library.move" &&
+        navigationCalls[navigationCalls.length - 1][1].delta === 1,
+    "remapped Library next-result key used wrong bridge command");
+
+  let enterPrevented = false;
+  let enterStopped = false;
+  options[0].listeners.keydown({
+    key: "Enter",
+    preventDefault: () => { enterPrevented = true; },
+    stopPropagation: () => { enterStopped = true; }
+  });
+  check(enterPrevented && enterStopped, "Library open-game Enter binding was not handled");
+  await flush();
+  check(navigationCalls[navigationCalls.length - 1][0] === "library.open_game",
+    "Library open-game key used wrong bridge command");
+
+  let copyPrevented = false;
+  let copyStopped = false;
+  const beforeCopy = navigationCalls.length;
+  options[0].listeners.keydown({
+    key: "c",
+    ctrlKey: true,
+    preventDefault: () => { copyPrevented = true; },
+    stopPropagation: () => { copyStopped = true; }
+  });
+  await flush();
+  check(!copyPrevented && !copyStopped, "Ctrl+C was hijacked by Library result navigation");
+  check(navigationCalls.length === beforeCopy, "Ctrl+C unexpectedly became a Library command");
+
+  libraryBindings.ArrowDown = "library.next_result";
+  delete libraryBindings.j;
+
+  check(!source.includes('event.key === "ArrowUp"') &&
+        !source.includes('event.key === "ArrowDown"') &&
+        !source.includes('event.key === "Enter"'),
+    "Library surface still owns literal result navigation keys");
+
+  console.log("Library partial progress and remappable result navigation DOM contract PASS");
+}
+
+runNavigationContract().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
