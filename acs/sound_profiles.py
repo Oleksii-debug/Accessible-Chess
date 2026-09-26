@@ -40,9 +40,10 @@ class SoundEventPreference:
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
             raise TypeError("sound event enabled must be boolean")
-        if isinstance(self.volume_percent, bool) or not 0 <= int(self.volume_percent) <= 100:
+        if isinstance(self.volume_percent, bool) or not isinstance(self.volume_percent, int):
+            raise TypeError("sound event volume_percent must be an integer")
+        if not 0 <= self.volume_percent <= 100:
             raise ValueError("sound event volume_percent must be in 0..100")
-        object.__setattr__(self, "volume_percent", int(self.volume_percent))
         if self.sound_id is not None:
             sound_id = _stable_id(self.sound_id, allow_dot=True)
             object.__setattr__(self, "sound_id", sound_id)
@@ -83,17 +84,23 @@ class SoundPackManifest:
 
     def __post_init__(self) -> None:
         pack_id = _stable_id(self.pack_id, allow_dot=True)
-        version = str(self.version).strip()
-        title = str(self.title).strip()
-        license_id = str(self.license_id).strip()
-        author = str(self.author).strip()
-        provenance = str(self.provenance).strip()
+        for name in ("version", "title", "license_id", "author", "provenance"):
+            value = getattr(self, name)
+            if not isinstance(value, str):
+                raise TypeError(f"sound pack {name} must be text")
+        version = self.version.strip()
+        title = self.title.strip()
+        license_id = self.license_id.strip()
+        author = self.author.strip()
+        provenance = self.provenance.strip()
         if not version or not title or not license_id or not author or not provenance:
             raise ValueError(
                 "sound pack version, title, author, license_id and provenance are required"
             )
+        if not isinstance(self.files, Mapping):
+            raise TypeError("sound pack files must be a mapping")
         files: dict[str, str] = {}
-        for sound_id, value in dict(self.files).items():
+        for sound_id, value in self.files.items():
             key = _stable_id(sound_id, allow_dot=True)
             path = _safe_audio_path(value)
             if key in files:
@@ -129,16 +136,19 @@ class SoundProfile:
         pack_id = _stable_id(self.pack_id, allow_dot=True)
         if not isinstance(self.master_enabled, bool):
             raise TypeError("master_enabled must be boolean")
-        if isinstance(self.master_volume_percent, bool) or not 0 <= int(self.master_volume_percent) <= 100:
+        if isinstance(self.master_volume_percent, bool) or not isinstance(self.master_volume_percent, int):
+            raise TypeError("master_volume_percent must be an integer")
+        if not 0 <= self.master_volume_percent <= 100:
             raise ValueError("master_volume_percent must be in 0..100")
+        if not isinstance(self.events, Mapping):
+            raise TypeError("events must be a mapping")
         normalized: dict[str, SoundEventPreference] = {}
-        for event_id, preference in dict(self.events).items():
+        for event_id, preference in self.events.items():
             key = _stable_id(event_id, allow_dot=True)
             if not isinstance(preference, SoundEventPreference):
                 raise TypeError("events must contain SoundEventPreference values")
             normalized[key] = preference
         object.__setattr__(self, "pack_id", pack_id)
-        object.__setattr__(self, "master_volume_percent", int(self.master_volume_percent))
         object.__setattr__(self, "events", normalized)
 
     def preference_for(self, event_id: str) -> SoundEventPreference:
@@ -181,7 +191,7 @@ class SoundProfile:
                 master_enabled=enabled,
                 master_volume_percent=raw.get("volume", 80),
             )
-        if schema_version != SOUND_PROFILE_SCHEMA_VERSION:
+        if type(schema_version) is not int or schema_version != SOUND_PROFILE_SCHEMA_VERSION:
             raise ValueError(f"unsupported sound profile schema: {schema_version}")
         enabled = raw.get("master_enabled", True)
         if not isinstance(enabled, bool):
@@ -189,10 +199,11 @@ class SoundProfile:
         events_raw = raw.get("events", {})
         if not isinstance(events_raw, Mapping):
             raise TypeError("sound profile events must be an object")
-        events = {
-            str(event_id): SoundEventPreference.from_mapping(preference)
-            for event_id, preference in events_raw.items()
-        }
+        events: dict[str, SoundEventPreference] = {}
+        for event_id, preference in events_raw.items():
+            if not isinstance(event_id, str):
+                raise TypeError("sound profile event ids must be text")
+            events[event_id] = SoundEventPreference.from_mapping(preference)
         return cls(
             pack_id=raw.get("pack_id", "classic"),
             master_enabled=enabled,
@@ -202,7 +213,9 @@ class SoundProfile:
 
 
 def _stable_id(value: object, *, allow_dot: bool = False) -> str:
-    text = str(value).strip().lower()
+    if not isinstance(value, str):
+        raise TypeError("id must be text")
+    text = value.strip().lower()
     allowed = "abcdefghijklmnopqrstuvwxyz0123456789_-" + ("." if allow_dot else "")
     if not text or any(ch not in allowed for ch in text):
         raise ValueError("id must use lowercase ascii letters, digits, dot, dash or underscore")
@@ -210,7 +223,9 @@ def _stable_id(value: object, *, allow_dot: bool = False) -> str:
 
 
 def _safe_audio_path(value: object) -> str:
-    text = str(value).strip().replace("\\", "/")
+    if not isinstance(value, str):
+        raise TypeError("sound file path must be text")
+    text = value.strip().replace("\\", "/")
     path = PurePosixPath(text)
     if not text or path.is_absolute() or ".." in path.parts:
         raise ValueError("sound file path must stay below pack root")
