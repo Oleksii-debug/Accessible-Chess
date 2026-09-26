@@ -205,9 +205,9 @@
       "registryContext": "board",
       "labelUk": "Курсор дошки ліворуч",
       "labelEn": "Move board cursor left",
-      "binding": "ArrowLeft",
+      "binding": "Left",
       "alias": null,
-      "defaultBinding": "ArrowLeft",
+      "defaultBinding": "Left",
       "defaultAlias": null
     },
     {
@@ -216,9 +216,9 @@
       "registryContext": "board",
       "labelUk": "Курсор дошки праворуч",
       "labelEn": "Move board cursor right",
-      "binding": "ArrowRight",
+      "binding": "Right",
       "alias": null,
-      "defaultBinding": "ArrowRight",
+      "defaultBinding": "Right",
       "defaultAlias": null
     },
     {
@@ -227,9 +227,9 @@
       "registryContext": "board",
       "labelUk": "Курсор дошки вгору",
       "labelEn": "Move board cursor up",
-      "binding": "ArrowUp",
+      "binding": "Up",
       "alias": null,
-      "defaultBinding": "ArrowUp",
+      "defaultBinding": "Up",
       "defaultAlias": null
     },
     {
@@ -238,9 +238,9 @@
       "registryContext": "board",
       "labelUk": "Курсор дошки вниз",
       "labelEn": "Move board cursor down",
-      "binding": "ArrowDown",
+      "binding": "Down",
       "alias": null,
-      "defaultBinding": "ArrowDown",
+      "defaultBinding": "Down",
       "defaultAlias": null
     },
     {
