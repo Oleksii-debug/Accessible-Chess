@@ -213,6 +213,21 @@ class VisualBoardWebViewStateTests(unittest.TestCase):
         with self.assertRaises(VisualBoardWebViewError):
             self.state.update(payload)
 
+    def test_single_field_update_is_bounded_and_strict(self):
+        changed = self.state.update_field("coordinate_mode", "every_square")
+        self.assertEqual(
+            "every_square",
+            changed["preferences"]["coordinate_mode"],
+        )
+        with self.assertRaises(VisualBoardWebViewError):
+            self.state.update_field("position_fen", "secret")
+        with self.assertRaises(VisualBoardWebViewError):
+            self.state.update_field("board_scale_percent", True)
+        self.assertEqual(
+            "every_square",
+            self.state.snapshot()["preferences"]["coordinate_mode"],
+        )
+
     def test_reset_restores_builtin_preferences_and_assets_can_be_omitted(self):
         board, payloads = _board_pack()
         self.state.install(board, payloads)
