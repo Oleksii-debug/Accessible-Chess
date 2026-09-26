@@ -4,6 +4,7 @@ from email.message import Message
 import io
 import socket
 import ssl
+import sys
 import unittest
 from urllib.error import HTTPError, URLError
 
@@ -176,6 +177,31 @@ class SecureHttpTests(unittest.TestCase):
                 self.assertNotIn("secret.invalid", rendered)
                 self.assertNotIn("super-secret", rendered)
                 self.assertNotIn("private", rendered)
+
+    def test_deep_request_json_recursion_is_bounded(self) -> None:
+        transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b'{}')))
+        nested: dict[str, object] = {}
+        cursor = nested
+        for _ in range(sys.getrecursionlimit() + 100):
+            child: dict[str, object] = {}
+            cursor["x"] = child
+            cursor = child
+        with self.assertRaises(SecureHttpError) as caught:
+            transport.post_json("https://example.invalid/", nested)
+        self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
+        self.assertIsNone(caught.exception.__cause__)
+
+    def test_deep_response_json_recursion_is_bounded(self) -> None:
+        depth = sys.getrecursionlimit() + 100
+        body = (b"[" * depth) + b"0" + (b"]" * depth)
+        transport = BoundedHttpsJsonTransport(
+            opener=_Opener(_Response(body)),
+            max_response_bytes=len(body) + 1,
+        )
+        with self.assertRaises(SecureHttpError) as caught:
+            transport.get_json("https://example.invalid/")
+        self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_JSON)
+        self.assertIsNone(caught.exception.__cause__)
 
     def test_response_size_is_bounded_before_json_parse(self) -> None:
         opener = _Opener(_Response(b'{"payload":"' + b"x" * 128 + b'"}'))
