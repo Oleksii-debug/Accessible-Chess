@@ -5,6 +5,7 @@ from enum import Enum
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 from typing import Callable, Mapping
@@ -44,6 +45,20 @@ class AuthenticodeEvidence:
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def _regular_non_reparse_file(path: Path) -> bool:
+    """Require a direct regular target; signing policy must not follow indirection."""
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return (
+        stat.S_ISREG(info.st_mode)
+        and not stat.S_ISLNK(info.st_mode)
+        and not bool(getattr(info, "st_file_attributes", 0) & reparse_flag)
+    )
+
+
 class WindowsAuthenticodeVerifier:
     """Fail-closed Windows Authenticode verifier.
 
@@ -58,7 +73,7 @@ class WindowsAuthenticodeVerifier:
 
     def verify(self, path: str | os.PathLike[str]) -> AuthenticodeEvidence:
         target = Path(path)
-        if not target.is_file():
+        if not _regular_non_reparse_file(target):
             return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
 
         if sys.platform != "win32":
