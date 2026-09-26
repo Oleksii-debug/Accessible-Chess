@@ -19,16 +19,35 @@ class P0PackagedAcceptanceOrchestratorTests(unittest.TestCase):
         self.assertIn("stage1_uia_topology_v5.ps1", self.text)
         self.assertIn("ProductSha must be one exact 40-hex integration commit", self.text)
 
-    def test_copy_probe_is_verified_before_hotkey_probe_runs(self) -> None:
+    def test_copy_binding_precedes_starter_and_hotkey_acceptance(self) -> None:
         copy_probe = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=COPY_PROBE")
         copy_verify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=COPY_VERIFY")
+        starter = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=STARTER_DIAGNOSTIC")
         hotkey_probe = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_PROBE")
         hotkey_verify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_VERIFY")
-        final_pass = self.text.index("P0 PACKAGED ACCEPTANCE VERIFIED: COPY + HOTKEY RESULTS")
+        final_reverify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=FINAL_REVERIFY")
+        final_pass = self.text.index(
+            "P0 PACKAGED ACCEPTANCE VERIFIED: COPY + STARTER + HOTKEY RESULTS"
+        )
         self.assertLess(copy_probe, copy_verify)
-        self.assertLess(copy_verify, hotkey_probe)
+        self.assertLess(copy_verify, starter)
+        self.assertLess(starter, hotkey_probe)
         self.assertLess(hotkey_probe, hotkey_verify)
-        self.assertLess(hotkey_verify, final_pass)
+        self.assertLess(hotkey_verify, final_reverify)
+        self.assertLess(final_reverify, final_pass)
+
+    def test_starter_reachability_uses_packaged_executable_diagnostic(self) -> None:
+        self.assertIn("Join-Path $product 'AccessibleChess.exe'", self.text)
+        self.assertIn("Join-Path $product 'release-content\\w2-starter'", self.text)
+        self.assertIn("@(& $exe --diagnostic 2>&1)", self.text)
+        self.assertIn("if($diagnosticExit -ne 0)", self.text)
+        self.assertIn("P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS", self.text)
+        self.assertIn("P0_PACKAGED_STARTER_REACHABILITY=VERIFIED", self.text)
+        self.assertIn("Packaged P0-F W2 starter root is missing", self.text)
+        self.assertIn(
+            "Packaged P0-F diagnostic did not prove W2 Library reachability",
+            self.text,
+        )
 
     def test_orchestrator_reuses_incumbent_probes_and_verifiers(self) -> None:
         for path in (
@@ -42,12 +61,35 @@ class P0PackagedAcceptanceOrchestratorTests(unittest.TestCase):
 
     def test_probe_scripts_rely_on_terminating_errors_not_native_last_exit_code(self) -> None:
         copy_start = self.text.index("& $copyProbe")
-        copy_evidence = self.text.index("if(-not (Test-Path -LiteralPath $copyEvidence", copy_start)
+        copy_evidence = self.text.index(
+            "if(-not (Test-Path -LiteralPath $copyEvidence", copy_start
+        )
         self.assertNotIn("LASTEXITCODE", self.text[copy_start:copy_evidence])
         hotkey_start = self.text.index("& $hotkeyProbe")
-        hotkey_evidence = self.text.index("if(-not (Test-Path -LiteralPath $hotkeyEvidence", hotkey_start)
+        hotkey_evidence = self.text.index(
+            "if(-not (Test-Path -LiteralPath $hotkeyEvidence", hotkey_start
+        )
         self.assertNotIn("LASTEXITCODE", self.text[hotkey_start:hotkey_evidence])
         self.assertIn("if($LASTEXITCODE -ne 0)", self.text)
+
+    def test_final_reverification_rechecks_both_evidence_files_and_shas(self) -> None:
+        final_reverify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=FINAL_REVERIFY")
+        final_pass = self.text.index(
+            "P0 PACKAGED ACCEPTANCE VERIFIED: COPY + STARTER + HOTKEY RESULTS"
+        )
+        tail = self.text[final_reverify:final_pass]
+        self.assertIn(
+            "Invoke-PythonVerifier $copyVerifier $copyEvidence $product $ProductSha",
+            tail,
+        )
+        self.assertIn(
+            "Invoke-PythonVerifier $hotkeyVerifier $hotkeyEvidence $product $ProductSha",
+            tail,
+        )
+        self.assertIn("$copy.product_sha", tail)
+        self.assertIn("$hotkey.product_sha", tail)
+        self.assertIn("Document-copy evidence SHA changed", tail)
+        self.assertIn("P0-G evidence SHA changed", tail)
 
     def test_machine_human_nvda_overclaim_check_is_missing_property_safe(self) -> None:
         self.assertIn("function Assert-NoMachineHumanClaim", self.text)
