@@ -129,12 +129,12 @@ function FindControl($Elements,[string]$AutomationId,[string]$ControlType='') {
 
 function AssertAppFocus($Process,[string]$Phase,[string]$ExpectedAutomationId='') {
   $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-  if($null -eq $focused){throw "$Phase: UIA focused element unavailable"}
+  if($null -eq $focused){throw "${Phase}: UIA focused element unavailable"}
   if([int]$focused.Current.ProcessId -ne [int]$Process.Id){
-    throw "$Phase: native keyboard focus escaped packaged process; focused_pid=$([int]$focused.Current.ProcessId) launched_pid=$($Process.Id)"
+    throw "${Phase}: native keyboard focus escaped packaged process; focused_pid=$([int]$focused.Current.ProcessId) launched_pid=$($Process.Id)"
   }
   if($ExpectedAutomationId -and [string]$focused.Current.AutomationId -ne $ExpectedAutomationId){
-    throw "$Phase: wrong focused control; expected='$ExpectedAutomationId' actual='$([string]$focused.Current.AutomationId)'"
+    throw "${Phase}: wrong focused control; expected='$ExpectedAutomationId' actual='$([string]$focused.Current.AutomationId)'"
   }
   return $focused
 }
