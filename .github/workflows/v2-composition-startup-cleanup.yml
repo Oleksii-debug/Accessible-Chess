@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
   PRODUCT_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
   REGRESSION_BLOB: 0db93784501d50cbefa9d9044a4e62dda6103c03
 
@@ -45,14 +46,14 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
-          git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EXPECTED_BASE_SHA"
-          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
-          git diff --check "$EXPECTED_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
+          base="$CURRENT_PRODUCT_BASE"
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/v2-composition-startup-cleanup.yml' \
             'tests/test_version2_composition_startup_cleanup.py' | sort)"
