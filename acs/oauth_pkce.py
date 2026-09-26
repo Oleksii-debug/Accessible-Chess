@@ -45,7 +45,10 @@ _CALLBACK_PARAMETERS = frozenset({"code", "error", "state"})
 
 
 def _require_text(name: str, value: object, *, max_length: int = 4096) -> str:
-    if not isinstance(value, str):
+    # Security-boundary inputs must be plain built-in text. A str subclass can
+    # override helpers such as strip()/__eq__ and run attacker-controlled code
+    # during validation before the OAuth contract has accepted the value.
+    if type(value) is not str:
         raise OAuthContractError(f"{name} must be text")
     if not value or value != value.strip():
         raise OAuthContractError(f"{name} must be non-empty canonical text")
