@@ -85,6 +85,7 @@ class SecretRedactionTests(unittest.TestCase):
 
     def test_quoted_assignment_with_escaped_quote_redacts_the_entire_value(self) -> None:
         raw = r'password="correct \"horse\" battery" account_id=acct-esc'
+        raw = raw.replace('password=\\"', 'password="', 1)
         output = redact_text(raw)
         self.assertNotIn("correct", output)
         self.assertNotIn("horse", output)
