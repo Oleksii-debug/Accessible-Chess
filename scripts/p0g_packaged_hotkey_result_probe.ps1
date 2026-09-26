@@ -138,6 +138,17 @@ function WaitFor($Script,[int]$TimeoutMs,[string]$Failure) {
   throw $Failure
 }
 
+function AssertLauncherFocus($Launcher) {
+  if($null -eq $Launcher){throw 'board-launcher is missing from connected provider roots'}
+  $Launcher.SetFocus()
+  Start-Sleep -Milliseconds 80
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $focused){throw 'UIA focused element unavailable before analysis hotkey dispatch'}
+  if([string]$focused.Current.AutomationId -ne 'board-launcher'){
+    throw "Analysis hotkey focus escaped document context: id='$([string]$focused.Current.AutomationId)'"
+  }
+}
+
 function AssertCleanAnnouncement([string]$Text,[int]$Index) {
   if(-not $Text.Trim()){throw "Alt+$Index produced no accessible result"}
   $lower=$Text.ToLowerInvariant()
@@ -161,12 +172,11 @@ try {
   $launcher=FindById $elements 'board-launcher'
   $engineToggle=FindById $elements 'engine-toggle'
   $live=FindById $elements 'live'
+  if($null -eq $launcher){throw 'board-launcher missing from connected provider roots'}
   if($null -eq $live){throw 'Accessible status live region #live missing from connected provider roots'}
 
   $shell=New-Object -ComObject WScript.Shell
   $null=$shell.AppActivate($process.Id)
-  Invoke $launcher 'board-launcher'
-  Start-Sleep -Milliseconds 150
   Invoke $engineToggle 'engine-toggle'
 
   $null=WaitFor {
@@ -184,10 +194,7 @@ try {
   $announcements=@()
   foreach($case in @(@{index=1; key=0x31},@{index=2; key=0x32})){
     $null=$shell.AppActivate($process.Id)
-    try {$launcher.SetFocus()} catch {}
-    Start-Sleep -Milliseconds 80
-    Invoke $launcher 'board-launcher'
-    Start-Sleep -Milliseconds 80
+    AssertLauncherFocus $launcher
     [AccessibleChessP0GKeys]::Alt([byte]$case.key)
     $index=[int]$case.index
     $text=WaitFor {
@@ -207,7 +214,8 @@ try {
   $summary=[ordered]@{
     product_sha=$ProductSha
     discovery='connected provider-root ControlView from retained topology handles'
-    board_focus_path='board-launcher InvokePattern into semantic board application'
+    hotkey_focus_path='board-launcher SetFocus outside role=application so global analysis context receives native keys'
+    board_application_entered=$false
     native_keyboard_dispatch=$true
     alt_1_action_occurred=$true
     alt_1_accessible_result_exposed=$true
