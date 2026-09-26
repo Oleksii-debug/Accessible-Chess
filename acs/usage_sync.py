@@ -6,9 +6,9 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator, Mapping, Protocol, Sequence
+from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
 from .usage_statistics import normalize_installation_id
 
@@ -178,8 +178,16 @@ class UsageSyncPort(Protocol):
 class UsageEventQueue:
     """Durable idempotent offline queue for bounded aggregate usage events only."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ) -> None:
+        if not callable(now):
+            raise ValueError("now must be callable")
         self.path = Path(path)
+        self._now = now
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._migrate()
 
@@ -203,18 +211,28 @@ class UsageEventQueue:
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if version not in (0, USAGE_SYNC_SCHEMA_VERSION):
                 raise ValueError(f"unsupported usage sync database schema: {version}")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS usage_events (
-                    event_id TEXT PRIMARY KEY,
-                    installation_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    counters_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    sync_state TEXT NOT NULL CHECK(sync_state IN ('pending', 'synced'))
+            existing = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usage_events'"
+            ).fetchone()
+            if version == 0 and existing is not None:
+                raise ValueError("unversioned usage sync database contains a preexisting usage_events table")
+            if version == USAGE_SYNC_SCHEMA_VERSION and existing is None:
+                raise ValueError("usage sync database schema is incomplete")
+            if version == 0:
+                connection.execute(
+                    """
+                    CREATE TABLE usage_events (
+                        event_id TEXT PRIMARY KEY,
+                        installation_id TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        counters_json TEXT NOT NULL,
+                        created_at_utc TEXT NOT NULL,
+                        sync_state TEXT NOT NULL CHECK(sync_state IN ('pending', 'synced'))
+                    )
+                    """
                 )
-                """
-            )
+                connection.execute(f"PRAGMA user_version = {USAGE_SYNC_SCHEMA_VERSION}")
+            self._validate_schema(connection)
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS ix_usage_events_pending "
                 "ON usage_events(sync_state, created_at_utc, event_id)"
@@ -223,11 +241,69 @@ class UsageEventQueue:
                 "CREATE INDEX IF NOT EXISTS ix_usage_events_installation "
                 "ON usage_events(installation_id, created_at_utc, event_id)"
             )
-            connection.execute(f"PRAGMA user_version = {USAGE_SYNC_SCHEMA_VERSION}")
+
+    @staticmethod
+    def _validate_schema(connection: sqlite3.Connection) -> None:
+        rows = connection.execute("PRAGMA table_info(usage_events)").fetchall()
+        actual = tuple(
+            (row["name"], str(row["type"]).upper(), int(row["notnull"]), int(row["pk"]))
+            for row in rows
+        )
+        expected = (
+            ("event_id", "TEXT", 0, 1),
+            ("installation_id", "TEXT", 1, 0),
+            ("kind", "TEXT", 1, 0),
+            ("counters_json", "TEXT", 1, 0),
+            ("created_at_utc", "TEXT", 1, 0),
+            ("sync_state", "TEXT", 1, 0),
+        )
+        if actual != expected:
+            raise ValueError("usage sync database table schema mismatch")
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usage_events'"
+        ).fetchone()
+        sql = "" if row is None or row["sql"] is None else str(row["sql"]).lower()
+        normalized = " ".join(sql.replace("\n", " ").split())
+        if "check(sync_state in ('pending', 'synced'))" not in normalized:
+            raise ValueError("usage sync database state constraint is missing")
+
+    def _read_now(self) -> datetime:
+        value = self._now()
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            raise ValueError("now must return an aware datetime")
+        return value.astimezone(timezone.utc)
+
+    def purge_expired(
+        self,
+        installation_id: str,
+        policy: UsageAnalyticsPolicy,
+    ) -> int:
+        normalized = normalize_installation_id(installation_id)
+        if not isinstance(policy, UsageAnalyticsPolicy):
+            raise ValueError("policy must be UsageAnalyticsPolicy")
+        if policy.retention_days is None:
+            return 0
+        cutoff = self._read_now() - timedelta(days=policy.retention_days)
+        cutoff_text = cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM usage_events WHERE installation_id = ? AND created_at_utc < ?",
+                (normalized, cutoff_text),
+            )
+            return int(cursor.rowcount)
 
     def enqueue(self, event: UsageEvent, policy: UsageAnalyticsPolicy) -> bool:
+        if not isinstance(event, UsageEvent):
+            raise ValueError("event must be UsageEvent")
+        if not isinstance(policy, UsageAnalyticsPolicy):
+            raise ValueError("policy must be UsageAnalyticsPolicy")
         if not policy.allows_collection():
             return False
+        self.purge_expired(event.installation_id, policy)
+        if policy.retention_days is not None:
+            cutoff = self._read_now() - timedelta(days=policy.retention_days)
+            if _parse_utc(event.created_at_utc) < cutoff:
+                return False
         counters_json = json.dumps(
             dict(event.counters), sort_keys=True, separators=(",", ":"), ensure_ascii=True
         )
@@ -275,15 +351,21 @@ class UsageEventQueue:
             )
         return True
 
-    def pending(self, *, limit: int = 100) -> tuple[UsageEvent, ...]:
+    def pending(
+        self,
+        installation_id: str,
+        *,
+        limit: int = 100,
+    ) -> tuple[UsageEvent, ...]:
+        normalized = normalize_installation_id(installation_id)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= _MAX_BATCH:
             raise ValueError(f"limit must be an integer between 0 and {_MAX_BATCH}")
         with self._connection() as connection:
             rows = connection.execute(
                 "SELECT event_id, installation_id, kind, counters_json, created_at_utc "
-                "FROM usage_events WHERE sync_state = 'pending' "
+                "FROM usage_events WHERE sync_state = 'pending' AND installation_id = ? "
                 "ORDER BY created_at_utc, event_id LIMIT ?",
-                (limit,),
+                (normalized, limit),
             ).fetchall()
         return tuple(self._row_to_event(row) for row in rows)
 
@@ -291,12 +373,17 @@ class UsageEventQueue:
         self,
         port: UsageSyncPort,
         policy: UsageAnalyticsPolicy,
+        installation_id: str,
         *,
         limit: int = 100,
     ) -> int:
+        normalized = normalize_installation_id(installation_id)
+        if not isinstance(policy, UsageAnalyticsPolicy):
+            raise ValueError("policy must be UsageAnalyticsPolicy")
         if not policy.allows_sync():
             return 0
-        events = self.pending(limit=limit)
+        self.purge_expired(normalized, policy)
+        events = self.pending(normalized, limit=limit)
         if not events:
             return 0
         try:
