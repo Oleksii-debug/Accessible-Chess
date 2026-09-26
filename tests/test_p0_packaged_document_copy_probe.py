@@ -40,6 +40,17 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("ValuePattern]::Pattern", self.text)
         self.assertIn("WaitClipboard 'e2e4'", self.text)
 
+    def test_probe_fails_closed_if_native_copy_focus_escapes_the_packaged_app(self) -> None:
+        self.assertIn("function AssertAppFocus", self.text)
+        self.assertIn("AutomationElement]::FocusedElement", self.text)
+        self.assertIn("native keyboard focus escaped packaged process", self.text)
+        self.assertIn("Accessible Chess Document could not receive focus for native Ctrl+C", self.text)
+        self.assertIn("Static document copy focus landed in an edit control", self.text)
+        self.assertIn("AssertAppFocus $process 'move input copy' 'move-input'", self.text)
+        self.assertIn("native_copy_focus_verified=$true", self.text)
+        self.assertIn("move_input_focus_verified=$true", self.text)
+        self.assertNotIn("try {$document.SetFocus()} catch {}", self.text)
+
     def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
         self.assertIn("if($last -ceq $Expected){return $last}", self.text)
         self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
