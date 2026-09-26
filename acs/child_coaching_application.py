@@ -136,6 +136,44 @@ class ChildCoachingApplication:
         )
         return self._publish(loaded, templates)
 
+    def append_block(
+        self,
+        template_id: str,
+        block: LessonBlock,
+        *,
+        expected_revision: str,
+    ) -> TemplateCatalogSnapshot:
+        loaded = self._require_revision(expected_revision)
+        template = self._find(loaded.templates, template_id)
+        try:
+            changed = template.append_block(block)
+        except ChildCoachingError as exc:
+            raise ChildCoachingApplicationError("lesson block append was rejected") from exc
+        templates = tuple(
+            changed if item.template_id == template_id else item
+            for item in loaded.templates
+        )
+        return self._publish(loaded, templates)
+
+    def remove_block(
+        self,
+        template_id: str,
+        block_id: str,
+        *,
+        expected_revision: str,
+    ) -> TemplateCatalogSnapshot:
+        loaded = self._require_revision(expected_revision)
+        template = self._find(loaded.templates, template_id)
+        try:
+            changed = template.remove_block(block_id)
+        except ChildCoachingError as exc:
+            raise ChildCoachingApplicationError("lesson block removal was rejected") from exc
+        templates = tuple(
+            changed if item.template_id == template_id else item
+            for item in loaded.templates
+        )
+        return self._publish(loaded, templates)
+
     def rename_template(
         self,
         template_id: str,
