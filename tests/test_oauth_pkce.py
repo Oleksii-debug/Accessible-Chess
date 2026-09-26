@@ -86,6 +86,19 @@ class OAuthPkceTests(unittest.TestCase):
             },
         )
 
+    def test_request_repr_never_exposes_pkce_or_correlation_secrets(self):
+        request = self.make_request(
+            state="state-secret-should-not-log",
+            nonce="nonce-secret-should-not-log",
+            code_verifier="V" * 64,
+        )
+        rendered = repr(request)
+        self.assertNotIn("state-secret-should-not-log", rendered)
+        self.assertNotIn("nonce-secret-should-not-log", rendered)
+        self.assertNotIn("V" * 64, rendered)
+        self.assertIn("AuthorizationRequest(", rendered)
+        self.assertIn("client_id='accessible-chess-desktop'", rendered)
+
     def test_scopes_are_deduplicated_in_stable_order(self):
         request = self.make_request(scopes=("openid", "profile", "openid", "email"))
         self.assertEqual(request.scopes, ("openid", "profile", "email"))
