@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-"""Deterministic SPDX 2.3 inventory for one assembled Version 2 package.
+"""Deterministic SPDX 2.3 sidecar for an exact validated V2 package tree.
 
-The SBOM is release metadata, not a package builder.  It describes the exact
-regular payload files that exist after the product/notices tree and release
-manifest have been staged.  The SBOM file itself and SHA256SUMS.txt are omitted
-from the SPDX file set to avoid circular hashes; SHA256SUMS covers the SBOM.
+The SBOM is deliberately written *outside* the package tree.  That lets it hash
+every shipped regular file, including RELEASE_MANIFEST.json and SHA256SUMS.txt,
+without creating a self-referential checksum cycle or changing package bytes.
 """
 
 import hashlib
@@ -15,8 +14,7 @@ import re
 from typing import Iterable
 
 
-SBOM_NAME = "SBOM.spdx.json"
-CHECKSUMS_NAME = "SHA256SUMS.txt"
+SBOM_NAME = "AccessibleChess-SBOM.spdx.json"
 SPDX_VERSION = "SPDX-2.3"
 DATA_LICENSE = "CC0-1.0"
 DOCUMENT_SPDX_ID = "SPDXRef-DOCUMENT"
@@ -77,13 +75,13 @@ def _json_object(path: Path, *, label: str) -> dict[str, object]:
     return value
 
 
-def _payload_files(root: Path, inventory: Iterable[str] | None = None) -> tuple[str, ...]:
+def _payload_files(root: Path, inventory: Iterable[str] | None) -> tuple[str, ...]:
     if inventory is None:
         values: list[str] = []
         try:
             for path in root.rglob("*"):
                 if path.is_symlink():
-                    _fail("SBOM payload must not contain symlinks")
+                    _fail("SBOM package must not contain symlinks")
                 if path.is_file():
                     values.append(PurePosixPath(*path.relative_to(root).parts).as_posix())
         except Version2ReleaseSbomError:
@@ -92,16 +90,16 @@ def _payload_files(root: Path, inventory: Iterable[str] | None = None) -> tuple[
             _fail(f"SBOM package inventory failed: {type(exc).__name__}")
     else:
         values = list(inventory)
-    excluded = {SBOM_NAME, CHECKSUMS_NAME}
-    result = tuple(sorted((value for value in values if value not in excluded), key=str.casefold))
+    result = tuple(sorted(values, key=str.casefold))
+    if not result:
+        _fail("SBOM cannot describe an empty package")
     if len(result) != len(set(value.casefold() for value in result)):
         _fail("SBOM package paths collide under Windows case-folding")
     return result
 
 
 def _file_spdx_id(relative: str) -> str:
-    token = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:24]
-    return f"SPDXRef-File-{token}"
+    return "SPDXRef-File-" + hashlib.sha256(relative.encode("utf-8")).hexdigest()[:24]
 
 
 def _sound_licenses(root: Path) -> dict[str, str]:
@@ -110,8 +108,8 @@ def _sound_licenses(root: Path) -> dict[str, str]:
     if not isinstance(events, dict) or not events:
         _fail("sound provenance events are missing")
     result: dict[str, str] = {}
-    for event, raw in events.items():
-        if not isinstance(event, str) or not isinstance(raw, dict):
+    for raw in events.values():
+        if not isinstance(raw, dict):
             _fail("sound provenance event contract is invalid")
         file_name = raw.get("file")
         license_id = raw.get("license_id")
@@ -126,25 +124,25 @@ def _sound_licenses(root: Path) -> dict[str, str]:
     return result
 
 
-def _stockfish_notice_is_present(root: Path) -> None:
-    notice = root / STOCKFISH_NOTICE
-    source = root / STOCKFISH_SOURCE
-    executable = root / STOCKFISH_EXECUTABLE
-    for path, label in (
-        (notice, "Stockfish notice"),
-        (source, "Stockfish corresponding source"),
-        (executable, "Stockfish executable"),
+def _require_stockfish_compliance(root: Path) -> None:
+    for relative, label in (
+        (STOCKFISH_EXECUTABLE, "Stockfish executable"),
+        (STOCKFISH_SOURCE, "Stockfish corresponding source"),
+        (STOCKFISH_NOTICE, "Stockfish notice"),
     ):
+        path = root.joinpath(*PurePosixPath(relative).parts)
         try:
             if not path.is_file() or path.stat().st_size <= 0:
                 _fail(f"{label} is missing from SBOM package")
         except OSError as exc:
             _fail(f"{label} cannot be inspected: {type(exc).__name__}")
     try:
-        notice_text = notice.read_text(encoding="utf-8-sig").casefold()
+        text = root.joinpath(*PurePosixPath(STOCKFISH_NOTICE).parts).read_text(
+            encoding="utf-8-sig"
+        ).casefold()
     except (OSError, UnicodeError) as exc:
         _fail(f"Stockfish notice is unreadable: {type(exc).__name__}")
-    if "stockfish" not in notice_text or "gpl" not in notice_text:
+    if "stockfish" not in text or "gpl" not in text:
         _fail("Stockfish notice does not identify GPL licensing")
 
 
@@ -157,63 +155,48 @@ def build_version2_release_sbom(
     package_root = Path(root)
     sha = _sha40(integration_sha)
     files = _payload_files(package_root, inventory)
-    if not files:
-        _fail("SBOM cannot describe an empty package")
-    _stockfish_notice_is_present(package_root)
+    _require_stockfish_compliance(package_root)
     sound_licenses = _sound_licenses(package_root)
-    missing_sounds = sorted(set(sound_licenses) - set(files), key=str.casefold)
-    if missing_sounds:
+    if set(sound_licenses) - set(files):
         _fail("sound provenance references files outside the SBOM payload")
 
     file_rows: list[dict[str, object]] = []
-    relationships: list[dict[str, str]] = [
-        {
-            "spdxElementId": DOCUMENT_SPDX_ID,
-            "relationshipType": "DESCRIBES",
-            "relatedSpdxElement": PRODUCT_SPDX_ID,
-        }
-    ]
+    relationships: list[dict[str, str]] = [{
+        "spdxElementId": DOCUMENT_SPDX_ID,
+        "relationshipType": "DESCRIBES",
+        "relatedSpdxElement": PRODUCT_SPDX_ID,
+    }]
     for relative in files:
         path = package_root.joinpath(*PurePosixPath(relative).parts)
-        try:
-            if not path.is_file() or path.is_symlink():
-                _fail(f"SBOM payload file is not a regular file: {relative}")
-        except OSError as exc:
-            _fail(f"SBOM payload file cannot be inspected: {type(exc).__name__}")
+        if not path.is_file() or path.is_symlink():
+            _fail(f"SBOM payload file is not a regular file: {relative}")
         file_id = _file_spdx_id(relative)
         license_id = sound_licenses.get(relative, "NOASSERTION")
-        file_rows.append(
-            {
-                "SPDXID": file_id,
-                "fileName": f"./{relative}",
-                "checksums": [{"algorithm": "SHA256", "checksumValue": _sha256(path)}],
-                "licenseConcluded": license_id,
-                "licenseInfoInFiles": [license_id],
-                "copyrightText": "NOASSERTION",
-            }
-        )
-        relationships.append(
-            {
-                "spdxElementId": PRODUCT_SPDX_ID,
-                "relationshipType": "CONTAINS",
-                "relatedSpdxElement": file_id,
-            }
-        )
-
-    relationships.append(
-        {
+        file_rows.append({
+            "SPDXID": file_id,
+            "fileName": f"./{relative}",
+            "checksums": [{"algorithm": "SHA256", "checksumValue": _sha256(path)}],
+            "licenseConcluded": license_id,
+            "licenseInfoInFiles": [license_id],
+            "copyrightText": "NOASSERTION",
+        })
+        relationships.append({
             "spdxElementId": PRODUCT_SPDX_ID,
-            "relationshipType": "DEPENDS_ON",
-            "relatedSpdxElement": STOCKFISH_SPDX_ID,
-        }
-    )
-    namespace = f"https://github.com/Oleksii-debug/Accessible-Chess/spdx/{sha}"
+            "relationshipType": "CONTAINS",
+            "relatedSpdxElement": file_id,
+        })
+    relationships.append({
+        "spdxElementId": PRODUCT_SPDX_ID,
+        "relationshipType": "DEPENDS_ON",
+        "relatedSpdxElement": STOCKFISH_SPDX_ID,
+    })
+
     return {
         "spdxVersion": SPDX_VERSION,
         "dataLicense": DATA_LICENSE,
         "SPDXID": DOCUMENT_SPDX_ID,
         "name": f"Accessible Chess V2 package {sha[:12]}",
-        "documentNamespace": namespace,
+        "documentNamespace": f"https://github.com/Oleksii-debug/Accessible-Chess/spdx/{sha}",
         "creationInfo": {
             "created": "1980-01-01T00:00:00Z",
             "creators": ["Tool: Accessible-Chess deterministic release SBOM generator"],
@@ -229,7 +212,7 @@ def build_version2_release_sbom(
                 "licenseConcluded": "NOASSERTION",
                 "licenseDeclared": "NOASSERTION",
                 "copyrightText": "NOASSERTION",
-                "comment": "Project license is intentionally not inferred; package files are enumerated and hashed below.",
+                "comment": "Project license is not inferred; every packaged regular file is enumerated and hashed.",
             },
             {
                 "name": "Stockfish",
@@ -240,28 +223,41 @@ def build_version2_release_sbom(
                 "licenseConcluded": "GPL-3.0-or-later",
                 "licenseDeclared": "GPL-3.0-or-later",
                 "copyrightText": "NOASSERTION",
-                "comment": f"Packaged binary: {STOCKFISH_EXECUTABLE}; corresponding source: {STOCKFISH_SOURCE}; notice: {STOCKFISH_NOTICE}.",
+                "comment": f"Binary: {STOCKFISH_EXECUTABLE}; corresponding source: {STOCKFISH_SOURCE}; notice: {STOCKFISH_NOTICE}.",
             },
         ],
         "files": file_rows,
         "relationships": relationships,
-        "annotations": [
-            {
-                "annotationDate": "1980-01-01T00:00:00Z",
-                "annotationType": "OTHER",
-                "annotator": "Tool: Accessible-Chess deterministic release SBOM generator",
-                "comment": f"Release metadata excluded from file inventory to avoid cyclic hashes: {SBOM_NAME}, {CHECKSUMS_NAME}. SHA256SUMS covers {SBOM_NAME}.",
-            }
-        ],
     }
 
 
-def write_version2_release_sbom(root: str | Path, *, integration_sha: str) -> Path:
+def write_version2_release_sbom(
+    root: str | Path,
+    output: str | Path,
+    *,
+    integration_sha: str,
+    inventory: Iterable[str] | None = None,
+) -> Path:
     package_root = Path(root)
-    target = package_root / SBOM_NAME
+    target = Path(output)
+    try:
+        package_resolved = package_root.resolve(strict=True)
+        target_parent = target.parent.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _fail(f"SBOM paths cannot be resolved: {type(exc).__name__}")
+    try:
+        target_parent.relative_to(package_resolved)
+    except ValueError:
+        pass
+    else:
+        _fail("SBOM sidecar output must be outside the package tree")
     if target.exists():
         _fail("SBOM output must not already exist")
-    document = build_version2_release_sbom(package_root, integration_sha=integration_sha)
+    document = build_version2_release_sbom(
+        package_root,
+        integration_sha=integration_sha,
+        inventory=inventory,
+    )
     try:
         target.write_text(
             json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -275,33 +271,23 @@ def write_version2_release_sbom(root: str | Path, *, integration_sha: str) -> Pa
 
 def validate_version2_release_sbom(
     root: str | Path,
+    sbom_path: str | Path,
     *,
     integration_sha: str,
     inventory: Iterable[str],
 ) -> dict[str, object]:
-    package_root = Path(root)
     expected = build_version2_release_sbom(
-        package_root,
+        root,
         integration_sha=integration_sha,
         inventory=inventory,
     )
-    actual = _json_object(package_root / SBOM_NAME, label="release SBOM")
+    actual = _json_object(Path(sbom_path), label="release SBOM")
     if actual != expected:
         _fail("release SBOM does not exactly describe the packaged payload")
-    files = actual.get("files")
-    if not isinstance(files, list):
-        _fail("release SBOM files contract is invalid")
-    seen: set[str] = set()
-    for row in files:
+    for row in actual.get("files", []):
         if not isinstance(row, dict):
             _fail("release SBOM file entry is invalid")
-        name = row.get("fileName")
         checksums = row.get("checksums")
-        if not isinstance(name, str) or not name.startswith("./"):
-            _fail("release SBOM file name is invalid")
-        if name.casefold() in seen:
-            _fail("release SBOM contains duplicate file names")
-        seen.add(name.casefold())
         if not isinstance(checksums, list) or len(checksums) != 1:
             _fail("release SBOM file checksum contract is invalid")
         checksum = checksums[0]
