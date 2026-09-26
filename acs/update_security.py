@@ -10,7 +10,7 @@ asymmetric ``SignatureVerifier``; no signing secret belongs in the client.
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import base64
 import hashlib
@@ -45,6 +45,7 @@ _SIGNED_KEYS = frozenset(
     }
 )
 _ENVELOPE_KEYS = frozenset({"signed", "signature"})
+_VERIFIED_UPDATE_ATTESTATION = object()
 
 
 class UpdateSecurityError(RuntimeError):
@@ -58,11 +59,12 @@ class SignatureVerifier(Protocol):
         ...
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class VerifiedUpdate:
     """Authenticated metadata plus the only safe package-consumption authority.
 
-    The pathname is informational. Code that consumes update bytes must use
+    Instances are minted only by :func:`verify_update_package`. The pathname is
+    informational. Code that consumes update bytes must use
     :func:`open_verified_update`, which revalidates the signed identity against
     an already-open read-only handle immediately before consumption.
     """
@@ -75,6 +77,34 @@ class VerifiedUpdate:
     key_id: str
     published_at: datetime
     expires_at: datetime
+    _attestation: object = field(repr=False, compare=False)
+
+    def __reduce_ex__(self, protocol: int):
+        raise TypeError("VerifiedUpdate capabilities are not serializable")
+
+
+def _mint_verified_update(
+    *,
+    package_path: Path,
+    version: str,
+    download_url: str,
+    package_sha256: str,
+    package_size: int,
+    key_id: str,
+    published_at: datetime,
+    expires_at: datetime,
+) -> VerifiedUpdate:
+    capability = object.__new__(VerifiedUpdate)
+    object.__setattr__(capability, "package_path", package_path)
+    object.__setattr__(capability, "version", version)
+    object.__setattr__(capability, "download_url", download_url)
+    object.__setattr__(capability, "package_sha256", package_sha256)
+    object.__setattr__(capability, "package_size", package_size)
+    object.__setattr__(capability, "key_id", key_id)
+    object.__setattr__(capability, "published_at", published_at)
+    object.__setattr__(capability, "expires_at", expires_at)
+    object.__setattr__(capability, "_attestation", _VERIFIED_UPDATE_ATTESTATION)
+    return capability
 
 
 class _DuplicateKey(ValueError):
@@ -238,6 +268,8 @@ def open_verified_update(
     """
     if not isinstance(verified, VerifiedUpdate):
         raise TypeError("verified must be a VerifiedUpdate capability")
+    if getattr(verified, "_attestation", None) is not _VERIFIED_UPDATE_ATTESTATION:
+        raise UpdateSecurityError("verified update capability is invalid")
     instant = _require_utc_instant(now)
     if instant < verified.published_at:
         raise UpdateSecurityError("verified update is not yet valid")
@@ -344,7 +376,7 @@ def verify_update_package(
     ):
         pass
 
-    return VerifiedUpdate(
+    return _mint_verified_update(
         package_path=package,
         version=str(signed["version"]),
         download_url=download_url,
@@ -359,7 +391,6 @@ def verify_update_package(
 __all__ = [
     "SignatureVerifier",
     "UpdateSecurityError",
-    "VerifiedUpdate",
     "open_verified_update",
     "verify_update_package",
 ]
