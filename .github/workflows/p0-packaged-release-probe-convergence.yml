@@ -15,6 +15,14 @@ on:
 permissions:
   contents: read
 
+env:
+  COPY_PROBE_BLOB: 6b6c3c7c3
+  COPY_TEST_BLOB: e95a6c9c8
+  COPY_VERIFIER_BLOB: 77570f01d
+  COPY_VERIFIER_TEST_BLOB: 50112b40b
+  HOTKEY_PROBE_BLOB: 796d705c6
+  HOTKEY_TEST_BLOB: e8b330c9d
+
 jobs:
   combined-probe-contract:
     strategy:
@@ -23,16 +31,32 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout proposed merge of both P0 QA lineages
+      - name: Checkout proposed merge of P0 QA lineages
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 2
-      - name: Require intended P0-G convergence base
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Require intended convergence lineage and retained owner blobs
         shell: bash
         run: |
           set -euo pipefail
-          test '${{ github.event.pull_request.base.ref }}' = 'qa/p0g-packaged-hotkey-result-20260926'
-          git diff --check HEAD^
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          base_ref='${{ github.event.pull_request.base.ref }}'
+          case "$base_ref" in
+            qa/p0g-packaged-hotkey-result-20260926|fix/p0f-packaged-starter-diagnostic-20260926)
+              ;;
+            *)
+              echo "unexpected packaged-probe convergence base: $base_ref" >&2
+              exit 1
+              ;;
+          esac
+          git diff --check '${{ github.event.pull_request.base.sha }}' HEAD
+          test "$(git rev-parse HEAD:scripts/p0_packaged_document_copy_probe.ps1)" = "$COPY_PROBE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_document_copy_probe.py)" = "$COPY_TEST_BLOB"
+          test "$(git rev-parse HEAD:scripts/verify_p0_packaged_document_copy_evidence.py)" = "$COPY_VERIFIER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_verify_p0_packaged_document_copy_evidence.py)" = "$COPY_VERIFIER_TEST_BLOB"
+          test "$(git rev-parse HEAD:scripts/p0g_packaged_hotkey_result_probe.ps1)" = "$HOTKEY_PROBE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0g_packaged_hotkey_result_probe.py)" = "$HOTKEY_TEST_BLOB"
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
