@@ -80,6 +80,19 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
             self.store.room_messages("room-1")[0].body,
         )
 
+    def test_classes_non_text_command_fails_closed_before_collaboration_prefix_check(self) -> None:
+        app = self.bare_app()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch.object(
+                Version2FinalProductApplication,
+                "_error",
+                return_value={"kind": "error", "payload": {"message": "safe"}},
+            ),
+        ):
+            event = app.browser_command("classes", None, {})
+        self.assertEqual("error", event["kind"])
+
     def test_education_snapshot_nests_collaboration_without_replacing_d10_projection(self) -> None:
         app = self.bare_app()
         app.collaboration = self.collaboration
