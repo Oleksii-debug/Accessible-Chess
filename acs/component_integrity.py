@@ -174,11 +174,17 @@ def _parse_components(value: Any) -> tuple[ComponentDigest, ...]:
 def _normalize_required_paths(paths: Iterable[str]) -> tuple[str, ...]:
     if isinstance(paths, (str, bytes)):
         raise ComponentIntegrityError("required_paths must be an iterable of component paths")
+    normalized: list[str] = []
     try:
-        normalized = [_normalize_relative_component_path(path) for path in paths]
+        for index, path in enumerate(paths):
+            if index >= _MAX_COMPONENTS:
+                raise ComponentIntegrityError("required_paths must be bounded and non-empty")
+            normalized.append(_normalize_relative_component_path(path))
+    except ComponentIntegrityError:
+        raise
     except TypeError as exc:
         raise ComponentIntegrityError("required_paths must be an iterable of component paths") from exc
-    if not normalized or len(normalized) > _MAX_COMPONENTS:
+    if not normalized:
         raise ComponentIntegrityError("required_paths must be bounded and non-empty")
     if len({path.casefold() for path in normalized}) != len(normalized):
         raise ComponentIntegrityError("required protected paths collide under Windows case folding")
