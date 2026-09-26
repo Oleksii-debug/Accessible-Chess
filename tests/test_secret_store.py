@@ -99,6 +99,28 @@ class SecretStoreContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(SecretStoreError, "symlink or reparse point"):
                     store.read("refresh-token")
 
+    def test_symlink_ancestor_is_rejected_before_store_creation_or_dpapi(self) -> None:
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlinks unsupported")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            outside = base / "outside"
+            outside.mkdir()
+            redirected_parent = base / "app"
+            try:
+                redirected_parent.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlink creation unavailable")
+            store = WindowsDpapiSecretStore(redirected_parent / "secure")
+            with (
+                mock.patch.object(secret_store.sys, "platform", "win32"),
+                mock.patch.object(secret_store, "_dpapi_protect") as protect,
+            ):
+                with self.assertRaisesRegex(SecretStoreError, "symlink or reparse point"):
+                    store.write("refresh-token", b"must-not-redirect")
+            protect.assert_not_called()
+            self.assertFalse((outside / "secure").exists())
+
 
 @unittest.skipUnless(sys.platform == "win32", "real DPAPI qualification requires Windows")
 class WindowsDpapiIntegrationTests(unittest.TestCase):
