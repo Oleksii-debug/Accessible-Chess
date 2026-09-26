@@ -16,7 +16,10 @@ from acs.starter_content import (
     build_starter_pgn,
     build_stress_pgn,
 )
-from acs.version2_release_diagnostics import packaged_starter_materials_ready
+from acs.version2_release_diagnostics import (
+    packaged_starter_materials_ready,
+    packaged_w2_library_ready,
+)
 
 
 def _game_count(text: str) -> int:
@@ -134,6 +137,26 @@ def _release_starter_snapshot(*, booklet_count: int = 24, include_course: bool =
     }
 
 
+def _release_w2_library_snapshot(*, starter_games: int = 240, include_all_actions: bool = True):
+    actions = [
+        {"action": "library.open_packaged_starter_pgn", "enabled": True},
+        {"action": "library.open_packaged_stress_pgn", "enabled": True},
+        {"action": "library.import_packaged_sample_library", "enabled": True},
+    ]
+    if not include_all_actions:
+        actions.pop()
+    return {
+        "packaged_starter_content": {
+            "available": True,
+            "starter_games": starter_games,
+            "stress_games": 1200,
+            "network_required": False,
+            "prebuilt_library": True,
+        },
+        "actions": actions,
+    }
+
+
 def test_packaged_starter_diagnostic_accepts_complete_release_snapshot():
     assert packaged_starter_materials_ready(_release_starter_snapshot()) is True
 
@@ -156,3 +179,26 @@ def test_packaged_starter_diagnostic_fails_closed_for_missing_or_incomplete_stat
     malformed_items = _release_starter_snapshot()
     malformed_items["items"] = {"material_id": "starter-course"}
     assert packaged_starter_materials_ready(malformed_items) is False
+
+
+def test_packaged_w2_diagnostic_accepts_complete_library_snapshot():
+    assert packaged_w2_library_ready(_release_w2_library_snapshot()) is True
+
+
+def test_packaged_w2_diagnostic_fails_closed_for_incomplete_library_state():
+    assert packaged_w2_library_ready(None) is False
+    assert packaged_w2_library_ready({}) is False
+    assert packaged_w2_library_ready(
+        _release_w2_library_snapshot(starter_games=199)
+    ) is False
+    assert packaged_w2_library_ready(
+        _release_w2_library_snapshot(include_all_actions=False)
+    ) is False
+
+    networked = _release_w2_library_snapshot()
+    networked["packaged_starter_content"]["network_required"] = True
+    assert packaged_w2_library_ready(networked) is False
+
+    disabled = _release_w2_library_snapshot()
+    disabled["actions"][0]["enabled"] = False
+    assert packaged_w2_library_ready(disabled) is False
