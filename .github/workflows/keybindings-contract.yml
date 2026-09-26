@@ -43,6 +43,7 @@ jobs:
           if [ "$head_ref" = 'reconverge/keybindings-terminal-current-product-20260926' ]; then
             expected="$(printf '%s\n' \
               '.github/workflows/d01-education-management-webview.yml' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
               '.github/workflows/full-product-education-class-create.yml' \
               '.github/workflows/full-product-native-menu-keymap-refresh.yml' \
               '.github/workflows/keybindings-contract.yml' \
