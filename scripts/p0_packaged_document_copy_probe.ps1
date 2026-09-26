@@ -127,6 +127,18 @@ function FindControl($Elements,[string]$AutomationId,[string]$ControlType='') {
   return $null
 }
 
+function AssertAppFocus($Process,[string]$Phase,[string]$ExpectedAutomationId='') {
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $focused){throw "$Phase: UIA focused element unavailable"}
+  if([int]$focused.Current.ProcessId -ne [int]$Process.Id){
+    throw "$Phase: native keyboard focus escaped packaged process; focused_pid=$([int]$focused.Current.ProcessId) launched_pid=$($Process.Id)"
+  }
+  if($ExpectedAutomationId -and [string]$focused.Current.AutomationId -ne $ExpectedAutomationId){
+    throw "$Phase: wrong focused control; expected='$ExpectedAutomationId' actual='$([string]$focused.Current.AutomationId)'"
+  }
+  return $focused
+}
+
 function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
   $last=''
@@ -185,7 +197,12 @@ try {
 
   $shell=New-Object -ComObject WScript.Shell
   $null=$shell.AppActivate($process.Id)
-  try {$document.SetFocus()} catch {}
+  try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
+  Start-Sleep -Milliseconds 100
+  $focused=AssertAppFocus $process 'static document copy'
+  if([string]$focused.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static document copy focus landed in an edit control'
+  }
   $target.Select()
   Start-Sleep -Milliseconds 100
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
@@ -204,6 +221,7 @@ try {
   $null=$shell.AppActivate($process.Id)
   $move.SetFocus()
   Start-Sleep -Milliseconds 100
+  $null=AssertAppFocus $process 'move input copy' 'move-input'
   Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
   Start-Sleep -Milliseconds 100
   [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
@@ -217,9 +235,11 @@ try {
     discovery='connected provider-root ControlView from retained topology handles'
     static_document_text=$selected
     static_document_outside_edit=$true
+    native_copy_focus_verified=$true
     textpattern_selection_supported=$true
     clipboard_equality='case-sensitive exact string equality'
     ctrl_c_exact_clipboard=$true
+    move_input_focus_verified=$true
     move_input_native_ctrl_a_ctrl_c=$true
     document_process_id=[int]$document.Current.ProcessId
     launched_process_id=$process.Id
