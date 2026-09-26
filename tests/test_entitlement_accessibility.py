@@ -43,6 +43,24 @@ class EntitlementAccessibilityPresenterTests(unittest.TestCase):
         self.assertNotIn("private", rendered.lower())
         self.assertNotIn("license.json", rendered)
 
+    def test_malformed_state_projection_fails_closed_to_recovery(self) -> None:
+        class ExplosiveState:
+            def __str__(self) -> str:
+                raise RuntimeError("projection must not escape")
+
+        presenter = EntitlementAccessibilityPresenter(
+            lambda: {"state": ExplosiveState()},
+            lambda *_: None,
+            language="en",
+        )
+        data = presenter.snapshot().as_dict()
+        self.assertEqual("unknown", data["state"])
+        self.assertTrue(data["blocking"])
+        self.assertFalse(data["active"])
+        self.assertTrue(data["preserveUserData"])
+        self.assertEqual("entitlement.refresh", data["actionId"])
+        self.assertEqual("entitlement-action", data["focusTarget"])
+
     def test_stale_browser_action_is_rejected_after_live_state_changes(self) -> None:
         state = {"state": "expired"}
         calls: list[str] = []
