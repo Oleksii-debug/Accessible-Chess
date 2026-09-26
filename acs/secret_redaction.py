@@ -64,7 +64,8 @@ _ASSIGNMENT_RE = re.compile(
 _JSONISH_RE = re.compile(
     r"(?i)([\"'](?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
     r"api[_-]?key|api[_-]?secret|license[_-]?key|session[_-]?token|password|passwd|"
-    r"authorization|cookie|set[_-]?cookie)[\"']\s*:\s*[\"'])(.*?)([\"'])"
+    r"authorization|cookie|set[_-]?cookie)[\"']\s*:\s*)"
+    r"(?P<json_quote>[\"'])(?:\\.|(?!(?P=json_quote)).)*(?P=json_quote)"
 )
 _URL_RE = re.compile(r"https?://[^\s<>'\"]+")
 
@@ -102,7 +103,15 @@ def redact_text(value: str) -> str:
         text,
     )
     text = _ASSIGNMENT_RE.sub(lambda match: match.group(1) + REDACTED, text)
-    text = _JSONISH_RE.sub(lambda match: match.group(1) + REDACTED + match.group(3), text)
+    text = _JSONISH_RE.sub(
+        lambda match: (
+            match.group(1)
+            + match.group("json_quote")
+            + REDACTED
+            + match.group("json_quote")
+        ),
+        text,
+    )
     return _URL_RE.sub(lambda match: _redact_url(match.group(0)), text)
 
 
