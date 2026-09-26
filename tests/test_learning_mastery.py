@@ -78,6 +78,38 @@ class LearningMasteryTests(unittest.TestCase):
                 outcome(1, "evt.1", duration_seconds=91),
             )
 
+    def test_per_activity_event_ledger_recognizes_retry_after_other_activity(self) -> None:
+        original = outcome(1, "activity.a.event", activity_id="activity.a")
+        state = record_training_outcome(MasteryState.empty(), original).state
+        state = record_training_outcome(
+            state,
+            outcome(2, "activity.b.event", activity_id="activity.b"),
+        ).state
+
+        retry = record_training_outcome(state, original)
+        self.assertTrue(retry.duplicate_retry)
+        self.assertIs(retry.state, state)
+        self.assertEqual(2, retry.state.revision)
+        self.assertEqual(2, len(retry.state.activity_events))
+
+    def test_same_event_id_with_changed_content_is_rejected_even_after_other_activity(self) -> None:
+        original = outcome(1, "activity.a.event", activity_id="activity.a")
+        state = record_training_outcome(MasteryState.empty(), original).state
+        state = record_training_outcome(
+            state,
+            outcome(2, "activity.b.event", activity_id="activity.b"),
+        ).state
+        with self.assertRaises(MasteryError):
+            record_training_outcome(
+                state,
+                outcome(
+                    3,
+                    "activity.a.event",
+                    activity_id="activity.a",
+                    duration_seconds=91,
+                ),
+            )
+
     def test_stale_or_gapped_sequence_cannot_farm_rewards(self) -> None:
         state = record_training_outcome(MasteryState.empty(), outcome(1, "evt.1")).state
         for candidate in (outcome(1, "different"), outcome(3, "evt.3")):
