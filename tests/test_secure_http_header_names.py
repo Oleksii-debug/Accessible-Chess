@@ -32,7 +32,7 @@ class _Opener:
 
 
 class SecureHttpHeaderNameTests(unittest.TestCase):
-    def test_non_token_header_names_fail_closed(self) -> None:
+    def test_non_token_or_noncanonical_header_names_fail_closed(self) -> None:
         transport = BoundedHttpsJsonTransport(opener=_Opener())
         for name in (
             "Bad:Name",
@@ -41,11 +41,32 @@ class SecureHttpHeaderNameTests(unittest.TestCase):
             "Bad/Name",
             "Bad(Name)",
             "Nämé",
+            " X-Test",
+            "X-Test ",
         ):
             with self.subTest(name=name), self.assertRaises(SecureHttpError) as caught:
                 transport.get_json("https://example.invalid/", headers={name: "value"})
             self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
             self.assertIsNone(caught.exception.__cause__)
+
+    def test_post_does_not_stringify_hostile_header_keys(self) -> None:
+        conversions: list[str] = []
+
+        class HostileName:
+            def __str__(self) -> str:
+                conversions.append("str")
+                raise RuntimeError("provider-private-header-name")
+
+        transport = BoundedHttpsJsonTransport(opener=_Opener())
+        with self.assertRaises(SecureHttpError) as caught:
+            transport.post_json(
+                "https://example.invalid/",
+                {"safe": True},
+                headers={HostileName(): "value"},  # type: ignore[dict-item]
+            )
+        self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(conversions, [])
 
     def test_rfc_token_punctuation_header_name_remains_allowed(self) -> None:
         transport = BoundedHttpsJsonTransport(opener=_Opener())
