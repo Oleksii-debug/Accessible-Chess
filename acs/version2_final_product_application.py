@@ -323,7 +323,7 @@ class Version2FinalProductApplication(Version2Application):
                 return self._error()
             return asdict(self.teacher.dispatch(command, payload))
         if area in {"classes", "education"}:
-            if command.startswith("collaboration."):
+            if type(command) is str and command.startswith("collaboration."):
                 if self.collaboration is None:
                     return self._error()
                 return asdict(self.collaboration.dispatch(command, payload))
@@ -337,7 +337,7 @@ class Version2FinalProductApplication(Version2Application):
             return None
         snapshot = dict(self.education.projection.snapshot())
         if self.collaboration is not None:
-            snapshot["collaboration"] = self.collaboration.snapshot()
+            snapshot["collaboration"] = self.collaboration.safe_snapshot()
         return snapshot
 
     def snapshot(self) -> dict[str, object]:
