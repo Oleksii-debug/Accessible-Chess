@@ -252,10 +252,10 @@
     return exposeAnnouncement(message, dispatch);
   };
 
-  function surfaceActionAnnouncement(dispatchId) {
-    return function (message) {
-      return exposeAnnouncement(message, dispatchId);
-    };
+  function surfaceResultWillAnnounce(result) {
+    if (!result || typeof result !== "object") return false;
+    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    return Boolean(payload.announcement || (result.kind === "error" && payload.message));
   }
 
   function wrapSurfaceRenderAnnouncement(surfaceName) {
@@ -268,9 +268,48 @@
     const originalRender = surface.render;
     replacement.render = function () {
       const args = Array.prototype.slice.call(arguments);
-      if (args.length > 3) {
-        const dispatchId = "surface:" + String(++dispatchCounter);
-        args[3] = surfaceActionAnnouncement(dispatchId);
+      if (args.length > 3 && typeof args[2] === "function") {
+        const originalInvoke = args[2];
+        const originalAnnounce = typeof args[3] === "function" ? args[3] : null;
+        const pendingDispatches = [];
+        let activeDispatch = null;
+        let activeDispatchTimer = null;
+
+        args[2] = function () {
+          const invokeArgs = Array.prototype.slice.call(arguments);
+          const dispatchId = "surface:" + String(++dispatchCounter);
+          let result;
+          try {
+            result = originalInvoke.apply(this, invokeArgs);
+          } catch (error) {
+            pendingDispatches.push(dispatchId);
+            throw error;
+          }
+          return Promise.resolve(result).then(
+            function (resolved) {
+              if (surfaceResultWillAnnounce(resolved)) pendingDispatches.push(dispatchId);
+              return resolved;
+            },
+            function (error) {
+              pendingDispatches.push(dispatchId);
+              throw error;
+            }
+          );
+        };
+
+        args[3] = function (message) {
+          if (pendingDispatches.length) {
+            activeDispatch = pendingDispatches.shift();
+            if (activeDispatchTimer !== null) global.clearTimeout(activeDispatchTimer);
+            activeDispatchTimer = global.setTimeout(function () {
+              activeDispatch = null;
+              activeDispatchTimer = null;
+            }, 0);
+          }
+          if (activeDispatch !== null) return exposeAnnouncement(message, activeDispatch);
+          if (originalAnnounce) return originalAnnounce(message);
+          return exposeAnnouncement(message, null);
+        };
       }
       return originalRender.apply(surface, args);
     };
