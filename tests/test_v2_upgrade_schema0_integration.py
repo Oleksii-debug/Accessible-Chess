@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -51,6 +53,33 @@ def _legacy_rows(path: Path):
         connection.close()
 
 
+def _leave_committed_wal_after_crash(path: Path) -> None:
+    script = r'''
+import os
+import sqlite3
+import sys
+
+path = sys.argv[1]
+connection = sqlite3.connect(path)
+mode = str(connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]).casefold()
+if mode != "wal":
+    raise SystemExit("WAL mode unavailable")
+connection.execute("PRAGMA wal_autocheckpoint=0")
+connection.execute(
+    "INSERT INTO games(title,pgn,created_at) VALUES(?,?,?)",
+    ("wal-only-source.pgn", "1. d4 d5 2. c4 *", "2026-09-26T00:00:00"),
+)
+connection.commit()
+# Model a process crash: do not close/checkpoint the SQLite connection.
+os._exit(0)
+'''
+    subprocess.run(
+        [sys.executable, "-c", script, str(path)],
+        check=True,
+        timeout=15,
+    )
+
+
 class Version2Schema0IntegrationTests(unittest.TestCase):
     def test_exact_shipped_schema0_upgrades_through_d07_and_existing_transaction(self):
         with tempfile.TemporaryDirectory() as td:
@@ -91,31 +120,14 @@ class Version2Schema0IntegrationTests(unittest.TestCase):
             root.mkdir()
             library = root / "library.acsdb"
             _make_legacy(library)
+            _leave_committed_wal_after_crash(library)
 
-            writer = sqlite3.connect(library)
-            try:
-                mode = str(writer.execute("PRAGMA journal_mode=WAL").fetchone()[0]).casefold()
-                self.assertEqual(mode, "wal")
-                # Keep this connection open so the committed second row remains a
-                # legitimate WAL-backed part of the logical database while the
-                # recovery coordinator snapshots and converts schema 0.
-                writer.execute("PRAGMA wal_autocheckpoint=0")
-                writer.execute(
-                    "INSERT INTO games(title,pgn,created_at) VALUES(?,?,?)",
-                    (
-                        "wal-only-source.pgn",
-                        "1. d4 d5 2. c4 *",
-                        "2026-09-26T00:00:00",
-                    ),
-                )
-                writer.commit()
-                self.assertTrue(Path(str(library) + "-wal").is_file())
-                before = _legacy_rows(library)
-                self.assertEqual(len(before[1]), 2)
+            wal = Path(str(library) + "-wal")
+            self.assertTrue(wal.is_file())
+            before = _legacy_rows(library)
+            self.assertEqual(len(before[1]), 2)
 
-                report = Version2UpgradeCoordinator(UserDataLayout(root)).run()
-            finally:
-                writer.close()
+            report = Version2UpgradeCoordinator(UserDataLayout(root)).run()
 
             self.assertEqual(report.status, "upgraded")
             self.assertTrue(report.library_migrated)
