@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import uuid
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -29,6 +30,7 @@ PRODUCT_SOUND_API_VERSION = 1
 DEFAULT_MAX_PACK_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ASSET_BYTES = 16 * 1024 * 1024
 DEFAULT_MAX_FILES = 128
+DEFAULT_MAX_SOUND_SECONDS = 30.0
 
 
 class SoundPackAcquisitionPort(Protocol):
@@ -81,6 +83,31 @@ def _sync_file(path: Path) -> None:
         os.fsync(handle.fileno())
 
 
+def _validate_wav_asset(path: Path, *, max_seconds: float) -> None:
+    try:
+        with wave.open(str(path), "rb") as reader:
+            channels = reader.getnchannels()
+            sample_width = reader.getsampwidth()
+            frame_rate = reader.getframerate()
+            frame_count = reader.getnframes()
+            compression = reader.getcomptype()
+    except (wave.Error, EOFError) as exc:
+        raise ValueError(f"sound asset is not a valid PCM WAV: {path.name}") from exc
+
+    if channels not in {1, 2}:
+        raise ValueError("sound asset must use mono or stereo PCM")
+    if sample_width != 2:
+        raise ValueError("sound asset must use 16-bit PCM for volume scaling")
+    if not 8000 <= frame_rate <= 96000:
+        raise ValueError("sound asset sample rate must be in 8000..96000 Hz")
+    if frame_count <= 0:
+        raise ValueError("sound asset must contain audio frames")
+    if compression != "NONE":
+        raise ValueError("sound asset must use uncompressed PCM")
+    if frame_count / frame_rate > max_seconds:
+        raise ValueError("sound asset duration exceeds configured limit")
+
+
 class SoundPackStore:
     """Strict local pack store rooted below the user's data directory."""
 
@@ -91,6 +118,7 @@ class SoundPackStore:
         max_pack_bytes: int = DEFAULT_MAX_PACK_BYTES,
         max_asset_bytes: int = DEFAULT_MAX_ASSET_BYTES,
         max_files: int = DEFAULT_MAX_FILES,
+        max_sound_seconds: float = DEFAULT_MAX_SOUND_SECONDS,
     ) -> None:
         self.root = Path(root)
         for name, value in (
@@ -102,9 +130,14 @@ class SoundPackStore:
                 raise ValueError(f"{name} must be a positive integer")
         if max_asset_bytes > max_pack_bytes:
             raise ValueError("max_asset_bytes cannot exceed max_pack_bytes")
+        if isinstance(max_sound_seconds, bool) or not isinstance(
+            max_sound_seconds, (int, float)
+        ) or max_sound_seconds <= 0:
+            raise ValueError("max_sound_seconds must be positive")
         self.max_pack_bytes = max_pack_bytes
         self.max_asset_bytes = max_asset_bytes
         self.max_files = max_files
+        self.max_sound_seconds = float(max_sound_seconds)
 
     @staticmethod
     def _pack_id(value: str) -> str:
@@ -194,6 +227,7 @@ class SoundPackStore:
             actual = _digest_file(asset)
             if actual != expected:
                 raise ValueError(f"sound pack asset digest mismatch: {relative}")
+            _validate_wav_asset(asset, max_seconds=self.max_sound_seconds)
 
         return manifest
 
@@ -267,6 +301,7 @@ class SoundPackStore:
             raise ValueError("installed sound asset exceeds size limit")
         if _digest_file(path) != expected:
             raise ValueError("installed sound asset digest mismatch")
+        _validate_wav_asset(path, max_seconds=self.max_sound_seconds)
         return path
 
     def verify_installed(self, pack_id: str) -> SoundPackManifest:
