@@ -97,6 +97,8 @@ function collaboration(messages, unreadCount, moderation) {
       hide_label: "Hide message",
       mute_sender_label: "Mute sender",
       allow_sender_label: "Allow sender",
+      remove_sender_label: "Remove participant",
+      block_sender_label: "Remove and block participant",
       mute_all_label: "Mute all students",
       allow_all_label: "Allow all students",
       moderation_available: !!moderation,
@@ -249,7 +251,8 @@ window.AccessibleChessEducationSurface.apply(
           unread: false,
           message_key: "b".repeat(64),
           can_hide: true,
-          can_moderate_sender: true
+          can_moderate_sender: true,
+          can_remove_sender: true
         }
       ], 0, true)
     }
@@ -265,6 +268,8 @@ const moderationCommands = root.querySelectorAll("BUTTON")
   "collaboration.chat.hide",
   "collaboration.chat.mute_sender",
   "collaboration.chat.allow_sender",
+  "collaboration.participant.remove_sender",
+  "collaboration.participant.block_sender",
   "collaboration.chat.mute_all_students",
   "collaboration.chat.allow_all_students"
 ].forEach((command) => {
