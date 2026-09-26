@@ -19,7 +19,7 @@ from .version2_final_product_profile import (
     FINAL_PRODUCT_ACTION_IDS,
     FinalProductNativeMenuController,
 )
-from .version2_starter_content_application import Version2StarterContentApplication
+from .version2_packaged_starter_application import Version2PackagedStarterApplication
 
 
 def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
@@ -69,7 +69,7 @@ def _final_product_mutation_bindings() -> Iterator[Callable[[Any, UILanguage], N
     previous_sync = getattr(api_type, "_sync_version2_language")
     previous_resources = _release_ui._resource_sources
 
-    _release_app.Version2Application = Version2StarterContentApplication
+    _release_app.Version2Application = Version2PackagedStarterApplication
     _release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS = FINAL_PRODUCT_ACTION_IDS
     _release_ui.Version2NativeMenuController = FinalProductNativeMenuController
     setattr(
