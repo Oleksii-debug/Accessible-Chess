@@ -27,7 +27,10 @@ if "--diagnostic" in sys.argv:
     from acs.selftest import run as core_run
     from acs.stage1_release_ui import complete_user_flow_diagnostic
     from acs.version2_final_product_profile import validate_final_product_profile
-    from acs.version2_release_diagnostics import packaged_starter_materials_ready
+    from acs.version2_release_diagnostics import (
+        packaged_starter_materials_ready,
+        packaged_w2_library_ready,
+    )
     from acs.version2_upgrade_status_release import (
         create_version2_release_application,
         final_product_resource_sources,
@@ -120,6 +123,15 @@ if "--diagnostic" in sys.argv:
         if isinstance(books_state, dict)
         else {}
     )
+    library_state = (
+        v2_state.get("library", {})
+        if isinstance(v2_state, dict)
+        else {}
+    )
+    packaged_w2_root = (
+        Path(sys.executable).resolve().parent / "release-content" / "w2-starter"
+    )
+    packaged_w2_required = packaged_w2_root.exists()
     if (
         not isinstance(semantic, dict)
         or not semantic.get("ok")
@@ -129,13 +141,14 @@ if "--diagnostic" in sys.argv:
         or not flow.get("ok")
         or flow.get("boardCells") != 64
         or not isinstance(v2_state, dict)
-        or not isinstance(v2_state.get("library"), dict)
+        or not isinstance(library_state, dict)
         or not isinstance(v2_state.get("education"), dict)
         or v2_state.get("teacher") is not None
         or "teacher" not in navigation
         or "classes" not in navigation
         or product_status.get("remote_transport") != "not_approved"
         or not packaged_starter_materials_ready(starter_materials)
+        or (packaged_w2_required and not packaged_w2_library_ready(library_state))
         or cleanup_order != ["application", "analysis", "runtime"]
         or not runtime.closed
         or "V2 final-product bootstrap" not in resource_names
@@ -153,6 +166,8 @@ if "--diagnostic" in sys.argv:
                     "userFlow": flow,
                     "v2": v2_state,
                     "starterMaterials": starter_materials,
+                    "packagedW2Required": packaged_w2_required,
+                    "packagedW2Library": library_state,
                     "cleanupOrder": cleanup_order,
                     "runtimeClosed": runtime.closed,
                     "resources": resource_names,
@@ -160,6 +175,8 @@ if "--diagnostic" in sys.argv:
                 ensure_ascii=False,
             )
         )
+    if packaged_w2_required:
+        print("P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS")
     print("P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS")
     print("PRODUCTION COMPOSITION DIAGNOSTIC PASS")
     print("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS")
