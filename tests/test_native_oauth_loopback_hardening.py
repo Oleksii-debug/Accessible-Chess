@@ -104,6 +104,40 @@ class NativeOAuthLoopbackHardeningTests(unittest.TestCase):
         self.assertNotIn(b"ambiguous", responses[0])
         self.assertNotIn(b"accepted", responses[1])
 
+    def test_arbitrary_parsed_methods_consume_attempt_budget_and_use_static_error(self) -> None:
+        listener = NativeLoopbackCallback.create(timeout_seconds=2.0, max_attempts=2)
+        port = urlsplit(listener.redirect_uri).port
+        self.assertIsNotNone(port)
+        responses: list[bytes] = []
+        worker: threading.Thread | None = None
+
+        def send_sequence() -> None:
+            for method in ("HEAD", "BREW"):
+                request = (
+                    f"{method} /oauth/callback?code=must-not-reflect HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("ascii")
+                responses.append(_raw_exchange(port, request))
+
+        def opener(_: str) -> bool:
+            nonlocal worker
+            worker = threading.Thread(target=send_sequence)
+            worker.start()
+            return True
+
+        with self.assertRaisesRegex(NativeLoopbackError, "attempt limit exceeded"):
+            listener.wait_for_callback(AUTH_URL, opener=opener)
+        if worker is not None:
+            worker.join(timeout=2.0)
+        self.assertEqual(len(responses), 2)
+        for response in responses:
+            self.assertIn(b"405 Method Not Allowed", response)
+            self.assertIn(b"Cache-Control: no-store", response)
+            self.assertIn(b"Content-Security-Policy: default-src 'none'", response)
+            self.assertNotIn(b"must-not-reflect", response)
+            self.assertNotIn(b"Unsupported method", response)
+
     def test_non_finite_clock_fails_closed_without_waiting(self) -> None:
         for bad_time in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(bad_time=bad_time):
