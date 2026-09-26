@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts" / "p0g_packaged_hotkey_result_probe.ps1"
+WEB = ROOT / "web" / "index.html"
+KEYMAP = ROOT / "web" / "keybindings.json"
 
 
 class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = PROBE.read_text(encoding="utf-8")
+        cls.web = WEB.read_text(encoding="utf-8")
+        cls.keymap = json.loads(KEYMAP.read_text(encoding="utf-8"))
 
     def test_probe_launches_real_extracted_exe_and_uses_connected_provider_roots(self) -> None:
         self.assertIn("AccessibleChess.exe", self.text)
@@ -36,6 +41,16 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("@{index=2; key=0x32}", self.text)
         self.assertNotIn("dispatch_action", self.text)
         self.assertNotIn("keymap_resolve_binding", self.text)
+
+    def test_shipping_routes_alt_variations_only_through_analysis_context_outside_board(self) -> None:
+        actions = {item["id"]: item for item in self.keymap["actions"]}
+        self.assertEqual(actions["analysis.pv1"]["binding"], "Alt+1")
+        self.assertEqual(actions["analysis.pv1"]["registryContext"], "analysis")
+        self.assertEqual(actions["analysis.pv2"]["binding"], "Alt+2")
+        self.assertEqual(actions["analysis.pv2"]["registryContext"], "analysis")
+        self.assertIn("if(e.target.closest('#board-application'))return", self.web)
+        self.assertIn("resolveBinding(eventChord(e),'board','board')", self.web)
+        self.assertIn("resolveBinding(chord,'analysis','analysis')", self.web)
 
     def test_probe_requires_accessible_result_semantics_not_handler_execution_only(self) -> None:
         self.assertIn("Accessible status live region #live", self.text)
