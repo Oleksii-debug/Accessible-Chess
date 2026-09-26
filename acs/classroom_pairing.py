@@ -341,10 +341,12 @@ def assert_pairing_scope(
 
     allowed = frozenset(lesson_session.student_ids)
     active = {item.student_id for item in classroom.students if not item.deleted}
-    for student_id in (
-        *(student for item in batch.pairings for student in (item.white_student_id, item.black_student_id)),
-        *batch.unpaired_student_ids,
-    ):
+    students = tuple(
+        student
+        for item in batch.pairings
+        for student in (item.white_student_id, item.black_student_id)
+    ) + batch.unpaired_student_ids
+    for student_id in students:
         if student_id not in allowed or student_id not in active:
             raise ClassroomPairingError("pairing batch references unavailable lesson student")
 
