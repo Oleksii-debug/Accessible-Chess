@@ -40,6 +40,7 @@ class FakeMenuItem:
         self.Text = label
         self.DropDownItems = ItemCollection()
         self.Click = EventHook()
+        self.DropDownOpening = EventHook()
 
 
 class FakeSeparator:
@@ -191,6 +192,27 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
+
+    def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        analysis_top = next(top for top in menu.Items if top.Text == "&Analysis")
+        restart = next(
+            item for item in analysis_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Restart analysis")
+        )
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+
+        controller._adapter.registry.set_binding("analysis.restart", "Ctrl+Alt+R")
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+        analysis_top.DropDownOpening.fire()
+        self.assertTrue(restart.Text.endswith("\tCtrl+Alt+R"))
+        self.assertNotIn("\tAlt+R", restart.Text)
 
     def test_real_menu_installer_attaches_one_extended_menustrip_to_owner(self) -> None:
         controller, _calls, commands, _exits = make_controller()
