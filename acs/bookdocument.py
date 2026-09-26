@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Any, Iterable, Iterator
 
 from .chesscore import Board
+from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
 BOOK_DOCUMENT_SCHEMA_VERSION = 1
@@ -75,6 +76,59 @@ def _fen_text(value: object, field_name: str) -> str:
             f"{field_name} is not accepted by canonical Board validation",
             code=BookDocumentErrorCode.INVALID_FIELD,
         ) from None
+    return text
+
+
+def _embedded_pgn_text(
+    value: object,
+    field_name: str,
+    *,
+    expected_root_fen: str | None = None,
+) -> str:
+    """Validate one embedded game through the canonical bounded PGN ingress.
+
+    The BookDocument layer owns neither PGN tokenization nor chess legality. It
+    keeps the original source text unchanged, but refuses to publish a semantic
+    Game/VariationTree/Exercise solution that the shared PGN contract cannot
+    represent as exactly one strict game. Explicit PGN FEN metadata is validated
+    by the same canonical Board authority used by Position/Diagram blocks.
+    """
+
+    text = _required_text(value, field_name)
+    try:
+        games = parse_pgn_text(text, strict=True)
+    except (PgnRoundTripError, RecursionError, TypeError, ValueError):
+        raise BookDocumentError(
+            f"{field_name} is not accepted by canonical PGN validation",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        ) from None
+
+    if len(games) != 1:
+        raise BookDocumentError(
+            f"{field_name} must contain exactly one canonical game",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+
+    game = games[0]
+    tagged_fen = game.tags.get("FEN")
+    if game.tags.get("SetUp") == "1" and tagged_fen is None:
+        raise BookDocumentError(
+            f"{field_name} declares SetUp without a FEN tag",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+
+    if tagged_fen is not None:
+        validated_tagged_fen = _fen_text(tagged_fen, f"{field_name} FEN tag")
+        if expected_root_fen is not None:
+            # Both inputs have already passed the shared Board boundary. Compare
+            # canonical positions so harmless four-vs-six-field spelling cannot
+            # manufacture a semantic mismatch.
+            if Board(validated_tagged_fen).fen() != Board(expected_root_fen).fen():
+                raise BookDocumentError(
+                    f"{field_name} FEN tag does not match the semantic root position",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+
     return text
 
 
@@ -226,7 +280,9 @@ class Game(BookBlock):
                 "Game game_id must be a non-negative integer or None",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if not self.pgn.strip() and self.game_id is None:
+        if self.pgn.strip():
+            self.pgn = _embedded_pgn_text(self.pgn, "Game PGN")
+        elif self.game_id is None:
             raise BookDocumentError(
                 "Game requires PGN text or a game_id reference",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -242,7 +298,11 @@ class VariationTree(BookBlock):
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
         self.root_fen = _fen_text(self.root_fen, "VariationTree root_fen")
-        self.pgn = _required_text(self.pgn, "VariationTree PGN")
+        self.pgn = _embedded_pgn_text(
+            self.pgn,
+            "VariationTree PGN",
+            expected_root_fen=self.root_fen,
+        )
         self.title = _optional_text(self.title, "VariationTree title")
 
 
@@ -262,6 +322,12 @@ class Exercise(BookBlock):
             self.solution_pgn,
             "Exercise solution_pgn",
         )
+        if self.solution_pgn is not None:
+            self.solution_pgn = _embedded_pgn_text(
+                self.solution_pgn,
+                "Exercise solution_pgn",
+                expected_root_fen=self.fen,
+            )
         self.answer_text = _optional_text(
             self.answer_text,
             "Exercise answer_text",
