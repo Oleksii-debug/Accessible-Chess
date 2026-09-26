@@ -8,6 +8,7 @@ Callers sanitize diagnostic structures before persistence/upload and may use
 """
 
 from collections.abc import Mapping
+import json
 import logging
 import re
 from typing import Any
@@ -63,20 +64,27 @@ class SecretRedactionError(ValueError):
     """Raised when a diagnostic object cannot be safely sanitized."""
 
 
-def _normalize_key(value: object) -> str:
-    return _KEY_NORMALIZER.sub("", str(value).strip().casefold())
+def _normalize_key(value: str) -> str:
+    # Never coerce arbitrary objects here. Mapping-key inspection is part of the
+    # security boundary, and attacker-controlled __str__ may itself expose data
+    # or perform side effects before redaction has a chance to run.
+    if type(value) is not str:
+        return ""
+    return _KEY_NORMALIZER.sub("", value.strip().casefold())
 
 
 def is_secret_key(value: object) -> bool:
-    """Return whether a mapping/header key identifies secret material."""
+    """Return whether a textual mapping/header key identifies secret material."""
 
-    return _normalize_key(value) in _SECRET_KEYS
+    return type(value) is str and _normalize_key(value) in _SECRET_KEYS
 
 
 def redact_text(value: str) -> str:
     """Redact recognizable secret material from already-rendered diagnostic text."""
 
-    text = str(value)
+    if type(value) is not str:
+        raise SecretRedactionError("diagnostic text must be plain text")
+    text = value
     text = _HEADER_RE.sub(lambda match: match.group(1) + REDACTED, text)
     text = _BEARER_RE.sub("Bearer " + REDACTED, text)
     text = _ASSIGNMENT_RE.sub(lambda match: match.group(1) + REDACTED, text)
@@ -113,23 +121,26 @@ def redact_diagnostic(value: Any, *, max_depth: int = 32) -> Any:
 
     Secret mapping values are replaced based on their key. Strings are scanned
     for labeled/header/query-string secrets. Bytes are never decoded into logs;
-    they are represented only by length. Cycles and excessive nesting fail
-    closed rather than risking recursive logging of unknown objects.
+    they are represented only by length. Cycles, non-text mapping keys and
+    excessive nesting fail closed rather than invoking attacker-controlled text
+    conversion or risking recursive logging of unknown objects.
     """
 
-    if max_depth < 1:
-        raise SecretRedactionError("max_depth must be positive")
+    if type(max_depth) is not int or max_depth < 1:
+        raise SecretRedactionError("max_depth must be a positive integer")
     return _redact_value(value, depth=0, max_depth=max_depth, active=set())
 
 
 def _redact_value(value: Any, *, depth: int, max_depth: int, active: set[int]) -> Any:
     if depth > max_depth:
         raise SecretRedactionError("diagnostic structure exceeds redaction depth limit")
-    if value is None or isinstance(value, (bool, int, float)):
+    # Exact built-in types only: subclasses can override text conversion methods
+    # and therefore belong on the unknown-object path below.
+    if value is None or type(value) in (bool, int, float):
         return value
-    if isinstance(value, str):
+    if type(value) is str:
         return redact_text(value)
-    if isinstance(value, (bytes, bytearray, memoryview)):
+    if type(value) in (bytes, bytearray, memoryview):
         return f"<binary:{len(value)} bytes>"
 
     marker = id(value)
@@ -138,8 +149,10 @@ def _redact_value(value: Any, *, depth: int, max_depth: int, active: set[int]) -
             raise SecretRedactionError("cyclic diagnostic mapping cannot be sanitized")
         active.add(marker)
         try:
-            result: dict[Any, Any] = {}
+            result: dict[str, Any] = {}
             for key, item in value.items():
+                if type(key) is not str:
+                    raise SecretRedactionError("diagnostic mapping keys must be plain text")
                 if is_secret_key(key):
                     result[key] = REDACTED
                 else:
@@ -164,9 +177,16 @@ def _redact_value(value: Any, *, depth: int, max_depth: int, active: set[int]) -
         if isinstance(value, tuple):
             return tuple(items)
         # Sets are normalized to a deterministic list because arbitrary values
-        # may not remain hashable after recursive sanitization.
+        # may not remain hashable after recursive sanitization. At this point all
+        # values are recursively reduced to JSON-safe built-ins, so json.dumps
+        # cannot invoke an attacker-controlled __repr__ or __str__.
         if isinstance(value, (set, frozenset)):
-            return sorted(items, key=lambda item: repr(item))
+            return sorted(
+                items,
+                key=lambda item: json.dumps(
+                    item, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+                ),
+            )
         return items
 
     # Do not call arbitrary __str__/__repr__: either can itself expose secrets or
