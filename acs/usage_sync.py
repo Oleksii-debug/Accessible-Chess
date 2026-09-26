@@ -16,6 +16,7 @@ from .usage_statistics import normalize_installation_id
 USAGE_SYNC_SCHEMA_VERSION = 1
 _MAX_COUNTER = 2**63 - 1
 _MAX_BATCH = 250
+_MAX_PENDING_PER_INSTALLATION = 10_000
 _EVENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 
 _ALLOWED_EVENT_KINDS = frozenset(
@@ -79,6 +80,8 @@ class UsageEvent:
             raise ValueError("unsupported aggregate event kind")
         parsed_time = _parse_utc(self.created_at_utc)
 
+        if not isinstance(self.counters, Mapping):
+            raise ValueError("aggregate counters must be a mapping")
         normalized: dict[str, int] = {}
         for key, raw_value in self.counters.items():
             name = str(key).strip().lower()
@@ -250,6 +253,15 @@ class UsageEventQueue:
                 if actual != expected:
                     raise ValueError("event_id already exists with different aggregate data")
                 return True
+            pending_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM usage_events "
+                    "WHERE installation_id = ? AND sync_state = 'pending'",
+                    (event.installation_id,),
+                ).fetchone()[0]
+            )
+            if pending_count >= _MAX_PENDING_PER_INSTALLATION:
+                raise ValueError("usage sync pending queue capacity exceeded")
             connection.execute(
                 "INSERT INTO usage_events(event_id, installation_id, kind, counters_json, created_at_utc, sync_state) "
                 "VALUES (?, ?, ?, ?, ?, 'pending')",
@@ -287,7 +299,13 @@ class UsageEventQueue:
         events = self.pending(limit=limit)
         if not events:
             return 0
-        acknowledged = tuple(_normalize_event_id(value) for value in port.sync_events(events))
+        try:
+            raw_acknowledged = port.sync_events(events)
+        except Exception:
+            raise RuntimeError("aggregate usage sync provider failed") from None
+        if isinstance(raw_acknowledged, (str, bytes)) or not isinstance(raw_acknowledged, Sequence):
+            raise ValueError("sync adapter acknowledgements must be a sequence of event IDs")
+        acknowledged = tuple(_normalize_event_id(value) for value in raw_acknowledged)
         pending_ids = {event.event_id for event in events}
         if len(set(acknowledged)) != len(acknowledged):
             raise ValueError("sync adapter returned duplicate acknowledgements")
