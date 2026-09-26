@@ -146,8 +146,8 @@ def verify_signed_entitlement_policy(
     message = _canonical_signature_message(schema=schema, key_id=key_id, payload=payload)
     try:
         verified = verifier.verify(key_id=key_id, message=message, signature=signature)
-    except Exception as exc:
-        raise SignedEntitlementPolicyError("signed entitlement policy verification failed") from exc
+    except Exception:
+        raise SignedEntitlementPolicyError("signed entitlement policy verification failed") from None
     if verified is not True:
         raise SignedEntitlementPolicyError("signed entitlement policy signature is invalid")
 
