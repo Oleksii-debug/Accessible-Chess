@@ -6,6 +6,7 @@
 #    nuitka-project: --include-data-files={MAIN_DIRECTORY}/packaging/AccessibleChess.exe.config=AccessibleChess.exe.config
 
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -131,7 +132,9 @@ if "--diagnostic" in sys.argv:
     packaged_w2_root = (
         Path(sys.executable).resolve().parent / "release-content" / "w2-starter"
     )
-    packaged_w2_required = packaged_w2_root.exists()
+    # A broken/reparse package-root entry is still release material and must
+    # not disappear from qualification merely because Path.exists() follows it.
+    packaged_w2_required = os.path.lexists(packaged_w2_root)
     if (
         not isinstance(semantic, dict)
         or not semantic.get("ok")
