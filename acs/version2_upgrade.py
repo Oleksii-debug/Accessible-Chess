@@ -30,6 +30,29 @@ for _name in dir(_base):
         globals()[_name] = getattr(_base, _name)
 
 
+def _canonical_library_schema(connection: sqlite3.Connection) -> int:
+    """Recognize only current D07 schemas or the exact shipped legacy schema."""
+    try:
+        raw_row = connection.execute("PRAGMA user_version").fetchone()
+        raw_version = raw_row[0] if raw_row is not None else None
+        if raw_version == 0:
+            try:
+                _check_legacy_schema(connection)
+            except LegacyLibraryMigrationError as exc:
+                raise Version2UpgradeError("library validation failed") from exc
+            return 0
+        return AcsDatabase._check_sqlite_integrity(connection)
+    except Version2UpgradeError:
+        raise
+    except RuntimeError as exc:
+        if type(raw_version) is int and raw_version > ACSDB_SCHEMA_VERSION:
+            raise Version2UpgradeError(
+                "library schema is newer than this Version 2 build"
+            ) from exc
+        raise Version2UpgradeError("library validation failed") from exc
+    except sqlite3.DatabaseError as exc:
+        raise Version2UpgradeError("library validation failed") from exc
+
 
 
 class Version2UpgradeCoordinator(_base.Version2UpgradeCoordinator):
