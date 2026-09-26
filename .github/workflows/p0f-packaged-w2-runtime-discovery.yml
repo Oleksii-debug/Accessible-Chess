@@ -48,6 +48,44 @@ jobs:
           acs/version2_education_mutation_release.py
           tests/test_v2_packaged_starter_application.py
 
+      - name: Enforce canonical W2 manifest authority at runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('acs/version2_packaged_starter_application.py').read_text(encoding='utf-8')
+
+          # The runtime must not re-open manifest.json with an ordinary path read
+          # after merely lstat()-checking it. The manifest is itself release input
+          # and must use the same identity-pinned regular-file discipline as payloads.
+          if 'manifest_path.read_text(' in source:
+              raise SystemExit('P0_F_W2_MANIFEST_IDENTITY_PINNING_MISSING')
+
+          # Schema-3 provenance is owned by tools/p0f_lawful_starter_bundle.py.
+          # Runtime acceptance must bind the package to that qualified authority,
+          # rather than accepting a self-consistent manifest+payload substitution.
+          required = (
+              'lichess-standard-rated-2013-01',
+              'aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635',
+              'accessible-chess-p0f-real-sample-v1',
+              'acs.pgn_roundtrip.parse_pgn_text(strict=True)',
+              'compressed_sha256',
+              'subset_sha256',
+              'selected_games',
+              'curation',
+              'record_sha256',
+              'sample_library',
+              'distinct_games',
+              'distinct_player_pairs',
+          )
+          missing = [token for token in required if token not in source]
+          if missing:
+              raise SystemExit('P0_F_W2_RUNTIME_PROVENANCE_AUTHORITY_MISSING=' + ','.join(missing))
+          print('P0_F_W2_RUNTIME_MANIFEST_AUTHORITY=PASS')
+          PY
+
       - name: Run packaged W2 discovery and retained W3 regressions
         run: >-
           python -m unittest -v
