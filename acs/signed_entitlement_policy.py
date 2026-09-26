@@ -132,8 +132,8 @@ def verify_signed_entitlement_policy(
         document = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
     except SignedEntitlementPolicyError:
         raise
-    except (json.JSONDecodeError, UnicodeError, ValueError, TypeError) as exc:
-        raise SignedEntitlementPolicyError("signed entitlement envelope is not valid JSON") from exc
+    except (json.JSONDecodeError, UnicodeError, ValueError, TypeError, RecursionError):
+        raise SignedEntitlementPolicyError("signed entitlement envelope is not valid JSON") from None
 
     top = _require_exact_mapping(document, _TOP_LEVEL_FIELDS, "signed entitlement envelope")
     schema = _require_text(top["schema"], "schema")
@@ -238,8 +238,8 @@ def _canonical_signature_message(*, schema: str, key_id: str, payload: Mapping[s
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeError) as exc:
-        raise SignedEntitlementPolicyError("signed entitlement payload is not canonically serializable") from exc
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        raise SignedEntitlementPolicyError("signed entitlement payload is not canonically serializable") from None
     if len(encoded) > _MAX_ENVELOPE_BYTES:
         raise SignedEntitlementPolicyError("signed entitlement payload is too large")
     return _SIGNATURE_DOMAIN + encoded
