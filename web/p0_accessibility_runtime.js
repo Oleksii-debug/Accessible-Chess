@@ -252,8 +252,10 @@
     return exposeAnnouncement(message, dispatch);
   };
 
-  function exposeSurfaceActionAnnouncement(message) {
-    return exposeAnnouncement(message, "surface:" + String(++dispatchCounter));
+  function surfaceActionAnnouncement(dispatchId) {
+    return function (message) {
+      return exposeAnnouncement(message, dispatchId);
+    };
   }
 
   function wrapSurfaceRenderAnnouncement(surfaceName) {
@@ -266,7 +268,10 @@
     const originalRender = surface.render;
     replacement.render = function () {
       const args = Array.prototype.slice.call(arguments);
-      if (args.length > 3) args[3] = exposeSurfaceActionAnnouncement;
+      if (args.length > 3) {
+        const dispatchId = "surface:" + String(++dispatchCounter);
+        args[3] = surfaceActionAnnouncement(dispatchId);
+      }
       return originalRender.apply(surface, args);
     };
     global[surfaceName] = Object.freeze(replacement);
