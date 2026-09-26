@@ -47,9 +47,16 @@
     return wrapper;
   }
 
+  function activeIdInside(root) {
+    const active = document.activeElement;
+    if (!active || !active.id || !root || typeof root.contains !== "function") return "";
+    return root.contains(active) ? String(active.id) : "";
+  }
+
   function applyEducationEvent(root, result, invoke, announce, fallbackMessage) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    const previousFocus = activeIdInside(root);
     if ((result.kind === "selection" || result.kind === "page") && payload.snapshot) {
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
       if (previous && typeof previous.replaceWith === "function") {
@@ -62,9 +69,17 @@
         previousDetail.replaceWith(renderDetail(payload.detail));
       }
     }
+    if (payload.collaboration && typeof payload.collaboration === "object") {
+      const previousCollaboration = root.querySelector("#classroom-collaboration");
+      if (previousCollaboration && typeof previousCollaboration.replaceWith === "function") {
+        previousCollaboration.replaceWith(
+          renderCollaboration(payload.collaboration, invoke, announce, fallbackMessage)
+        );
+      }
+    }
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
-    focusTarget(root, payload.focus_target || "");
+    focusTarget(root, payload.focus_target || previousFocus || "");
   }
 
   function invokeSection(invoke, command, payload, root, announce, fallbackMessage) {
@@ -184,6 +199,169 @@
     return wrapper;
   }
 
+  function invokeCollaboration(invoke, command, payload, wrapper, announce, fallbackMessage) {
+    const root = wrapper.parentNode;
+    safeInvoke(invoke, command, payload, function (result) {
+      applyEducationEvent(root, result, invoke, announce, fallbackMessage);
+    }, announce, fallbackMessage);
+  }
+
+  function renderCollaboration(snapshot, invoke, announce, fallbackMessage) {
+    const wrapper = node("section");
+    wrapper.id = "classroom-collaboration";
+    wrapper.setAttribute("aria-labelledby", "classroom-collaboration-heading");
+    const heading = node("h2", snapshot.heading || "");
+    heading.id = "classroom-collaboration-heading";
+    wrapper.appendChild(heading);
+
+    const chat = snapshot.chat && typeof snapshot.chat === "object" ? snapshot.chat : {};
+    const chatSection = node("section");
+    chatSection.setAttribute("aria-labelledby", "collaboration-chat-heading");
+    const chatHeading = node("h3", chat.heading || "");
+    chatHeading.id = "collaboration-chat-heading";
+    chatSection.appendChild(chatHeading);
+
+    const unread = node("p", chat.unread_label || "");
+    unread.id = "collaboration-unread-status";
+    unread.setAttribute("aria-live", "off");
+    chatSection.appendChild(unread);
+
+    const chatActions = node("div");
+    const sync = node("button", chat.sync_label || "Refresh chat");
+    sync.type = "button";
+    sync.setAttribute("data-command", "collaboration.chat.sync");
+    sync.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.chat.sync", {}, wrapper, announce, fallbackMessage);
+    });
+    chatActions.appendChild(sync);
+    const markRead = node("button", chat.mark_read_label || "Mark read");
+    markRead.type = "button";
+    markRead.disabled = !(Number(chat.unread_count || 0) > 0);
+    markRead.setAttribute("data-command", "collaboration.chat.mark_read");
+    markRead.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.chat.mark_read", {}, wrapper, announce, fallbackMessage);
+    });
+    chatActions.appendChild(markRead);
+    chatSection.appendChild(chatActions);
+
+    const form = node("form");
+    form.id = "collaboration-chat-form";
+    const label = node("label", chat.composer_label || "Message");
+    label.setAttribute("for", "collaboration-chat-input");
+    form.appendChild(label);
+    const input = node("textarea");
+    input.id = "collaboration-chat-input";
+    input.rows = 3;
+    const maxBody = Number(chat.max_body_chars || 0);
+    if (Number.isFinite(maxBody) && maxBody > 0) input.maxLength = maxBody;
+    form.appendChild(input);
+    const send = node("button", chat.send_label || "Send");
+    send.type = "submit";
+    send.setAttribute("data-command", "collaboration.chat.send");
+    form.appendChild(send);
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!String(input.value || "").trim()) return;
+      invokeCollaboration(
+        invoke,
+        "collaboration.chat.send",
+        { body: String(input.value) },
+        wrapper,
+        announce,
+        fallbackMessage
+      );
+    });
+    chatSection.appendChild(form);
+
+    const messages = Array.isArray(chat.messages) ? chat.messages : [];
+    if (!messages.length) {
+      chatSection.appendChild(node("p", chat.empty_message || ""));
+    } else {
+      const history = node("ol");
+      history.id = "collaboration-chat-history";
+      history.setAttribute("aria-label", chat.heading || "Chat");
+      messages.forEach(function (message) {
+        const item = node("li");
+        item.id = String(message.dom_id || "");
+        if (message.unread) item.setAttribute("data-unread", "true");
+        item.appendChild(node("strong", message.sender || ""));
+        item.appendChild(document.createTextNode(": "));
+        item.appendChild(node("span", message.body || ""));
+        history.appendChild(item);
+      });
+      chatSection.appendChild(history);
+    }
+    wrapper.appendChild(chatSection);
+
+    const files = snapshot.files && typeof snapshot.files === "object" ? snapshot.files : {};
+    const fileSection = node("section");
+    fileSection.setAttribute("aria-labelledby", "collaboration-files-heading");
+    const fileHeading = node("h3", files.heading || "");
+    fileHeading.id = "collaboration-files-heading";
+    fileSection.appendChild(fileHeading);
+    const choose = node("button", files.choose_upload_label || "Choose and send file");
+    choose.type = "button";
+    choose.disabled = !files.can_choose_upload;
+    choose.setAttribute("data-command", "collaboration.file.choose_upload");
+    choose.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.file.choose_upload", {}, wrapper, announce, fallbackMessage);
+    });
+    fileSection.appendChild(choose);
+
+    const fileItems = Array.isArray(files.items) ? files.items : [];
+    if (!fileItems.length) {
+      fileSection.appendChild(node("p", files.empty_message || ""));
+    } else {
+      const list = node("ul");
+      list.id = "collaboration-file-list";
+      fileItems.forEach(function (file) {
+        const item = node("li");
+        item.id = String(file.dom_id || "");
+        item.appendChild(node("strong", file.name || ""));
+        if (file.sender) {
+          item.appendChild(document.createTextNode(" — "));
+          item.appendChild(node("span", file.sender));
+        }
+        [file.size_label, file.type_label, file.status_label, file.scan_label].forEach(function (value) {
+          if (!value) return;
+          item.appendChild(document.createTextNode(" — "));
+          item.appendChild(node("span", value));
+        });
+        if (file.can_save) {
+          const save = node("button", files.save_label || "Save");
+          save.type = "button";
+          save.setAttribute("data-command", "collaboration.file.save");
+          save.addEventListener("click", function () {
+            invokeCollaboration(invoke, "collaboration.file.save", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
+          });
+          item.appendChild(save);
+        }
+        if (file.can_retry) {
+          const retry = node("button", files.retry_label || "Retry");
+          retry.type = "button";
+          retry.setAttribute("data-command", "collaboration.file.retry");
+          retry.addEventListener("click", function () {
+            invokeCollaboration(invoke, "collaboration.file.retry", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
+          });
+          item.appendChild(retry);
+        }
+        if (file.can_cancel) {
+          const cancel = node("button", files.cancel_label || "Cancel");
+          cancel.type = "button";
+          cancel.setAttribute("data-command", "collaboration.file.cancel");
+          cancel.addEventListener("click", function () {
+            invokeCollaboration(invoke, "collaboration.file.cancel", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
+          });
+          item.appendChild(cancel);
+        }
+        list.appendChild(item);
+      });
+      fileSection.appendChild(list);
+    }
+    wrapper.appendChild(fileSection);
+    return wrapper;
+  }
+
   function renderEducationSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("education root must support replaceChildren");
@@ -202,6 +380,9 @@
       main.appendChild(renderSection(section || {}, invoke, announce, fallbackMessage));
     });
     main.appendChild(renderDetail(snapshot.detail || null));
+    if (snapshot.collaboration && typeof snapshot.collaboration === "object") {
+      main.appendChild(renderCollaboration(snapshot.collaboration, invoke, announce, fallbackMessage));
+    }
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     focusTarget(root, requestedFocus || "");
