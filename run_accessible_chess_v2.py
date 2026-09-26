@@ -109,6 +109,21 @@ if "--diagnostic" in sys.argv:
         if isinstance(v2_state, dict)
         else {}
     )
+    books_state = (
+        v2_state.get("books", {})
+        if isinstance(v2_state, dict)
+        else {}
+    )
+    starter_materials = (
+        books_state.get("starter_materials", {})
+        if isinstance(books_state, dict)
+        else {}
+    )
+    starter_items = (
+        starter_materials.get("items", ())
+        if isinstance(starter_materials, dict)
+        else ()
+    )
     if (
         not isinstance(semantic, dict)
         or not semantic.get("ok")
@@ -124,6 +139,16 @@ if "--diagnostic" in sys.argv:
         or "teacher" not in navigation
         or "classes" not in navigation
         or product_status.get("remote_transport") != "not_approved"
+        or not isinstance(starter_materials, dict)
+        or starter_materials.get("current_id") != "starter-course"
+        or not isinstance(starter_materials.get("booklet_count"), int)
+        or starter_materials.get("booklet_count", 0) < 24
+        or not isinstance(starter_items, (tuple, list))
+        or len(starter_items) < 25
+        or not any(
+            isinstance(item, dict) and item.get("material_id") == "starter-course"
+            for item in starter_items
+        )
         or cleanup_order != ["application", "analysis", "runtime"]
         or not runtime.closed
         or "V2 final-product bootstrap" not in resource_names
@@ -140,6 +165,7 @@ if "--diagnostic" in sys.argv:
                     "semantic": semantic,
                     "userFlow": flow,
                     "v2": v2_state,
+                    "starterMaterials": starter_materials,
                     "cleanupOrder": cleanup_order,
                     "runtimeClosed": runtime.closed,
                     "resources": resource_names,
@@ -147,6 +173,7 @@ if "--diagnostic" in sys.argv:
                 ensure_ascii=False,
             )
         )
+    print("P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS")
     print("PRODUCTION COMPOSITION DIAGNOSTIC PASS")
     print("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS")
 else:
