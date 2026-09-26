@@ -8,6 +8,7 @@ Keeping the predicates pure lets CI prove both positive packaged paths and
 negative malformed/missing-state cases without replacing the real launcher.
 """
 
+import re
 from typing import Any
 
 
@@ -63,6 +64,12 @@ def packaged_starter_materials_ready(value: Any) -> bool:
     if booklet_count != len(booklet_ids):
         return False
     return _REQUIRED_STARTER_BOOKLETS.issubset(booklet_ids)
+
+
+def _label_contains_exact_count(label: str, count: int) -> bool:
+    """Require the announced count as a whole decimal token, not a substring."""
+
+    return re.search(rf"(?<!\d){count}(?!\d)", label) is not None
 
 
 def packaged_w2_library_ready(value: Any) -> bool:
@@ -121,7 +128,7 @@ def packaged_w2_library_ready(value: Any) -> bool:
         label = action_map[action].get("label")
         if not isinstance(label, str) or not label.strip():
             return False
-        if str(expected_count) not in label:
+        if not _label_contains_exact_count(label, expected_count):
             return False
     return True
 
