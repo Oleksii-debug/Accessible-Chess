@@ -26,6 +26,7 @@ from .classroom_collaboration_storage import (
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
 )
+from .classroom_realtime_media import ClassroomMediaController
 from .full_product_ui_shell import UILanguage
 
 
@@ -54,6 +55,8 @@ _LABELS = {
         "hide": "Приховати повідомлення",
         "mute_sender": "Заборонити надсилання автору",
         "allow_sender": "Дозволити надсилання автору",
+        "remove_sender": "Видалити учасника",
+        "block_sender": "Видалити й заблокувати учасника",
         "mute_all": "Заборонити чат усім учням",
         "allow_all": "Дозволити чат усім учням",
         "no_messages": "Повідомлень немає.",
@@ -69,6 +72,8 @@ _LABELS = {
         "hidden": "Повідомлення приховано з активного класу.",
         "muted": "Надсилання повідомлень заборонено.",
         "allowed": "Надсилання повідомлень дозволено.",
+        "removed": "Учасника видалено з кімнати.",
+        "blocked": "Учасника видалено й заблоковано.",
         "muted_all": "Чат для учнів вимкнено.",
         "allowed_all": "Чат для учнів увімкнено.",
         "file_sent": "Файл надіслано.",
@@ -94,6 +99,8 @@ _LABELS = {
         "hide": "Hide message",
         "mute_sender": "Mute sender",
         "allow_sender": "Allow sender",
+        "remove_sender": "Remove participant",
+        "block_sender": "Remove and block participant",
         "mute_all": "Mute all students",
         "allow_all": "Allow all students",
         "no_messages": "No messages.",
@@ -109,6 +116,8 @@ _LABELS = {
         "hidden": "Message hidden from the active classroom view.",
         "muted": "Message sending disabled for the participant.",
         "allowed": "Message sending enabled for the participant.",
+        "removed": "Participant removed from the room.",
+        "blocked": "Participant removed and blocked.",
         "muted_all": "Student chat disabled.",
         "allowed_all": "Student chat enabled.",
         "file_sent": "File sent.",
@@ -177,6 +186,7 @@ class ClassroomCollaborationWebView:
         file_saver: Callable[[str, str], object] | None = None,
         file_opener: Callable[[str, str], object] | None = None,
         moderation_allowed: Callable[[], bool] | None = None,
+        participant_moderation: ClassroomMediaController | None = None,
         id_factory: Callable[[str], str] = _default_id,
     ) -> None:
         if not isinstance(controller, ClassroomCollaborationController):
@@ -195,6 +205,10 @@ class ClassroomCollaborationWebView:
             raise TypeError("file_opener must be callable")
         if moderation_allowed is not None and not callable(moderation_allowed):
             raise TypeError("moderation_allowed must be callable")
+        if participant_moderation is not None and not isinstance(
+            participant_moderation, ClassroomMediaController
+        ):
+            raise TypeError("participant_moderation must be ClassroomMediaController")
         if not callable(id_factory):
             raise TypeError("id_factory must be callable")
         self._controller = controller
@@ -205,6 +219,7 @@ class ClassroomCollaborationWebView:
         self._file_saver = file_saver
         self._file_opener = file_opener
         self._moderation_allowed = moderation_allowed
+        self._participant_moderation = participant_moderation
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
@@ -280,6 +295,11 @@ class ClassroomCollaborationWebView:
             "can_hide": moderator,
             "can_moderate_sender": (
                 moderator and item.sender_id != self._controller.local_participant_id
+            ),
+            "can_remove_sender": (
+                moderator
+                and self._participant_moderation is not None
+                and item.sender_id != self._controller.local_participant_id
             ),
         }
         if moderator:
@@ -357,6 +377,8 @@ class ClassroomCollaborationWebView:
                 "hide_label": labels["hide"],
                 "mute_sender_label": labels["mute_sender"],
                 "allow_sender_label": labels["allow_sender"],
+                "remove_sender_label": labels["remove_sender"],
+                "block_sender_label": labels["block_sender"],
                 "mute_all_label": labels["mute_all"],
                 "allow_all_label": labels["allow_all"],
                 "moderation_available": self._moderator(),
@@ -482,6 +504,26 @@ class ClassroomCollaborationWebView:
             announcement=_LABELS[self._language]["allowed_all" if allowed else "muted_all"],
         )
 
+    def _remove_sender(
+        self,
+        message_key: object,
+        *,
+        block: bool,
+    ) -> ClassroomCollaborationWebViewEvent:
+        if self._participant_moderation is None:
+            raise RuntimeError("participant moderation is unavailable")
+        message = self._message_for_key(message_key)
+        self._participant_moderation.remove_participant(
+            actor_id=self._controller.local_participant_id,
+            target_id=message.sender_id,
+            block=block,
+            operation_id=self._id_factory("operation"),
+        )
+        return self._event(
+            "collaboration.participant.removed",
+            announcement=_LABELS[self._language]["blocked" if block else "removed"],
+        )
+
     def _choose_upload(self) -> ClassroomCollaborationWebViewEvent:
         if self._file_picker is None:
             raise RuntimeError("file picker is unavailable")
@@ -588,11 +630,18 @@ class ClassroomCollaborationWebView:
                 "collaboration.chat.hide",
                 "collaboration.chat.mute_sender",
                 "collaboration.chat.allow_sender",
+                "collaboration.participant.remove_sender",
+                "collaboration.participant.block_sender",
             }:
                 if set(data) != {"message_key"}:
                     raise ValueError("chat moderation fields are invalid")
                 if command.endswith("hide"):
                     return self._hide_message(data["message_key"])
+                if command.startswith("collaboration.participant."):
+                    return self._remove_sender(
+                        data["message_key"],
+                        block=command.endswith("block_sender"),
+                    )
                 return self._set_sender_allowed(
                     data["message_key"],
                     allowed=command.endswith("allow_sender"),
