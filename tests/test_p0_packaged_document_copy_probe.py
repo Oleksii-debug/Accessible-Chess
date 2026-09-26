@@ -46,12 +46,13 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("human_tested=$false", self.text)
         self.assertIn("nvda_verified=$false", self.text)
 
-    def test_probe_is_bounded_and_rejects_single_backslash_windows_paths(self) -> None:
+    def test_probe_is_bounded_and_rejects_local_paths(self) -> None:
         self.assertIn("TimeoutSeconds = 45", self.text)
         self.assertIn("packaged-v2-document-copy-summary.json", self.text)
         self.assertIn("Local path leaked into document-copy evidence", self.text)
-        self.assertIn("(?i)[A-Z]:\\|/home/|/Users/|/tmp/", self.text)
-        self.assertNotIn("(?i)[A-Z]:\\\\|/home/|/Users/|/tmp/", self.text)
+        self.assertIn("$bounded.Contains(':\\')", self.text)
+        self.assertIn("(?i)/home/|/Users/|/tmp/", self.text)
+        self.assertNotIn("[A-Z]:\\\\", self.text)
 
 
 if __name__ == "__main__":
