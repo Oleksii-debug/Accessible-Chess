@@ -126,6 +126,45 @@ class SoundPackStoreTests(unittest.TestCase):
 
             self.assertFalse((root / "installed" / "soft.wood").exists())
 
+    def test_malformed_wav_with_matching_digest_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging = root / "staging"
+            staging.mkdir()
+            _write_pack(staging)
+            malformed = b"not-a-wave-file"
+            (staging / "audio" / "move.wav").write_bytes(malformed)
+            manifest_path = staging / "manifest.json"
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            raw["sha256"]["move"] = _digest(malformed)
+            manifest_path.write_text(json.dumps(raw), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "valid PCM WAV"):
+                SoundPackStore(root / "installed").install_from_staging(staging)
+
+    def test_non_16_bit_wav_is_rejected_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging = root / "staging"
+            staging.mkdir()
+            _write_pack(staging)
+
+            buffer = io.BytesIO()
+            with wave.open(buffer, "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x80" * 16)
+            eight_bit = buffer.getvalue()
+            (staging / "audio" / "move.wav").write_bytes(eight_bit)
+            manifest_path = staging / "manifest.json"
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            raw["sha256"]["move"] = _digest(eight_bit)
+            manifest_path.write_text(json.dumps(raw), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "16-bit PCM"):
+                SoundPackStore(root / "installed").install_from_staging(staging)
+
     def test_unexpected_file_and_symlink_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
