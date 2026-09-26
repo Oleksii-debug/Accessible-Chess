@@ -1,0 +1,64 @@
+name: P0-F Packaged W2 Runtime Discovery
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_packaged_starter_application.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'tests/test_v2_packaged_starter_application.py'
+      - '.github/workflows/p0f-packaged-w2-runtime-discovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0f-packaged-w2-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile bounded runtime discovery surface
+        run: >-
+          python -m py_compile
+          acs/version2_packaged_starter_application.py
+          acs/version2_education_mutation_release.py
+          tests/test_v2_packaged_starter_application.py
+
+      - name: Run packaged W2 discovery and retained W3 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_packaged_starter_application
+          tests.test_w3_p0f_starter_books_training_content
+
+      - name: Prove final-product binding uses W2-aware starter subclass
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs import version2_education_mutation_release as release
+          from acs import version2_release_app
+          from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
+
+          original = version2_release_app.Version2Application
+          with release._final_product_mutation_bindings():
+              assert version2_release_app.Version2Application is Version2PackagedStarterApplication
+          assert version2_release_app.Version2Application is original
+          print('P0_F_W2_FINAL_PRODUCT_BINDING=PASS')
+          PY
