@@ -70,6 +70,75 @@ def _reject_link_ancestry(path: Path) -> None:
         _reject_link(component, label="secret store ancestry")
 
 
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare stable file identity when the platform exposes it."""
+
+    left_ino = getattr(left, "st_ino", 0)
+    right_ino = getattr(right, "st_ino", 0)
+    if left_ino and right_ino:
+        return (getattr(left, "st_dev", None), left_ino) == (
+            getattr(right, "st_dev", None),
+            right_ino,
+        )
+    return True
+
+
+def _read_ciphertext_pinned(path: Path) -> bytes | None:
+    """Read one ciphertext without following a path swapped after validation."""
+
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise SecretStoreError(
+            f"secret ciphertext cannot be inspected: {type(exc).__name__}"
+        ) from exc
+    if stat.S_ISLNK(before.st_mode) or _is_reparse(before) or not stat.S_ISREG(before.st_mode):
+        raise SecretStoreError("secret file must be a regular non-reparse file")
+    if before.st_size <= 0:
+        raise SecretStoreError("secret ciphertext is empty")
+    if before.st_size > _MAX_CIPHERTEXT_BYTES:
+        raise SecretStoreError("secret ciphertext exceeds size limit")
+
+    try:
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if _is_reparse(opened) or not stat.S_ISREG(opened.st_mode):
+                raise SecretStoreError("secret file opened object is not a regular file")
+            if not _same_file_identity(before, opened):
+                raise SecretStoreError("secret ciphertext changed before verified read")
+            data = handle.read(_MAX_CIPHERTEXT_BYTES + 1)
+            opened_after = os.fstat(handle.fileno())
+    except SecretStoreError:
+        raise
+    except FileNotFoundError as exc:
+        raise SecretStoreError("secret ciphertext changed before verified read") from exc
+    except OSError as exc:
+        raise SecretStoreError(f"secret ciphertext cannot be read: {type(exc).__name__}") from exc
+
+    try:
+        after = path.lstat()
+    except OSError as exc:
+        raise SecretStoreError("secret ciphertext changed during verified read") from exc
+    if (
+        stat.S_ISLNK(after.st_mode)
+        or _is_reparse(after)
+        or not _same_file_identity(opened, opened_after)
+        or not _same_file_identity(opened, after)
+    ):
+        raise SecretStoreError("secret ciphertext changed during verified read")
+    if len(data) <= 0:
+        raise SecretStoreError("secret ciphertext is empty")
+    if (
+        len(data) > _MAX_CIPHERTEXT_BYTES
+        or len(data) != opened_after.st_size
+        or len(data) != after.st_size
+    ):
+        raise SecretStoreError("secret ciphertext changed size during verified read")
+    return data
+
+
 if sys.platform == "win32":
     class _DATA_BLOB(Structure):
         _fields_ = [("cbData", DWORD), ("pbData", POINTER(c_byte))]
@@ -228,27 +297,9 @@ class WindowsDpapiSecretStore:
             raise SecretStoreError("Windows DPAPI is unavailable on this platform")
         self._prepare_root()
         target = self._path(name)
-        _reject_link(target, label="secret file")
-        try:
-            info = target.stat()
-        except FileNotFoundError:
+        data = _read_ciphertext_pinned(target)
+        if data is None:
             return None
-        except OSError as exc:
-            raise SecretStoreError(f"secret ciphertext cannot be inspected: {type(exc).__name__}") from exc
-        if info.st_size <= 0:
-            raise SecretStoreError("secret ciphertext is empty")
-        if info.st_size > _MAX_CIPHERTEXT_BYTES:
-            raise SecretStoreError("secret ciphertext exceeds size limit")
-        try:
-            data = target.read_bytes()
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            raise SecretStoreError(f"secret ciphertext cannot be read: {type(exc).__name__}") from exc
-        if not data:
-            raise SecretStoreError("secret ciphertext is empty")
-        if len(data) > _MAX_CIPHERTEXT_BYTES:
-            raise SecretStoreError("secret ciphertext exceeds size limit")
         plaintext = _dpapi_unprotect(data, entropy=_slot_entropy(name))
         if not plaintext:
             raise SecretStoreError("unprotected secret is empty")
