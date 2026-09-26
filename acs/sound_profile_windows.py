@@ -43,10 +43,9 @@ class ProfiledWindowsSoundPlaybackAdapter:
         self._classic = classic_pack_id.strip()
         self._logger = logger or logging.getLogger(__name__)
 
-    @staticmethod
-    def _classic_event(request: SoundAssetRequest) -> SoundEvent:
-        if request.pack_id != "classic":
-            raise ValueError("request is not for the classic pack")
+    def _classic_event(self, request: SoundAssetRequest) -> SoundEvent:
+        if request.pack_id != self._classic:
+            raise ValueError("request is not for the configured classic pack")
         if request.event_id == "low_time":
             if not request.preview:
                 raise ValueError("classic low-time is preview-only until a distinct asset ships")
