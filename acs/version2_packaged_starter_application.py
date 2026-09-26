@@ -18,6 +18,7 @@ import sys
 
 from .full_product_ui_shell import UILanguage
 from .pgn_document import PgnDocumentSession
+from .pgn_workspace import PgnWorkspace
 from .version2_starter_content_application import Version2StarterContentApplication
 
 
@@ -150,12 +151,13 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         if root is None:
             raise ValueError("packaged starter content is unavailable")
         name = "stress_uk.pgn" if stress else "starter_uk.pgn"
-        # Packaged starter files are immutable release content. Parse them through
-        # the canonical document authority without retaining a writable source
-        # fingerprint so ordinary Save can never overwrite the installed bundle;
-        # user edits therefore require the existing explicit Save As workflow.
+        # Packaged starter files are immutable release content. Build a clean
+        # canonical workspace without retaining a writable source fingerprint:
+        # simply opening bundled content must not look like an unsaved edit, but
+        # any later edit still requires the existing explicit Save As workflow.
         text = (root / name).read_text(encoding="utf-8")
-        session = PgnDocumentSession.from_text(text)
+        workspace = PgnWorkspace.from_text(text)
+        session = PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
         self.set_document(session)
         labels = _LABELS[self.shell.language]
         return {
