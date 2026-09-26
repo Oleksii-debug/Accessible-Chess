@@ -157,6 +157,35 @@ class OAuthTokenResponseTests(unittest.TestCase):
         self.assertIsNone(response.scope)
         self.assertIs(response.validate_for_request(request), response)
 
+    def test_direct_dataclass_construction_cannot_bypass_token_validation(self):
+        request = self.authorization_request(scopes=("profile",))
+        defaults = {
+            "access_token": "access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": ("profile",),
+        }
+        invalid = (
+            {"access_token": ""},
+            {"token_type": "MAC"},
+            {"expires_in": -1},
+            {"expires_in": True},
+            {"scope": ()},
+            {"scope": ("profile", "profile")},
+            {"scope": ("profile admin",)},
+            {"refresh_token": ""},
+            {"id_token": ""},
+        )
+        for override in invalid:
+            values = dict(defaults)
+            values.update(override)
+            response = OAuthTokenResponse(**values)
+            with self.subTest(override=override), self.assertRaises(OAuthContractError):
+                response.validate_for_request(request)
+
+        valid = OAuthTokenResponse(**defaults)
+        self.assertIs(valid.validate_for_request(request), valid)
+
     def test_request_binding_rejects_wrong_request_type(self):
         response = OAuthTokenResponse.from_mapping(
             {"access_token": "access-token", "token_type": "Bearer"}
