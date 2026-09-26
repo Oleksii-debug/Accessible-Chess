@@ -101,31 +101,35 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Bind canonical WinForms config into inherited standalone build
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          $sourcePath='.package-qualification-source.yml'
-          $text=Get-Content -LiteralPath $sourcePath -Raw
-          $needle="          Write-Host 'STANDALONE_BUILD=PASS'"
-          $count=([regex]::Matches($text,[regex]::Escape($needle))).Count
-          if($count -ne 1){throw "Inherited standalone build marker drifted: count=$count"}
-          $replacement=@"
-          `$config=(Resolve-Path 'packaging\AccessibleChess.exe.config').Path
-          `$target=Join-Path `$dist 'AccessibleChess.exe.config'
-          Copy-Item -LiteralPath `$config -Destination `$target -Force
-          if(-not (Test-Path -LiteralPath `$target -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}
-          if((Get-Item -LiteralPath `$target).Length -le 0){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_EMPTY'}
-          `$sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath `$config).Hash
-          `$targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath `$target).Hash
-          if(`$sourceHash -ne `$targetHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
-          Write-Host "STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=`$(`$targetHash.ToLowerInvariant())"
-$needle
-"@
-          $patched=$text.Replace($needle,$replacement)
-          Set-Content -LiteralPath $sourcePath -Value $patched -Encoding utf8 -NoNewline
-          $readback=Get-Content -LiteralPath $sourcePath -Raw
-          if($readback -notmatch 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS'){throw 'Inherited standalone build app-config patch missing after write'}
-          Write-Host 'INHERITED_STANDALONE_APPCONFIG_BIND=PASS'
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.package-qualification-source.yml')
+          text = path.read_text(encoding='utf-8')
+          needle = "          Write-Host 'STANDALONE_BUILD=PASS'"
+          if text.count(needle) != 1:
+              raise SystemExit(f'Inherited standalone build marker drifted: count={text.count(needle)}')
+          lines = [
+              "          $config=(Resolve-Path 'packaging\\AccessibleChess.exe.config').Path",
+              "          $target=Join-Path $dist 'AccessibleChess.exe.config'",
+              "          Copy-Item -LiteralPath $config -Destination $target -Force",
+              "          if(-not (Test-Path -LiteralPath $target -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}",
+              "          if((Get-Item -LiteralPath $target).Length -le 0){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_EMPTY'}",
+              "          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $config).Hash",
+              "          $targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash",
+              "          if($sourceHash -ne $targetHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}",
+              "          Write-Host \"STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$($targetHash.ToLowerInvariant())\"",
+          ]
+          replacement = '\n'.join(lines + [needle])
+          patched = text.replace(needle, replacement, 1)
+          path.write_text(patched, encoding='utf-8', newline='\n')
+          if 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS' not in path.read_text(encoding='utf-8'):
+              raise SystemExit('Inherited standalone build app-config patch missing after write')
+          print('INHERITED_STANDALONE_APPCONFIG_BIND=PASS')
+          PY
 
       - name: Execute exact previous topology-aware pre-artifact executor with restored pins
         shell: pwsh
