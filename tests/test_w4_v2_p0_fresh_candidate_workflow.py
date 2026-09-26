@@ -57,7 +57,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         preflight = self.text.index("FRESH_EXTRACTION_PREFLIGHT=PASS")
         diagnostic = self.text.index("PACKAGED_EXE_P0F_DIAGNOSTIC=PASS")
         uia = self.text.index("FRESH_PACKAGED_UIA_BASELINE=PASS")
-        p0 = self.text.index("run_p0_packaged_acceptance.ps1")
+        p0 = self.text.index("& scripts\\run_p0_packaged_acceptance.ps1")
         upload = self.text.index("actions/upload-artifact@v4")
         self.assertLess(extract, preflight)
         self.assertLess(preflight, diagnostic)
