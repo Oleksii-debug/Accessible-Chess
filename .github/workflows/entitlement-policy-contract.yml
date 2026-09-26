@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - hardening/entitlement-cache-ttl-20260926
     paths:
       - 'acs/entitlements.py'
       - 'tests/test_entitlements.py'
