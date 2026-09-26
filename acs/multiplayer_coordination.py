@@ -402,6 +402,8 @@ class GameIntent:
             move_text = move_text.strip()
             if len(move_text) > MAX_MOVE_TEXT:
                 raise MultiplayerContractError("move text exceeds length limit")
+            if any(ord(character) < 32 or ord(character) == 127 for character in move_text):
+                raise MultiplayerContractError("move text contains control characters")
             if resume is not None:
                 raise MultiplayerContractError("move intent cannot carry reconnect sequence")
         elif kind is GameIntentKind.RECONNECT:
@@ -443,6 +445,37 @@ class GameIntent:
             "move_text": self.move_text,
             "resume_from_sequence": self.resume_from_sequence,
         }
+
+    @classmethod
+    def from_record(cls, value: Mapping[str, Any]) -> "GameIntent":
+        data = _mapping(value, "game intent")
+        _exact_keys(
+            data,
+            {
+                "version",
+                "intent_id",
+                "game_id",
+                "actor_id",
+                "expected_sequence",
+                "kind",
+                "move_text",
+                "resume_from_sequence",
+            },
+            "game intent",
+        )
+        supplied = _digest_text(data["intent_id"])
+        intent = cls(
+            version=data["version"],
+            game_id=data["game_id"],
+            actor_id=data["actor_id"],
+            expected_sequence=data["expected_sequence"],
+            kind=data["kind"],
+            move_text=data["move_text"],
+            resume_from_sequence=data["resume_from_sequence"],
+        )
+        if supplied != intent.intent_id:
+            raise MultiplayerContractError("game intent id does not match content")
+        return intent
 
 
 def validate_game_intent(
