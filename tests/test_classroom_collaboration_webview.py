@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.classroom_collaboration import ClassroomCollaborationController
 from acs.classroom_collaboration_storage import (
@@ -256,6 +257,25 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("error", extra.kind)
         self.assertNotIn("C:/secret", repr(extra.payload))
+
+    def test_safe_snapshot_degrades_without_exposing_store_failure(self) -> None:
+        view = self.webview()
+        with mock.patch.object(
+            self.store,
+            "room_messages",
+            side_effect=RuntimeError("C:/private/corrupt.sqlite3"),
+        ):
+            snapshot = view.safe_snapshot()
+        self.assertFalse(snapshot["available"])
+        self.assertEqual("Classroom collaboration is temporarily unavailable.", snapshot["status_message"])
+        self.assertEqual((), snapshot["chat"]["messages"])
+        self.assertNotIn("private", repr(snapshot))
+
+    def test_dispatch_rejects_non_text_command_without_raising(self) -> None:
+        view = self.webview()
+        event = view.dispatch(7, {})
+        self.assertEqual("error", event.kind)
+        self.assertEqual("The action could not be completed.", event.payload["message"])
 
     def test_language_switch_changes_presentation_without_rebuilding_core(self) -> None:
         view = self.webview(language=UILanguage.EN)
