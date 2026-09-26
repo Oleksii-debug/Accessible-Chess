@@ -1,0 +1,81 @@
+name: V2 Composition Startup Cleanup Current Product
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - '.github/workflows/v2-composition-startup-cleanup.yml'
+      - 'tests/test_version2_composition_startup_cleanup.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-composition-startup-cleanup-current-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
+  REGRESSION_BLOB: 0db93784501d50cbefa9d9044a4e62dda6103c03
+
+jobs:
+  current-product-startup-cleanup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact current authority and QA-only delta
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA" HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-composition-startup-cleanup.yml' \
+            'tests/test_version2_composition_startup_cleanup.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$PRODUCT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_composition_startup_cleanup.py)" = "$REGRESSION_BLOB"
+
+      - name: Compile startup cleanup scope
+        run: python -m py_compile acs/version2_release_app.py tests/test_version2_composition_startup_cleanup.py
+
+      - name: Replay startup cleanup failure matrix
+        run: python -m unittest -v tests.test_version2_composition_startup_cleanup tests.test_version2_release_app
+
+      - name: Install pinned full-suite runner
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Full repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+      - name: Current V2 production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
