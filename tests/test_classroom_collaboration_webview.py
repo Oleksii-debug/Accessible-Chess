@@ -41,6 +41,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         }
         self.ids: dict[str, int] = {}
         self.save_calls: list[tuple[str, str]] = []
+        self.open_calls: list[tuple[str, str]] = []
         self.selected_file: Path | None = None
 
     def tearDown(self) -> None:
@@ -58,6 +59,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             language=language,
             file_picker=lambda: self.selected_file,
             file_saver=lambda token, name: self.save_calls.append((token, name)),
+            file_opener=lambda token, name: self.open_calls.append((token, name)),
             id_factory=self.next_id,
         )
 
@@ -126,6 +128,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         file_item = uploaded.payload["collaboration"]["files"]["items"][0]
         self.assertEqual("lesson notes.txt", file_item["name"])
         self.assertTrue(file_item["can_save"])
+        self.assertTrue(file_item["can_open"])
         exposed = repr(uploaded.payload)
         self.assertNotIn(str(self.root), exposed)
         self.assertNotIn("rooms/room-1", exposed)
@@ -142,6 +145,88 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             self.save_calls,
         )
         self.assertNotIn("short-lived-read-token", repr(saved.payload))
+
+        opened = view.dispatch(
+            "collaboration.file.open",
+            {"file_key": file_item["file_key"]},
+        )
+        self.assertEqual("collaboration.file.opened", opened.kind)
+        self.assertEqual(
+            [("short-lived-read-token", "lesson notes.txt")],
+            self.open_calls,
+        )
+        self.assertNotIn("short-lived-read-token", repr(opened.payload))
+
+    def test_teacher_moderation_uses_core_permissions_without_browser_participant_ids(self) -> None:
+        teacher_chat = FakeChat()
+        teacher_controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=teacher_chat,
+            files=FakeFiles(),
+            store=self.store,
+            file_store=self.file_store,
+        )
+        teacher_controller.receive_chat(
+            ChatMessageMetadata(
+                "student-message-1",
+                "room-1",
+                "student-2",
+                0,
+                "Please moderate this",
+            )
+        )
+        view = ClassroomCollaborationWebView(
+            teacher_controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            moderation_allowed=lambda: True,
+            id_factory=self.next_id,
+        )
+        message = view.snapshot()["chat"]["messages"][0]
+        self.assertTrue(message["can_hide"])
+        self.assertTrue(message["can_moderate_sender"])
+        self.assertNotIn("student-2", repr(message))
+        message_key = message["message_key"]
+
+        muted = view.dispatch(
+            "collaboration.chat.mute_sender",
+            {"message_key": message_key},
+        )
+        self.assertEqual("collaboration.chat.permission", muted.kind)
+        self.assertEqual("student-2", teacher_chat.moderation_calls[-1][0].target_id)
+        self.assertFalse(teacher_chat.moderation_calls[-1][0].allowed)
+
+        allowed = view.dispatch(
+            "collaboration.chat.allow_sender",
+            {"message_key": message_key},
+        )
+        self.assertEqual("collaboration.chat.permission", allowed.kind)
+        self.assertTrue(teacher_chat.moderation_calls[-1][0].allowed)
+
+        all_muted = view.dispatch("collaboration.chat.mute_all_students", {})
+        self.assertEqual("collaboration.chat.permission", all_muted.kind)
+        self.assertEqual(
+            {"student-1", "student-2"},
+            {item.target_id for item in teacher_chat.moderation_calls[-1]},
+        )
+
+        hidden = view.dispatch(
+            "collaboration.chat.hide",
+            {"message_key": message_key},
+        )
+        self.assertEqual("collaboration.chat.hidden", hidden.kind)
+        self.assertEqual((), self.store.room_messages("room-1"))
+
+    def test_non_moderator_snapshot_does_not_expose_message_action_key(self) -> None:
+        view = self.webview()
+        view.dispatch("collaboration.chat.send", {"body": "Local"})
+        message = view.snapshot()["chat"]["messages"][0]
+        self.assertFalse(message["can_hide"])
+        self.assertFalse(message["can_moderate_sender"])
+        self.assertNotIn("message_key", message)
 
     def test_failed_upload_exposes_bounded_retry_without_browser_path(self) -> None:
         self.selected_file = self.root / "retry.pgn"
