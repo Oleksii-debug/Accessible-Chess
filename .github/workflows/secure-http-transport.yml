@@ -5,6 +5,7 @@ on:
     paths:
       - 'acs/secure_http.py'
       - 'tests/test_secure_http.py'
+      - 'tests/test_secure_http_header_names.py'
       - '.github/workflows/secure-http-transport.yml'
   workflow_dispatch:
 
@@ -50,7 +51,7 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n' '.github/workflows/secure-http-transport.yml' 'acs/secure_http.py' 'tests/test_secure_http.py' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/secure-http-transport.yml' 'acs/secure_http.py' 'tests/test_secure_http.py' 'tests/test_secure_http_header_names.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected secure transport scope:\n%s\n' "$changed" >&2
             exit 1
@@ -58,10 +59,17 @@ jobs:
           echo "SECURE_HTTP_EXACT_HEAD=$actual_head"
 
       - name: Compile transport and tests
-        run: python -m compileall -q acs/secure_http.py tests/test_secure_http.py
+        run: >-
+          python -m compileall -q
+          acs/secure_http.py
+          tests/test_secure_http.py
+          tests/test_secure_http_header_names.py
 
       - name: Execute secure transport contract tests
-        run: python -m unittest -v tests.test_secure_http
+        run: >-
+          python -m unittest -v
+          tests.test_secure_http
+          tests.test_secure_http_header_names
 
       - name: Core selftest
         run: python -m acs.selftest
