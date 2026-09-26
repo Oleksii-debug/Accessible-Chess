@@ -61,6 +61,19 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("resolveBinding(eventChord(e),'board','board')", self.web)
         self.assertIn("resolveBinding(chord,'analysis','analysis')", self.web)
 
+    def test_probe_proves_action_state_separately_from_accessible_result(self) -> None:
+        self.assertIn("function SelectedVariation($Roots,[int]$Index)", self.text)
+        self.assertIn("TogglePattern]::Pattern", self.text)
+        self.assertIn("ToggleState]::On", self.text)
+        self.assertIn("Alt+$index did not select variation $index", self.text)
+        self.assertIn("$selectedStates += $selected", self.text)
+        self.assertIn("alt_1_selected_state=$selectedStates[0]", self.text)
+        self.assertIn("alt_2_selected_state=$selectedStates[1]", self.text)
+        self.assertLess(
+            self.text.index("SelectedVariation $roots $index"),
+            self.text.index("Alt+$index did not expose a matching live-region result"),
+        )
+
     def test_probe_requires_accessible_result_semantics_not_handler_execution_only(self) -> None:
         self.assertIn("Accessible status live region #live", self.text)
         self.assertIn("Alt+$index did not expose a matching live-region result", self.text)
