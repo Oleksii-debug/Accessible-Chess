@@ -128,6 +128,23 @@ class RuntimeDependencySbomTests(unittest.TestCase):
                     created_utc="2026-09-26T16:00:00Z",
                 )
 
+    def test_rejects_pep503_alias_duplicate_distribution_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            manifest = self._manifest(root)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            duplicate = dict(data["distributions"][1])
+            duplicate["distribution"] = "ordered_set"
+            data["distributions"].append(duplicate)
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeDependencySbomError, "duplicate distributions"):
+                build_runtime_dependency_spdx23(
+                    manifest,
+                    root / "sbom.json",
+                    document_name="Accessible Chess runtime",
+                    created_utc="2026-09-26T16:00:00Z",
+                )
+
     def test_rejects_unverified_or_malformed_notice_hash(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
