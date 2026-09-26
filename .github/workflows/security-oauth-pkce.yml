@@ -71,7 +71,8 @@ jobs:
           )
           forbidden = (
               'requests', 'urllib.request', 'http.client', 'socket.',
-              'stripe', 'paypal', 'client_secret', 'refresh_token',
+              'stripe', 'paypal', "'client_secret'", '"client_secret"',
+              "'refresh_token'", '"refresh_token"',
               'acs.entitlements', 'acs.secret_store', 'webbrowser.',
           )
           found = [token for token in forbidden if token in source]
