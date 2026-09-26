@@ -23,7 +23,7 @@ from .runtime_dependency_sbom import build_runtime_dependency_spdx23
 _MANIFEST = "PYTHON_RUNTIME_DEPENDENCIES.json"
 _SBOM = "PYTHON_RUNTIME_DEPENDENCIES.spdx.json"
 _RELEASE_SUBDIR = "Python-Runtime"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 class RuntimeDependencyReleaseError(RuntimeError):
