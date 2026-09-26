@@ -25,6 +25,7 @@ class P0PackagedAcceptanceOrchestratorTests(unittest.TestCase):
         starter = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=STARTER_DIAGNOSTIC")
         hotkey_probe = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_PROBE")
         hotkey_verify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=HOTKEY_VERIFY")
+        final_reverify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=FINAL_REVERIFY")
         final_pass = self.text.index(
             "P0 PACKAGED ACCEPTANCE VERIFIED: COPY + STARTER + HOTKEY RESULTS"
         )
@@ -32,7 +33,8 @@ class P0PackagedAcceptanceOrchestratorTests(unittest.TestCase):
         self.assertLess(copy_verify, starter)
         self.assertLess(starter, hotkey_probe)
         self.assertLess(hotkey_probe, hotkey_verify)
-        self.assertLess(hotkey_verify, final_pass)
+        self.assertLess(hotkey_verify, final_reverify)
+        self.assertLess(final_reverify, final_pass)
 
     def test_starter_reachability_uses_packaged_executable_diagnostic(self) -> None:
         self.assertIn("Join-Path $product 'AccessibleChess.exe'", self.text)
@@ -69,6 +71,25 @@ class P0PackagedAcceptanceOrchestratorTests(unittest.TestCase):
         )
         self.assertNotIn("LASTEXITCODE", self.text[hotkey_start:hotkey_evidence])
         self.assertIn("if($LASTEXITCODE -ne 0)", self.text)
+
+    def test_final_reverification_rechecks_both_evidence_files_and_shas(self) -> None:
+        final_reverify = self.text.index("P0_PACKAGED_ACCEPTANCE_PHASE=FINAL_REVERIFY")
+        final_pass = self.text.index(
+            "P0 PACKAGED ACCEPTANCE VERIFIED: COPY + STARTER + HOTKEY RESULTS"
+        )
+        tail = self.text[final_reverify:final_pass]
+        self.assertIn(
+            "Invoke-PythonVerifier $copyVerifier $copyEvidence $product $ProductSha",
+            tail,
+        )
+        self.assertIn(
+            "Invoke-PythonVerifier $hotkeyVerifier $hotkeyEvidence $product $ProductSha",
+            tail,
+        )
+        self.assertIn("$copy.product_sha", tail)
+        self.assertIn("$hotkey.product_sha", tail)
+        self.assertIn("Document-copy evidence SHA changed", tail)
+        self.assertIn("P0-G evidence SHA changed", tail)
 
     def test_machine_human_nvda_overclaim_check_is_missing_property_safe(self) -> None:
         self.assertIn("function Assert-NoMachineHumanClaim", self.text)
