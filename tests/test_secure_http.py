@@ -64,12 +64,42 @@ class SecureHttpTests(unittest.TestCase):
         transport.post_json("https://example.invalid/token", {"b": "є", "a": 1})
         request, _ = opener.calls[0]
         self.assertEqual(request.data, '{"b":"є","a":1}'.encode("utf-8"))
-        self.assertIn("application/json", request.get_header("Content-type"))
+        self.assertEqual(request.get_header("Content-type"), "application/json; charset=utf-8")
 
         tiny = BoundedHttpsJsonTransport(opener=opener, max_request_bytes=4)
         with self.assertRaises(SecureHttpError) as caught:
             tiny.post_json("https://example.invalid/token", {"a": 1})
         self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
+
+    def test_post_form_carries_canonical_ascii_bytes_and_json_reply(self) -> None:
+        opener = _Opener(_Response(b'{"access_token":"opaque"}'))
+        transport = BoundedHttpsJsonTransport(opener=opener, max_request_bytes=128)
+        result = transport.post_form(
+            "https://example.invalid/token",
+            b"grant_type=authorization_code&code=abc%2B123",
+            headers={"Authorization": "Basic opaque"},
+        )
+        self.assertEqual(result.value, {"access_token": "opaque"})
+        request, _ = opener.calls[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.data, b"grant_type=authorization_code&code=abc%2B123")
+        self.assertEqual(request.get_header("Content-type"), "application/x-www-form-urlencoded")
+        self.assertEqual(request.get_header("Authorization"), "Basic opaque")
+
+    def test_post_form_rejects_non_ascii_controls_oversize_and_content_type_override(self) -> None:
+        transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b'{}')), max_request_bytes=16)
+        cases = [
+            ("ключ=значення", None),
+            (b"a=1\r\nx=2", None),
+            (b"x=" + b"a" * 32, None),
+            (b"a=1", {"Content-Type": "text/plain"}),
+            (b"a=1", {"content-type": "text/plain"}),
+        ]
+        for body, headers in cases:
+            with self.subTest(body=body, headers=headers):
+                with self.assertRaises(SecureHttpError) as caught:
+                    transport.post_form("https://example.invalid/token", body, headers=headers)
+                self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
 
     def test_rejects_non_https_credentials_fragment_backslash_and_controls(self) -> None:
         invalid = [
@@ -88,13 +118,17 @@ class SecureHttpTests(unittest.TestCase):
                     transport.get_json(target)
                 self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_REQUEST)
 
-    def test_rejects_header_injection_and_bad_types(self) -> None:
+    def test_rejects_header_injection_bad_types_duplicates_and_hop_by_hop_headers(self) -> None:
         transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b'{}')))
         for headers in [
             {"X-Test\nInjected": "x"},
             {"X-Test": "ok\r\nInjected: yes"},
             {"X-Test": "bad\x00value"},
             {"X-Test": 7},
+            {"Host": "attacker.invalid"},
+            {"Content-Length": "999"},
+            {"Transfer-Encoding": "chunked"},
+            {"X-Test": "one", "x-test": "two"},
         ]:
             with self.subTest(headers=headers):
                 with self.assertRaises(SecureHttpError) as caught:
