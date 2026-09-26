@@ -6,7 +6,11 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/runtime_dependency_notices.py'
+      - 'acs/runtime_dependency_sbom.py'
+      - 'acs/runtime_dependency_release.py'
       - 'tests/test_runtime_dependency_notices.py'
+      - 'tests/test_runtime_dependency_sbom.py'
+      - 'tests/test_runtime_dependency_release.py'
       - '.github/workflows/runtime-dependency-notices.yml'
   workflow_dispatch:
 
@@ -41,11 +45,22 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile notice boundary
-        run: python -m compileall -q acs/runtime_dependency_notices.py tests/test_runtime_dependency_notices.py
+      - name: Compile release-evidence boundary
+        run: >-
+          python -m compileall -q
+          acs/runtime_dependency_notices.py
+          acs/runtime_dependency_sbom.py
+          acs/runtime_dependency_release.py
+          tests/test_runtime_dependency_notices.py
+          tests/test_runtime_dependency_sbom.py
+          tests/test_runtime_dependency_release.py
 
-      - name: Focused fail-closed notice tests
-        run: python -m unittest -v tests.test_runtime_dependency_notices
+      - name: Focused fail-closed notice SPDX and publication tests
+        run: >-
+          python -m unittest -v
+          tests.test_runtime_dependency_notices
+          tests.test_runtime_dependency_sbom
+          tests.test_runtime_dependency_release
 
       - name: Diff hygiene
         shell: bash
@@ -149,19 +164,22 @@ jobs:
           Write-Host "ORDERED_SET_SOURCE_ARTIFACT_SHA256=$orderedActual"
           Write-Host "PROXY_TOOLS_IMMUTABLE_UPSTREAM_ARCHIVE_SHA256=$proxyArchiveSha"
 
-      - name: Prove real installed dependency closure and notice bytes
+      - name: Prove real installed dependency closure notices SPDX and release publication
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           @'
+          from datetime import datetime, timezone
           import json
           import os
           from importlib.metadata import version
           from pathlib import Path
+          import subprocess
           from acs.runtime_dependency_notices import (
               ExternalArchiveNoticeSource,
               build_runtime_dependency_notice_bundle,
           )
+          from acs.runtime_dependency_release import publish_runtime_dependency_release_evidence
 
           expected = {
               'pywebview': '6.2.1',
@@ -230,26 +248,53 @@ jobs:
           proxy_notice_bytes = (bundle.root / proxy_notice['packaged_file']).read_bytes()
           if not proxy_notice_bytes.startswith(b'The BSD License (BSD)'):
               raise SystemExit('proxy_tools packaged notice did not preserve immutable upstream BSD text')
-          # Preserve, do not conceal, the upstream discrepancy: setup.py for 0.1.0
-          # says MIT while immutable LICENSE.txt contains BSD terms.
           if str(proxy.get('license_metadata') or '').strip().upper() != 'MIT':
               raise SystemExit(f"proxy_tools installed metadata license drifted: {proxy.get('license_metadata')!r}")
+
+          commit_time = subprocess.check_output(
+              ['git', 'show', '-s', '--format=%cI', 'HEAD'], text=True
+          ).strip()
+          try:
+              created = datetime.fromisoformat(commit_time).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          except ValueError as exc:
+              raise SystemExit(f'QUALIFIED_NOTICE_COMMIT_TIME_INVALID {commit_time!r}') from exc
+          release_notices = Path('release-third-party-notices')
+          release_notices.mkdir()
+          published = publish_runtime_dependency_release_evidence(
+              bundle.root,
+              release_notices,
+              document_name='Accessible Chess qualified Windows runtime',
+              created_utc=created,
+          )
+          sbom = json.loads(published.sbom_path.read_text(encoding='utf-8'))
+          package_names = {row['name'] for row in sbom['packages']}
+          if package_names != {'Python', *expected.keys()}:
+              raise SystemExit(f'QUALIFIED_SPDX_INVENTORY_MISMATCH {sorted(package_names)}')
+          if sbom.get('spdxVersion') != 'SPDX-2.3' or sbom.get('dataLicense') != 'CC0-1.0':
+              raise SystemExit('QUALIFIED_SPDX_DOCUMENT_IDENTITY_MISMATCH')
+          if not published.manifest_path.is_file() or not published.sbom_path.is_file():
+              raise SystemExit('QUALIFIED_RELEASE_NOTICE_PUBLICATION_MISSING')
 
           if len(bundle.notice_files) < len(expected) + 2:
               raise SystemExit('QUALIFIED_NOTICE_FILE_COUNT_TOO_SMALL')
           print(f'QUALIFIED_RUNTIME_NOTICE_FILES={len(bundle.notice_files)}')
+          print(f'QUALIFIED_RUNTIME_SPDX_PACKAGES={len(package_names)}')
           print('ORDERED_SET_EXACT_SOURCE_LICENSE_FALLBACK=PASS')
           print('PROXY_TOOLS_IMMUTABLE_UPSTREAM_LICENSE_FALLBACK=PASS')
           print('PROXY_TOOLS_LICENSE_METADATA_TEXT_DISCREPANCY=PRESERVED')
           print('QUALIFIED_RUNTIME_DEPENDENCY_NOTICES=PASS')
+          print('QUALIFIED_RUNTIME_DEPENDENCY_SPDX=PASS')
+          print('QUALIFIED_RUNTIME_RELEASE_NOTICE_PUBLICATION=PASS')
           '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'Real qualified dependency notice proof failed'}
+          if($LASTEXITCODE -ne 0){throw 'Real qualified dependency release-evidence proof failed'}
 
-      - name: Upload bounded real notice evidence
+      - name: Upload bounded real notice and release evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: qualified-runtime-dependency-notices
-          path: real-runtime-notices
+          path: |
+            real-runtime-notices
+            release-third-party-notices
           if-no-files-found: warn
           retention-days: 14
