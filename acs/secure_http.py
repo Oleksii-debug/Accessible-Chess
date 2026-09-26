@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import json
 import socket
-from typing import Callable, Mapping
+from typing import Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -41,9 +41,6 @@ class JsonResponse:
 class _RejectRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
         raise SecureHttpError(TransportErrorCode.REDIRECT, status=int(code))
-
-
-OpenCallable = Callable[..., object]
 
 
 class BoundedHttpsJsonTransport:
@@ -96,9 +93,55 @@ class BoundedHttpsJsonTransport:
             ).encode("utf-8")
         except (TypeError, ValueError, UnicodeError) as exc:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from exc
+        return self._post_bytes(
+            url,
+            body,
+            content_type="application/json; charset=utf-8",
+            headers=headers,
+        )
+
+    def post_form(
+        self,
+        url: str,
+        encoded_form: bytes | str,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> JsonResponse:
+        """POST an already-canonical form body and require a bounded JSON reply.
+
+        OAuth-specific parameter construction/validation remains outside this
+        transport. This method merely carries already encoded bytes.
+        """
+
+        if isinstance(encoded_form, str):
+            try:
+                body = encoded_form.encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from exc
+        elif isinstance(encoded_form, bytes):
+            body = bytes(encoded_form)
+        else:
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        if b"\r" in body or b"\n" in body or b"\x00" in body:
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
+        return self._post_bytes(
+            url,
+            body,
+            content_type="application/x-www-form-urlencoded",
+            headers=headers,
+        )
+
+    def _post_bytes(
+        self,
+        url: str,
+        body: bytes,
+        *,
+        content_type: str,
+        headers: Mapping[str, str] | None,
+    ) -> JsonResponse:
         if len(body) > self.max_request_bytes:
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
-        merged = {"Content-Type": "application/json; charset=utf-8"}
+        merged = {"Content-Type": content_type}
         merged.update(dict(headers or {}))
         return self._request_json("POST", url, body=body, headers=merged)
 
