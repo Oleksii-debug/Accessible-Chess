@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from acs.oauth_pkce import (
     AuthorizationRequest,
+    OAuthAuthorizationError,
     OAuthContractError,
     code_challenge_s256,
     generate_code_verifier,
@@ -60,7 +61,6 @@ class OAuthPkceTests(unittest.TestCase):
         request = self.make_request()
         parsed = urlsplit(request.authorization_url())
         query = parse_qs(parsed.query, keep_blank_values=True)
-
         self.assertEqual(parsed.scheme, "https")
         self.assertEqual(query["response_type"], ["code"])
         self.assertEqual(query["client_id"], ["accessible-chess-desktop"])
@@ -140,6 +140,13 @@ class OAuthPkceTests(unittest.TestCase):
         with self.assertRaises(OAuthContractError):
             request.authorization_url()
 
+    def test_redirect_query_cannot_predefine_callback_parameters(self):
+        for key in ("code", "error", "state"):
+            with self.subTest(key=key), self.assertRaises(OAuthContractError):
+                self.make_request(
+                    redirect_uri=f"http://127.0.0.1:43127/callback?{key}=shadow"
+                )
+
     def test_reserved_extra_parameter_collision_is_rejected(self):
         request = self.make_request()
         for name in (
@@ -206,6 +213,70 @@ class OAuthPkceTests(unittest.TestCase):
                 request.authorization_url()
             with self.subTest(overrides=overrides), self.assertRaises(OAuthContractError):
                 request.token_exchange_form("authorization-code")
+
+    def test_callback_accepts_exact_redirect_and_matching_state(self):
+        request = self.make_request()
+        code = request.authorization_code_from_callback(
+            "http://127.0.0.1:43127/callback?code=abc123&state=state-123&session_state=x"
+        )
+        self.assertEqual(code, "abc123")
+
+    def test_callback_preserves_registered_redirect_query_contract(self):
+        request = self.make_request(
+            redirect_uri="http://127.0.0.1:43127/callback?channel=desktop"
+        )
+        self.assertEqual(
+            request.authorization_code_from_callback(
+                "http://127.0.0.1:43127/callback?state=state-123&channel=desktop&code=abc"
+            ),
+            "abc",
+        )
+        with self.assertRaises(OAuthContractError):
+            request.authorization_code_from_callback(
+                "http://127.0.0.1:43127/callback?state=state-123&code=abc"
+            )
+
+    def test_callback_rejects_missing_wrong_or_duplicate_state(self):
+        callbacks = (
+            "http://127.0.0.1:43127/callback?code=abc",
+            "http://127.0.0.1:43127/callback?code=abc&state=wrong",
+            "http://127.0.0.1:43127/callback?code=abc&state=state-123&state=state-123",
+        )
+        request = self.make_request()
+        for callback in callbacks:
+            with self.subTest(callback=callback), self.assertRaises(OAuthContractError):
+                request.authorization_code_from_callback(callback)
+
+    def test_callback_rejects_wrong_origin_path_fragment_and_duplicate_code(self):
+        callbacks = (
+            "http://127.0.0.1:43128/callback?code=abc&state=state-123",
+            "http://127.0.0.1:43127/other?code=abc&state=state-123",
+            "https://127.0.0.1:43127/callback?code=abc&state=state-123",
+            "http://127.0.0.1:43127/callback?code=abc&state=state-123#frag",
+            "http://127.0.0.1:43127/callback?code=abc&code=def&state=state-123",
+        )
+        request = self.make_request()
+        for callback in callbacks:
+            with self.subTest(callback=callback), self.assertRaises(OAuthContractError):
+                request.authorization_code_from_callback(callback)
+
+    def test_callback_requires_exactly_one_code_or_error(self):
+        request = self.make_request()
+        for callback in (
+            "http://127.0.0.1:43127/callback?state=state-123",
+            "http://127.0.0.1:43127/callback?code=abc&error=denied&state=state-123",
+        ):
+            with self.subTest(callback=callback), self.assertRaises(OAuthContractError):
+                request.authorization_code_from_callback(callback)
+
+    def test_validated_oauth_error_is_generic_but_preserves_bounded_code(self):
+        request = self.make_request()
+        with self.assertRaises(OAuthAuthorizationError) as raised:
+            request.authorization_code_from_callback(
+                "http://127.0.0.1:43127/callback?error=access_denied&state=state-123"
+            )
+        self.assertEqual(str(raised.exception), "authorization server returned an OAuth error")
+        self.assertEqual(raised.exception.error_code, "access_denied")
 
 
 if __name__ == "__main__":
