@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 
+from acs import version2_upgrade as upgrade_module
+from acs import version2_upgrade_base as upgrade_base
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.version2_upgrade import (
     UserDataLayout,
@@ -81,6 +83,27 @@ os._exit(0)
 
 
 class Version2Schema0IntegrationTests(unittest.TestCase):
+    def test_import_does_not_persistently_mutate_base_schema_authority(self):
+        self.assertIsNot(
+            upgrade_base._canonical_library_schema,
+            upgrade_module._canonical_library_schema,
+        )
+
+    def test_schema_authority_is_restored_after_upgrade_transaction(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            _make_legacy(library)
+            original_base_authority = upgrade_base._canonical_library_schema
+
+            Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertIs(
+                upgrade_base._canonical_library_schema,
+                original_base_authority,
+            )
+
     def test_exact_shipped_schema0_upgrades_through_d07_and_existing_transaction(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
