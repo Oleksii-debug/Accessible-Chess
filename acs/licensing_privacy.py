@@ -3,7 +3,7 @@ from __future__ import annotations
 """Privacy boundary for licensing versus optional product telemetry.
 
 Licensing is allowed to use only the metadata required by issue #11: account,
-installation, session, application version and entitlement state.  Chess data,
+installation, session, application version and entitlement state. Chess data,
 books, documents and arbitrary diagnostic payloads never enter this contract.
 Optional analytics/diagnostics are a separate consent domain and are disabled by
 default.
@@ -14,24 +14,11 @@ from enum import Enum
 import re
 from typing import Mapping
 
+from .entitlements import EntitlementState
+
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._:@+-]{1,256}$")
 _VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$")
-_ALLOWED_ENTITLEMENT_STATES = frozenset(
-    {
-        "free_beta",
-        "trial",
-        "paid_monthly",
-        "paid_yearly",
-        "organization",
-        "grace_period",
-        "expired",
-        "revoked",
-        "update_required",
-        "unsupported_version",
-        "unknown",
-    }
-)
 _ANALYTICS_FIELDS = frozenset({"event", "app_version", "platform", "locale"})
 
 
@@ -62,6 +49,17 @@ def _version(value: object) -> str:
     return clean
 
 
+def _entitlement_state(value: object) -> EntitlementState:
+    if isinstance(value, EntitlementState):
+        return value
+    if type(value) is not str:
+        raise LicensingPrivacyError("entitlement_state must be canonical entitlement state")
+    try:
+        return EntitlementState(value.strip().casefold())
+    except ValueError as exc:
+        raise LicensingPrivacyError("entitlement_state is unsupported") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class LicensingMetadata:
     """Exact metadata that a licensing/policy request may expose."""
@@ -70,7 +68,7 @@ class LicensingMetadata:
     installation_id: str
     session_id: str
     app_version: str
-    entitlement_state: str
+    entitlement_state: EntitlementState | str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "account_id", _bounded_identifier(self.account_id, label="account_id"))
@@ -81,12 +79,7 @@ class LicensingMetadata:
         )
         object.__setattr__(self, "session_id", _bounded_identifier(self.session_id, label="session_id"))
         object.__setattr__(self, "app_version", _version(self.app_version))
-        if type(self.entitlement_state) is not str:
-            raise LicensingPrivacyError("entitlement_state must be plain text")
-        state = self.entitlement_state.strip().casefold()
-        if state not in _ALLOWED_ENTITLEMENT_STATES:
-            raise LicensingPrivacyError("entitlement_state is unsupported")
-        object.__setattr__(self, "entitlement_state", state)
+        object.__setattr__(self, "entitlement_state", _entitlement_state(self.entitlement_state))
 
     def as_request_payload(self) -> dict[str, str]:
         """Return the complete and intentionally closed licensing payload."""
@@ -96,7 +89,7 @@ class LicensingMetadata:
             "installation_id": self.installation_id,
             "session_id": self.session_id,
             "app_version": self.app_version,
-            "entitlement_state": self.entitlement_state,
+            "entitlement_state": self.entitlement_state.value,
         }
 
 
@@ -113,9 +106,9 @@ def build_optional_telemetry_payload(
 ) -> dict[str, str] | None:
     """Build optional analytics only after explicit consent and strict allowlisting.
 
-    The function intentionally accepts no licensing metadata object and no
-    arbitrary nested structures.  Unknown fields fail closed instead of being
-    silently forwarded to a telemetry service.
+    Unknown fields fail closed instead of being silently forwarded. The analytics
+    allowlist deliberately contains no account/session/installation identifiers
+    and no chess/document content fields.
     """
 
     if not isinstance(consent, OptionalTelemetryConsent):
@@ -124,13 +117,15 @@ def build_optional_telemetry_payload(
         return None
     if not isinstance(values, Mapping):
         raise LicensingPrivacyError("telemetry values must be a mapping")
+    if any(type(key) is not str for key in values):
+        raise LicensingPrivacyError("telemetry field names must be plain text")
     unknown = set(values) - _ANALYTICS_FIELDS
     if unknown:
         raise LicensingPrivacyError("telemetry contains non-allowlisted fields")
     payload: dict[str, str] = {}
     for key in sorted(values):
         value = values[key]
-        if type(key) is not str or type(value) is not str:
+        if type(value) is not str:
             raise LicensingPrivacyError("telemetry fields must be plain text")
         clean = value.strip()
         if not clean or len(clean) > 256 or any(char in clean for char in "\r\n\x00"):
