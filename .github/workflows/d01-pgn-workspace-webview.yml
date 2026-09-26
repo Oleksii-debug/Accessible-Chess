@@ -154,9 +154,21 @@ jobs:
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
-          web/index.html=17803443a815843be3aa1b8c6be1c5abb7e7c888
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
+
+          # The shared semantic document may be either the pre-P0-G Product
+          # blob or the exact event-aware P0-G blob. Any third identity fails
+          # closed so D01 cannot silently accept unrelated presentation drift.
+          web_index_actual="$(git rev-parse HEAD:web/index.html)"
+          case "$web_index_actual" in
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3)
+              ;;
+            *)
+              printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # The Stage1 release facade is a shared keyboard-routing boundary.
           # Accept only the prior canonical blob or the exact P0-G facade that
