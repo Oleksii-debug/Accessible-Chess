@@ -280,19 +280,17 @@ def write_version2_release_sbom(
         pass
     else:
         _fail("SBOM sidecar output must be outside the package tree")
-    if target.exists():
-        _fail("SBOM output must not already exist")
     document = build_version2_release_sbom(
         package_root,
         integration_sha=integration_sha,
         inventory=inventory,
     )
+    payload = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     try:
-        target.write_text(
-            json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-            newline="\n",
-        )
+        with target.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(payload)
+    except FileExistsError:
+        _fail("SBOM output must not already exist")
     except OSError as exc:
         _fail(f"SBOM could not be written: {type(exc).__name__}")
     return target
