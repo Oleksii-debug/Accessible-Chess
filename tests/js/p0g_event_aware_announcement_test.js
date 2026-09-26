@@ -150,6 +150,22 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     'distinct direct keyboard actions must both reach the live region'
   );
 
+  // A duplicate emission from one event must stay suppressed even when another
+  // event is published between the original emission and its duplicate. Event
+  // identity, not adjacency, is the contract boundary.
+  writes.length = 0;
+  const interleavedEvent = context.testNextEvent();
+  const otherEvent = context.testNextEvent();
+  context.testAnnounce('Перший результат', interleavedEvent);
+  context.testAnnounce('Інший результат', otherEvent);
+  context.testAnnounce('Перший результат', interleavedEvent);
+  await sleep(180);
+  assert.deepStrictEqual(
+    writes,
+    ['', 'Перший результат', '', 'Інший результат'],
+    'same-event duplicate must remain suppressed across an interleaved event'
+  );
+
   // Passive/background duplicate suppression stays bounded and quiet.
   writes.length = 0;
   context.testAnnounce('Фоновий стан');
