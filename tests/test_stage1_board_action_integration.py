@@ -16,6 +16,58 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         return Stage1ReleaseAccessibleChessAPI(keymap_path=Path(temp.name) / "keymap.json")
 
+    def test_board_grid_interaction_keys_are_central_and_remappable(self):
+        registry = ActionRegistry()
+        defaults = {
+            "board.cursor_left": "ArrowLeft",
+            "board.cursor_right": "ArrowRight",
+            "board.cursor_up": "ArrowUp",
+            "board.cursor_down": "ArrowDown",
+            "board.activate": "Enter",
+            "board.activate_alternative": "Space",
+            "board.exit": "Escape",
+        }
+        for action_id, binding in defaults.items():
+            with self.subTest(action_id=action_id):
+                self.assertEqual(registry.get_binding(action_id), binding)
+                resolved = registry.resolve_binding(BindingContext.BOARD, binding)
+                self.assertIsNotNone(resolved)
+                self.assertEqual(resolved.action_id, action_id)
+
+        registry.set_binding("board.cursor_left", "Ctrl+Alt+Left")
+        self.assertIsNone(registry.resolve_binding(BindingContext.BOARD, "ArrowLeft"))
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.BOARD, "Ctrl+Alt+Left").action_id,
+            "board.cursor_left",
+        )
+
+    def test_shipping_board_handler_has_no_hardcoded_grid_interaction_keys(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        start = html.index("async function onBoardKey(e){")
+        end = html.index("\nfunction focusHistoryJump", start)
+        handler = html[start:end]
+        self.assertIn("resolveBinding(eventChord(e),'board','board')", handler)
+        for hardcoded in (
+            "key==='Escape'",
+            "key==='Enter'",
+            "key==='ArrowLeft'",
+            "key==='ArrowRight'",
+            "key==='ArrowUp'",
+            "key==='ArrowDown'",
+        ):
+            with self.subTest(hardcoded=hardcoded):
+                self.assertNotIn(hardcoded, handler)
+        for action_id in (
+            "board.cursor_left",
+            "board.cursor_right",
+            "board.cursor_up",
+            "board.cursor_down",
+            "board.activate",
+            "board.activate_alternative",
+            "board.exit",
+        ):
+            self.assertIn(action_id, html)
+
     def test_registry_board_information_actions_are_live_and_non_mutating(self):
         api = self.make_api()
         api.new_game()
