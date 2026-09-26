@@ -13,9 +13,8 @@ from dataclasses import dataclass, fields, replace
 from enum import Enum
 import hashlib
 import json
-import random
 import re
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 from .classroom_domain import ClassroomSnapshot
 from .teaching_session import LessonSession, validate_lesson_session_scope
@@ -192,9 +191,6 @@ class PairingBatch:
         return cls.from_record(raw)
 
 
-Shuffle = Callable[[list[str]], None]
-
-
 def plan_pairings(
     lesson_session: LessonSession,
     classroom: ClassroomSnapshot,
@@ -205,7 +201,6 @@ def plan_pairings(
     mode: PairingMode | str = PairingMode.SEQUENTIAL,
     base_seconds: int = 0,
     increment_seconds: int = 0,
-    shuffle: Shuffle | None = None,
 ) -> PairingBatch:
     """Create one stable pair-play launch plan without creating game state."""
 
@@ -235,17 +230,17 @@ def plan_pairings(
     if any(student_id not in active for student_id in selected):
         raise ClassroomPairingError("pairing student is unavailable")
 
+    if len(selected) < 2:
+        raise ClassroomPairingError("pair-play requires at least two students")
+
     ordered = list(selected)
     if mode is PairingMode.RANDOM:
-        if shuffle is None:
-            random.SystemRandom().shuffle(ordered)
-        else:
-            if not callable(shuffle):
-                raise ClassroomPairingError("shuffle must be callable")
-            before = tuple(ordered)
-            shuffle(ordered)
-            if sorted(ordered) != sorted(before) or len(ordered) != len(before):
-                raise ClassroomPairingError("shuffle must preserve the exact student set")
+        ordered.sort(
+            key=lambda student_id: (
+                hashlib.sha256(f"{batch_id}:{student_id}".encode("utf-8")).digest(),
+                student_id,
+            )
+        )
 
     pair_count = len(ordered) // 2
     if type(game_session_ids) is not tuple or len(game_session_ids) != pair_count:
