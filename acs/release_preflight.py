@@ -25,7 +25,7 @@ from .stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_SOURCE_SUFFIXES = {".py", ".pyw", ".pyi", ".pyx", ".pxd", ".pxi", ".pyc", ".pyo", ".ipynb"}
+_SOURCE_SUFFIXES = {".py", ".pyc", ".pyo", ".ipynb"}
 _FORBIDDEN_COMPONENTS = {
     ".git", ".pytest_cache", "__pycache__", "build", "build_parts10k",
     "build_snapshot_exact", "build_snapshot_parts", "dist", "package",
