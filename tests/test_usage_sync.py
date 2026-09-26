@@ -25,6 +25,16 @@ class FakeUsageSync(UsageSyncPort):
         return self.acknowledgements
 
 
+class RaisingUsageSync(UsageSyncPort):
+    def sync_events(self, events: tuple[UsageEvent, ...]) -> tuple[str, ...]:
+        raise RuntimeError("SECRET provider details")
+
+
+class InvalidUsageSync(UsageSyncPort):
+    def sync_events(self, events: tuple[UsageEvent, ...]):  # type: ignore[no-untyped-def]
+        return "event-1"
+
+
 def event(
     event_id: str = "event-1",
     *,
@@ -206,6 +216,27 @@ class UsageSyncTests(unittest.TestCase):
                     for item in queue.export_for_installation("install-2")["events"]
                 ],
                 ["event-2"],
+            )
+
+    def test_provider_failures_and_invalid_ack_shape_are_bounded_without_state_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = UsageEventQueue(Path(tmp) / "usage-sync.sqlite")
+            queued = event()
+            self.assertTrue(queue.enqueue(queued, ENABLED))
+            with self.assertRaisesRegex(RuntimeError, "^aggregate usage sync provider failed$"):
+                queue.sync_pending(RaisingUsageSync(), ENABLED)
+            with self.assertRaisesRegex(ValueError, "acknowledgements must be a sequence"):
+                queue.sync_pending(InvalidUsageSync(), ENABLED)
+            self.assertEqual(queue.pending(), (queued,))
+
+    def test_usage_event_rejects_non_mapping_counters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "counters must be a mapping"):
+            UsageEvent(
+                event_id="event-1",
+                installation_id="install-1",
+                kind="feature",
+                counters=[],  # type: ignore[arg-type]
+                created_at_utc="2026-08-16T10:00:00Z",
             )
 
     def test_future_schema_fails_closed(self) -> None:
