@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import closing
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -185,7 +186,7 @@ class ClassroomCollaborationSQLiteStore:
         return db
 
     def _migrate(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("CREATE TABLE IF NOT EXISTS collaboration_schema_meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
             row = db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()
             version = int(row[0]) if row else 0
@@ -231,7 +232,7 @@ class ClassroomCollaborationSQLiteStore:
                 )
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             existing = db.execute(
                 "SELECT * FROM collaboration_messages WHERE message_id=?", (message.message_id,)
             ).fetchone()
@@ -258,11 +259,11 @@ class ClassroomCollaborationSQLiteStore:
         if not include_hidden:
             query += " AND hidden=0"
         query += " ORDER BY sequence_no"
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             return tuple(self._message_from_row(row) for row in db.execute(query, args))
 
     def set_message_hidden(self, message_id: str, hidden: bool) -> ChatMessageMetadata:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
             if row is None:
                 raise CollaborationStorageError(f"unknown message: {message_id}")
@@ -275,7 +276,7 @@ class ClassroomCollaborationSQLiteStore:
         if safe_name != attachment.display_name:
             raise ValueError("display_name must already be sanitized")
         _safe_object_key(attachment.object_key)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             existing = db.execute(
                 "SELECT * FROM collaboration_attachments WHERE attachment_id=?", (attachment.attachment_id,)
             ).fetchone()
@@ -301,7 +302,7 @@ class ClassroomCollaborationSQLiteStore:
     def update_attachment_state(
         self, attachment_id: str, *, transfer_state: str, scan_state: str | None = None
     ) -> AttachmentMetadata:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute("SELECT * FROM collaboration_attachments WHERE attachment_id=?", (attachment_id,)).fetchone()
             if row is None:
                 raise CollaborationStorageError(f"unknown attachment: {attachment_id}")
@@ -321,7 +322,7 @@ class ClassroomCollaborationSQLiteStore:
         return candidate
 
     def room_attachments(self, room_id: str) -> tuple[AttachmentMetadata, ...]:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             return tuple(
                 self._attachment_from_row(row)
                 for row in db.execute(
@@ -330,7 +331,7 @@ class ClassroomCollaborationSQLiteStore:
             )
 
     def integrity_check(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             result = db.execute("PRAGMA integrity_check").fetchone()[0]
             if result != "ok":
                 raise CollaborationStorageError(f"sqlite integrity check failed: {result}")
