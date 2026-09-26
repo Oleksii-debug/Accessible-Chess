@@ -212,9 +212,9 @@ class ChildCoachingProjection:
             "student_engine_visible": block.student_engine_visible,
             "target_square": block.target_square,
             "target_piece": block.target_piece,
-            "solution_text": block.solution_text,
         }
         if include_teacher_notes:
+            payload["solution_text"] = block.solution_text
             payload["teacher_note"] = block.teacher_note
             payload["teacher_note_label"] = teacher_note_label
         return payload
