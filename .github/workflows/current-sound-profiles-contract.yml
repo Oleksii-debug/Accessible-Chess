@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-sound-profiles-${{ github.event.pull_request.number || github.ref }}
+  group: current-sound-profiles-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
