@@ -179,6 +179,336 @@ function AssertProductForeground($Process) {
   }
 }
 
+function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha,[string]$ExePath) {
+  if($ExpectedSha -notmatch '^[0-9A-Fa-f]{40}  if($null -eq $Launcher){throw 'board-launcher is missing from connected provider roots'}
+  $Launcher.SetFocus()
+  Start-Sleep -Milliseconds 80
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $focused){throw 'UIA focused element unavailable before analysis hotkey dispatch'}
+  if([string]$focused.Current.AutomationId -ne 'board-launcher'){
+    throw "Analysis hotkey focus escaped document context: id='$([string]$focused.Current.AutomationId)'"
+  }
+}
+
+function FindVariationButton($Roots,[int]$Index) {
+  $expected="^(Варіант|Variant)\s+$Index\."
+  foreach($element in @(ControlElements $Roots)){
+    try {
+      if([string]$element.Current.ControlType.ProgrammaticName -ne 'ControlType.Button'){continue}
+      $name=([string]$element.Current.Name).Trim()
+      if($name -match $expected){return $element}
+    } catch {}
+  }
+  return $null
+}
+
+function SelectedVariation($Roots,[int]$Index) {
+  $button=FindVariationButton $Roots $Index
+  if($null -eq $button){return $null}
+  try {
+    $toggle=$button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if($null -ne $toggle -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){
+      return ([string]$button.Current.Name).Trim()
+    }
+  } catch {}
+  return $null
+}
+
+function AssertCleanAnnouncement([string]$Text,[int]$Index) {
+  if(-not $Text.Trim()){throw "Alt+$Index produced no accessible result"}
+  $lower=$Text.ToLowerInvariant()
+  if($lower -match '\b[a-h][1-8][a-h][1-8][qrbn]?\b' -or $lower -match 'uci|debug|traceback'){
+    throw "Alt+$Index exposed raw provider/debug text: $Text"
+  }
+  if($lower -notmatch "варіант\s+$Index|variant\s+$Index"){
+    throw "Alt+$Index result does not identify the selected variation: $Text"
+  }
+  if($lower -notmatch 'глибин|depth'){throw "Alt+$Index result omits analysis depth: $Text"}
+  if($lower -notmatch 'оцін|eval'){throw "Alt+$Index result omits evaluation: $Text"}
+}
+
+$root=(Resolve-Path -LiteralPath $ProductRoot).Path
+$exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
+AssertExactPackageBinding $root $ProductSha $exe
+$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+try {
+  $report=ReadTopology $process ($TimeoutSeconds*1000)
+  $roots=ProviderRoots $report
+  $elements=ControlElements $roots
+  $launcher=FindById $elements 'board-launcher'
+  $engineToggle=FindById $elements 'engine-toggle'
+  $live=FindById $elements 'live'
+  if($null -eq $launcher){throw 'board-launcher missing from connected provider roots'}
+  if($null -eq $live){throw 'Accessible status live region #live missing from connected provider roots'}
+
+  $shell=New-Object -ComObject WScript.Shell
+  ActivateProduct $shell $process
+  $engineState=EnsureEngineEnabled $engineToggle
+
+  $null=WaitFor {
+    $fresh=ControlElements $roots
+    $buttons=@($fresh | Where-Object {
+      try {
+        [string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and
+        ([string]$_.Current.Name -match 'Варіант\s+[12]|Variant\s+[12]')
+      } catch {$false}
+    })
+    if($buttons.Count -ge 2){return $buttons}
+    return $null
+  } ([Math]::Min($TimeoutSeconds*1000,30000)) 'Packaged Stockfish did not expose two analysis variations in time'
+
+  $preconditionStates=@()
+  $selectedStates=@()
+  $announcements=@()
+  foreach($case in @(@{index=1; key=0x31},@{index=2; key=0x32})){
+    $index=[int]$case.index
+    $opposite=if($index -eq 1){2}else{1}
+    $preconditionButton=WaitFor {
+      FindVariationButton $roots $opposite
+    } 5000 "Could not find opposite variation $opposite for Alt+$index causal precondition"
+    Invoke $preconditionButton "analysis variation $opposite precondition"
+    $precondition=WaitFor {
+      SelectedVariation $roots $opposite
+    } 5000 "Could not establish opposite variation $opposite before Alt+$index"
+
+    ActivateProduct $shell $process
+    AssertLauncherFocus $launcher
+    AssertProductForeground $process
+    [AccessibleChessP0GKeys]::Alt([byte]$case.key)
+    $selected=WaitFor {
+      SelectedVariation $roots $index
+    } 5000 "Alt+$index did not change packaged selected state from variation $opposite to variation $index"
+    $text=WaitFor {
+      $value=SemanticText $live
+      if($value -and $value.ToLowerInvariant() -match "варіант\s+$index|variant\s+$index"){return $value}
+      return $null
+    } 5000 "Alt+$index did not expose a matching live-region result"
+    AssertCleanAnnouncement $text $index
+    $preconditionStates += $precondition
+    $selectedStates += $selected
+    $announcements += $text
+    Write-Host "PACKAGED_P0G_ALT_${index}=PASS precondition='$precondition' selected='$selected' result='$text'"
+  }
+
+  if($preconditionStates.Count -ne 2 -or $selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
+    throw 'Alt+1 and Alt+2 did not prove causal selected-state transitions and distinct accessible results'
+  }
+
+  $summary=[ordered]@{
+    product_sha=$ProductSha
+    discovery='connected provider-root ControlView from retained topology handles'
+    hotkey_focus_path='board-launcher SetFocus outside role=application so global analysis context receives native keys'
+    board_application_entered=$false
+    engine_enable_state=$engineState
+    native_keyboard_dispatch=$true
+    foreground_product_verified=$true
+    manifest_product_sha_verified=$true
+    executable_checksum_verified=$true
+    alt_1_precondition_selected_state=$preconditionStates[0]
+    alt_1_action_occurred=$true
+    alt_1_selected_state=$selectedStates[0]
+    alt_1_accessible_result_exposed=$true
+    alt_1_result=$announcements[0]
+    alt_2_precondition_selected_state=$preconditionStates[1]
+    alt_2_action_occurred=$true
+    alt_2_selected_state=$selectedStates[1]
+    alt_2_accessible_result_exposed=$true
+    alt_2_result=$announcements[1]
+    raw_uci_or_debug_exposed=$false
+    human_tested=$false
+    nvda_verified=$false
+  }
+  $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+}
+finally {
+  $liveProcess=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+  if($liveProcess){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+}
+
+if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){throw 'Packaged P0-G evidence missing'}
+$bounded=Get-Content -LiteralPath $OutputPath -Raw
+if($bounded -match '(?i)[A-Z]:\\\\|/home/|/Users/|/tmp/'){throw 'Local path leaked into P0-G evidence'}){
+    throw 'ProductSha must be one exact 40-hex integration commit'
+  }
+  $expected=$ExpectedSha.ToLowerInvariant()
+  $packageRoot=(Resolve-Path -LiteralPath (Join-Path $ProductRootPath '..')).Path
+  $manifestPath=Join-Path $packageRoot 'RELEASE_MANIFEST.json'
+  $checksumsPath=Join-Path $packageRoot 'SHA256SUMS.txt'
+  if(-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)){
+    throw 'Canonical RELEASE_MANIFEST.json is missing beside packaged product root'
+  }
+  if(-not (Test-Path -LiteralPath $checksumsPath -PathType Leaf)){
+    throw 'Canonical SHA256SUMS.txt is missing beside packaged product root'
+  }
+
+  $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $manifestSha=([string]$manifest.integration_sha).ToLowerInvariant()
+  if($manifestSha -cne $expected){
+    throw "Packaged release manifest integration_sha mismatch: manifest=$manifestSha expected=$expected"
+  }
+
+  $relative='AccessibleChess/AccessibleChess.exe'
+  $checksum=$null
+  $matches=0
+  foreach($line in @(Get-Content -LiteralPath $checksumsPath -Encoding UTF8)){
+    if($line -cmatch '^(?<digest>[0-9A-Fa-f]{64})  AccessibleChess/AccessibleChess\.exe  if($null -eq $Launcher){throw 'board-launcher is missing from connected provider roots'}
+  $Launcher.SetFocus()
+  Start-Sleep -Milliseconds 80
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if($null -eq $focused){throw 'UIA focused element unavailable before analysis hotkey dispatch'}
+  if([string]$focused.Current.AutomationId -ne 'board-launcher'){
+    throw "Analysis hotkey focus escaped document context: id='$([string]$focused.Current.AutomationId)'"
+  }
+}
+
+function FindVariationButton($Roots,[int]$Index) {
+  $expected="^(Варіант|Variant)\s+$Index\."
+  foreach($element in @(ControlElements $Roots)){
+    try {
+      if([string]$element.Current.ControlType.ProgrammaticName -ne 'ControlType.Button'){continue}
+      $name=([string]$element.Current.Name).Trim()
+      if($name -match $expected){return $element}
+    } catch {}
+  }
+  return $null
+}
+
+function SelectedVariation($Roots,[int]$Index) {
+  $button=FindVariationButton $Roots $Index
+  if($null -eq $button){return $null}
+  try {
+    $toggle=$button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if($null -ne $toggle -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){
+      return ([string]$button.Current.Name).Trim()
+    }
+  } catch {}
+  return $null
+}
+
+function AssertCleanAnnouncement([string]$Text,[int]$Index) {
+  if(-not $Text.Trim()){throw "Alt+$Index produced no accessible result"}
+  $lower=$Text.ToLowerInvariant()
+  if($lower -match '\b[a-h][1-8][a-h][1-8][qrbn]?\b' -or $lower -match 'uci|debug|traceback'){
+    throw "Alt+$Index exposed raw provider/debug text: $Text"
+  }
+  if($lower -notmatch "варіант\s+$Index|variant\s+$Index"){
+    throw "Alt+$Index result does not identify the selected variation: $Text"
+  }
+  if($lower -notmatch 'глибин|depth'){throw "Alt+$Index result omits analysis depth: $Text"}
+  if($lower -notmatch 'оцін|eval'){throw "Alt+$Index result omits evaluation: $Text"}
+}
+
+$root=(Resolve-Path -LiteralPath $ProductRoot).Path
+$exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
+$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+try {
+  $report=ReadTopology $process ($TimeoutSeconds*1000)
+  $roots=ProviderRoots $report
+  $elements=ControlElements $roots
+  $launcher=FindById $elements 'board-launcher'
+  $engineToggle=FindById $elements 'engine-toggle'
+  $live=FindById $elements 'live'
+  if($null -eq $launcher){throw 'board-launcher missing from connected provider roots'}
+  if($null -eq $live){throw 'Accessible status live region #live missing from connected provider roots'}
+
+  $shell=New-Object -ComObject WScript.Shell
+  ActivateProduct $shell $process
+  $engineState=EnsureEngineEnabled $engineToggle
+
+  $null=WaitFor {
+    $fresh=ControlElements $roots
+    $buttons=@($fresh | Where-Object {
+      try {
+        [string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and
+        ([string]$_.Current.Name -match 'Варіант\s+[12]|Variant\s+[12]')
+      } catch {$false}
+    })
+    if($buttons.Count -ge 2){return $buttons}
+    return $null
+  } ([Math]::Min($TimeoutSeconds*1000,30000)) 'Packaged Stockfish did not expose two analysis variations in time'
+
+  $preconditionStates=@()
+  $selectedStates=@()
+  $announcements=@()
+  foreach($case in @(@{index=1; key=0x31},@{index=2; key=0x32})){
+    $index=[int]$case.index
+    $opposite=if($index -eq 1){2}else{1}
+    $preconditionButton=WaitFor {
+      FindVariationButton $roots $opposite
+    } 5000 "Could not find opposite variation $opposite for Alt+$index causal precondition"
+    Invoke $preconditionButton "analysis variation $opposite precondition"
+    $precondition=WaitFor {
+      SelectedVariation $roots $opposite
+    } 5000 "Could not establish opposite variation $opposite before Alt+$index"
+
+    ActivateProduct $shell $process
+    AssertLauncherFocus $launcher
+    AssertProductForeground $process
+    [AccessibleChessP0GKeys]::Alt([byte]$case.key)
+    $selected=WaitFor {
+      SelectedVariation $roots $index
+    } 5000 "Alt+$index did not change packaged selected state from variation $opposite to variation $index"
+    $text=WaitFor {
+      $value=SemanticText $live
+      if($value -and $value.ToLowerInvariant() -match "варіант\s+$index|variant\s+$index"){return $value}
+      return $null
+    } 5000 "Alt+$index did not expose a matching live-region result"
+    AssertCleanAnnouncement $text $index
+    $preconditionStates += $precondition
+    $selectedStates += $selected
+    $announcements += $text
+    Write-Host "PACKAGED_P0G_ALT_${index}=PASS precondition='$precondition' selected='$selected' result='$text'"
+  }
+
+  if($preconditionStates.Count -ne 2 -or $selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
+    throw 'Alt+1 and Alt+2 did not prove causal selected-state transitions and distinct accessible results'
+  }
+
+  $summary=[ordered]@{
+    product_sha=$ProductSha
+    discovery='connected provider-root ControlView from retained topology handles'
+    hotkey_focus_path='board-launcher SetFocus outside role=application so global analysis context receives native keys'
+    board_application_entered=$false
+    engine_enable_state=$engineState
+    native_keyboard_dispatch=$true
+    foreground_product_verified=$true
+    alt_1_precondition_selected_state=$preconditionStates[0]
+    alt_1_action_occurred=$true
+    alt_1_selected_state=$selectedStates[0]
+    alt_1_accessible_result_exposed=$true
+    alt_1_result=$announcements[0]
+    alt_2_precondition_selected_state=$preconditionStates[1]
+    alt_2_action_occurred=$true
+    alt_2_selected_state=$selectedStates[1]
+    alt_2_accessible_result_exposed=$true
+    alt_2_result=$announcements[1]
+    raw_uci_or_debug_exposed=$false
+    human_tested=$false
+    nvda_verified=$false
+  }
+  $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+}
+finally {
+  $liveProcess=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+  if($liveProcess){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+}
+
+if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){throw 'Packaged P0-G evidence missing'}
+$bounded=Get-Content -LiteralPath $OutputPath -Raw
+if($bounded -match '(?i)[A-Z]:\\\\|/home/|/Users/|/tmp/'){throw 'Local path leaked into P0-G evidence'}){
+      $matches++
+      $checksum=$Matches['digest'].ToLowerInvariant()
+    }
+  }
+  if($matches -ne 1 -or -not $checksum){
+    throw "SHA256SUMS.txt must contain exactly one canonical checksum for $relative"
+  }
+  $actual=(Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if($actual -cne $checksum){
+    throw 'Packaged AccessibleChess.exe SHA-256 does not match canonical checksum inventory'
+  }
+}
+
 function AssertLauncherFocus($Launcher) {
   if($null -eq $Launcher){throw 'board-launcher is missing from connected provider roots'}
   $Launcher.SetFocus()
