@@ -8,6 +8,7 @@ on:
       - 'acs/slsa_provenance.py'
       - 'tools/generate_slsa_provenance.py'
       - 'tests/test_slsa_provenance.py'
+      - 'tests/test_slsa_provenance_builder_binding.py'
       - '.github/workflows/slsa-provenance-v1.yml'
   workflow_dispatch:
 
@@ -50,8 +51,16 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base" HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/slsa-provenance-v1.yml'             'acs/slsa_provenance.py'             'tests/test_slsa_provenance.py'             'tools/generate_slsa_provenance.py' | sort)"
-          test "$changed" = "$expected"
+          expected="$(printf '%s\n' \
+            '.github/workflows/slsa-provenance-v1.yml' \
+            'acs/slsa_provenance.py' \
+            'tests/test_slsa_provenance.py' \
+            'tests/test_slsa_provenance_builder_binding.py' \
+            'tools/generate_slsa_provenance.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected SLSA provenance scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
 
       - name: Compile provenance tooling
         run: >-
@@ -59,9 +68,13 @@ jobs:
           acs/slsa_provenance.py
           tools/generate_slsa_provenance.py
           tests/test_slsa_provenance.py
+          tests/test_slsa_provenance_builder_binding.py
 
       - name: Run provenance regressions
-        run: python -m unittest -v tests.test_slsa_provenance
+        run: >-
+          python -m unittest -v
+          tests.test_slsa_provenance
+          tests.test_slsa_provenance_builder_binding
 
       - name: Generate a supported workflow_dispatch statement twice
         shell: bash
