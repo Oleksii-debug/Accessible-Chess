@@ -40,6 +40,11 @@ def _name(value: str) -> str:
     return value
 
 
+def _slot_entropy(name: str) -> bytes:
+    token = _name(name)
+    return hashlib.sha256(_ENTROPY + b"\x00slot\x00" + token.encode("utf-8")).digest()
+
+
 def _is_reparse(info: os.stat_result) -> bool:
     flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     return bool(getattr(info, "st_file_attributes", 0) & flag)
@@ -78,9 +83,9 @@ if sys.platform == "win32":
         return _DATA_BLOB(len(data), cast(buffer, POINTER(c_byte))), buffer
 
 
-    def _dpapi_protect(data: bytes) -> bytes:
+    def _dpapi_protect(data: bytes, *, entropy: bytes) -> bytes:
         source, source_buffer = _blob(data)
-        entropy, entropy_buffer = _blob(_ENTROPY)
+        entropy_blob, entropy_buffer = _blob(entropy)
         output = _DATA_BLOB()
         crypt32 = ctypes.windll.crypt32
         kernel32 = ctypes.windll.kernel32
@@ -90,7 +95,7 @@ if sys.platform == "win32":
         ]
         crypt32.CryptProtectData.restype = BOOL
         ok = crypt32.CryptProtectData(
-            byref(source), "Accessible Chess protected secret", byref(entropy),
+            byref(source), "Accessible Chess protected secret", byref(entropy_blob),
             None, None, _CRYPTPROTECT_UI_FORBIDDEN, byref(output),
         )
         _ = source_buffer, entropy_buffer
@@ -103,9 +108,9 @@ if sys.platform == "win32":
                 kernel32.LocalFree(output.pbData)
 
 
-    def _dpapi_unprotect(data: bytes) -> bytes:
+    def _dpapi_unprotect(data: bytes, *, entropy: bytes) -> bytes:
         source, source_buffer = _blob(data)
-        entropy, entropy_buffer = _blob(_ENTROPY)
+        entropy_blob, entropy_buffer = _blob(entropy)
         output = _DATA_BLOB()
         description = LPWSTR()
         crypt32 = ctypes.windll.crypt32
@@ -116,7 +121,7 @@ if sys.platform == "win32":
         ]
         crypt32.CryptUnprotectData.restype = BOOL
         ok = crypt32.CryptUnprotectData(
-            byref(source), byref(description), byref(entropy), None, None,
+            byref(source), byref(description), byref(entropy_blob), None, None,
             _CRYPTPROTECT_UI_FORBIDDEN, byref(output),
         )
         _ = source_buffer, entropy_buffer
@@ -130,11 +135,11 @@ if sys.platform == "win32":
             if description:
                 kernel32.LocalFree(description)
 else:
-    def _dpapi_protect(data: bytes) -> bytes:
+    def _dpapi_protect(data: bytes, *, entropy: bytes) -> bytes:
         raise SecretStoreError("Windows DPAPI is unavailable on this platform")
 
 
-    def _dpapi_unprotect(data: bytes) -> bytes:
+    def _dpapi_unprotect(data: bytes, *, entropy: bytes) -> bytes:
         raise SecretStoreError("Windows DPAPI is unavailable on this platform")
 
 
@@ -184,7 +189,7 @@ class WindowsDpapiSecretStore:
         self._prepare_root()
         target = self._path(name)
         _reject_link(target, label="secret file")
-        protected = _dpapi_protect(value)
+        protected = _dpapi_protect(value, entropy=_slot_entropy(name))
         if not protected or len(protected) > _MAX_CIPHERTEXT_BYTES:
             raise SecretStoreError("Windows DPAPI returned invalid ciphertext")
         temp_path: Path | None = None
@@ -242,7 +247,7 @@ class WindowsDpapiSecretStore:
             raise SecretStoreError("secret ciphertext is empty")
         if len(data) > _MAX_CIPHERTEXT_BYTES:
             raise SecretStoreError("secret ciphertext exceeds size limit")
-        plaintext = _dpapi_unprotect(data)
+        plaintext = _dpapi_unprotect(data, entropy=_slot_entropy(name))
         if len(plaintext) > _MAX_SECRET_BYTES:
             raise SecretStoreError("unprotected secret exceeds size limit")
         return plaintext
