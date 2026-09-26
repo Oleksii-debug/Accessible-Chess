@@ -122,7 +122,6 @@ jobs:
 
       - name: Parse keybinding browser contracts
         run: |
-          node --check web/index.html || true
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
           node --check web/full_product_education.js
