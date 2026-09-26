@@ -1,0 +1,206 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+import tempfile
+import unittest
+
+from acs.child_coaching import LessonBlock, preset_templates
+from acs.child_coaching_application import (
+    ChildCoachingApplication,
+    ChildCoachingApplicationError,
+)
+from acs.child_coaching_store import ChildCoachingTemplateStore
+from acs.teaching_session import PositionSourceKind, TeachingPositionSource
+
+
+class ChildCoachingApplicationTests(unittest.TestCase):
+    def make_app(self, temp: str) -> ChildCoachingApplication:
+        return ChildCoachingApplication(
+            ChildCoachingTemplateStore(Path(temp) / "child-coaching.json")
+        )
+
+    def test_first_open_seeds_presets_once_and_exposes_concise_accessible_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.make_app(temp)
+            first = app.open_catalog()
+            second = app.open_catalog()
+            self.assertEqual(first.revision, second.revision)
+            self.assertEqual(len(first.templates), len(preset_templates()))
+            self.assertTrue(
+                all(summary.accessible_text for summary in first.templates)
+            )
+            preschool = first.summary("preset-preschool-4-6")
+            self.assertIn("30 minutes", preschool.accessible_text)
+            self.assertIn("no notation required", preschool.accessible_text)
+            self.assertIn("preset", preschool.accessible_text)
+
+    def test_copy_edit_rename_reopen_and_delete_custom_template(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.make_app(temp)
+            catalog = app.open_catalog()
+            catalog = app.copy_template(
+                "preset-preschool-4-6",
+                template_id="teacher-preschool",
+                title="My preschool group",
+                expected_revision=catalog.revision,
+            )
+            copied = catalog.summary("teacher-preschool")
+            self.assertTrue(copied.custom)
+
+            template, revision = app.get_template("teacher-preschool")
+            first_block = template.blocks[0]
+            replacement = replace(
+                first_block,
+                minutes=4,
+                teacher_note="Slow down if attention drops.",
+            )
+            catalog = app.replace_block(
+                "teacher-preschool",
+                first_block.block_id,
+                replacement,
+                expected_revision=revision,
+            )
+            changed, revision = app.get_template("teacher-preschool")
+            self.assertEqual(changed.blocks[0].minutes, 4)
+            self.assertEqual(
+                changed.blocks[0].teacher_note,
+                "Slow down if attention drops.",
+            )
+
+            catalog = app.rename_template(
+                "teacher-preschool",
+                "Saturday preschool group",
+                expected_revision=revision,
+            )
+            reopened = self.make_app(temp).open_catalog()
+            self.assertEqual(
+                reopened.summary("teacher-preschool").title,
+                "Saturday preschool group",
+            )
+            deleted = app.delete_custom_template(
+                "teacher-preschool",
+                expected_revision=reopened.revision,
+            )
+            with self.assertRaises(ChildCoachingApplicationError):
+                deleted.summary("teacher-preschool")
+
+    def test_stale_writer_is_rejected_before_silent_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app_a = self.make_app(temp)
+            app_b = self.make_app(temp)
+            first = app_a.open_catalog()
+            same = app_b.open_catalog()
+            self.assertEqual(first.revision, same.revision)
+
+            newer = app_a.copy_template(
+                "preset-young-beginner-7-8",
+                template_id="newer-copy",
+                title="Newer copy",
+                expected_revision=first.revision,
+            )
+            self.assertNotEqual(newer.revision, same.revision)
+            with self.assertRaisesRegex(
+                ChildCoachingApplicationError,
+                "changed; reopen",
+            ):
+                app_b.copy_template(
+                    "preset-school-age-9-10",
+                    template_id="stale-copy",
+                    title="Stale copy",
+                    expected_revision=same.revision,
+                )
+            reopened = app_b.open_catalog()
+            self.assertIsNotNone(reopened.summary("newer-copy"))
+            with self.assertRaises(ChildCoachingApplicationError):
+                reopened.summary("stale-copy")
+
+    def test_builtin_preset_cannot_be_deleted_but_can_be_edited_and_is_not_reseeded_over(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.make_app(temp)
+            catalog = app.open_catalog()
+            with self.assertRaisesRegex(
+                ChildCoachingApplicationError,
+                "preset cannot be deleted",
+            ):
+                app.delete_custom_template(
+                    "preset-preschool-4-6",
+                    expected_revision=catalog.revision,
+                )
+
+            template, revision = app.get_template("preset-preschool-4-6")
+            block = template.blocks[0]
+            changed = replace(block, minutes=4)
+            app.replace_block(
+                template.template_id,
+                block.block_id,
+                changed,
+                expected_revision=revision,
+            )
+            reopened_template, _ = app.get_template("preset-preschool-4-6")
+            self.assertEqual(reopened_template.blocks[0].minutes, 4)
+            self.assertTrue(reopened_template.custom)
+            self.assertEqual(
+                app.open_catalog().summary("preset-preschool-4-6").total_minutes,
+                31,
+            )
+
+    def test_compilation_uses_persisted_template_and_redacts_teacher_note(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.make_app(temp)
+            catalog = app.open_catalog()
+            app.copy_template(
+                "preset-young-beginner-7-8",
+                template_id="session-template",
+                title="Session template",
+                expected_revision=catalog.revision,
+            )
+            template, revision = app.get_template("session-template")
+            block = template.blocks[0]
+            app.replace_block(
+                template.template_id,
+                block.block_id,
+                replace(block, teacher_note="Private teacher-only plan"),
+                expected_revision=revision,
+            )
+            session = app.compile_session(
+                "session-template",
+                session_id="session-1",
+                lesson_id="lesson-1",
+                source=TeachingPositionSource(PositionSourceKind.START),
+                student_ids=("student-1",),
+                require_no_notation=True,
+            )
+            self.assertNotIn("Private teacher-only plan", session.to_json())
+            self.assertEqual(
+                len(session.steps),
+                len(app.get_template("session-template")[0].blocks),
+            )
+
+    def test_invalid_replacement_is_reduced_to_stable_application_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.make_app(temp)
+            catalog = app.open_catalog()
+            template, _ = app.get_template("preset-preschool-4-6")
+            wrong = LessonBlock(
+                "different-id",
+                template.blocks[0].kind,
+                template.blocks[0].title,
+                template.blocks[0].minutes,
+                template.blocks[0].activity,
+                template.blocks[0].prompt,
+            )
+            with self.assertRaisesRegex(
+                ChildCoachingApplicationError,
+                "block update was rejected",
+            ):
+                app.replace_block(
+                    template.template_id,
+                    template.blocks[0].block_id,
+                    wrong,
+                    expected_revision=catalog.revision,
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()
