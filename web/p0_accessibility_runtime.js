@@ -353,7 +353,8 @@
     "AccessibleChessLibrarySurface",
     "AccessibleChessBookSurface",
     "AccessibleChessTrainingSurface",
-    "AccessibleChessEducationSurface"
+    "AccessibleChessEducationSurface",
+    "AccessibleChessTeacherSurface"
   ].forEach(wrapSurfaceRenderAnnouncement);
 
   if (typeof global.apiAction === "function" && typeof global.render === "function") {

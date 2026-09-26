@@ -45,6 +45,8 @@ let pgnSurfaceInvoke = null;
 let pgnSurfaceAnnounce = null;
 let librarySurfaceInvoke = null;
 let librarySurfaceAnnounce = null;
+let teacherSurfaceInvoke = null;
+let teacherSurfaceAnnounce = null;
 
 const fakeWindow = {
   document: documentRef,
@@ -77,8 +79,13 @@ const fakeWindow = {
     }
   }),
   AccessibleChessTeacherSurface: Object.freeze({
-    render: function (_root, _snapshot, _invoke, announce) {
-      announce("Teacher hover-capable result");
+    render: function (_root, _snapshot, invoke, announce) {
+      if (typeof invoke === "function") {
+        teacherSurfaceInvoke = invoke;
+        teacherSurfaceAnnounce = announce;
+      } else {
+        announce("Teacher hover-capable result");
+      }
     }
   })
 };
@@ -231,6 +238,17 @@ async function run() {
   const librarySecond = await librarySurfaceInvoke("library.action", {});
   librarySurfaceAnnounce(librarySecond.payload.announcement);
 
+  const repeatTeacherResult = async function () {
+    return { kind: "result", payload: { announcement: "Same teacher surface result" } };
+  };
+  fakeWindow.AccessibleChessTeacherSurface.render(null, null, repeatTeacherResult, staleCallback);
+  assert.strictEqual(typeof teacherSurfaceInvoke, "function", "P0 runtime must wrap the Teacher invoke boundary");
+  assert.strictEqual(typeof teacherSurfaceAnnounce, "function", "P0 runtime must wrap the Teacher announce boundary");
+  const teacherFirst = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
+  teacherSurfaceAnnounce(teacherFirst.payload.announcement);
+  const teacherSecond = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
+  teacherSurfaceAnnounce(teacherSecond.payload.announcement);
+
   await new Promise(resolve => setTimeout(resolve, 520));
   assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
@@ -252,6 +270,11 @@ async function run() {
     nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
     2,
     "two equal Library user results on one rendered surface must remain two live-region events"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same teacher surface result").length,
+    2,
+    "two equal Teacher user results on one rendered surface must remain two live-region events"
   );
   assert.ok(
     nonEmptyLiveWrites.every(value => value.indexOf("AccessibleChessEvent:") === -1),

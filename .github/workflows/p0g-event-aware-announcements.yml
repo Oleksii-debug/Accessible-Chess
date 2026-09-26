@@ -10,6 +10,7 @@ on:
       - '.github/workflows/p0-dynamic-selection-executable.yml'
       - 'web/index.html'
       - 'web/p0_accessibility_runtime.js'
+      - 'web/full_product_teacher.js'
       - 'tests/js/p0g_event_aware_announcement_test.js'
       - 'tests/js/p0_accessibility_runtime_test.js'
       - 'tests/test_accessible_webui.py'
@@ -101,6 +102,7 @@ jobs:
               'web/full_product_library.js': 2,
               'web/full_product_books_training.js': 4,
               'web/full_product_education.js': 2,
+              'web/full_product_teacher.js': 2,
           }
           # Each semantic announcement has exactly two lexical uses in its
           # guarded `if (payload.announcement) announce(String(...))` statement:
