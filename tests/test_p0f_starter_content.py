@@ -137,11 +137,28 @@ def _release_starter_snapshot(*, booklet_count: int = 24, include_course: bool =
     }
 
 
-def _release_w2_library_snapshot(*, starter_games: int = 240, include_all_actions: bool = True):
+def _release_w2_library_snapshot(
+    *,
+    starter_games: int = 240,
+    stress_games: int = 1200,
+    include_all_actions: bool = True,
+):
     actions = [
-        {"action": "library.open_packaged_starter_pgn", "enabled": True},
-        {"action": "library.open_packaged_stress_pgn", "enabled": True},
-        {"action": "library.import_packaged_sample_library", "enabled": True},
+        {
+            "action": "library.open_packaged_starter_pgn",
+            "label": f"Open the built-in {starter_games}-game starter PGN",
+            "enabled": True,
+        },
+        {
+            "action": "library.open_packaged_stress_pgn",
+            "label": f"Open the built-in large PGN ({stress_games} games)",
+            "enabled": True,
+        },
+        {
+            "action": "library.import_packaged_sample_library",
+            "label": f"Add the built-in starter library ({starter_games} games)",
+            "enabled": True,
+        },
     ]
     if not include_all_actions:
         actions.pop()
@@ -149,7 +166,7 @@ def _release_w2_library_snapshot(*, starter_games: int = 240, include_all_action
         "packaged_starter_content": {
             "available": True,
             "starter_games": starter_games,
-            "stress_games": 1200,
+            "stress_games": stress_games,
             "network_required": False,
             "prebuilt_library": True,
         },
@@ -209,6 +226,9 @@ def test_packaged_starter_diagnostic_accepts_future_distinct_booklet_extension()
 
 def test_packaged_w2_diagnostic_accepts_complete_library_snapshot():
     assert packaged_w2_library_ready(_release_w2_library_snapshot()) is True
+    assert packaged_w2_library_ready(
+        _release_w2_library_snapshot(starter_games=200, stress_games=801)
+    ) is True
 
 
 def test_packaged_w2_diagnostic_fails_closed_for_incomplete_library_state():
@@ -228,3 +248,17 @@ def test_packaged_w2_diagnostic_fails_closed_for_incomplete_library_state():
     disabled = _release_w2_library_snapshot()
     disabled["actions"][0]["enabled"] = False
     assert packaged_w2_library_ready(disabled) is False
+
+
+def test_packaged_w2_diagnostic_rejects_misleading_or_duplicate_accessible_actions():
+    misleading = _release_w2_library_snapshot(starter_games=200, stress_games=801)
+    misleading["actions"][0]["label"] = "Open the built-in 240-game starter PGN"
+    assert packaged_w2_library_ready(misleading) is False
+
+    missing_label = _release_w2_library_snapshot()
+    del missing_label["actions"][1]["label"]
+    assert packaged_w2_library_ready(missing_label) is False
+
+    duplicate = _release_w2_library_snapshot()
+    duplicate["actions"].append(dict(duplicate["actions"][0]))
+    assert packaged_w2_library_ready(duplicate) is False
