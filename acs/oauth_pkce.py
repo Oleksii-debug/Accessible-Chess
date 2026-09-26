@@ -164,9 +164,19 @@ class AuthorizationRequest:
             client_id=_require_text("client_id", client_id, max_length=512),
             redirect_uri=_validate_redirect_uri(redirect_uri),
             scopes=_normalize_scopes(scopes),
-            state=_require_text("state", state or secrets.token_urlsafe(32), max_length=512),
-            nonce=_require_text("nonce", nonce or secrets.token_urlsafe(32), max_length=512),
-            code_verifier=code_verifier or generate_code_verifier(),
+            state=_require_text(
+                "state",
+                state if state is not None else secrets.token_urlsafe(32),
+                max_length=512,
+            ),
+            nonce=_require_text(
+                "nonce",
+                nonce if nonce is not None else secrets.token_urlsafe(32),
+                max_length=512,
+            ),
+            code_verifier=(
+                code_verifier if code_verifier is not None else generate_code_verifier()
+            ),
         ).validated()
 
     def validated(self) -> "AuthorizationRequest":
