@@ -6,6 +6,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/starter_content.py'
+      - 'acs/version2_release_diagnostics.py'
       - 'scripts/build_starter_content.py'
       - 'tests/test_p0f_starter_content.py'
       - 'docs/P0F_STARTER_CONTENT_PROVENANCE.md'
@@ -43,6 +44,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/starter_content.py
+          acs/version2_release_diagnostics.py
           scripts/build_starter_content.py
           tests/test_p0f_starter_content.py
           run_accessible_chess_v2.py
