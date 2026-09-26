@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 from typing import Any
+
+# This verifier is intentionally executable both as ``python -m scripts...`` and
+# by its packaged/CI file path.  Direct file execution puts ``scripts/`` rather
+# than the repository root on sys.path, so make the existing package import
+# reachable without depending on the caller's PYTHONPATH.
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
 
 from scripts.verify_p0_packaged_document_copy_evidence import (
     EvidenceError,
