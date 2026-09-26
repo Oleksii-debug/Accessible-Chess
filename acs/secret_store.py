@@ -35,8 +35,6 @@ class SecretStore(Protocol):
 
 
 def _name(value: str) -> str:
-    # Secret-slot validation is a security boundary. Never invoke arbitrary
-    # __str__ while resolving a disk path or formatting an error.
     if type(value) is not str or not _NAME_RE.fullmatch(value):
         raise SecretStoreError("secret name must be a safe stable identifier")
     return value
@@ -56,6 +54,15 @@ def _reject_link(path: Path, *, label: str) -> None:
         raise SecretStoreError(f"{label} cannot be inspected: {type(exc).__name__}") from exc
     if stat.S_ISLNK(info.st_mode) or _is_reparse(info):
         raise SecretStoreError(f"{label} must not be a symlink or reparse point")
+
+
+def _reject_link_ancestry(path: Path) -> None:
+    """Reject any existing symlink/reparse component leading to the store root."""
+
+    candidate = Path(path)
+    chain = list(reversed((candidate, *candidate.parents)))
+    for component in chain:
+        _reject_link(component, label="secret store ancestry")
 
 
 if sys.platform == "win32":
@@ -155,12 +162,12 @@ class WindowsDpapiSecretStore:
         return self.root / f"{digest}.dpapi"
 
     def _prepare_root(self) -> None:
-        _reject_link(self.root, label="secret store root")
+        _reject_link_ancestry(self.root)
         try:
             self.root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SecretStoreError(f"secret store root cannot be created: {type(exc).__name__}") from exc
-        _reject_link(self.root, label="secret store root")
+        _reject_link_ancestry(self.root)
         try:
             if not self.root.is_dir():
                 raise SecretStoreError("secret store root must be a directory")
