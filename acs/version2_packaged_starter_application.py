@@ -23,6 +23,7 @@ import tempfile
 
 from .acsdb import ACSDB_SCHEMA_VERSION
 from .full_product_ui_shell import UILanguage
+from .game_identity import identity_for_game
 from .library_import_service import LibraryImportService
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
@@ -655,6 +656,31 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         workspace = PgnWorkspace.from_text(text)
         if workspace.game_count != expected_count:
             raise RuntimeError("packaged starter Library PGN rows are inconsistent")
+
+        starter_payload = _verified_payload_bytes(
+            root,
+            manifest,
+            "starter_uk.pgn",
+            label="packaged starter PGN identity authority",
+        )
+        try:
+            starter_text = starter_payload.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("packaged starter PGN is not valid UTF-8") from exc
+        starter_workspace = PgnWorkspace.from_text(starter_text)
+        if starter_workspace.game_count != expected_count:
+            raise RuntimeError("packaged starter PGN identity count does not match the manifest")
+
+        sample_identities = tuple(
+            identity_for_game(game).record_digest for game in workspace.games()
+        )
+        starter_identities = tuple(
+            identity_for_game(game).record_digest for game in starter_workspace.games()
+        )
+        if sample_identities != starter_identities:
+            raise RuntimeError(
+                "packaged starter Library game identity does not match starter PGN"
+            )
         return workspace.games()
 
     def _import_packaged_sample_library(self) -> dict[str, object]:
