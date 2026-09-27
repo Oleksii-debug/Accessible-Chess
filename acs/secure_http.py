@@ -11,6 +11,9 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 
+MAX_JSON_NESTING = 128
+
+
 class TransportErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
     TIMEOUT = "timeout"
@@ -103,6 +106,8 @@ class BoundedHttpsJsonTransport:
             ).encode("utf-8")
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise SecureHttpError(TransportErrorCode.INVALID_REQUEST) from None
+        if not _json_nesting_within_limit(body, MAX_JSON_NESTING):
+            raise SecureHttpError(TransportErrorCode.INVALID_REQUEST)
         return self._post_bytes(
             url,
             body,
@@ -202,10 +207,47 @@ class BoundedHttpsJsonTransport:
             raise SecureHttpError(TransportErrorCode.RESPONSE_TOO_LARGE)
         try:
             text = payload.decode("utf-8")
+            if not _json_nesting_within_limit(payload, MAX_JSON_NESTING):
+                raise SecureHttpError(TransportErrorCode.INVALID_JSON)
             value = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+        except SecureHttpError:
+            raise
         except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError):
             raise SecureHttpError(TransportErrorCode.INVALID_JSON) from None
         return JsonResponse(status=status, value=value, content_type=content_type)
+
+
+def _json_nesting_within_limit(payload: bytes, limit: int) -> bool:
+    """Return False when JSON structural nesting exceeds the transport bound.
+
+    The scan runs before parsing provider bytes and after serializing request
+    values. Structural brackets inside JSON strings are ignored, including
+    escaped quotes and backslashes.
+    """
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in payload:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:  # backslash
+                escaped = True
+            elif byte == 0x22:  # quote
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):  # [ {
+            depth += 1
+            if depth > limit:
+                return False
+        elif byte in (0x5D, 0x7D):  # ] }
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0 and not in_string and not escaped
 
 
 def _validated_https_url(value: str) -> str:

@@ -212,6 +212,23 @@ class SecureHttpTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, TransportErrorCode.INVALID_JSON)
         self.assertIsNone(caught.exception.__cause__)
 
+    def test_json_nesting_guard_ignores_brackets_inside_strings(self) -> None:
+        bracket_text = "[" * 512 + "\\\"" + "]" * 512
+        response_body = json.dumps({"text": bracket_text}).encode("utf-8")
+        transport = BoundedHttpsJsonTransport(
+            opener=_Opener(_Response(response_body)),
+            max_response_bytes=len(response_body) + 1,
+        )
+        reply = transport.get_json("https://example.invalid/")
+        self.assertEqual(reply.value, {"text": bracket_text})
+
+        post_transport = BoundedHttpsJsonTransport(opener=_Opener(_Response(b"{}")))
+        posted = post_transport.post_json(
+            "https://example.invalid/",
+            {"text": bracket_text},
+        )
+        self.assertEqual(posted.value, {})
+
     def test_response_size_is_bounded_before_json_parse(self) -> None:
         opener = _Opener(_Response(b'{"payload":"' + b"x" * 128 + b'"}'))
         transport = BoundedHttpsJsonTransport(opener=opener, max_response_bytes=32)
