@@ -499,6 +499,14 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
         {
             if (!File.Exists(BackupPath)) return new ProtectedAssessmentRuntimeSnapshot();
             try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (UnsupportedProtectedAssessmentSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
                 throw new InvalidDataException("Protected assessment state is missing and its backup is invalid.", backup);
@@ -508,17 +516,25 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
         try { return ReadValidated(_path); }
         catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
         {
-            throw;
+            throw new InvalidDataException(schema.Message, schema);
         }
         catch (UnsupportedProtectedAssessmentSchemaException schema) when (schema.IsNewerThanSupported)
         {
-            throw;
+            throw new InvalidDataException(schema.Message, schema);
         }
         catch (Exception primary) when (primary is JsonException or InvalidDataException or IOException)
         {
             if (!File.Exists(BackupPath))
                 throw new InvalidDataException("Protected assessment state is invalid and no backup is available.", primary);
             try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (UnsupportedProtectedAssessmentSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
                 throw new InvalidDataException("Protected assessment state and its backup are both invalid.", new AggregateException(primary, backup));
@@ -558,11 +574,11 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
         }
         catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
         {
-            throw;
+            throw new InvalidDataException(schema.Message, schema);
         }
         catch (UnsupportedProtectedAssessmentSchemaException schema) when (schema.IsNewerThanSupported)
         {
-            throw;
+            throw new InvalidDataException(schema.Message, schema);
         }
         catch (Exception primary) when (primary is JsonException or InvalidDataException)
         {
@@ -572,6 +588,14 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
             {
                 _ = ReadValidated(BackupPath);
                 return false;
+            }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (UnsupportedProtectedAssessmentSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
             }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
