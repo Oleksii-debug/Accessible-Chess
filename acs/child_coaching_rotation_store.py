@@ -10,6 +10,11 @@ from pathlib import Path
 import tempfile
 from typing import Mapping
 
+from .child_coaching_store import (
+    _StoreLockBusy,
+    _exclusive_store_lock,
+    _sync_directory,
+)
 from .child_coaching_rotation import (
     ChildCoachingRotationError,
     RotationActivity,
@@ -214,45 +219,42 @@ class ChildCoachingRotationStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            self._lock_path.mkdir()
-        except FileExistsError as exc:
+            with _exclusive_store_lock(self._lock_path):
+                temporary: Path | None = None
+                try:
+                    current = self._read_current()
+                    current_revision = None if current is None else _revision(current)
+                    if current_revision != expected:
+                        raise ChildCoachingRotationStoreConflictError(
+                            "rotation session changed since the caller last observed it"
+                        )
+
+                    fd, raw_path = tempfile.mkstemp(
+                        prefix=f".{self.path.name}.",
+                        suffix=".tmp",
+                        dir=str(self.path.parent),
+                    )
+                    temporary = Path(raw_path)
+                    try:
+                        with os.fdopen(fd, "wb") as handle:
+                            handle.write(data)
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                    except Exception:
+                        if temporary.exists():
+                            temporary.unlink()
+                        temporary = None
+                        raise
+
+                    os.replace(temporary, self.path)
+                    temporary = None
+                    _sync_directory(self.path.parent)
+                    return new_revision
+                finally:
+                    if temporary is not None and temporary.exists():
+                        temporary.unlink()
+        except _StoreLockBusy as exc:
             raise ChildCoachingRotationStoreBusyError(
                 "rotation store is busy"
             ) from exc
 
-        temporary: Path | None = None
-        try:
-            current = self._read_current()
-            current_revision = None if current is None else _revision(current)
-            if current_revision != expected:
-                raise ChildCoachingRotationStoreConflictError(
-                    "rotation session changed since the caller last observed it"
-                )
-
-            fd, raw_path = tempfile.mkstemp(
-                prefix=f".{self.path.name}.",
-                suffix=".tmp",
-                dir=str(self.path.parent),
-            )
-            temporary = Path(raw_path)
-            try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(data)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-            except Exception:
-                if temporary.exists():
-                    temporary.unlink()
-                temporary = None
-                raise
-
-            os.replace(temporary, self.path)
-            temporary = None
-            return new_revision
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
-            try:
-                self._lock_path.rmdir()
-            except FileNotFoundError:
-                pass
