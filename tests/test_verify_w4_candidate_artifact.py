@@ -272,6 +272,8 @@ def _copy_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obj
         "manifest_product_sha_verified": True,
         "executable_checksum_verified": True,
         "textpattern_selection_supported": True,
+        "textpattern_target_selected": True,
+        "textpattern_selection_equality": "UIA exact range endpoints and case-sensitive text equality",
         "ctrl_c_exact_clipboard": True,
         "move_input_focus_verified": True,
         "move_input_native_ctrl_a_ctrl_c": True,
@@ -589,6 +591,20 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             self.path.write_bytes(_outer_bytes(uia_overrides=overrides))
             with self.assertRaises(CandidateArtifactError):
                 verify(self.path, SHA)
+
+    def test_copy_evidence_requires_exact_textpattern_target_selection(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"textpattern_target_selected": False})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "textpattern_target_selected"):
+            verify(self.path, SHA)
+
+    def test_copy_evidence_requires_exact_textpattern_selection_equality(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"textpattern_selection_equality": "text only"})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "TextPattern selection equality"):
+            verify(self.path, SHA)
 
     def test_copy_evidence_requires_exact_clipboard_payload(self) -> None:
         self.path.write_bytes(

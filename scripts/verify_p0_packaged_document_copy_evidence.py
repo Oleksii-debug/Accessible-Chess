@@ -129,6 +129,7 @@ def _verify_evidence(evidence: dict[str, Any], expected_sha: str) -> None:
         "manifest_product_sha_verified",
         "executable_checksum_verified",
         "textpattern_selection_supported",
+        "textpattern_target_selected",
         "ctrl_c_exact_clipboard",
         "move_input_focus_verified",
         "move_input_native_ctrl_a_ctrl_c",
@@ -138,6 +139,12 @@ def _verify_evidence(evidence: dict[str, Any], expected_sha: str) -> None:
     copied = evidence.get("static_document_text")
     if not isinstance(copied, str) or not copied.strip() or len(copied) > 4096:
         raise EvidenceError("static document copy evidence text is missing or unbounded")
+
+    if (
+        evidence.get("textpattern_selection_equality")
+        != "UIA exact range endpoints and case-sensitive text equality"
+    ):
+        raise EvidenceError("TextPattern selection equality contract is not exact")
 
     if evidence.get("clipboard_equality") != "case-sensitive exact string equality":
         raise EvidenceError("clipboard equality contract is not exact")

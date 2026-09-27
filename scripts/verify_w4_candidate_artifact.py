@@ -630,6 +630,11 @@ def _bounded_evidence_text(value: dict[str, object], key: str, label: str, maxim
 
 def _verify_copy_payload(value: dict[str, object]) -> None:
     _bounded_evidence_text(value, "static_document_text", "copy evidence")
+    if (
+        value.get("textpattern_selection_equality")
+        != "UIA exact range endpoints and case-sensitive text equality"
+    ):
+        raise CandidateArtifactError("copy evidence TextPattern selection equality contract is not exact")
     if value.get("clipboard_equality") != "case-sensitive exact string equality":
         raise CandidateArtifactError("copy evidence clipboard equality contract is not exact")
 
@@ -666,6 +671,7 @@ COPY_REQUIRED_TRUE = (
     "manifest_product_sha_verified",
     "executable_checksum_verified",
     "textpattern_selection_supported",
+    "textpattern_target_selected",
     "ctrl_c_exact_clipboard",
     "move_input_focus_verified",
     "move_input_native_ctrl_a_ctrl_c",

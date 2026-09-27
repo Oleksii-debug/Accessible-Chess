@@ -98,6 +98,8 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         qualify = self.text.index("Qualify exact Product source before compilation")
         build = self.text.index("Build standalone AccessibleChess.exe")
         for test_name in (
+            "tests.test_p0_packaged_document_copy_probe",
+            "tests.test_verify_p0_packaged_document_copy_evidence",
             "tests.test_w3_p0f_starter_books_training_content",
             "tests.test_d08_training_canonical_resume",
         ):
