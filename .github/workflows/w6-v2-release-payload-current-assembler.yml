@@ -7,7 +7,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
-      - 'acs/version2_release_payload.py'\n      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_release_payload.py'
 
 permissions:
