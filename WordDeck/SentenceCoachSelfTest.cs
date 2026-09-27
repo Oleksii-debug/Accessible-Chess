@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace WordDeck;
 
 internal static class SentenceCoachSelfTest
