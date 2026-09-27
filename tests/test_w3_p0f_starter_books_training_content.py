@@ -505,7 +505,8 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 try:
                     replacement = root / "replacement.md"
                     replacement.write_text("# Replacement\n\nHidden replacement body.\n", encoding="utf-8")
-                    app.open_book_dialog = lambda: replacement
+                    picker_calls = []
+                    app.open_book_dialog = lambda: picker_calls.append(True) or replacement
                     before_key = app.book_key
                     before_title = app.reader.document.title
                     before_reader = app.reader.snapshot()
@@ -518,6 +519,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     result = app.adapter.activate_action("book.open")
 
                     self.assertEqual("error", result.kind)
+                    self.assertEqual([], picker_calls)
                     self.assertEqual("test-modal-open", app.shell.active_dialog_id)
                     self.assertEqual(before_key, app.book_key)
                     self.assertEqual(before_title, app.reader.document.title)

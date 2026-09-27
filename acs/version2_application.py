@@ -451,7 +451,10 @@ class Version2Application:
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.open":
-            if payload: raise ValueError("book file selection belongs to the host")
+            if payload:
+                raise ValueError("book file selection belongs to the host")
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before opening a book")
             source = self.open_book_dialog()
             return None if source is None else self.open_book(source)
         if action.startswith("book."):
