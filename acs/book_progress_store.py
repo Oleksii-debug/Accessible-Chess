@@ -790,6 +790,29 @@ class BookProgressStore:
             snapshot = dict(entries[key])
         return BookReader.restore_snapshot(document, snapshot)
 
+    def validated_backup_revision(self, book_key: str, document: BookDocument) -> str:
+        """Validate the exact backup for this Book and return its byte revision.
+
+        The returned revision binds later explicit recovery to the same backup
+        bytes that were semantically validated before user confirmation.
+        """
+        key = _book_key(book_key)
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be BookDocument")
+        with self._exclusive_access():
+            payload, raw, revision = self._read_state_unlocked(
+                self.backup_path,
+                missing_ok=False,
+            )
+            assert payload is not None and raw is not None and revision is not None
+            entries = payload["entries"]
+            assert isinstance(entries, dict)
+            if key not in entries:
+                raise LookupError("No saved reading progress for this book")
+            snapshot = dict(entries[key])
+            BookReader.restore_snapshot(document, snapshot)
+            return revision
+
     def has(self, book_key: str) -> bool:
         key = _book_key(book_key)
         with self._exclusive_access():
@@ -818,12 +841,31 @@ class BookProgressStore:
             )
             return True
 
-    def recover_from_backup(self) -> bool:
+    def recover_from_backup(
+        self,
+        *,
+        expected_backup_revision: str | None = None,
+    ) -> bool:
         """Explicitly replace a corrupt primary with its previous valid snapshot.
 
-        Returns ``False`` when the current primary is already valid or absent.
-        Future/unknown primary schemas are never rolled back through this method.
+        If an expected backup revision is supplied, only those exact previously
+        validated backup bytes may be published. Calls without a revision retain
+        the historical explicit-recovery contract.
         """
+        if expected_backup_revision is not None:
+            if (
+                type(expected_backup_revision) is not str
+                or len(expected_backup_revision) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in expected_backup_revision
+                )
+            ):
+                raise BookProgressStoreError(
+                    "book progress backup revision is invalid",
+                    code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
+                )
+
         with self._exclusive_access():
             primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
             if primary_raw is None:
@@ -833,11 +875,23 @@ class BookProgressStore:
             except BookProgressStoreError as primary_error:
                 if primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                     raise
-                backup_payload, backup_raw, _ = self._read_state_unlocked(
+                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
                     self.backup_path,
                     missing_ok=False,
                 )
-                assert backup_payload is not None and backup_raw is not None
+                assert (
+                    backup_payload is not None
+                    and backup_raw is not None
+                    and backup_revision is not None
+                )
+                if (
+                    expected_backup_revision is not None
+                    and backup_revision != expected_backup_revision
+                ):
+                    raise BookProgressStoreError(
+                        "book progress backup changed before recovery could be committed",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
                 current_raw = self._read_raw_file_unlocked(self._path, missing_ok=False)
                 if _revision(current_raw) != _revision(primary_raw):
                     raise BookProgressStoreError(
