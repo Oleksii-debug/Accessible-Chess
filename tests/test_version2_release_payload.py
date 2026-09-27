@@ -31,6 +31,17 @@ _REQUIRED_WEB_FILES = (
     "version2_release_bootstrap.js",
 )
 
+_VALID_WINFORMS_CONFIG = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<configuration><runtime><AppContextSwitchOverrides value="'
+    'Switch.UseLegacyAccessibilityFeatures=false;'
+    'Switch.UseLegacyAccessibilityFeatures.2=false;'
+    'Switch.UseLegacyAccessibilityFeatures.3=false;'
+    'Switch.UseLegacyAccessibilityFeatures.4=false;'
+    'Switch.UseLegacyAccessibilityFeatures.5=false'
+    '" /></runtime></configuration>\n'
+)
+
 
 class Version2ReleasePayloadTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -41,7 +52,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         (self.standalone / "web").mkdir(parents=True)
         (self.standalone / "AccessibleChess.exe").write_bytes(b"MZ\0v2-standalone")
         (self.standalone / "AccessibleChess.exe.config").write_text(
-            "<configuration><runtime /></configuration>\n", encoding="utf-8"
+            _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         for name in _REQUIRED_WEB_FILES:
             (self.standalone / "web" / name).write_text(
@@ -162,6 +173,32 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 payload.Version2ReleasePayloadError,
                 "WinForms accessibility app-config is missing or empty",
+            ):
+                payload.prepare_version2_release_payload(
+                    self.standalone,
+                    self.stockfish,
+                    self.sounds,
+                    output,
+                )
+        self._assert_no_publication(output)
+
+    def test_invalid_winforms_accessibility_app_config_fails_without_output(self) -> None:
+        (self.standalone / "AccessibleChess.exe.config").write_text(
+            _VALID_WINFORMS_CONFIG.replace(
+                "Switch.UseLegacyAccessibilityFeatures.4=false",
+                "Switch.UseLegacyAccessibilityFeatures.4=true",
+            ),
+            encoding="utf-8",
+        )
+        output = self.root / "payload"
+        with patch.object(
+            payload,
+            "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+            self._digest(self.stockfish),
+        ):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "WinForms accessibility app-config is invalid",
             ):
                 payload.prepare_version2_release_payload(
                     self.standalone,
