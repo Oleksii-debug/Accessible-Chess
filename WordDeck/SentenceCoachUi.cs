@@ -43,7 +43,19 @@ internal sealed class SentenceCoachStateStore
         _backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
     }
 
-    public SentenceCoachState Load() => Normalize(TryLoad(_path) ?? TryLoad(_backupPath) ?? new SentenceCoachState());
+    public SentenceCoachState Load()
+    {
+        SentenceCoachState? primary = TryLoad(_path);
+        if (primary is not null) return Normalize(primary);
+
+        SentenceCoachState? backup = TryLoad(_backupPath);
+        if (backup is not null) return Normalize(backup);
+
+        if (File.Exists(_path) || File.Exists(_backupPath))
+            throw new InvalidDataException("WordDeck Sentence Spelling state is unreadable and no verified backup can be loaded. Existing files were left untouched.");
+
+        return Normalize(new SentenceCoachState());
+    }
 
     public void Save(SentenceCoachState state)
     {
