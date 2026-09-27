@@ -372,6 +372,11 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
         verify(self.path, SHA, f"sha256:{digest}")
 
+    def test_outer_artifact_hashing_is_streamed_not_read_whole(self) -> None:
+        digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("must stream outer artifact")):
+            verify(self.path, SHA, digest)
+
     def test_outer_size_bound_fails_before_reading_bytes(self) -> None:
         oversized = Path(self.temp.name) / "oversized.zip"
         oversized.write_bytes(b"x" * 16)
@@ -731,6 +736,29 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             archive.writestr(link, b"uia-target")
         self.path.write_bytes(buffer.getvalue())
         with self.assertRaisesRegex(CandidateArtifactError, "symbolic link entry"):
+            verify(self.path, SHA)
+
+    def test_special_file_zip_entry_fails_closed(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr(
+                "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip",
+                _candidate_bytes(),
+            )
+            archive.writestr(
+                "p0-evidence/packaged-v2-document-copy-summary.json",
+                json.dumps(_copy_evidence()).encode(),
+            )
+            archive.writestr(
+                "p0-evidence/packaged-p0g-hotkey-result-summary.json",
+                json.dumps(_p0g_evidence()).encode(),
+            )
+            special = zipfile.ZipInfo("p0-evidence/packaged-uia-strict-summary.json")
+            special.create_system = 3
+            special.external_attr = (stat.S_IFIFO | 0o600) << 16
+            archive.writestr(special, b"uia-target")
+        self.path.write_bytes(buffer.getvalue())
+        with self.assertRaisesRegex(CandidateArtifactError, "unsupported special file entry"):
             verify(self.path, SHA)
 
     def test_missing_release_critical_p0f_file_fails(self) -> None:
