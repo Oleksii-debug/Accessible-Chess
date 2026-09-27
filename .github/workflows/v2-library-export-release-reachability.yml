@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/version2_release_app.py'
       - 'tests/test_v2_library_export_release_reachability.py'
+      - 'tests/test_v2_native_dialog_language.py'
       - '.github/workflows/v2-library-export-release-reachability.yml'
   push:
     branches:
@@ -49,7 +50,7 @@ jobs:
           test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
-          wanted="$(printf '%s\n'             '.github/workflows/v2-library-export-release-reachability.yml'             'acs/version2_release_app.py'             'tests/test_v2_library_export_release_reachability.py' | LC_ALL=C sort)"
+          wanted="$(printf '%s\n'             '.github/workflows/v2-library-export-release-reachability.yml'             'acs/version2_release_app.py'             'tests/test_v2_library_export_release_reachability.py'             'tests/test_v2_native_dialog_language.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
           # Preserve the existing D07/D06 export authorities exactly.
