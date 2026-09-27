@@ -444,5 +444,43 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 self.assertEqual(self._durable_snapshot(app, progress), before_durable)
 
 
+    def test_active_board_rejects_second_native_open_even_if_books_route_is_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                opened = app.browser_command("books", "book.open_position")
+                self.assertEqual(opened["kind"], "delegated")
+                self.assertTrue(app.book_workflow.active)
+                origin = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+
+                routed = app.browser_command("shell", "screen.books")
+                self.assertEqual(routed["kind"], "route")
+                self.assertEqual(app.shell.current_route.route_id, "books")
+
+                with patch.object(
+                    app.books,
+                    "dispatch",
+                    side_effect=AssertionError(
+                        "active Book Board ownership must reject a second open"
+                    ),
+                ) as dispatch:
+                    result = app.adapter.activate_action("book.open_position")
+
+                self.assertEqual(result.kind, "error")
+                dispatch.assert_not_called()
+                self.assertTrue(app.book_workflow.active)
+                self.assertEqual(app.reader.snapshot(), origin)
+                self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+
+                returned = app.browser_command("books", "book.return_from_board")
+                self.assertEqual(returned["kind"], "render")
+                self.assertFalse(app.book_workflow.active)
+                self.assertEqual(app.reader.snapshot(), origin)
+
+
 if __name__ == "__main__":
     unittest.main()
