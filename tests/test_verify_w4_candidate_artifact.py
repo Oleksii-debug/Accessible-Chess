@@ -48,6 +48,7 @@ def _database_fixture_bytes(
     *,
     schema_version: int = ACSDB_SCHEMA_VERSION,
     first_white: str | None = None,
+    source_sha256: str = "0" * 64,
 ) -> bytes:
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "starter-fixture.acsdb"
@@ -59,7 +60,7 @@ def _database_fixture_bytes(
                     (
                         "accessible-chess-starter-uk.pgn",
                         "pgn",
-                        "0" * 64,
+                        source_sha256,
                         "2026-09-11T00:00:00+00:00",
                     ),
                 )
@@ -129,13 +130,16 @@ def _starter_bundle_files(
     database_games: int = STARTER_GAMES,
     database_schema: int = 6,
     database_first_white: str | None = None,
+    database_source_sha256: str | None = None,
 ) -> dict[str, bytes]:
     starter = _pgn_fixture("Starter", STARTER_GAMES)
     stress = _pgn_fixture("Stress", STRESS_GAMES)
+    starter_sha256 = hashlib.sha256(starter).hexdigest()
     database = _database_fixture_bytes(
         database_games,
         schema_version=database_schema,
         first_white=database_first_white,
+        source_sha256=database_source_sha256 or starter_sha256,
     )
     selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
     result_counts: dict[str, int] = {}
@@ -500,6 +504,15 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         starter = _starter_bundle_files(database_games=STARTER_GAMES - 1)
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "ACSDB semantic evidence mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_database_source_provenance_binds_to_starter_pgn(self) -> None:
+        starter = _starter_bundle_files(database_source_sha256="0" * 64)
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "source provenance does not bind packaged starter PGN",
+        ):
             verify(self.path, SHA)
 
     def test_lawful_starter_database_rows_bind_to_curated_game_metadata(self) -> None:
