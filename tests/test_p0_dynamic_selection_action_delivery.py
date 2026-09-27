@@ -40,13 +40,19 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         self.assertIn("setText('engine-status',s.engineStatus)", self.index)
         self.assertIn('observer.observe(main, { subtree: true, childList: true, characterData: true })', self.runtime)
         self.assertIn('observer.observe(workspace, { subtree: true, childList: true, characterData: true })', self.runtime)
+        self.assertIn('observer.observe(navigation, { subtree: true, childList: true, characterData: true })', self.runtime)
 
     def test_action_result_delivery_reuses_single_existing_live_region(self) -> None:
         self.assertIn('documentRef.getElementById("live")', self.runtime)
         self.assertNotIn('createElement("div")', self.runtime)
         self.assertIn('const announcementQueue = []', self.runtime)
-        self.assertIn('dispatchId = ++dispatchCounter', self.runtime)
-        self.assertIn('dispatch === lastAnnouncementDispatch', self.runtime)
+        self.assertIn('const rememberedDispatchMessages = new Set()', self.runtime)
+        self.assertIn('const recentPassiveAnnouncements = new Map()', self.runtime)
+        self.assertIn('const MAX_REMEMBERED_DISPATCH_MESSAGES = 256', self.runtime)
+        self.assertIn('const MAX_REMEMBERED_PASSIVE_ANNOUNCEMENTS = 256', self.runtime)
+        self.assertIn('const dispatchId = "surface:" + String(++dispatchCounter)', self.runtime)
+        self.assertIn('const dispatchId = "api:" + String(++dispatchCounter)', self.runtime)
+        self.assertIn('if (rememberDispatchMessage(dispatch, text)) return false', self.runtime)
 
     def test_runtime_parses_and_repeated_action_oracle_passes(self) -> None:
         node = shutil.which("node")
@@ -62,10 +68,16 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         completed = subprocess.run(
             [node, str(ROOT / "tests" / "js" / "p0_accessibility_runtime_test.js")],
             cwd=ROOT,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
+        if completed.returncode != 0:
+            self.fail(
+                "P0 accessibility runtime oracle failed.\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
         self.assertIn("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS", completed.stdout)
 
         dynamic = subprocess.run(
@@ -75,6 +87,7 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        self.assertIn("P0_V2_NAVIGATION_SELECTION_SURVIVES=PASS", dynamic.stdout)
         self.assertIn("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS", dynamic.stdout)
 
 

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 from acs.full_product_native_menu import NativeMenuItemKind
 from acs.version2_application import Version2Application
@@ -197,8 +198,6 @@ class _ReleaseWindow:
         self.sources.append(source)
 
     def destroy(self):
-        # Exercise the dangerous order explicitly: pywebview's abstract closing
-        # callback first, then the real WinForms FormClosing event.
         self.events.closing.fire()
         self.shutdown_calls_after_pywebview_closing = self.application.shutdown_calls
         event = self.owner.request_close("programmatic-window-destroy")
@@ -250,10 +249,8 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         application, trace = _lifecycle_application(dirty=False)
         owner = _OwnerForm()
         dialogs = _Dialogs(False)
-
         _install_unsaved_pgn_close_guard(application, owner, dialogs)
         event = owner.request_close("clean")
-
         self.assertFalse(event.Cancel)
         self.assertEqual(dialogs.calls, 0)
         self.assertEqual(application._files.timeouts, [None])
@@ -263,17 +260,12 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         self.assertTrue(application._native_close_shutdown_complete)
 
     def test_dirty_refusal_and_confirmation_failure_preserve_content_before_shutdown(self) -> None:
-        for label, dialogs in (
-            ("no", _Dialogs(False)),
-            ("failure", _Dialogs(error=RuntimeError("synthetic dialog failure"))),
-        ):
+        for label, dialogs in (("no", _Dialogs(False)), ("failure", _Dialogs(error=RuntimeError("synthetic dialog failure")))):
             with self.subTest(label=label):
                 application, trace = _lifecycle_application(dirty=True, content="must survive")
                 owner = _OwnerForm()
                 _install_unsaved_pgn_close_guard(application, owner, dialogs)
-
                 event = owner.request_close(label)
-
                 self.assertTrue(event.Cancel)
                 self.assertEqual(dialogs.calls, 1)
                 self.assertEqual(trace, [])
@@ -285,10 +277,8 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         application, trace = _lifecycle_application(dirty=True)
         owner = _OwnerForm()
         dialogs = _Dialogs(True)
-
         _install_unsaved_pgn_close_guard(application, owner, dialogs)
         event = owner.request_close("accepted")
-
         self.assertFalse(event.Cancel)
         self.assertEqual(dialogs.calls, 1)
         self.assertEqual(application._files.timeouts, [None])
@@ -302,10 +292,8 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         application._files.result = False
         owner = _OwnerForm()
         dialogs = _Dialogs(True)
-
         _install_unsaved_pgn_close_guard(application, owner, dialogs)
         event = owner.request_close("worker-still-alive")
-
         self.assertTrue(event.Cancel)
         self.assertEqual(dialogs.calls, 0)
         self.assertEqual(trace, ["import-cancel-join"])
@@ -319,20 +307,14 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
                 owner = _OwnerForm()
                 dialogs = _Dialogs(True)
                 _install_unsaved_pgn_close_guard(application, owner, dialogs)
-
                 if source == "file-exit":
                     shell = build_version2_shell()
                     router = build_version2_router(shell, lambda *_: None)
                     adapter = build_version2_webview_adapter(shell, router)
-                    controller = Version2NativeMenuController(
-                        adapter,
-                        lambda _command: None,
-                        exit_callback=lambda: owner.request_close(source),
-                    )
+                    controller = Version2NativeMenuController(adapter, lambda _command: None, exit_callback=lambda: owner.request_close(source))
                     _file_exit(controller)
                 else:
                     owner.request_close(source)
-
                 self.assertEqual(dialogs.calls, 1)
                 self.assertEqual(application._files.timeouts, [None])
                 self.assertEqual(trace.count("import-cancel-join"), 1)
@@ -344,13 +326,11 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         owner = _OwnerForm()
         dialogs = _Dialogs(False, True)
         _install_unsaved_pgn_close_guard(application, owner, dialogs)
-
         first = owner.request_close("first")
         self.assertTrue(first.Cancel)
         self.assertEqual(dialogs.calls, 1)
         self.assertEqual(trace, [])
         self.assertEqual(application.session.content, "retry-safe")
-
         second = owner.request_close("second")
         self.assertFalse(second.Cancel)
         self.assertEqual(dialogs.calls, 2)
@@ -361,7 +341,6 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         application, _ = _lifecycle_application(dirty=False)
         owner = _OwnerForm()
         dialogs = _Dialogs(True)
-
         _install_unsaved_pgn_close_guard(application, owner, dialogs)
         with self.assertRaisesRegex(RuntimeError, "already installed"):
             _install_unsaved_pgn_close_guard(application, owner, dialogs)
@@ -371,7 +350,6 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         application, _ = _lifecycle_application(dirty=False)
         runtime = _UnboundRuntime()
         dialogs = _Dialogs(True)
-
         with self.assertRaisesRegex(RuntimeError, "does not expose FormClosing"):
             _install_close_guard_or_shutdown(runtime, application, object(), dialogs)
         self.assertEqual(runtime.shutdown_calls, 1)
@@ -396,13 +374,21 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
             _install_unsaved_pgn_close_guard(application, owner, dialogs)
             return runtime
 
-        run_version2_release_window(
-            api,
-            application,
-            webview_module=webview,
-            menu_installer=install_menu,
-            file_runtime_factory=build_files,
-        )
+        # This test owns the narrow V2 release boundary. A prior full-product
+        # composition test may intentionally late-bind the global controller;
+        # isolate that process-global seam so unittest ordering cannot change the
+        # close-guard contract under test.
+        with mock.patch(
+            "acs.version2_release_ui.Version2NativeMenuController",
+            Version2NativeMenuController,
+        ):
+            run_version2_release_window(
+                api,
+                application,
+                webview_module=webview,
+                menu_installer=install_menu,
+                file_runtime_factory=build_files,
+            )
 
         self.assertTrue(webview.window.destroyed)
         self.assertEqual(webview.window.shutdown_calls_after_pywebview_closing, 0)

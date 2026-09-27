@@ -28,7 +28,7 @@ function textNodes(root) {
 function nearestSemanticRoot(node) {
   let current = node;
   while (current) {
-    if (current.id === "v2-workspace" || current.id === "main-content") return current;
+    if (current.id === "v2-workspace" || current.id === "v2-navigation" || current.id === "main-content") return current;
     current = current.parentNode;
   }
   return null;
@@ -205,6 +205,8 @@ class FakeMutationObserver {
 const listeners = {};
 const main = new FakeElement("main");
 main.id = "main-content";
+const nav = new FakeElement("nav");
+nav.id = "v2-navigation";
 const workspace = new FakeElement("section");
 workspace.id = "v2-workspace";
 workspace.hidden = true;
@@ -222,7 +224,9 @@ const documentRef = {
   activeElement: null,
   getElementById(id) {
     if (main.id === id) return main;
-    return main.descendants().find(item => item.nodeType === 1 && item.id === id) || null;
+    if (nav.id === id) return nav;
+    return main.descendants().find(item => item.nodeType === 1 && item.id === id) ||
+      nav.descendants().find(item => item.nodeType === 1 && item.id === id) || null;
   },
   querySelector(selector) {
     if (selector === "#v2-navigation-list [aria-current='page']") return currentRoute;
@@ -293,6 +297,28 @@ function selectSubstring(root, text) {
   selection.addRange(range);
   if (listeners.selectionchange) listeners.selectionchange();
   assert.strictEqual(selection.toString(), text, "test selection setup failed");
+}
+
+
+function proveNavigationLocalRerender() {
+  workspace.hidden = false;
+  currentRoute = { id: "v2-nav-library" };
+  const first = new FakeElement("button");
+  first.id = "v2-nav-library";
+  first.textContent = "Library";
+  nav.replaceChildren(first);
+  selectSubstring(nav, "Library");
+
+  const replacement = new FakeElement("button");
+  replacement.id = "v2-nav-library";
+  replacement.textContent = "Library updated";
+  nav.replaceChildren(replacement);
+  assert.strictEqual(
+    selection.toString(),
+    "Library",
+    "V2 navigation replaceChildren must preserve surviving selected navigation text"
+  );
+  console.log("P0_V2_NAVIGATION_SELECTION_SURVIVES=PASS");
 }
 
 async function proveStage1RefreshAnalysis() {
@@ -398,6 +424,7 @@ function provePgnLocalRerender() {
 
 (async function run() {
   await proveStage1RefreshAnalysis();
+  proveNavigationLocalRerender();
   provePgnLocalRerender();
   console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
 })().catch(error => {
