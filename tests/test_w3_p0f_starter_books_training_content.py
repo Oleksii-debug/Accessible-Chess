@@ -529,5 +529,51 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_hidden_training_surface_cannot_mutate_training_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-hidden-training-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertIsNotNone(app.training_workspace)
+                    before = app.training_workspace.snapshot()
+
+                    routed = app.browser_command("shell", "screen.library")
+                    self.assertEqual("route", routed["kind"])
+                    self.assertEqual("library", app.shell.current_route.route_id)
+
+                    with patch.object(
+                        app.training_workspace,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "hidden Training commands must be rejected before workspace dispatch"
+                        ),
+                    ) as dispatch:
+                        browser_result = app.browser_command("training", "training.hint")
+                        native_result = app.adapter.activate_action("training.hint")
+
+                    self.assertEqual("error", browser_result["kind"])
+                    self.assertEqual("error", native_result.kind)
+                    dispatch.assert_not_called()
+                    self.assertEqual(before, app.training_workspace.snapshot())
+                    self.assertEqual("library", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()

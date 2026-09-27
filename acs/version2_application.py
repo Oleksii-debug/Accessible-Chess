@@ -459,6 +459,8 @@ class Version2Application:
             if result.kind == "error": raise ValueError("book command failed")
             return result
         if action.startswith("training."):
+            if self.shell.current_route.route_id != "training":
+                raise ValueError("Training command requires the visible Training route")
             if self.training_workspace is None or self.training is None:
                 raise ValueError("no Training exercise is active")
             if action == "training.reset":
@@ -506,6 +508,8 @@ class Version2Application:
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
             if area == "training":
+                if self.shell.current_route.route_id != "training":
+                    raise ValueError("Training command requires the visible Training route")
                 if self.training_workspace is None or self.training is None:
                     raise ValueError("Training exercise is unavailable")
                 value = self.training_workspace.dispatch(command, payload)
