@@ -597,8 +597,12 @@ internal static class AdaptiveEvidenceAdapters
         foreach ((string entryId, WordStudyHistory history) in state.StudyHistoryByEntryId.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             if (!known.Contains(entryId) || hidden.Contains(entryId) || history is null) continue;
-            int seen = Math.Max(0, history.SeenCount);
-            int reveals = Math.Clamp(history.TranslationRevealCount, 0, seen);
+            if (history.SeenCount < 0 ||
+                history.TranslationRevealCount < 0 ||
+                history.TranslationRevealCount > history.SeenCount)
+                throw new InvalidDataException($"Recall adaptive evidence for {entryId} contains impossible history counters.");
+            int seen = history.SeenCount;
+            int reveals = history.TranslationRevealCount;
             result.Add(new AdaptiveMasteryObservation(
                 dictionaryId,
                 entryId,
@@ -634,17 +638,21 @@ internal static class AdaptiveEvidenceAdapters
                 throw new InvalidDataException($"Sentence adaptive evidence references unknown stable target {entryId}.");
             if (hidden.Contains(entryId)) continue;
             if (value is null) throw new InvalidDataException($"Sentence adaptive evidence for {entryId} is missing.");
-            int reviews = Math.Max(0, value.CompletedReviews);
-            int successes = Math.Clamp(value.FirstTrySuccesses, 0, reviews);
+            if (value.CompletedReviews < 0 ||
+                value.FirstTrySuccesses < 0 ||
+                value.FirstTrySuccesses > value.CompletedReviews ||
+                value.WrongAttempts < 0 ||
+                value.ShowAnswerUses < 0)
+                throw new InvalidDataException($"Sentence adaptive evidence for {entryId} contains impossible history counters.");
             result.Add(new AdaptiveMasteryObservation(
                 dictionaryId,
                 entryId,
                 AdaptiveTargetKind.Lexical,
                 AdaptiveEvidenceChannel.SentenceForm,
-                reviews,
-                successes,
-                Math.Max(0, value.WrongAttempts),
-                Math.Max(0, value.ShowAnswerUses),
+                value.CompletedReviews,
+                value.FirstTrySuccesses,
+                value.WrongAttempts,
+                value.ShowAnswerUses,
                 CurrentStreak: 0,
                 value.LastReviewedUtc,
                 "sentence-spelling"));
