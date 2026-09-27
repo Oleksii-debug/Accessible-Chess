@@ -125,11 +125,14 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             "tests.test_verify_p0g_packaged_hotkey_result_cli",
             "tests.test_w3_p0f_starter_books_training_content",
             "tests.test_d08_training_canonical_resume",
+            "tests.test_v2_book_epub_import",
+            "tests.test_version2_epub_application_reachability",
         ):
             position = self.text.index(test_name)
             self.assertLess(qualify, position)
             self.assertLess(position, build)
         self.assertIn("SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS", self.text)
+        self.assertIn("SOURCE_EPUB_APPLICATION_REACHABILITY=PASS", self.text)
 
     def test_post_acceptance_relaunch_reproves_packaged_starter_before_publication(self) -> None:
         acceptance = self.text.index("FRESH_PACKAGED_P0_ACCEPTANCE=PASS")
