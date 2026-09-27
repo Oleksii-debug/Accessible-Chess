@@ -276,8 +276,10 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         integration_sha = manifest.get("integration_sha")
         if not isinstance(integration_sha, str) or integration_sha.lower() != expected_sha:
             raise CandidateArtifactError("release manifest integration_sha mismatch")
-        if manifest.get("nvda_verified") is True:
-            raise CandidateArtifactError("release manifest makes forbidden NVDA verified claim")
+        if manifest.get("human_tested") is True or manifest.get("nvda_verified") is True:
+            raise CandidateArtifactError(
+                "release manifest makes forbidden human/NVDA acceptance claim"
+            )
 
         checksums = _parse_checksums(candidate.read("SHA256SUMS.txt"))
         # Canonical Version 2 assembler hashes every regular package file that
