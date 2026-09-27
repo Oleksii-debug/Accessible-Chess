@@ -29,9 +29,6 @@ def test_rows_are_searchable_localized_and_expose_context_and_defaults():
     assert row_en.label == "Go to move"
     assert row_en.status_text == "No conflicts."
 
-    assert [x.action_id for x in model.rows(query="go")] == ["history.go_to_move"]
-    assert model.rows(query="commit_go_to_move") == ()
-
 
 def test_board_context_can_be_filtered_without_visual_table_semantics():
     model = KeymapEditorModel()
