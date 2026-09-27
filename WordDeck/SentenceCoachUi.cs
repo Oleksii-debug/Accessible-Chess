@@ -13,6 +13,7 @@ internal sealed class SentenceTargetStats
 
 internal sealed class SentenceCoachState
 {
+    public int SchemaVersion { get; set; }
     public string? ActivePackId { get; set; }
     public string? ActiveSpellingDeckId { get; set; }
     public int TargetCount { get; set; } = 1;
@@ -30,26 +31,32 @@ internal sealed class SentenceCoachState
 
 internal sealed class SentenceCoachStateStore
 {
+    public const int CurrentSchemaVersion = 1;
     private readonly string _path;
     private readonly string _backupPath;
+    private readonly string _backupsDirectory;
 
     public SentenceCoachStateStore()
         : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WordDeck")) { }
 
     internal SentenceCoachStateStore(string root)
     {
+        if (string.IsNullOrWhiteSpace(root))
+            throw new ArgumentException("Sentence Spelling state root directory must not be blank.", nameof(root));
         Directory.CreateDirectory(root);
         _path = Path.Combine(root, "sentence-coach-state.json");
         _backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+        _backupsDirectory = Path.Combine(root, "Backups");
+        Directory.CreateDirectory(_backupsDirectory);
     }
 
     public SentenceCoachState Load()
     {
         SentenceCoachState? primary = TryLoad(_path);
-        if (primary is not null) return Normalize(primary);
+        if (primary is not null) return PrepareLoaded(primary, _path);
 
         SentenceCoachState? backup = TryLoad(_backupPath);
-        if (backup is not null) return Normalize(backup);
+        if (backup is not null) return PrepareLoaded(backup, _backupPath);
 
         if (File.Exists(_path) || File.Exists(_backupPath))
             throw new InvalidDataException("WordDeck Sentence Spelling state is unreadable and no verified backup can be loaded. Existing files were left untouched.");
@@ -57,9 +64,29 @@ internal sealed class SentenceCoachStateStore
         return Normalize(new SentenceCoachState());
     }
 
+    private SentenceCoachState PrepareLoaded(SentenceCoachState state, string sourcePath)
+    {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new InvalidDataException($"This Sentence Spelling state uses newer schema {state.SchemaVersion}; this build supports up to {CurrentSchemaVersion}. No Sentence Spelling state was changed.");
+
+        if (state.SchemaVersion < CurrentSchemaVersion)
+        {
+            CreateTimestampedFileBackup(sourcePath, "pre-migration");
+            Normalize(state);
+            Save(state);
+        }
+        else
+        {
+            Normalize(state);
+        }
+
+        return state;
+    }
+
     public void Save(SentenceCoachState state)
     {
         Normalize(state);
+        state.SchemaVersion = CurrentSchemaVersion;
         string temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
         if (TryLoad(_path) is not null) File.Copy(_path, _backupPath, true);
@@ -72,8 +99,25 @@ internal sealed class SentenceCoachStateStore
         catch { return null; }
     }
 
+    private string CreateTimestampedFileBackup(string sourcePath, string reason)
+    {
+        Directory.CreateDirectory(_backupsDirectory);
+        string safeReason = string.Concat(reason.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-'));
+        string destination = Path.Combine(_backupsDirectory, $"sentence-coach-state-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{safeReason}.json");
+        File.Copy(sourcePath, destination, overwrite: false);
+        foreach (FileInfo stale in new DirectoryInfo(_backupsDirectory).GetFiles("sentence-coach-state-*.json")
+                     .OrderByDescending(file => file.LastWriteTimeUtc).Skip(20))
+        {
+            try { stale.Delete(); } catch { }
+        }
+        return destination;
+    }
+
     internal static SentenceCoachState Normalize(SentenceCoachState state)
     {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new InvalidDataException($"Sentence Spelling state schema {state.SchemaVersion} is newer than supported schema {CurrentSchemaVersion}.");
+        state.SchemaVersion = CurrentSchemaVersion;
         state.TargetCount = Math.Clamp(state.TargetCount, 1, 3);
         if (state.PoolPreset is not (ContextStudyPoolPreset.Thirty or ContextStudyPoolPreset.Hundred or ContextStudyPoolPreset.TwoHundred or ContextStudyPoolPreset.Full))
             state.PoolPreset = ContextStudyPoolPreset.Full;
