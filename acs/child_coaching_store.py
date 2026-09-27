@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Crash-safe persistence for current child-coaching lesson templates."""
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
@@ -27,6 +28,82 @@ class ChildCoachingStoreConflictError(RuntimeError):
 
 class ChildCoachingStoreBusyError(RuntimeError):
     """Another process currently owns the template publication lock."""
+
+
+class _StoreLockBusy(RuntimeError):
+    """The OS-backed publication lock is currently owned elsewhere."""
+
+
+@contextmanager
+def _exclusive_store_lock(path: Path):
+    """Crash-releasing cross-process advisory lock.
+
+    The lock file may persist, but the kernel lock is released when the process
+    or file descriptor exits. This avoids the permanent stale-directory lock
+    failure mode of mkdir-based locking.
+    """
+
+    try:
+        handle = path.open("a+b")
+    except (IsADirectoryError, PermissionError, OSError) as exc:
+        raise _StoreLockBusy("store publication lock is unavailable") from exc
+
+    locked = False
+    windows_lock = os.name == "nt"
+    try:
+        if windows_lock:
+            import msvcrt
+
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+                os.fsync(handle.fileno())
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise _StoreLockBusy("store publication lock is busy") from exc
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise _StoreLockBusy("store publication lock is busy") from exc
+        locked = True
+        yield
+    finally:
+        if locked:
+            if windows_lock:
+                import msvcrt
+
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+            else:
+                import fcntl
+
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+        handle.close()
+
+
+def _sync_directory(path: Path) -> None:
+    """Persist rename metadata on POSIX; Windows has no portable directory fsync."""
+
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,72 +311,72 @@ class ChildCoachingTemplateStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            self._lock_path.mkdir()
-        except FileExistsError as exc:
-            raise ChildCoachingStoreBusyError("lesson template store is busy") from exc
-
-        temporary: Path | None = None
-        backup_temporary: Path | None = None
-        try:
-            current = self._read_bounded(self.path)
-            current_revision = None if current is None else _revision(current)
-            if current_revision != expected:
-                raise ChildCoachingStoreConflictError(
-                    "lesson templates changed since the caller last observed them"
-                )
-
-            fd, raw_path = tempfile.mkstemp(
-                prefix=f".{self.path.name}.",
-                suffix=".tmp",
-                dir=str(self.path.parent),
-            )
-            temporary = Path(raw_path)
-            try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(data)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-            except Exception:
-                if temporary.exists():
-                    temporary.unlink()
-                temporary = None
-                raise
-
-            # Never replace a good backup with corrupt primary bytes.
-            if current is not None:
+            with _exclusive_store_lock(self._lock_path):
+                temporary: Path | None = None
+                backup_temporary: Path | None = None
                 try:
-                    _decode(current)
-                except ChildCoachingStoreError:
-                    pass
-                else:
-                    bfd, braw = tempfile.mkstemp(
-                        prefix=f".{self._backup_path.name}.",
+                    current = self._read_bounded(self.path)
+                    current_revision = None if current is None else _revision(current)
+                    if current_revision != expected:
+                        raise ChildCoachingStoreConflictError(
+                            "lesson templates changed since the caller last observed them"
+                        )
+
+                    fd, raw_path = tempfile.mkstemp(
+                        prefix=f".{self.path.name}.",
                         suffix=".tmp",
                         dir=str(self.path.parent),
                     )
-                    backup_temporary = Path(braw)
+                    temporary = Path(raw_path)
                     try:
-                        with os.fdopen(bfd, "wb") as handle:
-                            handle.write(current)
+                        with os.fdopen(fd, "wb") as handle:
+                            handle.write(data)
                             handle.flush()
                             os.fsync(handle.fileno())
                     except Exception:
-                        if backup_temporary.exists():
-                            backup_temporary.unlink()
-                        backup_temporary = None
+                        if temporary.exists():
+                            temporary.unlink()
+                        temporary = None
                         raise
-                    os.replace(backup_temporary, self._backup_path)
-                    backup_temporary = None
 
-            os.replace(temporary, self.path)
-            temporary = None
-            return new_revision
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
-            if backup_temporary is not None and backup_temporary.exists():
-                backup_temporary.unlink()
-            try:
-                self._lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+                    # Never replace a good backup with corrupt primary bytes.
+                    if current is not None:
+                        try:
+                            _decode(current)
+                        except ChildCoachingStoreError:
+                            pass
+                        else:
+                            bfd, braw = tempfile.mkstemp(
+                                prefix=f".{self._backup_path.name}.",
+                                suffix=".tmp",
+                                dir=str(self.path.parent),
+                            )
+                            backup_temporary = Path(braw)
+                            try:
+                                with os.fdopen(bfd, "wb") as handle:
+                                    handle.write(current)
+                                    handle.flush()
+                                    os.fsync(handle.fileno())
+                            except Exception:
+                                if backup_temporary.exists():
+                                    backup_temporary.unlink()
+                                backup_temporary = None
+                                raise
+                            os.replace(backup_temporary, self._backup_path)
+                            backup_temporary = None
+                            _sync_directory(self.path.parent)
+
+                    os.replace(temporary, self.path)
+                    temporary = None
+                    _sync_directory(self.path.parent)
+                    return new_revision
+                finally:
+                    if temporary is not None and temporary.exists():
+                        temporary.unlink()
+                    if backup_temporary is not None and backup_temporary.exists():
+                        backup_temporary.unlink()
+        except _StoreLockBusy as exc:
+            raise ChildCoachingStoreBusyError(
+                "lesson template store is busy"
+            ) from exc
+
