@@ -229,7 +229,10 @@ class Version2PackagePreflightTests(unittest.TestCase):
     def test_winforms_accessibility_app_config_semantics_fail_closed(self):
         valid = _VALID_WINFORMS_CONFIG
         cases = (
-            ("<configuration><runtime /></configuration>\n", "missing required accessibility switches"),
+            (
+                "<configuration><runtime /></configuration>\n",
+                "exactly one AppContextSwitchOverrides element",
+            ),
             (
                 valid.replace(
                     "Switch.UseLegacyAccessibilityFeatures.3=false",
