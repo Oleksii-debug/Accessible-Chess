@@ -390,7 +390,7 @@ internal sealed class StoryCourseRuntimeForm : Form
         _submitProductive.Click += (_, _) => SubmitProductivePractice();
         _nextUnit.Click += (_, _) => MoveNextUnit();
         _close.Click += (_, _) => Close();
-        FormClosing += (_, e) =>
+        FormClosing += (sender, e) =>
         {
             bool persisted = PersistSafely(out _);
             e.Cancel = StoryCourseClosePolicy.ShouldCancel(persisted);
