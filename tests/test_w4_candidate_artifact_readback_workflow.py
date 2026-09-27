@@ -45,7 +45,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn('test "$actual" = "$EXPECTED_SHA"', self.text)
         self.assertIn("W4_READBACK_WORKFLOW_AUTHORITY", self.text)
         self.assertNotIn("W4_READBACK_PRODUCT_AUTHORITY", self.text)
-        self.assertNotIn("WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
+        self.assertIn("EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
 
     def test_expected_product_sha_is_bound_to_completed_run_metadata(self) -> None:
         self.assertIn("Bind Product identity to the completed run metadata", self.text)
@@ -58,8 +58,10 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_RUN_IDENTITY=PASS", self.text)
         self.assertNotIn("FULL_PRODUCT_BRANCH:", self.text)
 
-    def test_product_identity_does_not_come_from_untrusted_archive(self) -> None:
-        self.assertNotIn("zipfile.ZipFile('candidate-artifact.zip'", self.text)
+    def test_archive_product_identity_is_bound_to_completed_workflow_authority(self) -> None:
+        self.assertIn('zipfile.ZipFile("candidate-artifact.zip", "r")', self.text)
+        self.assertIn('if workflow != expected_workflow:', self.text)
+        self.assertIn("EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
         self.assertNotIn('product_sha="$(unzip', self.text)
         self.assertNotIn("RELEASE_MANIFEST.json", self.text)
 
