@@ -87,10 +87,11 @@ const initial = {
   ],
   packs: []
 };
+let serverSnapshot = initial;
 
 const api = {
   sound_settings_snapshot() {
-    return Promise.resolve({ok: true, snapshot: initial, message: ""});
+    return Promise.resolve({ok: true, snapshot: serverSnapshot, message: ""});
   },
   sound_settings_command(command, payload) {
     calls.push([command, payload]);
@@ -177,6 +178,26 @@ async function run() {
     "repeated explicit results must carry distinct P0 dispatch identities");
   assert.strictEqual(live.textContent, "",
     "sound actions must not bypass the canonical P0 announcement queue");
+
+  serverSnapshot = {
+    ...initial,
+    writes_blocked: true,
+    events: initial.events.map(item => ({...item}))
+  };
+  await window.AccessibleChessSoundSettingsSurface.refresh();
+  await Promise.resolve();
+  const blockedMaster = elements.get("sound-master-enabled");
+  const blockedEventEnabled = elements.get("sound-event-move-enabled");
+  const blockedEventVolume = elements.get("sound-event-move-volume");
+  const readOnlyPreview = elements.get("sound-event-move-preview");
+  assert.strictEqual(blockedMaster.disabled, true,
+    "future-schema profile must block master writes");
+  assert.strictEqual(blockedEventEnabled.disabled, true,
+    "future-schema profile must block event enable writes");
+  assert.strictEqual(blockedEventVolume.disabled, true,
+    "future-schema profile must block event volume writes");
+  assert.strictEqual(readOnlyPreview.disabled, false,
+    "future-schema profile must keep non-mutating preview available");
 
   assert.ok(window.AccessibleChessSoundSettingsSurface);
   console.log("SOUND_SETTINGS_WEBVIEW=PASS");
