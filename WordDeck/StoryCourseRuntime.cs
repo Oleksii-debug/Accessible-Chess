@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -183,6 +185,7 @@ internal static class StoryCoursePackageLoader
 internal sealed class StoryCourseRuntimeStateStore
 {
     public const int CurrentSchemaVersion = 1;
+    private readonly string _courseId;
     private readonly string _path;
     private readonly string _backupPath;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -198,16 +201,60 @@ internal sealed class StoryCourseRuntimeStateStore
     {
         StoryCourseContractId.Require(courseId, "Story/Course state course id");
         if (string.IsNullOrWhiteSpace(root)) throw new ArgumentException("Story/Course state root is required.", nameof(root));
+        _courseId = courseId;
         string fullRoot = Path.GetFullPath(root);
         Directory.CreateDirectory(fullRoot);
-        string safeCourseId = Regex.Replace(courseId, "[^a-z0-9._-]", "-", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        _path = Path.Combine(fullRoot, safeCourseId + ".progress.json");
-        _backupPath = Path.Combine(fullRoot, safeCourseId + ".progress.backup.json");
+        string safeCourseId = SafeCourseFileStem(courseId);
+        _path = CombineContained(fullRoot, safeCourseId + ".progress.json");
+        _backupPath = CombineContained(fullRoot, safeCourseId + ".progress.backup.json");
     }
+
+    internal string StatePathForTest => _path;
+    internal string BackupPathForTest => _backupPath;
+
+    private void RequireStoreCourseId(string courseId, string source)
+    {
+        if (!string.Equals(_courseId, courseId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException(
+                $"Story/Course {source} belongs to course '{courseId}', but this progress store is bound to '{_courseId}'. Existing progress was left untouched.");
+    }
+
+    private static string SafeCourseFileStem(string courseId)
+    {
+        string deviceStem = courseId.Split('.')[0];
+        if (courseId.Length <= 120 && !ReservedWindowsDeviceNames.Contains(deviceStem))
+            return courseId;
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(courseId));
+        return $"course-{Convert.ToHexString(hash)[..24].ToLowerInvariant()}";
+    }
+
+    private static string CombineContained(string root, string fileName)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        string candidate = Path.GetFullPath(Path.Combine(fullRoot, fileName));
+        string prefix = fullRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? fullRoot
+            : fullRoot + Path.DirectorySeparatorChar;
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!candidate.StartsWith(prefix, comparison))
+            throw new InvalidDataException("Story/Course progress path escaped its configured progress root.");
+        return candidate;
+    }
+
+    private static readonly HashSet<string> ReservedWindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
 
     public StoryCourseProgressContract LoadOrCreate(StoryCourseManifestContract manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        RequireStoreCourseId(manifest.CourseId, "manifest");
         if (!File.Exists(_path) && !File.Exists(_backupPath)) return CreateInitial(manifest);
 
         Exception? primaryFailure = null;
@@ -235,6 +282,8 @@ internal sealed class StoryCourseRuntimeStateStore
 
     public void Save(StoryCourseProgressContract progress)
     {
+        ArgumentNullException.ThrowIfNull(progress);
+        RequireStoreCourseId(progress.CourseId, "progress");
         ValidateRuntimeProgress(progress);
 
         bool primaryExists = File.Exists(_path);
