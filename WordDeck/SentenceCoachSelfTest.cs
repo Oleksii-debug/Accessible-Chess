@@ -254,7 +254,16 @@ internal static class SentenceCoachSelfTest
             Require(persisted.SchemaVersion == SentenceCoachStateStore.CurrentSchemaVersion,
                 "Sentence schema migration was not persisted.");
 
-            store.Save(migrated);
+            File.WriteAllText(primaryPath,
+                "{\"SchemaVersion\":1,\"ActivePackId\":\"known-pack\",\"FutureHint\":{\"mode\":\"keep-me\"}}");
+            SentenceCoachState withUnknown = new SentenceCoachStateStore(root).Load();
+            Require(withUnknown.ExtensionData is not null && withUnknown.ExtensionData.ContainsKey("FutureHint"),
+                "Sentence state loader dropped an unknown current-schema field.");
+            store.Save(withUnknown);
+            using (JsonDocument document = JsonDocument.Parse(File.ReadAllText(primaryPath)))
+                Require(document.RootElement.TryGetProperty("FutureHint", out _),
+                    "Sentence state Save dropped an unknown extension field.");
+
             string validBackup = File.ReadAllText(primaryPath);
             File.WriteAllText(backupPath, validBackup);
             File.WriteAllText(primaryPath, "{\"SchemaVersion\":999,\"ActivePackId\":\"future-pack\"}");
