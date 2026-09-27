@@ -8,7 +8,7 @@ on:
       - '.github/workflows/w4-candidate-artifact-readback-workflow-contract.yml'
   push:
     branches:
-      - repair/w4-readback-dispatch-product-binding-20260927
+      - main
     paths:
       - '.github/workflows/w4-v2-p0-candidate-artifact-readback.yml'
       - 'tests/test_w4_candidate_artifact_readback_workflow.py'
