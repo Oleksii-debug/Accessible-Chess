@@ -19,6 +19,7 @@ from .child_coaching import (
     compile_lesson_session,
     copy_as_custom,
     ensure_preset_templates,
+    preset_templates,
 )
 from .child_coaching_store import (
     ChildCoachingStoreConflictError,
@@ -201,7 +202,13 @@ class ChildCoachingApplication:
     ) -> TemplateCatalogSnapshot:
         loaded = self._require_revision(expected_revision)
         template = self._find(loaded.templates, template_id)
-        if not template.custom:
+        if (
+            not template.custom
+            or any(
+                preset.template_id == template.template_id
+                for preset in preset_templates()
+            )
+        ):
             raise ChildCoachingApplicationError(
                 "built-in lesson preset cannot be deleted"
             )
