@@ -571,5 +571,49 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 self.assertEqual(app.shell.current_route.route_id, "books")
 
 
+    def test_modal_dialog_blocks_book_progress_commands_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                before_reader = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+                opened = app.adapter.open_dialog(
+                    "book-progress-modal",
+                    opener_focus_id="book-reader",
+                    initial_focus_id="book-progress-modal-confirm",
+                )
+                self.assertEqual("dialog-open", opened.kind)
+
+                with patch.object(
+                    app.books,
+                    "dispatch",
+                    side_effect=AssertionError(
+                        "modal Book progress commands must be rejected before surface dispatch"
+                    ),
+                ) as dispatch, patch.object(
+                    progress,
+                    "save",
+                    side_effect=AssertionError(
+                        "modal Book progress commands must not publish progress"
+                    ),
+                ) as save:
+                    browser_result = app.browser_command(
+                        "books",
+                        "book.next_position",
+                    )
+                    native_result = app.adapter.activate_action("book.next_position")
+
+                self.assertEqual("error", browser_result["kind"])
+                self.assertEqual("error", native_result.kind)
+                dispatch.assert_not_called()
+                save.assert_not_called()
+                self.assertEqual(before_reader, app.reader.snapshot())
+                self.assertEqual(before_durable, self._durable_snapshot(app, progress))
+                self.assertEqual("book-progress-modal", app.shell.active_dialog_id)
+
+
 if __name__ == "__main__":
     unittest.main()

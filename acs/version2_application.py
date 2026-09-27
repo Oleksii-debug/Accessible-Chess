@@ -316,6 +316,10 @@ class Version2Application:
             # hidden reading cursor from Library/PGN/Settings or another route.
             if self.shell.current_route.route_id != "books":
                 return self.books.projection.generic_error()
+            # A shell modal owns keyboard/focus authority over the Books route.
+            # Reject cursor/bookmark mutation before entering the Book surface.
+            if self.shell.active_dialog_id is not None:
+                return self.books.projection.generic_error()
             # Book Board owns the exact reading origin until its explicit return.
             # Ownership intentionally survives temporary route changes, so the
             # active workflow is a separate fence even when Books is visible.
