@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import sqlite3
 from unittest.mock import patch
 import tempfile
 import unittest
@@ -13,14 +14,152 @@ from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
 
 
 SHA = "f" * 40
+STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
+STARTER_GAMES = 240
+STRESS_GAMES = 1200
 
 
-def _zip_bytes(files: dict[str, bytes]) -> bytes:
+def _zip_bytes(
+    files: dict[str, bytes],
+    *,
+    compression: int = zipfile.ZIP_STORED,
+) -> bytes:
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(buffer, "w", compression=compression) as archive:
         for name, data in files.items():
             archive.writestr(name, data)
     return buffer.getvalue()
+
+
+def _pgn_fixture(prefix: str, count: int) -> bytes:
+    return "".join(
+        f'[Event "{prefix} {index}"]\n'
+        f'[White "White {index}"]\n'
+        f'[Black "Black {index}"]\n'
+        '[Result "1-0"]\n\n'
+        '1. e4 e5 1-0\n\n'
+        for index in range(count)
+    ).encode("utf-8")
+
+
+def _database_fixture_bytes(game_count: int = STARTER_GAMES) -> bytes:
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute(
+            "CREATE TABLE games ("
+            "pgn_text TEXT NOT NULL, white TEXT NOT NULL, "
+            "black TEXT NOT NULL, event TEXT NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO games(pgn_text, white, black, event) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    f"fixture-pgn-{index}",
+                    f"White {index}",
+                    f"Black {index}",
+                    f"Event {index % 5}",
+                )
+                for index in range(game_count)
+            ],
+        )
+        connection.commit()
+        return connection.serialize()
+    finally:
+        connection.close()
+
+
+def _starter_bundle_files(*, database_games: int = STARTER_GAMES) -> dict[str, bytes]:
+    starter = _pgn_fixture("Starter", STARTER_GAMES)
+    stress = _pgn_fixture("Stress", STRESS_GAMES)
+    database = _database_fixture_bytes(database_games)
+    file_payloads = {
+        "starter_uk.pgn": starter,
+        "stress_uk.pgn": stress,
+        "sample_library.acsdb": database,
+    }
+    licenses = {
+        "starter_uk.pgn": "CC0-1.0",
+        "stress_uk.pgn": "LicenseRef-Accessible-Chess-Starter-Content-1.0",
+        "sample_library.acsdb": "CC0-1.0",
+    }
+    selected_games = [
+        {
+            "source_index": index + 1,
+            "record_sha256": hashlib.sha256(f"record-{index}".encode()).hexdigest(),
+        }
+        for index in range(STARTER_GAMES)
+    ]
+    manifest = {
+        "schema_version": 3,
+        "bundle_kind": "lawful-curated-real-game-starter",
+        "runtime_network_required": False,
+        "starter_source": {
+            "name": "lichess-standard-rated-2013-01",
+            "url": (
+                "https://database.lichess.org/standard/"
+                "lichess_db_standard_rated_2013-01.pgn.zst"
+            ),
+            "license_id": "CC0-1.0",
+            "published_games": 121_332,
+            "compressed_sha256": (
+                "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635"
+            ),
+            "compressed_bytes": 1_000_000,
+            "selection": "accessible-chess-p0f-real-sample-v1",
+            "subset_sha256": hashlib.sha256(starter).hexdigest(),
+            "selected_games": STARTER_GAMES,
+            "curation": {
+                "policy_id": "accessible-chess-p0f-real-sample-v1",
+                "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+                "criteria": {
+                    "minimum_plies": 20,
+                    "valid_results": ["0-1", "1-0", "1/2-1/2"],
+                    "required_metadata": ["Event", "White", "Black"],
+                    "result_minimums": {"1-0": 20, "0-1": 20, "1/2-1/2": 8},
+                    "length_band_minimums": {"20-59": 20, "60-99": 20, "100+": 8},
+                    "minimum_distinct_opening_prefixes": 12,
+                    "opening_prefix_plies": 4,
+                    "maximum_scanned_games": 5000,
+                },
+                "selected_games": selected_games,
+            },
+        },
+        "licenses": {
+            "CC0-1.0": {
+                "type": "public-domain-dedication",
+                "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+                "source": "Lichess standard database publication",
+            },
+            "LicenseRef-Accessible-Chess-Starter-Content-1.0": {
+                "type": "project-owned-redistribution-grant",
+                "terms_uk": "Fixture redistribution terms retained for readback qualification.",
+            },
+        },
+        "counts": {
+            "starter_games": STARTER_GAMES,
+            "stress_games": STRESS_GAMES,
+        },
+        "sample_library": {
+            "games": STARTER_GAMES,
+            "distinct_games": STARTER_GAMES,
+            "distinct_player_pairs": STARTER_GAMES,
+            "distinct_events": 5,
+        },
+        "files": {
+            name: {
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+                "license_id": licenses[name],
+            }
+            for name, payload in file_payloads.items()
+        },
+    }
+    result = {
+        f"{STARTER_ROOT}/{name}": payload
+        for name, payload in file_payloads.items()
+    }
+    result[f"{STARTER_ROOT}/manifest.json"] = json.dumps(manifest).encode("utf-8")
+    return result
 
 
 def _candidate_bytes(
@@ -28,14 +167,13 @@ def _candidate_bytes(
     tamper: str | None = None,
     nvda_verified: bool = False,
     human_tested: bool | None = None,
+    starter_files: dict[str, bytes] | None = None,
+    compression: int = zipfile.ZIP_STORED,
 ) -> bytes:
     payload = {
         "AccessibleChess/AccessibleChess.exe": b"exe",
         "AccessibleChess/engines/stockfish/stockfish.exe": b"stockfish",
-        "AccessibleChess/release-content/w2-starter/manifest.json": b"{}",
-        "AccessibleChess/release-content/w2-starter/starter_uk.pgn": b"[Event \"Starter\"]\n",
-        "AccessibleChess/release-content/w2-starter/stress_uk.pgn": b"[Event \"Stress\"]\n",
-        "AccessibleChess/release-content/w2-starter/sample_library.acsdb": b"sqlite-fixture",
+        **(starter_files or _starter_bundle_files()),
         "AccessibleChess/web/index.html": b"<!doctype html>",
     }
     manifest_payload: dict[str, object] = {
@@ -55,7 +193,7 @@ def _candidate_bytes(
     files["SHA256SUMS.txt"] = checksums.encode()
     if tamper is not None:
         files[tamper] = b"tampered"
-    return _zip_bytes(files)
+    return _zip_bytes(files, compression=compression)
 
 
 
@@ -163,6 +301,84 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             with patch.object(zipfile.ZipFile, "read", new=guarded_read):
                 with self.assertRaisesRegex(CandidateArtifactError, "candidate ZIP size"):
                     verify(self.path, SHA)
+
+    def test_inner_total_uncompressed_bound_fails_before_member_readback(self) -> None:
+        with patch(
+            "scripts.verify_w4_candidate_artifact.MAX_INNER_UNCOMPRESSED_BYTES",
+            32,
+        ):
+            with self.assertRaisesRegex(
+                CandidateArtifactError,
+                "total uncompressed byte limit",
+            ):
+                verify(self.path, SHA)
+
+    def test_inner_compression_ratio_bound_fails_closed(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(compression=zipfile.ZIP_DEFLATED))
+        )
+        with patch(
+            "scripts.verify_w4_candidate_artifact.MAX_INNER_COMPRESSION_RATIO",
+            1,
+        ):
+            with self.assertRaisesRegex(CandidateArtifactError, "compression-ratio limit"):
+                verify(self.path, SHA)
+
+    def test_lawful_starter_source_authority_is_verified_semantically(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        manifest["starter_source"]["license_id"] = "LicenseRef-Unverified"
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(starter_files=starter))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "source authority mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_file_metadata_is_bound_to_real_bytes(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        manifest["files"]["starter_uk.pgn"]["sha256"] = "0" * 64
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(starter_files=starter))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "starter file SHA-256 mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_database_claim_is_verified_against_sqlite(self) -> None:
+        starter = _starter_bundle_files(database_games=STARTER_GAMES - 1)
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(starter_files=starter))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "ACSDB semantic evidence mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_pgn_counts_are_verified_after_readback(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        starter_name = f"{STARTER_ROOT}/starter_uk.pgn"
+        starter[starter_name] = starter[starter_name].replace(
+            b'[Event "Starter 239"]',
+            b'[Site "Starter 239"]',
+            1,
+        )
+        manifest = json.loads(starter[manifest_path])
+        manifest["files"]["starter_uk.pgn"]["sha256"] = hashlib.sha256(
+            starter[starter_name]
+        ).hexdigest()
+        manifest["files"]["starter_uk.pgn"]["bytes"] = len(starter[starter_name])
+        manifest["starter_source"]["subset_sha256"] = hashlib.sha256(
+            starter[starter_name]
+        ).hexdigest()
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(starter_files=starter))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "complete-record count mismatch"):
+            verify(self.path, SHA)
 
     def test_wrong_outer_digest_fails(self) -> None:
         with self.assertRaises(CandidateArtifactError):
