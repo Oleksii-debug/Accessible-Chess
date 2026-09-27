@@ -166,6 +166,8 @@ internal sealed class ListeningStateStore
                 throw new InvalidDataException("Listening progress contains a blank dictionary identifier.");
             if (source is null)
                 throw new InvalidDataException($"Listening progress for dictionary '{dictionaryId}' contains no statistics map.");
+            if (normalized.ContainsKey(dictionaryId))
+                throw new InvalidDataException($"Listening progress contains duplicate dictionary identifier '{dictionaryId}' under case-insensitive matching.");
 
             var perDictionary = new Dictionary<string, ListeningItemStats>(StringComparer.OrdinalIgnoreCase);
             foreach ((string exerciseId, ListeningItemStats? stats) in source)
@@ -174,6 +176,8 @@ internal sealed class ListeningStateStore
                     throw new InvalidDataException($"Listening progress for dictionary '{dictionaryId}' contains a blank exercise identifier.");
                 if (stats is null)
                     throw new InvalidDataException($"Listening progress for exercise '{exerciseId}' contains no statistics.");
+                if (perDictionary.ContainsKey(exerciseId))
+                    throw new InvalidDataException($"Listening progress for dictionary '{dictionaryId}' contains duplicate exercise identifier '{exerciseId}' under case-insensitive matching.");
                 ValidateNonNegative(stats);
                 stats.CorrectReviews = Math.Min(stats.CorrectReviews, stats.CompletedReviews);
                 perDictionary[exerciseId] = stats;
