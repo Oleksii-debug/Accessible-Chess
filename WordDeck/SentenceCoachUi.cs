@@ -326,7 +326,14 @@ internal sealed class SentenceCoachForm : Form
         PopulatePacks();
         UpdateModeInfo();
         Shown += (_, _) => BeginInvoke(new Action(RestoreOrNext));
-        FormClosing += (_, _) => Save();
+        FormClosing += (_, e) =>
+        {
+            if (TrySaveForClose(Save, out string? error))
+                return;
+
+            e.Cancel = true;
+            Announce(error!);
+        };
     }
 
     private MenuStrip BuildMenu()
@@ -818,6 +825,22 @@ internal sealed class SentenceCoachForm : Form
         _state.CurrentTargetIndex = 0;
         _state.CurrentTargetHadWrong = false;
         _state.CurrentTargetUsedHint = false;
+    }
+
+    internal static bool TrySaveForClose(Action save, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(save);
+        try
+        {
+            save();
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Closing Sentence Spelling failed. WordDeck kept the window open so acknowledged Sentence progress is not silently lost. {ex.Message}";
+            return false;
+        }
     }
 
     private void Save()
