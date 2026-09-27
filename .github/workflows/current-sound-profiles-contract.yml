@@ -21,7 +21,6 @@ on:
       - 'acs/sound_profile_windows.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_release_ui.py'
-      - 'acs/version2_final_release.py'
       - 'acs/version2_education_mutation_release.py'
       - 'run_accessible_chess_v2.py'
       - 'web/full_product_sound_settings.js'
@@ -118,7 +117,6 @@ jobs:
               'acs/sound_profile_windows.py' \
               'acs/version2_release_app.py' \
               'acs/version2_release_ui.py' \
-              'acs/version2_final_release.py' \
               'acs/version2_education_mutation_release.py' \
               'run_accessible_chess_v2.py' \
               'web/full_product_sound_settings.js' \
@@ -170,7 +168,6 @@ jobs:
           acs/sound_profile_windows.py
           acs/version2_release_app.py
           acs/version2_release_ui.py
-          acs/version2_final_release.py
           acs/version2_education_mutation_release.py
           run_accessible_chess_v2.py
           tests/test_sound_profiles.py
