@@ -287,7 +287,16 @@ class Version2Schema0IntegrationTests(unittest.TestCase):
                 (root / ".v2-upgrade-state.json").read_text(encoding="utf-8")
             )
             self.assertEqual(journal["phase"], "rolled_back")
-            self.assertNotIn("e9", json.dumps(journal))
+            self.assertEqual(journal["error_code"], "Version2UpgradeError")
+            for forbidden_detail_key in (
+                "error",
+                "error_message",
+                "message",
+                "detail",
+                "details",
+                "exception",
+            ):
+                self.assertNotIn(forbidden_detail_key, journal)
 
 
 if __name__ == "__main__":
