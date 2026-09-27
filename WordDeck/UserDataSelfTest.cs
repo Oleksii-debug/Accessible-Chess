@@ -149,6 +149,25 @@ internal static class UserDataSelfTest
                     migrated.QuarantinedProfileEntryIds.Count(id => id.Equals("future-word-id", StringComparison.OrdinalIgnoreCase)) == 1,
                 "Repeated import duplicated an unknown quarantined stable ID.");
 
+            AppState rollbackBeforeRecall = AppStateStore.Normalize(new AppState { ActiveDictionaryId = dictionaryId });
+            rollbackBeforeRecall.HiddenEntryIds.Add("word-c");
+            AppState rollbackDestinationRecall = AppStateStore.Normalize(new AppState { ActiveDictionaryId = "mutated-dictionary" });
+            rollbackDestinationRecall.HiddenEntryIds.Add("wrong-id");
+            IReadOnlyList<Exception> legacyRollbackFailures = AppStateStore.RestoreAfterFailedProfileImport(
+                rollbackDestinationRecall,
+                rollbackBeforeRecall,
+                () => throw new IOException("forced legacy Recall rollback persistence failure"));
+            Require(legacyRollbackFailures.Count == 1 &&
+                    rollbackDestinationRecall.ActiveDictionaryId == dictionaryId &&
+                    rollbackDestinationRecall.HiddenEntryIds.SetEquals(new[] { "word-c" }),
+                "Legacy profile rollback did not restore in-memory Recall state before surfacing a persistence failure.");
+            InvalidDataException legacyRollbackReported = PersonalStateRollbackExecutor.CreateIncompleteImportException(
+                new IOException("forced legacy profile import failure"), legacyRollbackFailures);
+            Require(legacyRollbackReported.InnerException is AggregateException legacyRollbackAggregate &&
+                    legacyRollbackAggregate.InnerExceptions.Count == 2 &&
+                    legacyRollbackReported.Message.Contains("recovery was incomplete", StringComparison.OrdinalIgnoreCase),
+                "Legacy profile rollback did not retain both import and rollback failure evidence.");
+
             string badProfile = Path.Combine(root, "bad-profile.json");
             File.WriteAllText(badProfile, "{ this is not valid json");
             int hiddenBefore = migrated.HiddenEntryIds.Count;
