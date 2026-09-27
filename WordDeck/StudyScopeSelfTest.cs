@@ -79,6 +79,7 @@ internal static class StudyScopeSelfTest
             try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
         }
 
+        RunRecallDeckDeletionInvariant();
         RunCompleteCorpusAcceptance();
 
         var shortcuts = new ShortcutManager(state);
@@ -98,6 +99,87 @@ internal static class StudyScopeSelfTest
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Alt | Keys.Delete) == "Ctrl+Alt+Delete", "Canonical formatter failed Ctrl+Alt+Delete.");
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Shift | Keys.Delete) == "Ctrl+Shift+Delete", "Spelling delete display must match its actual default.");
         Require(ShortcutFormatter.Format(Keys.None) == "Unassigned", "Unassigned shortcut display changed.");
+    }
+
+    private static void RunRecallDeckDeletionInvariant()
+    {
+        const string dictionaryId = "deck-delete-test";
+        var entries = new List<DictionaryEntry>
+        {
+            new("a1-delete", "A1", "delete", "видаляти"),
+            new("b2-keep", "B2", "keep", "зберігати")
+        };
+
+        AppState state = AppStateStore.Normalize(new AppState());
+        var decks = new DeckService(state);
+        var scopes = new RecallStudyScopeService(state, dictionaryId, entries);
+
+        DeckDefinition emptyActive = decks.Create("Temporary empty deck");
+        scopes.SetActiveDeck(StudyScopeIds.All, emptyActive.Id);
+        scopes.SetActiveDeck(StudyScopeIds.A1, emptyActive.Id);
+        Require(scopes.CountEverywhere(emptyActive.Id) == 0 && decks.CountEverywhere(emptyActive.Id) == 0,
+            "Deck-deletion regression setup unexpectedly assigned words to the empty deck.");
+
+        string deletedEmptyId = emptyActive.Id;
+        decks.DeleteUserDeck(deletedEmptyId, destinationDeckId: null);
+
+        Require(decks.Find(deletedEmptyId) is null,
+            "Empty user deck was not deleted.");
+        Require(scopes.Get(StudyScopeIds.All).ActiveDeckId == DeckIds.Core(1) &&
+                scopes.Get(StudyScopeIds.A1).ActiveDeckId == DeckIds.Core(1),
+            "Deleting an empty active user deck left a Recall scope pointing at the removed deck.");
+        Require(state.ActiveDeckId == DeckIds.Core(1),
+            "Deleting an empty active user deck left the legacy active-deck mirror dangling.");
+
+        DeckDefinition assigned = decks.Create("Assigned user deck");
+        scopes.Move(StudyScopeIds.A1, "a1-delete", assigned.Id);
+        scopes.SetActiveDeck(StudyScopeIds.A1, assigned.Id);
+        bool missingDestinationRejected = false;
+        try { decks.DeleteUserDeck(assigned.Id, destinationDeckId: null); }
+        catch (InvalidOperationException) { missingDestinationRejected = true; }
+
+        Require(missingDestinationRejected,
+            "DeckService allowed deletion without a destination even though an authoritative Recall scope still referenced the deck.");
+        Require(decks.Find(assigned.Id) is not null &&
+                scopes.Assignments(StudyScopeIds.A1)["a1-delete"] == assigned.Id &&
+                scopes.Get(StudyScopeIds.A1).ActiveDeckId == assigned.Id,
+            "Rejected deck deletion partially mutated the authoritative Recall scope.");
+
+        string deletedAssignedId = assigned.Id;
+        decks.DeleteUserDeck(deletedAssignedId, DeckIds.Core(2));
+        Require(decks.Find(deletedAssignedId) is null &&
+                scopes.Assignments(StudyScopeIds.A1)["a1-delete"] == DeckIds.Core(2) &&
+                scopes.Get(StudyScopeIds.A1).ActiveDeckId == DeckIds.Core(2),
+            "Deleting a non-empty user deck did not migrate authoritative Recall assignment and active-deck references.");
+
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-deck-delete-scope-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new AppStateStore(root);
+            store.Save(state);
+            AppState reloaded = new AppStateStore(root).Load();
+            var restored = new RecallStudyScopeService(reloaded, dictionaryId, entries);
+            Require(reloaded.Decks.All(deck =>
+                        !string.Equals(deck.Id, deletedEmptyId, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(deck.Id, deletedAssignedId, StringComparison.OrdinalIgnoreCase)),
+                "Deleted Recall deck definition returned after save/reload.");
+            Require(reloaded.RecallStudyScopesByDictionary.Values
+                    .SelectMany(dictionary => dictionary.Scopes.Values)
+                    .All(scope =>
+                        !string.Equals(scope.ActiveDeckId, deletedEmptyId, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(scope.ActiveDeckId, deletedAssignedId, StringComparison.OrdinalIgnoreCase) &&
+                        scope.DeckIds.Values.All(deckId =>
+                            !string.Equals(deckId, deletedEmptyId, StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(deckId, deletedAssignedId, StringComparison.OrdinalIgnoreCase))),
+                "Deleted Recall deck identity survived in persisted scope state.");
+            Require(restored.Assignments(StudyScopeIds.A1)["a1-delete"] == DeckIds.Core(2) &&
+                    restored.Get(StudyScopeIds.A1).ActiveDeckId == DeckIds.Core(2),
+                "Migrated Recall deck state did not survive save/reload.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+        }
     }
 
     private static void RunCompleteCorpusAcceptance()
