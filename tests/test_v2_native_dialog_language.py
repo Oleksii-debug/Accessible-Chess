@@ -297,6 +297,64 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
             application.shell.language = UILanguage.EN
             self.assertEqual(provider(), UILanguage.EN)
 
+    def test_failed_native_runtime_composition_does_not_bind_book_recovery_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            layout = SimpleNamespace(
+                root=root,
+                settings_path=root / "settings.json",
+                library_path=root / "library.acsdb",
+            )
+            settings = mock.Mock()
+            settings.data = {"language": "uk"}
+            settings.get.side_effect = lambda key, default=None: settings.data.get(key, default)
+            engine_runtime = mock.Mock()
+            engine_runtime.provider = mock.Mock()
+            api = mock.MagicMock()
+            application = mock.MagicMock()
+            application.shell.language = UILanguage.UA
+            application._native_unsaved_close_guard = None
+            original_recovery = object()
+            application.confirm_book_progress_recovery = original_recovery
+            database = mock.MagicMock()
+            native_runtime = mock.MagicMock()
+
+            with (
+                mock.patch.object(release_app, "_prepare_version2_user_data", return_value=layout),
+                mock.patch.object(release_app, "Settings", return_value=settings),
+                mock.patch.object(release_app, "AnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "EngineAssistedWorkflowService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "ContinuousAnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
+                mock.patch.object(release_app, "AcsDatabase", return_value=database),
+                mock.patch.object(release_app, "Version2Application", return_value=application),
+                mock.patch.object(release_app, "_share_v2_action_registry"),
+                mock.patch.object(
+                    release_app,
+                    "Version2WindowsFileWorkflowRuntime",
+                    return_value=native_runtime,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "_install_close_guard_or_shutdown",
+                    side_effect=RuntimeError("close guard unavailable"),
+                ),
+            ):
+                _, returned_application, _, native_runtime_factory = (
+                    release_app.create_version2_release_application(
+                        runtime_factory=lambda _config: engine_runtime,
+                        sound_playback=object(),
+                    )
+                )
+                self.assertIs(returned_application, application)
+                with self.assertRaisesRegex(RuntimeError, "close guard unavailable"):
+                    native_runtime_factory(_Owner())
+
+            self.assertIs(application.confirm_book_progress_recovery, original_recovery)
+
     def test_language_projection_fails_safe_without_exposing_provider_exception(self) -> None:
         def broken_provider():
             raise RuntimeError("private language provider detail")
