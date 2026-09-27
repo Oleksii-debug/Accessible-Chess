@@ -18,6 +18,8 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from acs.acsdb import AcsDatabase, ACSDB_SCHEMA_VERSION
+from acs.gametree import serialize_game
+from acs.pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
@@ -230,7 +232,7 @@ def _scan_comment_state(line: str, inside_brace: bool) -> bool:
     return inside_brace
 
 
-def _complete_pgn_record_hashes(payload: bytes, label: str) -> list[str]:
+def _complete_pgn_records(payload: bytes, label: str) -> list[str]:
     try:
         text = payload.decode("utf-8")
     except UnicodeError as exc:
@@ -238,12 +240,12 @@ def _complete_pgn_record_hashes(payload: bytes, label: str) -> list[str]:
 
     current: list[str] = []
     inside_brace = False
-    hashes: list[str] = []
+    records: list[str] = []
     for line in text.splitlines(keepends=True):
         if not inside_brace and line.startswith('[Event "') and current:
             record = "".join(current).strip()
             if record:
-                hashes.append(_sha256(record.encode("utf-8")))
+                records.append(record)
             current = [line]
             inside_brace = _scan_comment_state(line, False)
             continue
@@ -253,7 +255,67 @@ def _complete_pgn_record_hashes(payload: bytes, label: str) -> list[str]:
     if current:
         record = "".join(current).strip()
         if record:
-            hashes.append(_sha256(record.encode("utf-8")))
+            records.append(record)
+    return records
+
+
+def _strict_starter_record_evidence(
+    payload: bytes,
+    label: str,
+) -> tuple[list[str], list[dict[str, object]], list[str]]:
+    records = _complete_pgn_records(payload, label)
+    hashes: list[str] = []
+    evidence: list[dict[str, object]] = []
+    canonical_pgn: list[str] = []
+    for index, record in enumerate(records, start=1):
+        try:
+            games = parse_pgn_text(record, strict=True)
+        except PgnRoundTripError as exc:
+            raise CandidateArtifactError(
+                f"{label} record {index} fails canonical strict PGN parsing"
+            ) from exc
+        if len(games) != 1:
+            raise CandidateArtifactError(f"{label} record {index} is not exactly one game")
+        game = games[0]
+        event = game.tags.get("Event", "").strip()
+        white = game.tags.get("White", "").strip()
+        black = game.tags.get("Black", "").strip()
+        tag_result = game.tags.get("Result", "*").strip()
+        line_result = game.line.result or "*"
+        if not event or not white or not black:
+            raise CandidateArtifactError(
+                f"{label} record {index} is missing required metadata"
+            )
+        if tag_result not in {"1-0", "0-1", "1/2-1/2"} or line_result != tag_result:
+            raise CandidateArtifactError(
+                f"{label} record {index} has inconsistent or unfinished result"
+            )
+        plies = len(game.line.moves)
+        if plies < STARTER_EXPECTED_CRITERIA["minimum_plies"]:
+            raise CandidateArtifactError(f"{label} record {index} is below the ply floor")
+        opening = [node.san for node in game.line.moves[:4]]
+        if len(opening) != STARTER_EXPECTED_CRITERIA["opening_prefix_plies"]:
+            raise CandidateArtifactError(
+                f"{label} record {index} lacks the required opening prefix"
+            )
+        hashes.append(_sha256(record.encode("utf-8")))
+        evidence.append(
+            {
+                "event": event,
+                "white": white,
+                "black": black,
+                "result": tag_result,
+                "plies": plies,
+                "length_band": _starter_length_band(plies),
+                "opening_prefix": opening,
+            }
+        )
+        canonical_pgn.append(serialize_game(game))
+    return hashes, evidence, canonical_pgn
+
+
+def _complete_pgn_record_hashes(payload: bytes, label: str) -> list[str]:
+    hashes, _evidence, _canonical_pgn = _strict_starter_record_evidence(payload, label)
     return hashes
 
 
@@ -268,6 +330,7 @@ def _starter_length_band(plies: int) -> str:
 def _verify_starter_curation(
     source: dict[str, object],
     actual_record_hashes: list[str],
+    actual_record_evidence: list[dict[str, object]],
 ) -> None:
     curation = source.get("curation")
     if not isinstance(curation, dict):
@@ -352,6 +415,26 @@ def _verify_starter_curation(
         raise CandidateArtifactError(
             "starter curation selected record hashes do not match packaged starter PGN"
         )
+    if len(actual_record_evidence) != len(selected):
+        raise CandidateArtifactError("starter PGN semantic evidence count mismatch")
+    semantic_fields = (
+        "event",
+        "white",
+        "black",
+        "result",
+        "plies",
+        "length_band",
+        "opening_prefix",
+    )
+    for index, (declared, actual) in enumerate(
+        zip(selected, actual_record_evidence, strict=True),
+        start=1,
+    ):
+        declared_semantics = {field: declared.get(field) for field in semantic_fields}
+        if declared_semantics != actual:
+            raise CandidateArtifactError(
+                f"starter curation semantic evidence mismatch at packaged game {index}"
+            )
     for result, minimum in STARTER_EXPECTED_CRITERIA["result_minimums"].items():
         if result_counts[result] < minimum:
             raise CandidateArtifactError("starter curation result representation floor is not met")
@@ -376,6 +459,7 @@ def _verify_starter_database(
     info: zipfile.ZipInfo,
     expected: dict[str, int],
     selected_games: list[dict[str, object]],
+    canonical_pgn: list[str],
     starter_sha256: str,
 ) -> None:
     if info.file_size <= 0 or info.file_size > MAX_CANDIDATE_METADATA_BYTES:
@@ -433,7 +517,7 @@ def _verify_starter_database(
                 "COUNT(DISTINCT event) FROM games"
             ).fetchone()
             database_game_metadata = connection.execute(
-                "SELECT event, white, black, result FROM games ORDER BY id"
+                "SELECT event, white, black, result, pgn_text FROM games ORDER BY id"
             ).fetchall()
             source_rows = connection.execute(
                 "SELECT source_name, source_format, sha256 FROM sources ORDER BY id"
@@ -458,14 +542,17 @@ def _verify_starter_database(
             raise CandidateArtifactError(
                 f"starter ACSDB semantic evidence mismatch: actual={actual} expected={expected}"
             )
+        if len(canonical_pgn) != len(selected_games):
+            raise CandidateArtifactError("starter ACSDB canonical PGN evidence count mismatch")
         expected_game_metadata = [
             (
                 item["event"],
                 item["white"],
                 item["black"],
                 item["result"],
+                canonical_pgn[index],
             )
-            for item in selected_games
+            for index, item in enumerate(selected_games)
         ]
         if database_game_metadata != expected_game_metadata:
             raise CandidateArtifactError(
@@ -572,7 +659,11 @@ def _verify_starter_bundle(
         f"{STARTER_ROOT}/starter_uk.pgn",
         "starter PGN",
     )
-    starter_record_hashes = _complete_pgn_record_hashes(starter_payload, "starter PGN")
+    (
+        starter_record_hashes,
+        starter_record_evidence,
+        starter_canonical_pgn,
+    ) = _strict_starter_record_evidence(starter_payload, "starter PGN")
     if len(starter_record_hashes) != STARTER_REAL_GAME_COUNT:
         raise CandidateArtifactError("starter PGN complete-record count mismatch")
 
@@ -584,7 +675,11 @@ def _verify_starter_bundle(
     if len(_complete_pgn_record_hashes(stress_payload, "stress PGN")) != STARTER_STRESS_GAME_COUNT:
         raise CandidateArtifactError("stress PGN complete-record count mismatch")
 
-    _verify_starter_curation(source, starter_record_hashes)
+    _verify_starter_curation(
+        source,
+        starter_record_hashes,
+        starter_record_evidence,
+    )
 
     sample = _dict_field(manifest, "sample_library", "starter manifest")
     expected_sample: dict[str, int] = {}
@@ -610,6 +705,7 @@ def _verify_starter_bundle(
         members[f"{STARTER_ROOT}/sample_library.acsdb"],
         expected_sample,
         selected_games,
+        starter_canonical_pgn,
         str(starter_metadata["sha256"]).lower(),
     )
 
