@@ -1,0 +1,79 @@
+name: V2 Library Export Release Reachability
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_release_app.py'
+      - 'tests/test_v2_library_export_release_reachability.py'
+      - '.github/workflows/v2-library-export-release-reachability.yml'
+  push:
+    branches:
+      - work/current-library-export-native-reachability-20260927
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-library-export-release-reachability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact checkout and bounded ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+          base="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
+          wanted="$(printf '%s\n'             '.github/workflows/v2-library-export-release-reachability.yml'             'acs/version2_release_app.py'             'tests/test_v2_library_export_release_reachability.py' | LC_ALL=C sort)"
+          test "$changed" = "$wanted"
+
+          # Preserve the existing D07/D06 export authorities exactly.
+          git diff --quiet "$base" HEAD --             acs/library_export_service.py             acs/version2_windows_library_export.py             acs/pgn_service.py             acs/gametree.py             acs/acsdb.py
+
+      - name: Compile owned release seam
+        run: >-
+          python -m py_compile
+          acs/version2_release_app.py
+          tests/test_v2_library_export_release_reachability.py
+
+      - name: Run focused Library export reachability regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_export_release_reachability
+          tests.test_v2_windows_library_export
+          tests.test_version2_release_app
+          tests.test_library_export_service
+          tests.test_version2_windows_host_runtime
+          tests.test_v2_windows_native_dialog_language
+
+      - name: Run Library and release integration guards
+        run: >-
+          python -m unittest -v
+          tests.test_library_workspace_ui_integration
+          tests.test_dev1_full_product_accessible_shell
+          tests.test_dev1_full_product_webview_adapter
