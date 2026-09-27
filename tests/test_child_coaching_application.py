@@ -215,10 +215,22 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             reopened_template, _ = app.get_template("preset-preschool-4-6")
             self.assertEqual(reopened_template.blocks[0].minutes, 4)
             self.assertTrue(reopened_template.custom)
+            edited_catalog = app.open_catalog()
             self.assertEqual(
-                app.open_catalog().summary("preset-preschool-4-6").total_minutes,
+                edited_catalog.summary("preset-preschool-4-6").total_minutes,
                 31,
             )
+            with self.assertRaisesRegex(
+                ChildCoachingApplicationError,
+                "preset cannot be deleted",
+            ):
+                app.delete_custom_template(
+                    "preset-preschool-4-6",
+                    expected_revision=edited_catalog.revision,
+                )
+            still_edited, _ = app.get_template("preset-preschool-4-6")
+            self.assertEqual(still_edited.blocks[0].minutes, 4)
+            self.assertTrue(still_edited.custom)
 
     def test_compilation_uses_persisted_template_and_redacts_teacher_note(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
