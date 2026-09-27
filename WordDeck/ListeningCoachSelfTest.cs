@@ -307,6 +307,17 @@ internal static class ListeningCoachSelfTest
                 profile.Contains("\"FutureHistory\"", StringComparison.Ordinal),
             "Listening profile export dropped unknown current-schema state data.");
 
+        string importRoot = Path.Combine(root, "extension-data-profile-import");
+        var importStore = new ListeningStateStore(importRoot);
+        _ = new ListeningProfileService(importStore).Import(profilePath);
+        ListeningCoachState imported = importStore.Load();
+        Require(imported.ExtensionData is not null && imported.ExtensionData.ContainsKey("FutureHint") &&
+                imported.StatsByDictionary["test"]["word:a"].ExtensionData is not null &&
+                imported.StatsByDictionary["test"]["word:a"].ExtensionData!.ContainsKey("FutureStats") &&
+                imported.History[0].ExtensionData is not null &&
+                imported.History[0].ExtensionData!.ContainsKey("FutureHistory"),
+            "Listening profile import dropped unknown current-schema state data.");
+
         store.Save(loaded);
         string persisted = File.ReadAllText(statePath);
         Require(persisted.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
