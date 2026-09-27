@@ -176,7 +176,7 @@ internal static class GrammarAnswerEvaluator
         ("is not", "isn't"), ("are not", "aren't"), ("was not", "wasn't"), ("were not", "weren't"),
         ("have not", "haven't"), ("has not", "hasn't"), ("had not", "hadn't"),
         ("will not", "won't"), ("would not", "wouldn't"), ("could not", "couldn't"),
-        ("should not", "shouldn't"), ("must not", "mustn't"), ("can not", "can't"), ("cannot", "can't"),
+        ("should not", "shouldn't"), ("must not", "mustn't"), ("cannot", "can not"), ("can not", "can't"),
         ("would have", "would've"), ("could have", "could've"), ("should have", "should've"),
         ("must have", "must've"), ("might have", "might've"),
         ("i am", "i'm"),
@@ -199,7 +199,7 @@ internal static class GrammarAnswerEvaluator
         var pending = new Queue<string>();
         pending.Enqueue(canonical);
 
-        while (pending.Count > 0 && forms.Count < 64)
+        while (pending.Count > 0)
         {
             string current = pending.Dequeue();
             foreach ((string expanded, string contracted) in ContractionPairs)
