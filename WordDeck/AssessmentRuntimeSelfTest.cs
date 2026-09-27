@@ -214,6 +214,32 @@ internal static class AssessmentRuntimeSelfTest
                 "newer unsupported primary was mutated while rejecting downgrade/save");
             Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBeforeFutureReject),
                 "backup was mutated while rejecting newer primary schema");
+
+            File.Delete(store.StatePath);
+            File.WriteAllText(store.BackupPath, "{broken backup", new System.Text.UTF8Encoding(false));
+            byte[] brokenBackupBefore = File.ReadAllBytes(store.BackupPath);
+            bool missingPrimaryBrokenBackupRejected = false;
+            try { _ = store.Load(); }
+            catch (InvalidDataException) { missingPrimaryBrokenBackupRejected = true; }
+            Require(missingPrimaryBrokenBackupRejected,
+                "missing primary plus invalid backup silently fabricated fresh assessment state");
+            Require(!File.Exists(store.StatePath),
+                "failed missing-primary recovery unexpectedly created a primary state file");
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(brokenBackupBefore),
+                "failed missing-primary recovery mutated the invalid backup evidence");
+
+            File.WriteAllText(store.StatePath, "{broken primary", new System.Text.UTF8Encoding(false));
+            File.Delete(store.BackupPath);
+            byte[] brokenPrimaryBefore = File.ReadAllBytes(store.StatePath);
+            bool unsafeOverwriteRejected = false;
+            try { store.Save(new AssessmentRuntimeState()); }
+            catch (InvalidDataException) { unsafeOverwriteRejected = true; }
+            Require(unsafeOverwriteRejected,
+                "normal save overwrote invalid assessment state when no recovery backup existed");
+            Require(File.ReadAllBytes(store.StatePath).SequenceEqual(brokenPrimaryBefore),
+                "rejected save mutated the unrecoverable primary assessment state");
+            Require(!File.Exists(store.BackupPath),
+                "rejected save fabricated a backup from unrecoverable primary state");
         }
         finally
         {
