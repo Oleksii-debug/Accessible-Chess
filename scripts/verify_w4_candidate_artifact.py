@@ -13,6 +13,8 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTER_BYTES = 300 * 1024 * 1024
 MAX_INNER_BYTES = 250 * 1024 * 1024
+MAX_CANDIDATE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+HASH_CHUNK_BYTES = 1024 * 1024
 
 
 class CandidateArtifactError(RuntimeError):
@@ -21,6 +23,22 @@ class CandidateArtifactError(RuntimeError):
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_member(archive: zipfile.ZipFile, name: str) -> str:
+    info = archive.getinfo(name)
+    digest = hashlib.sha256()
+    total = 0
+    with archive.open(info, "r") as source:
+        while True:
+            chunk = source.read(HASH_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            digest.update(chunk)
+    if total != info.file_size:
+        raise CandidateArtifactError(f"candidate member size changed while hashing: {name}")
+    return digest.hexdigest()
 
 
 def _normalize_sha256(value: str, label: str) -> str:
@@ -298,6 +316,16 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         raise CandidateArtifactError("candidate payload is not a valid ZIP") from exc
     with candidate:
         members = _safe_members(candidate, "candidate ZIP")
+        uncompressed_size = sum(
+            info.file_size for info in members.values() if not info.is_dir()
+        )
+        if (
+            uncompressed_size <= 0
+            or uncompressed_size > MAX_CANDIDATE_UNCOMPRESSED_BYTES
+        ):
+            raise CandidateArtifactError(
+                "candidate ZIP uncompressed size is outside accepted bounds"
+            )
         required = {
             "RELEASE_MANIFEST.json",
             "SHA256SUMS.txt",
@@ -337,7 +365,7 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
                 f"checksum inventory mismatch; missing={missing_checksums} stale={stale_checksums}"
             )
         for name, expected in checksums.items():
-            actual = _sha256(candidate.read(name))
+            actual = _sha256_member(candidate, name)
             if actual != expected:
                 raise CandidateArtifactError(f"candidate checksum mismatch: {name}")
 

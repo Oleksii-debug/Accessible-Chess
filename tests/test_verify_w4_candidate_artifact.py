@@ -186,6 +186,31 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 with self.assertRaisesRegex(CandidateArtifactError, "candidate ZIP size"):
                     verify(self.path, SHA)
 
+    def test_candidate_uncompressed_size_bound_fails_before_member_reads(self) -> None:
+        original_read = zipfile.ZipFile.read
+
+        def guarded_read(archive, name, *args, **kwargs):
+            normalized = str(name).replace("\\", "/")
+            if normalized == "RELEASE_MANIFEST.json" or normalized == "SHA256SUMS.txt" or normalized.startswith("AccessibleChess/"):
+                raise AssertionError("oversized candidate member must not be read")
+            return original_read(archive, name, *args, **kwargs)
+
+        with patch("scripts.verify_w4_candidate_artifact.MAX_CANDIDATE_UNCOMPRESSED_BYTES", 8):
+            with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+                with self.assertRaisesRegex(CandidateArtifactError, "candidate ZIP uncompressed size"):
+                    verify(self.path, SHA)
+
+    def test_payload_checksum_hashing_is_streamed_not_read_whole(self) -> None:
+        original_read = zipfile.ZipFile.read
+
+        def guarded_read(archive, name, *args, **kwargs):
+            if str(name).replace("\\", "/") == "AccessibleChess/AccessibleChess.exe":
+                raise AssertionError("package payload must be streamed while hashing")
+            return original_read(archive, name, *args, **kwargs)
+
+        with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+            verify(self.path, SHA)
+
     def test_wrong_outer_digest_fails(self) -> None:
         with self.assertRaises(CandidateArtifactError):
             verify(self.path, SHA, "0" * 64)
