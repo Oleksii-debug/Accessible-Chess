@@ -28,7 +28,7 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
             f"{digest}  AccessibleChess/AccessibleChess.exe\n", encoding="utf-8"
         )
         (self.root / "RELEASE_MANIFEST.json").write_text(
-            '{"integration_sha":"' + SHA + '"}', encoding="utf-8"
+            '{"integration_sha":"' + SHA + '","human_tested":false,"nvda_verified":false}', encoding="utf-8"
         )
         self.evidence = self.root / "evidence.json"
         self.evidence.write_text(
@@ -79,10 +79,26 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
 
     def test_duplicate_manifest_integration_sha_fails(self) -> None:
         (self.root / "RELEASE_MANIFEST.json").write_text(
-            '{"integration_sha":"' + SHA + '","integration_sha":"' + SHA + '"}',
+            '{"integration_sha":"' + SHA + '","integration_sha":"' + SHA + '","human_tested":false,"nvda_verified":false}',
             encoding="utf-8",
         )
         with self.assertRaises(EvidenceError):
+            verify(self.evidence, self.product, SHA)
+
+    def test_manifest_human_overclaim_fails(self) -> None:
+        (self.root / "RELEASE_MANIFEST.json").write_text(
+            '{"integration_sha":"' + SHA + '","human_tested":true,"nvda_verified":false}',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(EvidenceError, "human_tested=false"):
+            verify(self.evidence, self.product, SHA)
+
+    def test_manifest_nvda_overclaim_fails(self) -> None:
+        (self.root / "RELEASE_MANIFEST.json").write_text(
+            '{"integration_sha":"' + SHA + '","human_tested":false,"nvda_verified":true}',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(EvidenceError, "nvda_verified=false"):
             verify(self.evidence, self.product, SHA)
 
     def test_malformed_checksum_digest_fails(self) -> None:
