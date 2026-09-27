@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -148,6 +149,67 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             reopened = ChildCoachingApplication(store).open_catalog()
             self.assertEqual(
                 {item.template_id for item in reopened.templates},
+                {item.template_id for item in presets},
+            )
+
+    def test_direct_access_canonicalizes_partial_legacy_store_without_catalog_call(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            presets = preset_templates()
+            path.write_text(
+                json.dumps(
+                    {"templates": [presets[0].to_record()]},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            app = ChildCoachingApplication(ChildCoachingTemplateStore(path))
+
+            template, revision = app.get_template(presets[1].template_id)
+            self.assertEqual(template, presets[1])
+            self.assertEqual(len(revision), 64)
+
+            durable = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(durable["schema_version"], 1)
+            self.assertEqual(
+                {item["template_id"] for item in durable["templates"]},
+                {item.template_id for item in presets},
+            )
+
+    def test_direct_access_repairs_valid_backup_after_corrupt_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            store = ChildCoachingTemplateStore(path)
+            presets = preset_templates()
+            first_revision = store.save(presets, expected_revision=None)
+            custom = presets + (
+                preset_templates()[0],
+            )
+            # Advance once with a valid distinct catalog so the original complete
+            # preset set is retained as the known-valid backup.
+            copied = app_copy = None
+            from acs.child_coaching import copy_as_custom
+            copied = copy_as_custom(
+                presets[0],
+                template_id="backup-custom",
+                title="Backup custom",
+            )
+            store.save(
+                presets + (copied,),
+                expected_revision=first_revision,
+            )
+            path.write_text("{corrupt", encoding="utf-8")
+
+            app = ChildCoachingApplication(store)
+            template, _ = app.get_template("preset-preschool-4-6")
+            self.assertEqual(template.template_id, "preset-preschool-4-6")
+
+            repaired = store.load()
+            self.assertIsNotNone(repaired)
+            assert repaired is not None
+            self.assertFalse(repaired.recovered_from_backup)
+            self.assertEqual(
+                {item.template_id for item in repaired.templates},
                 {item.template_id for item in presets},
             )
 
