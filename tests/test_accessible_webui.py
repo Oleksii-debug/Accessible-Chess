@@ -95,8 +95,9 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("const r=await apiAction('make_move',v)", self.html)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", self.html)
         self.assertIn("else{input.focus();input.select()}", self.html)
-        self.assertIn("el('move-input').addEventListener('keydown'", self.html)
-        self.assertIn("if(e.key==='Enter')", self.html)
+        self.assertIn("el('move-input').addEventListener('keydown',async e=>{const a=await resolveBinding(eventChord(e),'move_entry','move-entry');if(a&&a.actionId==='move.submit'){e.preventDefault();executeAction(a.actionId)}})", self.html)
+        self.assertIn("'move.submit':()=>submitMove()", self.html)
+        self.assertNotIn("if(e.key==='Enter')", self.html)
 
     def test_copy_and_selection_are_not_hijacked(self):
         self.assertIn("String(e.key).toLowerCase()==='c'", self.html)
