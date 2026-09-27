@@ -1,4 +1,4 @@
-name: V2 Book Index Snapshot Integrity
+name: V2 Book Semantic Snapshot Integrity
 
 on:
   pull_request:
@@ -6,7 +6,9 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/book_index.py'
+      - 'acs/bookreader.py'
       - 'tests/test_book_index.py'
+      - 'tests/test_bookreader.py'
       - '.github/workflows/v2-book-index-snapshot-integrity.yml'
   push:
     branches:
@@ -50,7 +52,7 @@ jobs:
             test "$(git merge-base "$base" HEAD)" = "$base"
             git diff --check "$base" HEAD
             changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
-            wanted="$(printf '%s\n'               '.github/workflows/v2-book-index-snapshot-integrity.yml'               'acs/book_index.py'               'tests/test_book_index.py' | LC_ALL=C sort)"
+            wanted="$(printf '%s\n'               '.github/workflows/v2-book-index-snapshot-integrity.yml'               'acs/book_index.py'               'acs/bookreader.py'               'tests/test_book_index.py'               'tests/test_bookreader.py' | LC_ALL=C sort)"
             test "$changed" = "$wanted"
           fi
 
@@ -58,7 +60,9 @@ jobs:
         run: >-
           python -m py_compile
           acs/book_index.py
+          acs/bookreader.py
           tests/test_book_index.py
+          tests/test_bookreader.py
 
       - name: Run focused Book semantic regressions
         run: >-
