@@ -773,13 +773,11 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         )
     node = switch_nodes[0]
     if (
-        list(runtime) != [node]
-        or (runtime.text is not None and runtime.text.strip())
-        or (node.tail is not None and node.tail.strip())
+        (runtime.text is not None and runtime.text.strip())
+        or any(child.tail is not None and child.tail.strip() for child in runtime)
     ):
         _fail(
-            "WinForms accessibility app-config runtime must contain only "
-            "AppContextSwitchOverrides"
+            "WinForms accessibility app-config runtime must not contain mixed text"
         )
     if set(node.attrib) != {"value"}:
         _fail("WinForms accessibility app-config switch attributes are invalid")
