@@ -222,6 +222,28 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_lock_file_replacement_between_lstat_and_open_fails_closed(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"\0")
+        replacement = self.store._lock_path.with_name("replacement.lock")
+        replacement.write_bytes(b"\0")
+
+        real_open = os.open
+        swapped = False
+
+        def replacing_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal swapped
+            if not swapped and os.fspath(path) == os.fspath(self.store._lock_path):
+                swapped = True
+                os.replace(replacement, self.store._lock_path)
+            return real_open(path, flags, mode)
+
+        with mock.patch("acs.book_progress_store.os.open", side_effect=replacing_open):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertFalse(self.path.exists())
+
     def test_reads_do_not_reopen_path_after_file_identity_validation(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
