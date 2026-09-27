@@ -29,6 +29,7 @@ MAX_EVIDENCE_BYTES = 1024 * 1024
 MAX_CANDIDATE_METADATA_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
 HASH_CHUNK_BYTES = 1024 * 1024
+MAX_PE_HEADER_OFFSET = 16 * 1024 * 1024
 
 STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
 STARTER_REAL_GAME_COUNT = 240
@@ -180,22 +181,40 @@ def _read_semantic_member(
     return data
 
 
-def _require_mz_executable(
+def _require_pe_executable(
     archive: zipfile.ZipFile,
     members: dict[str, zipfile.ZipInfo],
     name: str,
     label: str,
 ) -> None:
     info = members[name]
-    if info.is_dir() or info.file_size < 2:
-        raise CandidateArtifactError(f"{label} is not a non-empty executable file")
+    if info.is_dir() or info.file_size < 68:
+        raise CandidateArtifactError(f"{label} is too small to be a Windows PE executable")
     try:
         with archive.open(info, "r") as source:
-            signature = source.read(2)
+            dos_header = source.read(64)
+            if len(dos_header) != 64 or dos_header[:2] != b"MZ":
+                raise CandidateArtifactError(f"{label} is missing Windows MZ executable signature")
+            pe_offset = int.from_bytes(dos_header[60:64], "little")
+            if (
+                pe_offset < 64
+                or pe_offset > MAX_PE_HEADER_OFFSET
+                or pe_offset + 4 > info.file_size
+            ):
+                raise CandidateArtifactError(f"{label} has invalid Windows PE header offset")
+            remaining = pe_offset - 64
+            while remaining:
+                block = source.read(min(HASH_CHUNK_BYTES, remaining))
+                if not block:
+                    raise CandidateArtifactError(f"{label} Windows PE header is truncated")
+                remaining -= len(block)
+            signature = source.read(4)
+    except CandidateArtifactError:
+        raise
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
         raise CandidateArtifactError(f"{label} executable signature read failed") from exc
-    if signature != b"MZ":
-        raise CandidateArtifactError(f"{label} is missing Windows MZ executable signature")
+    if signature != b"PE\x00\x00":
+        raise CandidateArtifactError(f"{label} is missing Windows PE executable signature")
 
 
 def _scan_comment_state(line: str, inside_brace: bool) -> bool:
@@ -874,13 +893,13 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         if missing:
             raise CandidateArtifactError("candidate ZIP is missing release-critical files: " + ", ".join(missing))
 
-        _require_mz_executable(
+        _require_pe_executable(
             candidate,
             members,
             "AccessibleChess/AccessibleChess.exe",
             "application executable",
         )
-        _require_mz_executable(
+        _require_pe_executable(
             candidate,
             members,
             "AccessibleChess/engines/stockfish/stockfish.exe",
