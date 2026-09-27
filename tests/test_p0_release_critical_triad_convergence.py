@@ -32,6 +32,11 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
+    def test_current_w4_release_base_is_explicitly_admitted(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml").read_text(encoding="utf-8")
+        self.assertIn("release/w4-v2-current-p0-candidate-20260926", workflow)
+        self.assertNotIn("base='*'", workflow)
+
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
         self.assertFalse(missing, "missing P0 packaged QA paths: " + ", ".join(missing))
