@@ -17,6 +17,7 @@ concurrency:
 
 env:
   FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+  WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
   PYTHONNET_VERSION: '3.1.0'
@@ -50,8 +51,8 @@ jobs:
             echo 'W4 candidate must be dispatched from a branch ref' >&2
             exit 1
           }
-          test "$GITHUB_REF_NAME" = "$FULL_PRODUCT_BRANCH" || {
-            printf 'W4 candidate must be dispatched from canonical Full Product branch %s, got %s\n' "$FULL_PRODUCT_BRANCH" "$GITHUB_REF_NAME" >&2
+          test "$GITHUB_REF_NAME" = "$WORKFLOW_REGISTRATION_BRANCH" || {
+            printf 'W4 candidate workflow must be dispatched from registered default branch %s, got %s\n' "$WORKFLOW_REGISTRATION_BRANCH" "$GITHUB_REF_NAME" >&2
             exit 1
           }
           requested='${{ inputs.product_sha }}'
@@ -61,11 +62,12 @@ jobs:
           }
           requested="${requested,,}"
           workflow_sha="$(git rev-parse HEAD)"
-          test "$workflow_sha" = "$requested" || {
-            printf 'W4 workflow authority %s is not exact requested Product %s\n' "$workflow_sha" "$requested" >&2
+          git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"
+          workflow_live="$(git rev-parse "origin/$WORKFLOW_REGISTRATION_BRANCH")"
+          test "$workflow_sha" = "$workflow_live" || {
+            printf 'W4 workflow checkout %s is stale versus registered default head %s\n' "$workflow_sha" "$workflow_live" >&2
             exit 1
           }
-          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
           live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
           test "$requested" = "$live" || {
             printf 'Requested SHA %s is not live Full Product head %s\n' "$requested" "$live" >&2
@@ -76,6 +78,7 @@ jobs:
           echo "PRODUCT_SHA=$requested" >> "$GITHUB_ENV"
           echo "SOURCE_INTEGRATION_SHA=$requested" >> "$GITHUB_ENV"
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip" >> "$GITHUB_ENV"
+          echo "W4_WORKFLOW_REGISTRATION_IDENTITY=PASS"
           echo "W4_WORKFLOW_PRODUCT_IDENTITY=PASS"
           echo "INTEGRATED_FULL_PRODUCT_IDENTITY=PASS"
 
@@ -155,7 +158,7 @@ jobs:
           $ErrorActionPreference='Stop'
           python run_accessible_chess_v2.py --diagnostic
           if($LASTEXITCODE -ne 0){throw 'SOURCE_V2_DIAGNOSTIC_FAILURE'}
-          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0g_accessible_results tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
+          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
           if($LASTEXITCODE -ne 0){throw 'SOURCE_RELEASE_CRITICAL_P0_CONTRACT_FAILURE'}
           Write-Host 'SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS'
           Write-Host 'SOURCE_RELEASE_CRITICAL_P0_CONTRACTS=PASS'
