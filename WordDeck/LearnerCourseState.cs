@@ -496,9 +496,15 @@ internal sealed class LearnerCourseStateStore
                 schemaValue = property.Value;
             }
 
-            if (schemaPropertyCount == 0) return;
+            if (schemaPropertyCount == 0)
+                throw new InvalidDataException(
+                    $"WordDeck course state '{Path.GetFileName(path)}' has no SchemaVersion metadata. " +
+                    "WordDeck will not treat model defaults as persisted schema authority. No personal state was changed.");
+
             if (schemaValue.ValueKind != JsonValueKind.Number || !schemaValue.TryGetInt32(out int schemaVersion))
-                return;
+                throw new InvalidDataException(
+                    $"WordDeck course state '{Path.GetFileName(path)}' has invalid SchemaVersion metadata. " +
+                    "WordDeck will not guess the persisted schema. No personal state was changed.");
 
             if (schemaVersion > CurrentSchemaVersion)
                 throw new InvalidDataException(
