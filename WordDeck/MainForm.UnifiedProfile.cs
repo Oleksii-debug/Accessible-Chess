@@ -66,11 +66,24 @@ internal sealed partial class MainForm
                             : "This V0.1 profile restored Recall state; current Spelling, Sentence, Listening and Course/Story learning state were intentionally preserved.";
             AnnounceStatus($"Personal profile imported successfully. {modes} Recovery backups were created before replacement. {quarantine}");
         }
+        catch (IncompletePersonalStateRecoveryException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Complete profile import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            AnnounceStatus(BuildUnifiedProfileImportFailureStatus(ex));
+        }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Complete profile import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Complete profile import failed. Existing personal state was not replaced.");
+            AnnounceStatus(BuildUnifiedProfileImportFailureStatus(ex));
         }
         FocusCurrentWord();
+    }
+
+    internal static string BuildUnifiedProfileImportFailureStatus(Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return error is IncompletePersonalStateRecoveryException
+            ? "Complete profile import failed and automatic recovery was incomplete. Do not continue learning until personal state is restored from the pre-import recovery backups."
+            : "Complete profile import failed. Existing personal state was not replaced.";
     }
 }

@@ -211,16 +211,35 @@ internal sealed class AppStateStore
             Save(destination);
             return new ProfileImportResult(backupPath, destination.QuarantinedProfileEntryIds.ToArray());
         }
-        catch
+        catch (Exception importFailure)
         {
-            try
-            {
-                ReplaceState(destination, before);
-                Save(destination);
-            }
-            catch { }
+            IReadOnlyList<Exception> rollbackFailures = RestoreAfterFailedProfileImport(
+                destination,
+                before,
+                () => Save(destination));
+            if (rollbackFailures.Count > 0)
+                throw PersonalStateRollbackExecutor.CreateIncompleteImportException(importFailure, rollbackFailures);
             throw;
         }
+    }
+
+    internal static IReadOnlyList<Exception> RestoreAfterFailedProfileImport(
+        AppState destination,
+        AppState before,
+        Action saveRecall)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(saveRecall);
+
+        return PersonalStateRollbackExecutor.RestoreAll(new[]
+        {
+            new PersonalStateRollbackStep("Recall", () =>
+            {
+                ReplaceState(destination, before);
+                saveRecall();
+            })
+        });
     }
 
     public string ImportDictionary(string sourcePath)

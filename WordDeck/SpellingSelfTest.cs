@@ -258,6 +258,33 @@ internal static class SpellingSelfTest
             Require(spelling.DeckIdsByDictionaryScope["d"][StudyScopeIds.A1]["entry-1"] == SpellingDeckIds.Core(5),
                 "Importing a legacy V0.1 profile erased current Spelling progress.");
 
+            var rollbackBeforeApp = AppStateStore.Normalize(new AppState { ActiveDictionaryId = "d" });
+            rollbackBeforeApp.HiddenEntryIds.Add("entry-1");
+            var rollbackDestinationApp = AppStateStore.Normalize(new AppState { ActiveDictionaryId = "mutated" });
+            rollbackDestinationApp.HiddenEntryIds.Add("wrong-entry");
+            SpellingState rollbackBeforeSpelling = SpellingStateStore.Normalize(new SpellingState { CoachEnabled = false });
+            SpellingState rollbackDestinationSpelling = SpellingStateStore.Normalize(new SpellingState { CoachEnabled = true });
+            bool spellingRollbackSaveAttempted = false;
+            IReadOnlyList<Exception> rollbackFailures = SpellingProfileService.RestoreAfterFailedImport(
+                rollbackDestinationApp,
+                rollbackBeforeApp,
+                rollbackDestinationSpelling,
+                rollbackBeforeSpelling,
+                () => throw new IOException("forced Recall rollback persistence failure"),
+                () => spellingRollbackSaveAttempted = true);
+            Require(rollbackFailures.Count == 1 && spellingRollbackSaveAttempted,
+                "Recall+Spelling rollback stopped after the first persistence failure instead of attempting Spelling recovery.");
+            Require(rollbackDestinationApp.ActiveDictionaryId == "d" &&
+                    rollbackDestinationApp.HiddenEntryIds.SetEquals(new[] { "entry-1" }) &&
+                    !rollbackDestinationSpelling.CoachEnabled,
+                "Recall+Spelling rollback did not restore both in-memory state families before reporting incomplete recovery.");
+            InvalidDataException rollbackReported = PersonalStateRollbackExecutor.CreateIncompleteImportException(
+                new IOException("forced v2 profile import failure"), rollbackFailures);
+            Require(rollbackReported.InnerException is AggregateException rollbackAggregate &&
+                    rollbackAggregate.InnerExceptions.Count == 2 &&
+                    rollbackReported.Message.Contains("recovery was incomplete", StringComparison.OrdinalIgnoreCase),
+                "Recall+Spelling profile rollback did not retain both import and rollback failure evidence.");
+
             string invalidPath = Path.Combine(root, "profile-invalid.json");
             File.WriteAllText(invalidPath, JsonSerializer.Serialize(new { ProfileSchemaVersion = 999 }));
             string beforeDeck = spelling.DeckIdsByDictionaryScope["d"][StudyScopeIds.A1]["entry-1"];
