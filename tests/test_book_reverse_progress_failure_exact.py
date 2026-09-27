@@ -165,5 +165,45 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
 
 
 
+    def test_successful_reverse_commands_publish_exact_durable_restart_state(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                app.browser_command("books", "book.next_position")
+                app.browser_command("books", "book.next_position")
+                result = app.browser_command("books", "book.previous_position")
+                self.assertEqual(result["kind"], "render")
+                self.assertEqual(
+                    self._durable_snapshot(app, progress),
+                    app.reader.snapshot(),
+                )
+
+                app.browser_command("books", "book.next_game")
+                app.browser_command("books", "book.next_game")
+                result = app.browser_command("books", "book.previous_game")
+                self.assertEqual(result["kind"], "render")
+                self.assertEqual(
+                    self._durable_snapshot(app, progress),
+                    app.reader.snapshot(),
+                )
+
+    def test_shared_action_adapter_rejects_reverse_payload_without_state_change(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                app.browser_command("books", "book.next_position")
+                app.browser_command("books", "book.next_position")
+                before_reader = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+
+                result = app.adapter.activate_action(
+                    "book.previous_position",
+                    {"index": 0},
+                )
+
+                self.assertEqual(result.kind, "error")
+                self.assertEqual(app.reader.snapshot(), before_reader)
+                self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+
+
+
 if __name__ == "__main__":
     unittest.main()
