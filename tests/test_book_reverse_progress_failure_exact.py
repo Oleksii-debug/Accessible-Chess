@@ -42,6 +42,7 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 progress_store=progress,
                 engine_assistance=EngineAssistedWorkflowService(analysis),
                 board_dispatch=lambda *_: None,
+                board_position_projector=lambda _fen: {"ok": True},
             )
             book = root / "reverse-progress.md"
             book.write_text(
@@ -270,6 +271,45 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                             current_block["dom_id"],
                             f"book-block-{app.reader.index}",
                         )
+
+
+
+    def test_reverse_actions_cannot_move_hidden_reader_during_board_review(self) -> None:
+        cases = (
+            ("book.next_position", "book.previous_position"),
+            ("book.next_game", "book.previous_game"),
+        )
+        for forward, reverse in cases:
+            with self.subTest(reverse=reverse):
+                with tempfile.TemporaryDirectory() as root_text:
+                    with self._app(Path(root_text)) as (app, progress):
+                        self.assertEqual(app.browser_command("books", forward)["kind"], "render")
+                        self.assertEqual(app.browser_command("books", forward)["kind"], "render")
+                        origin = app.reader.snapshot()
+                        opened = app.browser_command("books", "book.open_position")
+                        self.assertEqual(opened["kind"], "delegated")
+                        self.assertTrue(app.book_workflow.active)
+                        before_durable = self._durable_snapshot(app, progress)
+
+                        with patch.object(
+                            progress,
+                            "save",
+                            side_effect=AssertionError(
+                                "hidden reader navigation must not publish progress"
+                            ),
+                        ) as save:
+                            result = app.adapter.activate_action(reverse)
+
+                        self.assertEqual(result.kind, "error")
+                        save.assert_not_called()
+                        self.assertTrue(app.book_workflow.active)
+                        self.assertEqual(app.reader.snapshot(), origin)
+                        self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+
+                        returned = app.browser_command("books", "book.return_from_board")
+                        self.assertEqual(returned["kind"], "render")
+                        self.assertFalse(app.book_workflow.active)
+                        self.assertEqual(app.reader.snapshot(), origin)
 
 
 
