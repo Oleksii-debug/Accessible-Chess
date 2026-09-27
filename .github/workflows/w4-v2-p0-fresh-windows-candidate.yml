@@ -379,17 +379,6 @@ jobs:
           }
           echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
 
-      - name: Upload exact Windows NVDA test candidate and machine evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: Accessible-Chess-V2-NVDA-test-candidate
-          path: |
-            product-source/candidate-output/Accessible-Chess-V2-*-NVDA-test-candidate.zip
-            product-source/candidate-output/p0-evidence/*.json
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
       - name: Candidate checkpoint
         shell: pwsh
         working-directory: product-source
@@ -406,3 +395,14 @@ jobs:
           Write-Host 'P0F_PACKAGED_STARTER_MACHINE_PROOF=PASS'
           Write-Host 'HUMAN_TESTED=NO'
           Write-Host 'NVDA_VERIFIED=NO'
+
+      - name: Upload exact Windows NVDA test candidate and machine evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-NVDA-test-candidate
+          path: |
+            product-source/candidate-output/Accessible-Chess-V2-*-NVDA-test-candidate.zip
+            product-source/candidate-output/p0-evidence/*.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
