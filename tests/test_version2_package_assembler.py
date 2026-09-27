@@ -389,6 +389,11 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(timestamps, {(1980, 1, 1, 0, 0, 0)})
             self.assertIn("AccessibleChess/AccessibleChess.exe", names)
             self.assertIn("AccessibleChess/AccessibleChess.exe.config", names)
+            with zipfile.ZipFile(first) as archive:
+                self.assertEqual(
+                    archive.read("AccessibleChess/AccessibleChess.exe.config"),
+                    (output / "AccessibleChess" / "AccessibleChess.exe.config").read_bytes(),
+                )
             self.assertIn(MANIFEST_NAME, names)
             self.assertIn(CHECKSUMS_NAME, names)
 
