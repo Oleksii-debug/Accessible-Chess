@@ -230,6 +230,32 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, route_before)
         self.assertEqual(self.app.reader.snapshot(), snapshot_before)
 
+    def test_shell_malformed_epub_fails_closed_without_replacing_current_book(self) -> None:
+        stable = self._write_epub(
+            "stable-shell.epub",
+            b"<html><body><h1>Stable shell book</h1><p>Keep this state.</p></body></html>",
+        )
+        self.app.open_book(stable)
+        reader_before = self.app.reader
+        key_before = self.app.book_key
+        route_before = self.app.shell.current_route.route_id
+        snapshot_before = reader_before.snapshot()
+
+        invalid = self._write_epub(
+            "invalid-shell.epub",
+            b'<html><body><div data-acs-fen="8/8/8/8/8/8/8/8 w - - 0 1"></div></body></html>',
+        )
+        self.app.open_book_dialog = lambda: invalid
+
+        result = self.app.browser_command("shell", "book.open")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertNotIn(str(self.root), json.dumps(result, ensure_ascii=False))
+        self.assertIs(self.app.reader, reader_before)
+        self.assertEqual(self.app.book_key, key_before)
+        self.assertEqual(self.app.shell.current_route.route_id, route_before)
+        self.assertEqual(self.app.reader.snapshot(), snapshot_before)
+
     def test_same_path_changed_epub_bytes_do_not_reuse_stale_progress_identity(self) -> None:
         source = self._write_epub(
             "same-path.epub",
