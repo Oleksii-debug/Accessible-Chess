@@ -275,7 +275,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "_share_v2_action_registry"),
                 mock.patch.object(
                     release_app,
-                    "Version2WindowsFileWorkflowRuntime",
+                    "build_version2_windows_library_file_runtime",
                     return_value=native_runtime,
                 ) as runtime_class,
             ):
@@ -292,6 +292,8 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
 
             recovery_confirmation = application.confirm_book_progress_recovery
             self.assertIsInstance(recovery_confirmation.__self__, release_app._Version2OwnedBookDialogs)
+            self.assertIs(runtime_class.call_args.kwargs["library_service"], application.library_export)
+            self.assertIs(runtime_class.call_args.kwargs["library_export_event_sink"], application._file_event)
             provider = runtime_class.call_args.kwargs["dialog_language_provider"]
             self.assertEqual(provider(), UILanguage.UA)
             application.shell.language = UILanguage.EN
@@ -334,7 +336,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "_share_v2_action_registry"),
                 mock.patch.object(
                     release_app,
-                    "Version2WindowsFileWorkflowRuntime",
+                    "build_version2_windows_library_file_runtime",
                     return_value=native_runtime,
                 ),
                 mock.patch.object(
