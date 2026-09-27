@@ -7,7 +7,10 @@ on:
       - converge/p0-release-critical-to-full-product-20260926
       - work/full-product-teacher-education-reachability-20260911
     paths:
-      - 'acs/version2_final_release.py'
+      - 'run_accessible_chess_v2.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'web/p0_accessibility_runtime.js'
       - 'tests/test_p0g_final_product_runtime_reachability.py'
       - '.github/workflows/p0g-final-product-runtime-reachability.yml'
   workflow_dispatch:
@@ -21,8 +24,11 @@ concurrency:
 
 env:
   P0G_OWNER_BASE: fix/p0g-event-aware-current-product-20260926
-  FINAL_RELEASE_BLOB: 39577887e096337f0b532d21bf49d01f9ecbde73
-  REACHABILITY_TEST_BLOB: e044b1f4436d053071ad9b9fd39e6786c091c806
+  LAUNCHER_BLOB: a564d90a9365ef5f42cd40db6df8e8c29f5d22b8
+  SHIPPING_RELEASE_BLOB: 6631d8e8a000ed32f60a95f68d9b02cf0422c4df
+  EDUCATION_RELEASE_BLOB: 7a772b33f01709eb5f7ab7db447aa0a48594b3de
+  P0_RUNTIME_BLOB: 14565e8b97f0dcd995a764127bd1badc17ff7e30
+  REACHABILITY_TEST_BLOB: 28ccda2a560e34ea5b014de1b36c6ceb344b71f2
 
 jobs:
   final-product-runtime:
@@ -57,38 +63,51 @@ jobs:
           git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EXPECTED_BASE_SHA"
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           git diff --check "$EXPECTED_BASE_SHA" HEAD
-          expected="$(printf '%s\n' \
+          authorities="$(printf '%s\n' \
             '.github/workflows/p0g-final-product-runtime-reachability.yml' \
-            'acs/version2_final_release.py' \
+            'run_accessible_chess_v2.py' \
+            'acs/version2_upgrade_status_release.py' \
+            'acs/version2_education_mutation_release.py' \
+            'web/p0_accessibility_runtime.js' \
             'tests/test_p0g_final_product_runtime_reachability.py' | sort)"
-          if test "$EXPECTED_BASE_REF" = "$P0G_OWNER_BASE"; then
-            changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
-            test "$changed" = "$expected" || {
-              printf 'Unexpected P0-G reachability owner scope:\n%s\n' "$changed" >&2
+          while IFS= read -r path; do
+            test -f "$path" || {
+              printf 'Shipping P0-G reachability authority missing: %s\n' "$path" >&2
               exit 1
             }
-            echo 'P0_G_REACHABILITY_SCOPE_MODE=OWNER_EXACT'
+          done <<< "$authorities"
+          if test "$EXPECTED_BASE_REF" = "$P0G_OWNER_BASE"; then
+            changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
+            unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$authorities") || true)"
+            test -z "$unexpected" || {
+              printf 'Unexpected P0-G reachability owner scope:\n%s\n' "$unexpected" >&2
+              exit 1
+            }
+            echo 'P0_G_REACHABILITY_SCOPE_MODE=OWNER_BOUNDED'
           else
-            while IFS= read -r path; do
-              test -f "$path" || {
-                printf 'Retained P0-G reachability authority missing: %s\n' "$path" >&2
-                exit 1
-              }
-            done <<< "$expected"
             echo 'P0_G_REACHABILITY_SCOPE_MODE=CONVERGENCE_RETAINED'
           fi
-          test "$(git rev-parse HEAD:acs/version2_final_release.py)" = "$FINAL_RELEASE_BLOB"
+          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$LAUNCHER_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$SHIPPING_RELEASE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$EDUCATION_RELEASE_BLOB"
+          test "$(git rev-parse HEAD:web/p0_accessibility_runtime.js)" = "$P0_RUNTIME_BLOB"
           test "$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)" = "$REACHABILITY_TEST_BLOB"
+          grep -Fq 'from acs.version2_upgrade_status_release import main' run_accessible_chess_v2.py
           grep -Fq '"AccessibleChessTeacherSurface"' web/p0_accessibility_runtime.js
           grep -Fq 'wrapSurfaceRenderAnnouncement' web/p0_accessibility_runtime.js
 
       - name: Parse shipping P0 runtime
         run: node --check web/p0_accessibility_runtime.js
 
-      - name: Compile final-product reachability scope
-        run: python -m py_compile acs/version2_final_release.py tests/test_p0g_final_product_runtime_reachability.py
+      - name: Compile shipping final-product reachability scope
+        run: >-
+          python -m py_compile
+          run_accessible_chess_v2.py
+          acs/version2_upgrade_status_release.py
+          acs/version2_education_mutation_release.py
+          tests/test_p0g_final_product_runtime_reachability.py
 
-      - name: Prove runtime load order and retained final composition
+      - name: Prove runtime load order through actual shipping composition
         run: python -m unittest -v tests.test_p0g_final_product_runtime_reachability tests.test_version2_final_product_composition
 
       - name: Full repository unittest on Ubuntu

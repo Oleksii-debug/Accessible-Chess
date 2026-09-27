@@ -5,6 +5,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "p0-packaged-release-probe-convergence.yml"
+CURRENT_CONVERGENCE_BASE = "converge/p0-release-critical-to-full-product-20260926"
 
 REQUIRED_RELEASE_PROBE_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
@@ -17,6 +19,11 @@ REQUIRED_RELEASE_PROBE_PATHS = (
 
 
 class P0PackagedReleaseProbeConvergenceTests(unittest.TestCase):
+    def test_current_release_convergence_base_is_explicitly_admitted(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(CURRENT_CONVERGENCE_BASE, workflow)
+        self.assertNotIn("base='*'", workflow)
+
     def test_copy_and_hotkey_packaged_acceptance_probes_are_both_present(self) -> None:
         missing = [path for path in REQUIRED_RELEASE_PROBE_PATHS if not (ROOT / path).is_file()]
         self.assertFalse(

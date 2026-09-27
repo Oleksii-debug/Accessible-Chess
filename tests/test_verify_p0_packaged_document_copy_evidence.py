@@ -14,6 +14,7 @@ SHA = "1" * 40
 
 def _base_evidence() -> dict[str, object]:
     return {
+        "product_sha": SHA,
         "static_document_text": "Game information",
         "static_document_outside_edit": True,
         "native_copy_focus_verified": True,
@@ -23,6 +24,8 @@ def _base_evidence() -> dict[str, object]:
         "textpattern_selection_supported": True,
         "clipboard_equality": "case-sensitive exact string equality",
         "ctrl_c_exact_clipboard": True,
+        "move_input_focus_verified": True,
+        "move_input_native_ctrl_a_ctrl_c": True,
         "human_tested": False,
         "nvda_verified": False,
     }

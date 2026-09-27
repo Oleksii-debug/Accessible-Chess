@@ -6,6 +6,7 @@ on:
       - 'acs/education_class_management.py'
       - 'acs/version2_education_mutation_application.py'
       - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_final_release.py'
       - 'acs/version2_final_product_profile.py'
       - 'run_accessible_chess_v2.py'
       - 'tests/test_version2_education_class_create.py'
