@@ -49,7 +49,6 @@ class BookTarget:
 class BookIndexEntry:
     target: BookTarget
     kind: BookEntryKind
-    block_kind: str
     label: str
     heading_path: tuple[str, ...]
     position_fen: str | None = None
@@ -145,7 +144,6 @@ class BookIndex:
             yield BookIndexEntry(
                 target=self._target(index),
                 kind=kind,
-                block_kind=block.kind,
                 label=label,
                 heading_path=heading_path,
                 position_fen=fen,
