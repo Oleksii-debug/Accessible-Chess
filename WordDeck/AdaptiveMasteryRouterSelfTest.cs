@@ -23,6 +23,7 @@ internal static class AdaptiveMasteryRouterSelfTest
         SpeakingAndPronunciationEvidenceMapDistinctly();
         MalformedLearningEvidenceFailsClosed();
         LearningEvidenceModeIdentityIsCaseStable();
+        LearningEvidenceSourceBoundaryFailsClosed();
         LearningEvidenceDictionaryMismatchFailsClosed();
         FullOxfordScalePlanIsCompleteAndUnique();
     }
@@ -438,6 +439,37 @@ internal static class AdaptiveMasteryRouterSelfTest
         }
         Require(failed,
             "Case-only duplicate aggregate snapshots must fail closed instead of double-counting mastery evidence.");
+    }
+
+    private static void LearningEvidenceSourceBoundaryFailsClosed()
+    {
+        bool invalidDictionaryFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromLearningEvidence(
+                new FakeEvidenceSource(),
+                " oxford");
+        }
+        catch (InvalidDataException)
+        {
+            invalidDictionaryFailed = true;
+        }
+        Require(invalidDictionaryFailed,
+            "Non-canonical requested dictionary identity must fail closed before querying aggregate evidence.");
+
+        bool nullRecordFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromLearningEvidence(
+                new FakeEvidenceSource(null!),
+                "oxford");
+        }
+        catch (InvalidDataException)
+        {
+            nullRecordFailed = true;
+        }
+        Require(nullRecordFailed,
+            "A null aggregate evidence record must fail closed with a controlled data error.");
     }
 
     private static void LearningEvidenceDictionaryMismatchFailsClosed()
