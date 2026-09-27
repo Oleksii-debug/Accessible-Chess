@@ -143,20 +143,23 @@ internal sealed class SpellingProfileService
             _spellingStore.Save(destinationSpelling);
             return new CombinedProfileImportResult(recallBackup, spellingBackup, destinationApp.QuarantinedProfileEntryIds.ToArray(), SpellingImported: true, LegacyProfile: false);
         }
-        catch
+        catch (Exception importFailure)
         {
-            try
+            IReadOnlyList<Exception> rollbackFailures = PersonalStateRollbackExecutor.RestoreAll(new[]
             {
-                ReplaceApp(destinationApp, beforeApp);
-                SpellingStateStore.Replace(destinationSpelling, beforeSpelling);
-                _appStore.Save(destinationApp);
-                _spellingStore.Save(destinationSpelling);
-            }
-            catch
-            {
-                // The timestamped recovery files remain available even if a
-                // storage-level rollback itself cannot be completed.
-            }
+                new PersonalStateRollbackStep("Recall", () =>
+                {
+                    ReplaceApp(destinationApp, beforeApp);
+                    _appStore.Save(destinationApp);
+                }),
+                new PersonalStateRollbackStep("Spelling", () =>
+                {
+                    SpellingStateStore.Replace(destinationSpelling, beforeSpelling);
+                    _spellingStore.Save(destinationSpelling);
+                })
+            });
+            if (rollbackFailures.Count > 0)
+                throw PersonalStateRollbackExecutor.CreateIncompleteImportException(importFailure, rollbackFailures);
             throw;
         }
     }
