@@ -79,6 +79,29 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("packaged-p0g-hotkey-result-summary.json", self.text)
         self.assertIn("FRESH_PACKAGED_P0_ACCEPTANCE=PASS", self.text)
 
+    def test_source_gate_covers_books_training_volume_and_canonical_resume(self) -> None:
+        qualify = self.text.index("Qualify exact Product source before compilation")
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        for test_name in (
+            "tests.test_w3_p0f_starter_books_training_content",
+            "tests.test_d08_training_canonical_resume",
+        ):
+            position = self.text.index(test_name)
+            self.assertLess(qualify, position)
+            self.assertLess(position, build)
+        self.assertIn("SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS", self.text)
+
+    def test_post_acceptance_relaunch_reproves_packaged_starter_before_publication(self) -> None:
+        acceptance = self.text.index("FRESH_PACKAGED_P0_ACCEPTANCE=PASS")
+        relaunch = self.text.index("FRESH_PACKAGED_POST_ACCEPTANCE_RELAUNCH=PASS")
+        freshness = self.text.index("W4_PRE_UPLOAD_FRESHNESS=PASS")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(acceptance, relaunch)
+        self.assertLess(relaunch, freshness)
+        self.assertLess(freshness, upload)
+        self.assertIn("PACKAGED_POST_ACCEPTANCE_RELAUNCH_FAILURE", self.text)
+        self.assertIn("P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS", self.text)
+        self.assertIn("P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS", self.text)
 
     def test_live_product_is_rechecked_immediately_before_publication(self) -> None:
         acceptance = self.text.index("FRESH_PACKAGED_P0_ACCEPTANCE=PASS")
