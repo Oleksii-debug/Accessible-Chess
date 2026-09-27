@@ -20,6 +20,7 @@ on:
       - 'acs/sound_settings_application.py'
       - 'acs/sound_profile_windows.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_package_preflight.py'
       - 'acs/version2_release_ui.py'
       - 'acs/version2_education_mutation_release.py'
       - 'run_accessible_chess_v2.py'
@@ -38,10 +39,13 @@ on:
       - 'tests/test_sound_profile_windows.py'
       - 'tests/test_version2_sound_profile_bridge.py'
       - 'tests/test_sound_settings_webview.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_v2_package_required_resources.py'
       - 'tests/js/sound_settings_surface_test.js'
       - '.github/workflows/current-sound-profiles-contract.yml'
       - '.github/workflows/sound-settings-application.yml'
       - '.github/workflows/profiled-windows-sound-playback.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
   workflow_dispatch:
 
 permissions:
@@ -106,6 +110,7 @@ jobs:
             expected="$(printf '%s\n' \
               '.github/workflows/current-sound-profiles-contract.yml' \
               '.github/workflows/profiled-windows-sound-playback.yml' \
+              '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
               '.github/workflows/sound-settings-application.yml' \
               'acs/classroom_sound.py' \
               'acs/sound_pack_catalog.py' \
@@ -116,6 +121,7 @@ jobs:
               'acs/sound_profile_store.py' \
               'acs/sound_profile_windows.py' \
               'acs/version2_release_app.py' \
+              'acs/version2_package_preflight.py' \
               'acs/version2_release_ui.py' \
               'acs/version2_education_mutation_release.py' \
               'run_accessible_chess_v2.py' \
@@ -134,6 +140,8 @@ jobs:
               'tests/test_sound_profile_windows.py' \
               'tests/test_version2_sound_profile_bridge.py' \
               'tests/test_sound_settings_webview.py' \
+              'tests/test_version2_package_preflight.py' \
+              'tests/test_v2_package_required_resources.py' \
               'tests/js/sound_settings_surface_test.js' \
               'tests/test_sound_profiles.py' \
               'tests/test_sound_settings_application.py' | sort)"
@@ -167,6 +175,7 @@ jobs:
           acs/sound_settings_application.py
           acs/sound_profile_windows.py
           acs/version2_release_app.py
+          acs/version2_package_preflight.py
           acs/version2_release_ui.py
           acs/version2_education_mutation_release.py
           run_accessible_chess_v2.py
@@ -184,6 +193,8 @@ jobs:
           tests/test_sound_profile_windows.py
           tests/test_version2_sound_profile_bridge.py
           tests/test_sound_settings_webview.py
+          tests/test_version2_package_preflight.py
+          tests/test_v2_package_required_resources.py
 
       - name: Run focused current sound profile regressions
         run: >-
@@ -202,6 +213,8 @@ jobs:
           tests.test_sound_profile_windows
           tests.test_version2_sound_profile_bridge
           tests.test_sound_settings_webview
+          tests.test_version2_package_preflight
+          tests.test_v2_package_required_resources
           tests.test_sound_events
           tests.test_sound_runtime
           tests.test_dev3_sound_failure_isolation
