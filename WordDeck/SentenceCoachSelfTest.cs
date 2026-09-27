@@ -216,6 +216,17 @@ internal static class SentenceCoachSelfTest
             SentenceCoachState recovered = new SentenceCoachStateStore(root).Load();
             Require(recovered.ActivePackId == "pack-1", "Sentence Coach backup recovery did not restore the last good state.");
             Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
+
+            string primaryPath = Path.Combine(root, "sentence-coach-state.json");
+            string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+            File.WriteAllText(primaryPath, "{ still broken primary");
+            File.WriteAllText(backupPath, "{ broken backup too");
+            string primaryBefore = File.ReadAllText(primaryPath);
+            string backupBefore = File.ReadAllText(backupPath);
+            ExpectInvalid(() => new SentenceCoachStateStore(root).Load(),
+                "Sentence Coach silently reset progress when both persisted state files were unreadable.");
+            Require(File.ReadAllText(primaryPath) == primaryBefore && File.ReadAllText(backupPath) == backupBefore,
+                "Sentence Coach changed unreadable state files while failing closed.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
     }
