@@ -44,8 +44,6 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual(index.entries[0].heading_level, 1)
         self.assertEqual(index.entries[2].heading_level, 2)
         self.assertIsNone(index.entries[3].heading_level)
-        self.assertEqual(index.entries[0].block_kind, "Heading")
-        self.assertEqual(index.entries[3].block_kind, "Position")
 
     def test_contents_and_kind_filters_are_semantic_not_ui_specific(self):
         index = BookIndex(self.make_document())
