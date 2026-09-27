@@ -48,7 +48,8 @@ jobs:
           PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$PRODUCT_BRANCH"
+          git fetch --no-tags origin \
+            "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
           product_ref="origin/$PRODUCT_BRANCH"
           git merge-base --is-ancestor "$product_ref" HEAD || {
             echo "Child-coaching head is stale relative to current Full Product." >&2
