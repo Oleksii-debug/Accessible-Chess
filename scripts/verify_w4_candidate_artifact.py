@@ -152,6 +152,60 @@ def _positive_int(value: object, label: str, maximum: int | None = None) -> int:
     return value
 
 
+def _read_semantic_member(
+    archive: zipfile.ZipFile,
+    name: str,
+    label: str,
+) -> bytes:
+    info = archive.getinfo(name)
+    if info.file_size <= 0 or info.file_size > MAX_CANDIDATE_METADATA_BYTES:
+        raise CandidateArtifactError(f"{label} size is outside accepted semantic bound")
+    data = archive.read(info)
+    if len(data) != info.file_size:
+        raise CandidateArtifactError(f"{label} changed while being read")
+    return data
+
+
+def _scan_comment_state(line: str, inside_brace: bool) -> bool:
+    for character in line:
+        if inside_brace:
+            if character == "}":
+                inside_brace = False
+            continue
+        if character == ";":
+            break
+        if character == "{":
+            inside_brace = True
+    return inside_brace
+
+
+def _complete_pgn_record_hashes(payload: bytes, label: str) -> list[str]:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise CandidateArtifactError(f"{label} is not UTF-8") from exc
+
+    current: list[str] = []
+    inside_brace = False
+    hashes: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if not inside_brace and line.startswith('[Event "') and current:
+            record = "".join(current).strip()
+            if record:
+                hashes.append(_sha256(record.encode("utf-8")))
+            current = [line]
+            inside_brace = _scan_comment_state(line, False)
+            continue
+        current.append(line)
+        inside_brace = _scan_comment_state(line, inside_brace)
+
+    if current:
+        record = "".join(current).strip()
+        if record:
+            hashes.append(_sha256(record.encode("utf-8")))
+    return hashes
+
+
 def _starter_length_band(plies: int) -> str:
     if plies < 60:
         return "20-59"
@@ -160,7 +214,10 @@ def _starter_length_band(plies: int) -> str:
     return "100+"
 
 
-def _verify_starter_curation(source: dict[str, object]) -> None:
+def _verify_starter_curation(
+    source: dict[str, object],
+    actual_record_hashes: list[str],
+) -> None:
     curation = source.get("curation")
     if not isinstance(curation, dict):
         raise CandidateArtifactError("starter curation evidence is missing")
@@ -235,6 +292,15 @@ def _verify_starter_curation(source: dict[str, object]) -> None:
 
     if source_indices != sorted(source_indices) or len(set(source_indices)) != len(source_indices):
         raise CandidateArtifactError("starter curation source indices are not strictly ordered")
+    expected_record_hashes = [
+        str(item["record_sha256"]).lower()
+        for item in selected
+        if isinstance(item, dict)
+    ]
+    if expected_record_hashes != actual_record_hashes:
+        raise CandidateArtifactError(
+            "starter curation selected record hashes do not match packaged starter PGN"
+        )
     for result, minimum in STARTER_EXPECTED_CRITERIA["result_minimums"].items():
         if result_counts[result] < minimum:
             raise CandidateArtifactError("starter curation result representation floor is not met")
@@ -420,7 +486,25 @@ def _verify_starter_bundle(
     starter_metadata = file_manifest["starter_uk.pgn"]
     if source.get("subset_sha256") != starter_metadata.get("sha256"):
         raise CandidateArtifactError("starter source subset_sha256 does not bind starter PGN")
-    _verify_starter_curation(source)
+
+    starter_payload = _read_semantic_member(
+        archive,
+        f"{STARTER_ROOT}/starter_uk.pgn",
+        "starter PGN",
+    )
+    starter_record_hashes = _complete_pgn_record_hashes(starter_payload, "starter PGN")
+    if len(starter_record_hashes) != STARTER_REAL_GAME_COUNT:
+        raise CandidateArtifactError("starter PGN complete-record count mismatch")
+
+    stress_payload = _read_semantic_member(
+        archive,
+        f"{STARTER_ROOT}/stress_uk.pgn",
+        "stress PGN",
+    )
+    if len(_complete_pgn_record_hashes(stress_payload, "stress PGN")) != STARTER_STRESS_GAME_COUNT:
+        raise CandidateArtifactError("stress PGN complete-record count mismatch")
+
+    _verify_starter_curation(source, starter_record_hashes)
 
     sample = _dict_field(manifest, "sample_library", "starter manifest")
     expected_sample: dict[str, int] = {}
