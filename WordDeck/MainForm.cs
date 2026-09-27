@@ -176,7 +176,7 @@ internal sealed partial class MainForm : Form
         Shown += (_, _) => BeginInvoke(new Action(RestoreCurrentOrNextWord));
         FormClosing += (_, e) =>
         {
-            if (!RecallClosePersistence.TrySave(SaveState, out string? error))
+            if (!RecallClosePersistence.TrySave(() => SaveState(), out string? error))
             {
                 e.Cancel = true;
                 AnnounceStatus($"Closing WordDeck was cancelled because Recall progress could not be saved. WordDeck remains open; resolve the storage problem and try again. {error}");
