@@ -93,6 +93,19 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("candidate-output\\p0-evidence", self.text)
         self.assertIn("packaged-uia-strict-summary.json", self.text)
 
+    def test_strict_uia_machine_acceptance_truth_is_explicit_before_retention(self) -> None:
+        summary = self.text.index("$summary=Get-Content packaged-uia-strict-summary.json")
+        annotate = self.text.index("$summary | Add-Member -NotePropertyName $name -NotePropertyValue $false -Force")
+        persist = self.text.index("$summary | ConvertTo-Json -Depth 20 | Set-Content")
+        retained = self.text.index("FRESH_PACKAGED_UIA_EVIDENCE_RETAINED=PASS")
+        self.assertLess(summary, annotate)
+        self.assertLess(annotate, persist)
+        self.assertLess(persist, retained)
+        self.assertIn("foreach($name in @('human_tested','nvda_verified'))", self.text)
+        self.assertIn("$property.Value -isnot [bool]", self.text)
+        self.assertIn("$property.Value -ne $false", self.text)
+        self.assertIn("Strict UIA machine evidence must never claim or malformed-declare $name", self.text)
+
     def test_combined_p0_acceptance_uses_exact_sha_and_requires_both_evidence_files(self) -> None:
         self.assertIn("-ProductSha $env:PRODUCT_SHA", self.text)
         self.assertIn("packaged-v2-document-copy-summary.json", self.text)
@@ -150,12 +163,46 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("STALE_W4_CANDIDATE", self.text)
 
 
+    def test_run_metadata_is_bound_after_freshness_and_before_publication(self) -> None:
+        bind = self.text.index('echo "WORKFLOW_AUTHORITY_SHA=$workflow_sha" >> "$GITHUB_ENV"')
+        freshness = self.text.index("W4_PRE_UPLOAD_FRESHNESS=PASS")
+        metadata = self.text.index("Write run-bound candidate metadata after freshness proof")
+        metadata_pass = self.text.index("W4_RUN_METADATA=PASS")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(bind, freshness)
+        self.assertLess(freshness, metadata)
+        self.assertLess(metadata, metadata_pass)
+        self.assertLess(metadata_pass, upload)
+        self.assertIn('"product_sha": product_sha', self.text)
+        self.assertIn('"workflow_sha": workflow_sha', self.text)
+        self.assertIn('"pre_upload_product_freshness": True', self.text)
+        self.assertIn('"pre_upload_workflow_freshness": True', self.text)
+        self.assertIn('"human_tested": False', self.text)
+        self.assertIn('"nvda_verified": False', self.text)
+        self.assertIn("w4-run-metadata.json", self.text)
+
     def test_candidate_checkpoint_precedes_artifact_publication(self) -> None:
         checkpoint = self.text.index("CANDIDATE_PRODUCT_SHA=")
         upload = self.text.index(UPLOAD_ARTIFACT_V462)
         self.assertLess(checkpoint, upload)
         self.assertLess(self.text.index("HUMAN_TESTED=NO"), upload)
         self.assertLess(self.text.index("NVDA_VERIFIED=NO"), upload)
+
+    def test_successful_run_does_not_rebind_freshness_after_artifact_upload(self) -> None:
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        metadata = self.text.index("W4_RUN_METADATA=PASS")
+        self.assertLess(metadata, upload)
+        for forbidden in (
+            "Recheck workflow and Full Product freshness after artifact upload",
+            "STALE_W4_WORKFLOW_AFTER_UPLOAD",
+            "STALE_W4_CANDIDATE_AFTER_UPLOAD",
+            "W4_POST_UPLOAD_WORKFLOW_FRESHNESS=PASS",
+            "W4_POST_UPLOAD_PRODUCT_FRESHNESS=PASS",
+            "W4_POST_UPLOAD_FRESHNESS=PASS",
+        ):
+            self.assertNotIn(forbidden, self.text)
+        self.assertIn("pre_upload_product_freshness", self.text)
+        self.assertIn("pre_upload_workflow_freshness", self.text)
 
     def test_candidate_artifact_publication_is_exactly_pinned_and_contains_evidence(self) -> None:
         self.assertIn(UPLOAD_ARTIFACT_V462, self.text)

@@ -22,9 +22,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
-      FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
-      W4_VERIFIER_COMMIT: 70fa4fd75910d659161abcc8bcd192e9a88a7905
-      W4_VERIFIER_BLOB_SHA: 74282656f5a38e198640c35e390128448935cde1
+      W4_VERIFIER_BLOB_SHA: 45219a753090d822ec95c5766c8ad94586793da2
     steps:
       - name: Checkout exact default-branch workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -47,42 +45,28 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
 
-      - name: Materialize immutable W4 artifact verifier
+      - name: Materialize immutable verifier bytes from completed workflow authority
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$W4_VERIFIER_COMMIT"
-          git cat-file -e "${W4_VERIFIER_COMMIT}^{commit}"
-          actual_blob="$(git rev-parse "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py")"
+          workflow_sha="$(git rev-parse HEAD)"
+          rm -rf .w4-readback-source
+          git worktree add --detach .w4-readback-source "$workflow_sha"
+          test "$(git -C .w4-readback-source rev-parse HEAD)" = "$workflow_sha"
+          actual_blob="$(git -C .w4-readback-source rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py")"
           test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA" || {
-            printf 'Pinned W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
+            printf 'Completed-run W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
             exit 1
           }
-          mkdir -p .w4-readback
-          git show "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py" > .w4-readback/verify_w4_candidate_artifact.py
-          test -s .w4-readback/verify_w4_candidate_artifact.py
-          echo "W4_READBACK_VERIFIER_COMMIT=$W4_VERIFIER_COMMIT"
+          test -s .w4-readback-source/scripts/verify_w4_candidate_artifact.py
+          echo "W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha"
           echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
+          echo 'W4_READBACK_VERIFIER_AUTHORITY=PASS'
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
-
-      - name: Bind expected Product SHA from live canonical Full Product authority
-        id: product
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
-          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
-          [[ "$live" =~ ^[0-9a-f]{40}$ ]] || {
-            printf 'live Full Product head is not exact 40-hex: %s\n' "$live" >&2
-            exit 1
-          }
-          git cat-file -e "${live}^{commit}"
-          echo "product_sha=$live" >> "$GITHUB_OUTPUT"
-          echo "W4_READBACK_EXPECTED_PRODUCT_SHA=$live"
 
       - name: Resolve exact candidate artifact from completed W4 run
         id: artifact
@@ -170,28 +154,117 @@ jobs:
           print('W4_RAW_ARTIFACT_DOWNLOAD=PASS')
           PY
 
-      - name: Recheck live Full Product freshness after build and upload
+      - name: Bind Product identity to the completed run metadata
+        id: product
+        shell: bash
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import zipfile
+
+          expected_workflow = os.environ["EXPECTED_WORKFLOW_SHA"].strip().lower()
+          hex40 = re.compile(r"^[0-9a-f]{40}$")
+          if not hex40.fullmatch(expected_workflow):
+              raise SystemExit("completed workflow SHA is not exact 40-hex")
+
+          def no_duplicates(pairs):
+              value = {}
+              for key, item in pairs:
+                  if key in value:
+                      raise ValueError(f"duplicate run metadata key: {key}")
+                  value[key] = item
+              return value
+
+          with zipfile.ZipFile("candidate-artifact.zip", "r") as archive:
+              names = archive.namelist()
+              target = "p0-evidence/w4-run-metadata.json"
+              if names.count(target) != 1:
+                  raise SystemExit("expected exactly one run metadata file")
+              info = archive.getinfo(target)
+              if info.file_size <= 0 or info.file_size > 16384:
+                  raise SystemExit("run metadata size is outside accepted bound")
+              raw = archive.read(info)
+          try:
+              text = raw.decode("utf-8")
+              metadata = json.loads(text, object_pairs_hook=no_duplicates)
+          except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit(f"run metadata is invalid: {exc}")
+          if not isinstance(metadata, dict):
+              raise SystemExit("run metadata root must be an object")
+          required = {
+              "schema_version",
+              "product_sha",
+              "workflow_sha",
+              "pre_upload_product_freshness",
+              "pre_upload_workflow_freshness",
+              "human_tested",
+              "nvda_verified",
+          }
+          if set(metadata) != required:
+              raise SystemExit("run metadata key set mismatch")
+          product = metadata.get("product_sha")
+          workflow = metadata.get("workflow_sha")
+          if metadata.get("schema_version") != 1 or type(metadata.get("schema_version")) is not int:
+              raise SystemExit("run metadata schema_version mismatch")
+          if not isinstance(product, str) or not hex40.fullmatch(product):
+              raise SystemExit("run metadata product_sha is invalid")
+          if not isinstance(workflow, str) or not hex40.fullmatch(workflow):
+              raise SystemExit("run metadata workflow_sha is invalid")
+          if workflow != expected_workflow:
+              raise SystemExit("run metadata workflow_sha does not match completed run")
+          if metadata.get("pre_upload_product_freshness") is not True:
+              raise SystemExit("run metadata lacks pre-upload Product freshness proof")
+          if metadata.get("pre_upload_workflow_freshness") is not True:
+              raise SystemExit("run metadata lacks pre-upload workflow freshness proof")
+          if metadata.get("human_tested") is not False or metadata.get("nvda_verified") is not False:
+              raise SystemExit("run metadata overclaims human or NVDA acceptance")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write(f"product_sha={product}\n")
+          print(f"W4_READBACK_RUN_PRODUCT_SHA={product}")
+          print(f"W4_READBACK_RUN_WORKFLOW_SHA={workflow}")
+          print("W4_READBACK_RUN_IDENTITY=PASS")
+          PY
+
+      - name: Materialize exact Product semantic dependencies with workflow-authority verifier
         shell: bash
         env:
           PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
-          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
-          test "$PRODUCT_SHA" = "$live" || {
-            printf 'STALE_W4_CANDIDATE product=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
+          git fetch --no-tags origin "$PRODUCT_SHA"
+          rm -rf .w4-product-source
+          git worktree add --detach .w4-product-source "$PRODUCT_SHA"
+          test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"
+          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py; do
+            test -s ".w4-product-source/$dependency" || {
+              printf 'Exact Product semantic dependency missing: %s\n' "$dependency" >&2
+              exit 1
+            }
+          done
+          mkdir -p .w4-product-source/scripts
+          cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py .w4-product-source/scripts/verify_w4_candidate_artifact.py
+          copied_blob="$(git hash-object .w4-product-source/scripts/verify_w4_candidate_artifact.py)"
+          test "$copied_blob" = "$W4_VERIFIER_BLOB_SHA" || {
+            printf 'Copied W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$copied_blob" >&2
             exit 1
           }
-          echo "W4_POST_BUILD_LIVE_PRODUCT_SHA=$live"
-          echo 'W4_POST_BUILD_FRESHNESS=PASS'
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_SHA=$PRODUCT_SHA"
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_VERIFIER_BLOB=$copied_blob"
+          echo 'W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS'
 
       - name: Independently verify outer artifact, inner package, checksums, P0-F and P0 evidence
         shell: bash
         run: |
           set -euo pipefail
-          python .w4-readback/verify_w4_candidate_artifact.py \
+          python .w4-product-source/scripts/verify_w4_candidate_artifact.py \
             --artifact candidate-artifact.zip \
             --product-sha '${{ steps.product.outputs.product_sha }}' \
+            --workflow-sha '${{ github.event.workflow_run.head_sha }}' \
             --outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'
           echo 'W4_EXACT_RUN_ARTIFACT_READBACK=PASS'
           echo 'HUMAN_TESTED=NO'

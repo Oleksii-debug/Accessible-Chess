@@ -77,6 +77,7 @@ jobs:
           short="${requested:0:7}"
           echo "PRODUCT_SHA=$requested" >> "$GITHUB_ENV"
           echo "SOURCE_INTEGRATION_SHA=$requested" >> "$GITHUB_ENV"
+          echo "WORKFLOW_AUTHORITY_SHA=$workflow_sha" >> "$GITHUB_ENV"
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip" >> "$GITHUB_ENV"
           echo "W4_WORKFLOW_REGISTRATION_IDENTITY=PASS"
           echo "W4_WORKFLOW_PRODUCT_IDENTITY=PASS"
@@ -367,6 +368,14 @@ jobs:
             if([string]$summary.clipboard -ne 'e9'){throw 'Fresh candidate Move Input Ctrl+A/Ctrl+C proof did not pass'}
             if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Fresh candidate invalid-input atomicity proof did not pass'}
             if(-not [bool]$summary.board_focus_continuity){throw 'Fresh candidate board focus continuity proof did not pass'}
+            foreach($name in @('human_tested','nvda_verified')){
+              $property=$summary.PSObject.Properties[$name]
+              if($null -ne $property -and ($property.Value -isnot [bool] -or $property.Value -ne $false)){
+                throw "Strict UIA machine evidence must never claim or malformed-declare $name"
+              }
+              $summary | Add-Member -NotePropertyName $name -NotePropertyValue $false -Force
+            }
+            $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath packaged-uia-strict-summary.json -Encoding utf8
             $evidenceDir='candidate-output\p0-evidence'
             New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
             Copy-Item -LiteralPath 'packaged-uia-strict-summary.json' -Destination (Join-Path $evidenceDir 'packaged-uia-strict-summary.json')
@@ -428,6 +437,47 @@ jobs:
           echo 'W4_PRE_UPLOAD_PRODUCT_FRESHNESS=PASS'
           echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
 
+      - name: Write run-bound candidate metadata after freshness proof
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          hex40 = re.compile(r"^[0-9a-f]{40}$")
+          product_sha = os.environ["PRODUCT_SHA"].strip().lower()
+          workflow_sha = os.environ["WORKFLOW_AUTHORITY_SHA"].strip().lower()
+          if not hex40.fullmatch(product_sha):
+              raise SystemExit("RUN_METADATA_PRODUCT_SHA_INVALID")
+          if not hex40.fullmatch(workflow_sha):
+              raise SystemExit("RUN_METADATA_WORKFLOW_SHA_INVALID")
+          payload = {
+              "schema_version": 1,
+              "product_sha": product_sha,
+              "workflow_sha": workflow_sha,
+              "pre_upload_product_freshness": True,
+              "pre_upload_workflow_freshness": True,
+              "human_tested": False,
+              "nvda_verified": False,
+          }
+          path = Path("candidate-output/p0-evidence/w4-run-metadata.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          temporary = path.with_suffix(".json.tmp")
+          temporary.write_text(
+              json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          temporary.replace(path)
+          print(f"W4_RUN_METADATA_PRODUCT_SHA={product_sha}")
+          print(f"W4_RUN_METADATA_WORKFLOW_SHA={workflow_sha}")
+          print("W4_RUN_METADATA=PASS")
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Run-bound candidate metadata publication failed'}
+
       - name: Candidate checkpoint
         shell: pwsh
         working-directory: product-source
@@ -455,3 +505,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
