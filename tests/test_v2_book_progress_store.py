@@ -254,6 +254,28 @@ class BookProgressStoreTests(unittest.TestCase):
                 self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_regular_file_replacement_during_descriptor_read_fails_closed(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+        replacement = self.path.with_name("replacement-after-open.json")
+        replacement.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+
+        real_lstat = os.lstat
+        target_lstats = 0
+
+        def replacing_lstat(path: object) -> os.stat_result:
+            nonlocal target_lstats
+            if os.fspath(path) == os.fspath(self.path):
+                target_lstats += 1
+                if target_lstats == 3:
+                    os.replace(replacement, self.path)
+            return real_lstat(path)
+
+        with mock.patch("acs.book_progress_store.os.lstat", side_effect=replacing_lstat):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+
     @unittest.skipIf(os.name == "nt", "Windows symlink creation requires environment-specific privileges")
     def test_symlink_swap_between_lstat_and_open_fails_closed(self) -> None:
         self.path.parent.mkdir(parents=True)
