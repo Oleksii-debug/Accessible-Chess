@@ -764,13 +764,23 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     runtime_nodes = root.findall("runtime")
     if len(runtime_nodes) != 1:
         _fail("WinForms accessibility app-config must contain exactly one runtime element")
-    switch_nodes = runtime_nodes[0].findall("AppContextSwitchOverrides")
+    runtime = runtime_nodes[0]
+    switch_nodes = runtime.findall("AppContextSwitchOverrides")
     if len(switch_nodes) != 1:
         _fail(
             "WinForms accessibility app-config must contain exactly one "
             "AppContextSwitchOverrides element"
         )
     node = switch_nodes[0]
+    if (
+        list(runtime) != [node]
+        or (runtime.text is not None and runtime.text.strip())
+        or (node.tail is not None and node.tail.strip())
+    ):
+        _fail(
+            "WinForms accessibility app-config runtime must contain only "
+            "AppContextSwitchOverrides"
+        )
     if set(node.attrib) != {"value"}:
         _fail("WinForms accessibility app-config switch attributes are invalid")
     if list(node) or (node.text is not None and node.text.strip()):
