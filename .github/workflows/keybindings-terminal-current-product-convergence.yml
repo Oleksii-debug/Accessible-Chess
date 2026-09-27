@@ -69,12 +69,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test '${{ github.event.pull_request.base.sha }}' = "$EXPECTED_PRODUCT_SHA"
           test '${{ github.event.pull_request.head.ref }}' = 'reconverge/keybindings-terminal-current-product-20260926'
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
-          test "$(git merge-base "$EXPECTED_PRODUCT_SHA" HEAD)" = "$EXPECTED_PRODUCT_SHA"
-          git diff --check "$EXPECTED_PRODUCT_SHA" HEAD
-          changed="$(git diff --name-only "$EXPECTED_PRODUCT_SHA" HEAD | sort)"
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          product_ref="refs/remotes/origin/${{ github.base_ref }}"
+          product_sha="$(git rev-parse "$product_ref")"
+          test "$product_sha" = "$EXPECTED_PRODUCT_SHA"
+          git merge-base --is-ancestor "$product_sha" HEAD
+          test "$(git merge-base "$product_sha" HEAD)" = "$product_sha"
+          git diff --check "$product_sha" HEAD
+          changed="$(git diff --name-only "$product_sha" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/d01-education-management-webview.yml' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
