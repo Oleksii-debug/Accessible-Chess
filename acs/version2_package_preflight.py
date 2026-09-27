@@ -116,6 +116,7 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_books_training.js",
     "AccessibleChess/web/full_product_teacher.js",
     "AccessibleChess/web/full_product_education.js",
+    "AccessibleChess/web/full_product_sound_settings.js",
     "AccessibleChess/web/version2_final_product_bootstrap.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
 )
