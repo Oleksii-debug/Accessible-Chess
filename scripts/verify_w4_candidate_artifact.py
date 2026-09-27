@@ -124,6 +124,45 @@ def _verify_p0_evidence(
         _require_false(value, key, label)
 
 
+
+def _bounded_evidence_text(value: dict[str, object], key: str, label: str, maximum: int = 4096) -> str:
+    text = value.get(key)
+    if not isinstance(text, str) or not text.strip() or len(text) > maximum:
+        raise CandidateArtifactError(f"{label} required bounded text is missing or invalid: {key}")
+    return text.strip()
+
+
+def _verify_copy_payload(value: dict[str, object]) -> None:
+    _bounded_evidence_text(value, "static_document_text", "copy evidence")
+    if value.get("clipboard_equality") != "case-sensitive exact string equality":
+        raise CandidateArtifactError("copy evidence clipboard equality contract is not exact")
+
+
+def _verify_p0g_payload(value: dict[str, object]) -> None:
+    pre1 = _bounded_evidence_text(value, "alt_1_precondition_selected_state", "P0-G evidence")
+    selected1 = _bounded_evidence_text(value, "alt_1_selected_state", "P0-G evidence")
+    result1 = _bounded_evidence_text(value, "alt_1_result", "P0-G evidence")
+    pre2 = _bounded_evidence_text(value, "alt_2_precondition_selected_state", "P0-G evidence")
+    selected2 = _bounded_evidence_text(value, "alt_2_selected_state", "P0-G evidence")
+    result2 = _bounded_evidence_text(value, "alt_2_result", "P0-G evidence")
+    if pre1 == selected1 or pre2 == selected2:
+        raise CandidateArtifactError("P0-G evidence does not prove causal selected-state transitions")
+    if selected1 == selected2:
+        raise CandidateArtifactError("P0-G selected-state evidence is not distinct")
+    if result1 == result2:
+        raise CandidateArtifactError("P0-G accessible results are not distinct")
+    for index, text in ((1, result1), (2, result2)):
+        lower = text.casefold()
+        if f"variant {index}" not in lower and f"варіант {index}" not in lower:
+            raise CandidateArtifactError(f"P0-G Alt+{index} result does not identify selected variation")
+        if "depth" not in lower and "глибин" not in lower:
+            raise CandidateArtifactError(f"P0-G Alt+{index} result omits analysis depth")
+        if "eval" not in lower and "оцін" not in lower:
+            raise CandidateArtifactError(f"P0-G Alt+{index} result omits evaluation")
+        if "uci" in lower or "debug" in lower or "traceback" in lower:
+            raise CandidateArtifactError(f"P0-G Alt+{index} result exposes raw provider/debug text")
+
+
 COPY_REQUIRED_TRUE = (
     "static_document_outside_edit",
     "native_copy_focus_verified",
@@ -206,6 +245,8 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
                 "nvda_verified",
             ),
         )
+        _verify_copy_payload(copy_evidence)
+        _verify_p0g_payload(p0g_evidence)
 
         candidate_bytes = outer.read(candidate_names[0])
         if not candidate_bytes or len(candidate_bytes) > MAX_INNER_BYTES:
