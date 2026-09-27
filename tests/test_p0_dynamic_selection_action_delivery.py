@@ -40,6 +40,7 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         self.assertIn("setText('engine-status',s.engineStatus)", self.index)
         self.assertIn('observer.observe(main, { subtree: true, childList: true, characterData: true })', self.runtime)
         self.assertIn('observer.observe(workspace, { subtree: true, childList: true, characterData: true })', self.runtime)
+        self.assertIn('observer.observe(navigation, { subtree: true, childList: true, characterData: true })', self.runtime)
 
     def test_action_result_delivery_reuses_single_existing_live_region(self) -> None:
         self.assertIn('documentRef.getElementById("live")', self.runtime)
@@ -86,6 +87,7 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        self.assertIn("P0_V2_NAVIGATION_SELECTION_SURVIVES=PASS", dynamic.stdout)
         self.assertIn("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS", dynamic.stdout)
 
 
