@@ -50,17 +50,27 @@ jobs:
           test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
-          wanted="$(printf '%s\n'             '.github/workflows/v2-library-export-release-reachability.yml'             'acs/version2_release_app.py'             'tests/test_v2_library_export_release_reachability.py'             'tests/test_v2_native_dialog_language.py' | LC_ALL=C sort)"
+          wanted="$(printf '%s\n' \
+            '.github/workflows/v2-library-export-release-reachability.yml' \
+            'acs/version2_release_app.py' \
+            'tests/test_v2_library_export_release_reachability.py' \
+            'tests/test_v2_native_dialog_language.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
           # Preserve the existing D07/D06 export authorities exactly.
-          git diff --quiet "$base" HEAD --             acs/library_export_service.py             acs/version2_windows_library_export.py             acs/pgn_service.py             acs/gametree.py             acs/acsdb.py
+          git diff --quiet "$base" HEAD -- \
+            acs/library_export_service.py \
+            acs/version2_windows_library_export.py \
+            acs/pgn_service.py \
+            acs/gametree.py \
+            acs/acsdb.py
 
       - name: Compile owned release seam
         run: >-
           python -m py_compile
           acs/version2_release_app.py
           tests/test_v2_library_export_release_reachability.py
+          tests/test_v2_native_dialog_language.py
 
       - name: Run focused Library export reachability regressions
         run: >-
