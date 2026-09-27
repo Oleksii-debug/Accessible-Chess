@@ -34,6 +34,47 @@ internal sealed record UnifiedProfileImportResult(
     public bool CourseImported { get; init; }
 }
 
+internal sealed record PersonalStateRollbackStep(string StateFamily, Action Restore);
+
+internal static class PersonalStateRollbackExecutor
+{
+    public static IReadOnlyList<Exception> RestoreAll(IEnumerable<PersonalStateRollbackStep> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+        var failures = new List<Exception>();
+        foreach (PersonalStateRollbackStep step in steps)
+        {
+            try
+            {
+                step.Restore();
+            }
+            catch (Exception ex)
+            {
+                failures.Add(new InvalidDataException(
+                    $"Automatic rollback failed for WordDeck {step.StateFamily} state.", ex));
+            }
+        }
+        return failures;
+    }
+
+    public static InvalidDataException CreateIncompleteImportException(
+        Exception importFailure,
+        IReadOnlyList<Exception> rollbackFailures)
+    {
+        ArgumentNullException.ThrowIfNull(importFailure);
+        ArgumentNullException.ThrowIfNull(rollbackFailures);
+        if (rollbackFailures.Count == 0)
+            throw new ArgumentException("At least one rollback failure is required.", nameof(rollbackFailures));
+
+        var failures = new List<Exception>(rollbackFailures.Count + 1) { importFailure };
+        failures.AddRange(rollbackFailures);
+        return new InvalidDataException(
+            "WordDeck profile import failed and automatic recovery was incomplete. " +
+            "Pre-import recovery backups were preserved. Do not continue learning until personal state is restored from those backups.",
+            new AggregateException(failures));
+    }
+}
+
 internal sealed class UnifiedProfileService
 {
     public const int CurrentProfileSchemaVersion = 5;
@@ -155,19 +196,27 @@ internal sealed class UnifiedProfileService
                 if (importListening) _listeningStore.Save(importedListening);
                 if (importCourse) _courseStore.Save(importedCourse!);
             }
-            catch
+            catch (Exception importFailure)
             {
-                try
+                var rollbackSteps = new List<PersonalStateRollbackStep>
                 {
-                    WriteV2(rollbackV2, beforeApp, beforeSpelling);
-                    SpellingState rollbackSpelling = TrainingStateContinuityGuard.LoadSpelling(_root).State;
-                    _ = new SpellingProfileService(_appStore, _spellingStore).Import(
-                        rollbackV2, destinationApp, rollbackSpelling, knownEntries, knownDictionaries);
-                    _sentenceStore.Save(beforeSentence);
-                    if (importListening) _listeningStore.Save(beforeListening);
-                    if (importCourse) _courseStore.Save(beforeCourse!);
-                }
-                catch { }
+                    new("Recall and Spelling", () =>
+                    {
+                        WriteV2(rollbackV2, beforeApp, beforeSpelling);
+                        SpellingState rollbackSpelling = TrainingStateContinuityGuard.LoadSpelling(_root).State;
+                        _ = new SpellingProfileService(_appStore, _spellingStore).Import(
+                            rollbackV2, destinationApp, rollbackSpelling, knownEntries, knownDictionaries);
+                    }),
+                    new("Sentence", () => _sentenceStore.Save(beforeSentence))
+                };
+                if (importListening)
+                    rollbackSteps.Add(new PersonalStateRollbackStep("Listening", () => _listeningStore.Save(beforeListening)));
+                if (importCourse)
+                    rollbackSteps.Add(new PersonalStateRollbackStep("Course/Story", () => _courseStore.Save(beforeCourse!)));
+
+                IReadOnlyList<Exception> rollbackFailures = PersonalStateRollbackExecutor.RestoreAll(rollbackSteps);
+                if (rollbackFailures.Count > 0)
+                    throw PersonalStateRollbackExecutor.CreateIncompleteImportException(importFailure, rollbackFailures);
                 throw;
             }
             return new UnifiedProfileImportResult(
