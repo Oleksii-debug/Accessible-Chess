@@ -173,6 +173,10 @@ internal static class ListeningCoachSelfTest
             "Listening statistics lost the bounded practice-success label.");
         Require(message.Contains("practice evidence only, not a mastery claim", StringComparison.OrdinalIgnoreCase),
             "A perfect practice sample was not explicitly separated from mastery.");
+        Require(!ListeningStatisticsPresentation.AccessibleDescription.Contains("mastery", StringComparison.OrdinalIgnoreCase),
+            "Listening statistics accessibility description still claims mastery.");
+        Require(ListeningStatisticsPresentation.AccessibleDescription.Contains("practice success", StringComparison.OrdinalIgnoreCase),
+            "Listening statistics accessibility description lost the truthful practice-success label.");
     }
 
     private static void TestBlankSubmissionIsNonLearning()
