@@ -33,7 +33,7 @@ jobs:
           set -euo pipefail
           base='${{ github.event.pull_request.base.ref }}'
           case "$base" in
-            fix/p0f-packaged-starter-diagnostic-20260926|work/full-product-teacher-education-reachability-20260911|fix/convergence-full-suite-regressions-20260927|converge/p0-release-critical-to-full-product-20260926)
+            fix/p0f-packaged-starter-diagnostic-20260926|work/full-product-teacher-education-reachability-20260911|fix/convergence-full-suite-regressions-20260927|converge/p0-release-critical-to-full-product-20260926|release/w4-v2-current-p0-candidate-20260926)
               ;;
             *)
               echo "unexpected convergence base: $base" >&2

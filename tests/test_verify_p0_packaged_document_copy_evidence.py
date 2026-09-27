@@ -22,6 +22,8 @@ def _base_evidence() -> dict[str, object]:
         "manifest_product_sha_verified": True,
         "executable_checksum_verified": True,
         "textpattern_selection_supported": True,
+        "textpattern_target_selected": True,
+        "textpattern_selection_equality": "UIA exact range endpoints and case-sensitive text equality",
         "clipboard_equality": "case-sensitive exact string equality",
         "ctrl_c_exact_clipboard": True,
         "move_input_focus_verified": True,
@@ -91,6 +93,20 @@ class VerifyP0PackagedDocumentCopyEvidenceTests(unittest.TestCase):
         with self.assertRaises(EvidenceError):
             verify(self.evidence, self.product, SHA)
 
+    def test_false_target_selection_proof_fails(self) -> None:
+        value = _base_evidence()
+        value["textpattern_target_selected"] = False
+        self._write_evidence(value)
+        with self.assertRaises(EvidenceError):
+            verify(self.evidence, self.product, SHA)
+
+    def test_wrong_selection_equality_contract_fails(self) -> None:
+        value = _base_evidence()
+        value["textpattern_selection_equality"] = "text only"
+        self._write_evidence(value)
+        with self.assertRaises(EvidenceError):
+            verify(self.evidence, self.product, SHA)
+
     def test_false_clipboard_proof_fails(self) -> None:
         value = _base_evidence()
         value["ctrl_c_exact_clipboard"] = False
@@ -113,6 +129,19 @@ class VerifyP0PackagedDocumentCopyEvidenceTests(unittest.TestCase):
                 self._write_evidence(value)
                 with self.assertRaises(EvidenceError):
                     verify(self.evidence, self.product, SHA)
+
+    def test_machine_acceptance_flags_are_required_exact_false_booleans(self) -> None:
+        for key in ("human_tested", "nvda_verified"):
+            for invalid in (None, "no", 0):
+                with self.subTest(key=key, invalid=invalid):
+                    value = _base_evidence()
+                    if invalid is None:
+                        del value[key]
+                    else:
+                        value[key] = invalid
+                    self._write_evidence(value)
+                    with self.assertRaisesRegex(EvidenceError, key):
+                        verify(self.evidence, self.product, SHA)
 
     def test_duplicate_json_key_fails(self) -> None:
         self.evidence.write_text(

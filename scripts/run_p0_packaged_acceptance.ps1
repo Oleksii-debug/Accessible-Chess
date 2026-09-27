@@ -37,8 +37,8 @@ function Invoke-PythonVerifier(
 function Assert-NoMachineHumanClaim($Evidence,[string]$Label) {
   foreach($name in @('human_tested','nvda_verified')){
     $property=$Evidence.PSObject.Properties[$name]
-    if($null -ne $property -and $property.Value -eq $true){
-      throw "$Label machine evidence must never claim $name=true"
+    if($null -eq $property -or $property.Value -isnot [bool] -or $property.Value -ne $false){
+      throw "$Label machine evidence must explicitly declare $name=false"
     }
   }
 }
