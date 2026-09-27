@@ -22,6 +22,8 @@ on:
       - 'acs/version2_release_app.py'
       - 'acs/version2_release_ui.py'
       - 'acs/version2_final_release.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'run_accessible_chess_v2.py'
       - 'web/full_product_sound_settings.js'
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_profile_store.py'
@@ -117,6 +119,8 @@ jobs:
               'acs/version2_release_app.py' \
               'acs/version2_release_ui.py' \
               'acs/version2_final_release.py' \
+              'acs/version2_education_mutation_release.py' \
+              'run_accessible_chess_v2.py' \
               'web/full_product_sound_settings.js' \
               'acs/sound_profiles.py' \
               'acs/sound_runtime.py' \
@@ -167,6 +171,8 @@ jobs:
           acs/version2_release_app.py
           acs/version2_release_ui.py
           acs/version2_final_release.py
+          acs/version2_education_mutation_release.py
+          run_accessible_chess_v2.py
           tests/test_sound_profiles.py
           tests/test_sound_profile_store.py
           tests/test_sound_profile_file_store.py
@@ -202,6 +208,9 @@ jobs:
           tests.test_sound_events
           tests.test_sound_runtime
           tests.test_dev3_sound_failure_isolation
+
+      - name: Run production V2 sound diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
 
       - name: Run full repository unittest
         run: python -m unittest discover -s tests -v
