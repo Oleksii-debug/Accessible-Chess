@@ -56,6 +56,49 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             reader.previous_game()
         self.assertEqual(reader.location(), before)
 
+    def test_navigation_availability_is_exact_and_non_mutating(self) -> None:
+        reader = BookReader(self.make_document())
+        start = reader.location()
+        availability = reader.navigation_availability()
+        self.assertEqual(reader.location(), start)
+        self.assertFalse(availability["previous"])
+        self.assertFalse(availability["previous_heading"])
+        self.assertFalse(availability["previous_position"])
+        self.assertFalse(availability["previous_game"])
+        self.assertTrue(availability["next"])
+        self.assertTrue(availability["next_position"])
+        self.assertTrue(availability["next_game"])
+
+        reader.go_to(6)
+        end = reader.location()
+        availability = reader.navigation_availability()
+        self.assertEqual(reader.location(), end)
+        self.assertFalse(availability["next"])
+        self.assertFalse(availability["next_heading"])
+        self.assertFalse(availability["next_position"])
+        self.assertFalse(availability["next_game"])
+        self.assertTrue(availability["previous_heading"])
+        self.assertTrue(availability["previous_position"])
+        self.assertTrue(availability["previous_game"])
+
+    def test_projection_disables_unreachable_semantic_actions(self) -> None:
+        reader = BookReader(self.make_document())
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+        projection = BookWebViewProjection(presenter, lambda *_: None, language=UILanguage.EN)
+
+        start_actions = {action["command"]: action["enabled"] for action in projection.snapshot()["actions"]}
+        self.assertFalse(start_actions["book.previous_position"])
+        self.assertFalse(start_actions["book.previous_game"])
+        self.assertTrue(start_actions["book.next_position"])
+        self.assertTrue(start_actions["book.next_game"])
+
+        reader.go_to(6)
+        end_actions = {action["command"]: action["enabled"] for action in projection.snapshot()["actions"]}
+        self.assertTrue(end_actions["book.previous_position"])
+        self.assertTrue(end_actions["book.previous_game"])
+        self.assertFalse(end_actions["book.next_position"])
+        self.assertFalse(end_actions["book.next_game"])
+
     def test_presenter_and_bridge_keep_reverse_navigation_semantic(self) -> None:
         reader = BookReader(self.make_document())
         presenter = BookReaderPresenter(reader, language=UILanguage.EN)
