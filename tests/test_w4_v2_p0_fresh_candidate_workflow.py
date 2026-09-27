@@ -150,6 +150,24 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("STALE_W4_CANDIDATE", self.text)
 
 
+    def test_run_metadata_is_bound_after_freshness_and_before_publication(self) -> None:
+        bind = self.text.index('echo "WORKFLOW_AUTHORITY_SHA=$workflow_sha" >> "$GITHUB_ENV"')
+        freshness = self.text.index("W4_PRE_UPLOAD_FRESHNESS=PASS")
+        metadata = self.text.index("Write run-bound candidate metadata after freshness proof")
+        metadata_pass = self.text.index("W4_RUN_METADATA=PASS")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(bind, freshness)
+        self.assertLess(freshness, metadata)
+        self.assertLess(metadata, metadata_pass)
+        self.assertLess(metadata_pass, upload)
+        self.assertIn('"product_sha": product_sha', self.text)
+        self.assertIn('"workflow_sha": workflow_sha', self.text)
+        self.assertIn('"pre_upload_product_freshness": True', self.text)
+        self.assertIn('"pre_upload_workflow_freshness": True', self.text)
+        self.assertIn('"human_tested": False', self.text)
+        self.assertIn('"nvda_verified": False', self.text)
+        self.assertIn("w4-run-metadata.json", self.text)
+
     def test_candidate_checkpoint_precedes_artifact_publication(self) -> None:
         checkpoint = self.text.index("CANDIDATE_PRODUCT_SHA=")
         upload = self.text.index(UPLOAD_ARTIFACT_V462)
