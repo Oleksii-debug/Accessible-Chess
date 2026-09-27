@@ -565,6 +565,9 @@ class BookReaderPresenter:
     def previous_game(self) -> BookBlockView:
         return self._block_view(self._reader.previous_game())
 
+    def navigation_availability(self) -> dict[str, bool]:
+        return self._reader.navigation_availability()
+
     def bookmark(self, name: str = "default") -> BookBlockView:
         return self._block_view(self._reader.save_return_point(name))
 
