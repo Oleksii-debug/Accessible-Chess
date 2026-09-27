@@ -279,8 +279,8 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
     private readonly BookReadingWritingStore _writingStore;
     private readonly Action _saveState;
 
-    private readonly ComboBox _knownDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Known deck for Reading familiarity" };
-    private readonly ComboBox _learningDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Learning deck for Reading vocabulary capture" };
+    private readonly ComboBox _knownDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Known deck for Reading familiarity in All Oxford 5000" };
+    private readonly ComboBox _learningDeck = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, AccessibleName = "Learning deck for Reading vocabulary capture in All Oxford 5000" };
     private readonly ComboBox _books = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
@@ -356,7 +356,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
 
         root.Controls.Add(new Label
         {
-            Text = "Private local practice. Select a book already imported through Reading. The current sentence supplies semantic context; mapped dictionary IDs supply vocabulary context. Saved writing and feedback stay in the same private Reading SQLite store. Practice does not imply mastery.",
+            Text = "Private local practice. Select a book already imported through Reading. Known/Learning vocabulary context uses the authoritative All Oxford 5000 Recall workspace. The current sentence supplies semantic context; mapped dictionary IDs supply vocabulary context. Saved writing and feedback stay in the same private Reading SQLite store. Practice does not imply mastery.",
             AutoSize = true,
             MaximumSize = new Size(900, 0),
             AccessibleName = "Reading and Writing privacy and evidence boundary"
@@ -394,7 +394,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         root.Controls.Add(_feedback, 0, 8);
         root.Controls.Add(new Label
         {
-            Text = "Keyboard: Ctrl+PageUp/Ctrl+PageDown previous/next sentence; Ctrl+S save + feedback; Ctrl+L add selected mapped word to Learning; F1 help.",
+            Text = "Keyboard: Ctrl+PageUp/Ctrl+PageDown previous/next sentence; Ctrl+S save + feedback; Ctrl+L add selected mapped word to the chosen Learning deck in All Oxford 5000; F1 help.",
             AutoSize = true,
             AccessibleName = "Reading and Writing keyboard help summary"
         }, 0, 9);
@@ -636,18 +636,18 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         }
         try
         {
-            _service.CaptureMappedOccurrenceToLearningDeck(
+            _service.CaptureMappedOccurrenceToLearningDeckAndPersist(
                 _document,
                 _sentences[_sentenceIndex],
                 option.Id,
                 _state,
                 _dictionary,
-                learning.Id);
-            _saveState();
+                learning.Id,
+                _saveState);
             RefreshSentenceContext();
-            SetStatus($"{_activeBook.Text} Captured {option.Id} from the current sentence into Learning. Ambiguous written forms require the explicit stable ID you selected; capture does not imply mastery.");
+            SetStatus($"{_activeBook.Text} Captured {option.Id} from the current sentence into the chosen Learning deck in All Oxford 5000. Ambiguous written forms require the explicit stable ID you selected; capture does not imply mastery.");
         }
-        catch (Exception ex) { ShowError("Vocabulary capture failed safely", ex); }
+        catch (Exception ex) { ShowError("Vocabulary capture failed", ex); }
     }
 
     private bool ConfirmDiscardIfDirty()
@@ -676,7 +676,7 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
     {
         MessageBox.Show(
             this,
-            "Reading + Writing reuses your private local Reading books. The Book to open selector is only a candidate; the separate Active private book field is authoritative for the current sentence and all persistence. If they differ, navigation, saving, and vocabulary capture are blocked until you open the selected book or reselect the active book. The current sentence is the semantic context; the vocabulary list uses mapped stable dictionary IDs. Write a paraphrase, reaction, inference, or note. Ctrl+S saves the response and deterministic structural feedback in the same local Reading SQLite store. Ctrl+PageUp/PageDown changes sentence. Ctrl+L captures the selected mapped stable ID to Learning. Feedback does not judge semantic correctness or grant mastery/CEFR/assessment credit. Automated accessibility is not physical NVDA verification.",
+            "Reading + Writing reuses your private local Reading books. Known and Learning deck context is taken from the authoritative All Oxford 5000 Recall workspace, regardless of which narrower CEFR Recall scope is currently open. The Book to open selector is only a candidate; the separate Active private book field is authoritative for the current sentence and all persistence. If they differ, navigation, saving, and vocabulary capture are blocked until you open the selected book or reselect the active book. The current sentence is the semantic context; the vocabulary list uses mapped stable dictionary IDs. Write a paraphrase, reaction, inference, or note. Ctrl+S saves the response and deterministic structural feedback in the same local Reading SQLite store. Ctrl+PageUp/PageDown changes sentence. Ctrl+L captures the selected mapped stable ID to the chosen Learning deck in All Oxford 5000. Feedback does not judge semantic correctness or grant mastery/CEFR/assessment credit. Automated accessibility is not physical NVDA verification.",
             "Reading + Writing keyboard help",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
