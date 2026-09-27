@@ -12,6 +12,7 @@ from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import BookDocument
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_ui_shell import UILanguage
 from acs.version2_application import Version2Application
 
 
@@ -69,8 +70,23 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
         return restored.snapshot()
 
     def _assert_failed_reverse_is_atomic(self, app, progress, command: str) -> None:
+        language_result = app.browser_command(
+            "books",
+            "book.language",
+            {"language": UILanguage.EN.value},
+        )
+        self.assertEqual(language_result["kind"], "render")
+        bookmark_result = app.browser_command(
+            "books",
+            "book.bookmark.save",
+            {"name": "atomic-origin"},
+        )
+        self.assertEqual(bookmark_result["kind"], "render")
+
         before_reader = app.reader.snapshot()
         before_durable = self._durable_snapshot(app, progress)
+        before_language = app.books.projection.language
+        before_bookmark_name = app.books.projection.bookmark_name
 
         with patch.object(
             progress,
@@ -82,6 +98,10 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
         self.assertEqual(result["kind"], "error")
         self.assertEqual(app.reader.snapshot(), before_reader)
         self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+        self.assertEqual(app.books.projection.language, before_language)
+        self.assertEqual(app.books.projection.bookmark_name, before_bookmark_name)
+        self.assertEqual(before_language, UILanguage.EN)
+        self.assertEqual(before_bookmark_name, "atomic-origin")
 
     def test_previous_position_rolls_back_exact_reader_and_durable_progress(self) -> None:
         with tempfile.TemporaryDirectory() as root_text:
