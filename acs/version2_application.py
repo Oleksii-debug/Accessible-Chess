@@ -238,6 +238,12 @@ class Version2Application:
             # The canonical BookBoard delegate owns board-opening publication.
             return self.books.dispatch(command, payload)
         if command in self._BOOK_PROGRESS_COMMANDS:
+            # Book Board owns the exact reading origin until its explicit return.
+            # Native menu/keyboard actions remain globally reachable while the
+            # Board route is visible, so never let them mutate or persist a
+            # hidden BookReader cursor underneath an active review session.
+            if self.book_workflow is not None and self.book_workflow.active:
+                return self.books.projection.generic_error()
             before = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
