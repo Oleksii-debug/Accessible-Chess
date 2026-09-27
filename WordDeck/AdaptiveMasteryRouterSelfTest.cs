@@ -18,6 +18,7 @@ internal static class AdaptiveMasteryRouterSelfTest
         StudyPoolSizesAreExactAndBounded();
         PolicySeamConstrainsModesWithoutCompletionRules();
         SentenceEvidenceFailsClosedOnUnknownStableId();
+        CorruptedRecallAndSentenceCountersFailClosed();
         LearningEvidenceModeMappingFailsClosed();
         SpeakingAndPronunciationEvidenceMapDistinctly();
         MalformedLearningEvidenceFailsClosed();
@@ -282,6 +283,57 @@ internal static class AdaptiveMasteryRouterSelfTest
             failed = true;
         }
         Require(failed, "Sentence adaptive evidence must fail closed instead of remapping an unknown stable ID by surface form.");
+    }
+
+    private static void CorruptedRecallAndSentenceCountersFailClosed()
+    {
+        var recallState = new AppState();
+        recallState.StudyHistoryByEntryId["word"] = new WordStudyHistory
+        {
+            SeenCount = 1,
+            TranslationRevealCount = 2
+        };
+
+        bool recallFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromRecall(recallState, "oxford", new[] { "word" });
+        }
+        catch (InvalidDataException)
+        {
+            recallFailed = true;
+        }
+        Require(recallFailed,
+            "Recall evidence with more reveals than views must fail closed instead of being clamped.");
+
+        var sentenceState = new SentenceCoachState
+        {
+            StatsByDictionary = new Dictionary<string, Dictionary<string, SentenceTargetStats>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["oxford"] = new Dictionary<string, SentenceTargetStats>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["word"] = new SentenceTargetStats
+                    {
+                        CompletedReviews = 1,
+                        FirstTrySuccesses = 2,
+                        WrongAttempts = -1,
+                        ShowAnswerUses = 0
+                    }
+                }
+            }
+        };
+
+        bool sentenceFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromSentence(sentenceState, "oxford", new[] { "word" });
+        }
+        catch (InvalidDataException)
+        {
+            sentenceFailed = true;
+        }
+        Require(sentenceFailed,
+            "Sentence evidence with impossible counters must fail closed instead of being normalized into mastery data.");
     }
 
     private static void LearningEvidenceModeMappingFailsClosed()
