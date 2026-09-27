@@ -127,6 +127,12 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             "tests.test_d08_training_canonical_resume",
             "tests.test_v2_book_epub_import",
             "tests.test_version2_epub_application_reachability",
+            "tests.test_v2_native_dialog_language",
+            "tests.test_version2_application",
+            "tests.test_bookreader",
+            "tests.test_bookdocument",
+            "tests.test_v2_book_progress_store",
+            "tests.test_v2_book_progress_store_production",
         ):
             position = self.text.index(test_name)
             self.assertLess(qualify, position)
