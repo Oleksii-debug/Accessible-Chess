@@ -672,13 +672,14 @@ internal static class AdaptiveEvidenceAdapters
             record.CurrentStreak > record.CompletedReviews)
             throw new InvalidDataException($"Learning evidence for {record.EntryId} contains impossible counters.");
 
-        (AdaptiveEvidenceChannel channel, string sourceId) = record.ModeId.ToLowerInvariant() switch
+        string normalizedMode = record.ModeId.ToLowerInvariant();
+        (AdaptiveEvidenceChannel channel, string sourceId) = normalizedMode switch
         {
             "recall" => (AdaptiveEvidenceChannel.MeaningRecall, "recall"),
             "spelling" => (AdaptiveEvidenceChannel.Spelling, "spelling"),
-            "sentence" or "sentence-spelling" => (AdaptiveEvidenceChannel.SentenceForm, record.ModeId),
+            "sentence" or "sentence-spelling" => (AdaptiveEvidenceChannel.SentenceForm, normalizedMode),
             "grammar" => (AdaptiveEvidenceChannel.Grammar, "grammar"),
-            "listening" or "dictation" => (AdaptiveEvidenceChannel.Listening, record.ModeId),
+            "listening" or "dictation" => (AdaptiveEvidenceChannel.Listening, normalizedMode),
             "speaking" => (AdaptiveEvidenceChannel.Speaking, "speaking"),
             "pronunciation" => (AdaptiveEvidenceChannel.Pronunciation, "pronunciation"),
             "story" => (AdaptiveEvidenceChannel.NarrativeContext, "story"),
