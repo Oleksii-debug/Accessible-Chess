@@ -253,6 +253,20 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 "must not contain DTD or entities",
             ),
             (
+                _VALID_WINFORMS_CONFIG.replace(
+                    '" /></runtime>',
+                    '">unexpected</AppContextSwitchOverrides></runtime>',
+                ),
+                "must not contain child content",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    '" /></runtime>',
+                    '"><unexpected /></AppContextSwitchOverrides></runtime>',
+                ),
+                "must not contain child content",
+            ),
+            (
                 _VALID_WINFORMS_CONFIG.encode("utf-16"),
                 "must be UTF-8",
             ),
