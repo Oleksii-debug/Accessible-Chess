@@ -141,6 +141,7 @@ internal static class GrammarCoachSelfTest
                 "Grammar state did not recover after corruption fixtures were removed.");
             TestPreMigrationBackupOrdering(temp);
             TestFutureSchemaNoMutation(temp);
+            TestMalformedSchemaNoMutation(temp);
         }
         finally
         {
@@ -224,6 +225,32 @@ internal static class GrammarCoachSelfTest
             "Rejecting a newer Grammar schema mutated the database before the compatibility verdict.");
         Require(Directory.GetFiles(root, "grammar-future.sqlite.*.before-migration.backup.sqlite").Length == 0,
             "Newer Grammar schema incorrectly entered the legacy migration/backup path.");
+    }
+
+    private static void TestMalformedSchemaNoMutation(string root)
+    {
+        string malformedDb = Path.Combine(root, "grammar-malformed-schema.sqlite");
+        using (var malformed = new SqliteConnection(new SqliteConnectionStringBuilder
+               {
+                   DataSource = malformedDb,
+                   Mode = SqliteOpenMode.ReadWriteCreate
+               }.ToString()))
+        {
+            malformed.Open();
+            ExecuteRaw(malformed,
+                "CREATE TABLE grammar_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL); " +
+                "INSERT INTO grammar_metadata(key,value) VALUES('schema_version','not-a-number'); " +
+                "CREATE TABLE preserved(value TEXT NOT NULL); INSERT INTO preserved(value) VALUES('keep');");
+        }
+
+        byte[] before = File.ReadAllBytes(malformedDb);
+        RequireThrowsInvalidData(() => new GrammarCoachStateStore(malformedDb).Initialize(),
+            "Malformed Grammar schema metadata was not rejected as invalid data.");
+        byte[] after = File.ReadAllBytes(malformedDb);
+        Require(before.SequenceEqual(after),
+            "Rejecting malformed Grammar schema metadata mutated the database.");
+        Require(Directory.GetFiles(root, "grammar-malformed-schema.sqlite.*.before-migration.backup.sqlite").Length == 0,
+            "Malformed Grammar schema metadata incorrectly entered the migration path.");
     }
 
     private static void ExecuteRaw(SqliteConnection connection, string sql, params (string Name, object Value)[] parameters)
