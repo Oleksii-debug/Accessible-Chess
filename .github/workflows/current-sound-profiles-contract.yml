@@ -11,6 +11,7 @@ on:
       - 'acs/sound_profiles.py'
       - 'acs/sound_profile_store.py'
       - 'acs/sound_profile_file_store.py'
+      - 'acs/sound_profile_composition.py'
       - 'acs/sound_pack_catalog.py'
       - 'acs/sound_pack_profile.py'
       - 'acs/sound_pack_store.py'
@@ -21,6 +22,7 @@ on:
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_profile_store.py'
       - 'tests/test_sound_profile_file_store.py'
+      - 'tests/test_sound_profile_composition.py'
       - 'tests/test_sound_profile_manager_hardening.py'
       - 'tests/test_sound_pack_catalog.py'
       - 'tests/test_sound_pack_profile.py'
@@ -83,6 +85,7 @@ jobs:
               'tests/test_sound_pack_profile.py' \
               'tests/test_sound_pack_store.py' \
               'tests/test_sound_profile_file_store.py' \
+              'tests/test_sound_profile_composition.py' \
               'tests/test_sound_profile_manager_hardening.py' \
               'tests/test_sound_profile_runtime.py' \
               'tests/test_sound_profile_store.py' \
@@ -101,6 +104,7 @@ jobs:
               'acs/sound_pack_profile.py' \
               'acs/sound_pack_store.py' \
               'acs/sound_profile_file_store.py' \
+              'acs/sound_profile_composition.py' \
               'acs/sound_profile_store.py' \
               'acs/sound_profile_windows.py' \
               'acs/sound_profiles.py' \
@@ -138,6 +142,7 @@ jobs:
           acs/sound_profiles.py
           acs/sound_profile_store.py
           acs/sound_profile_file_store.py
+          acs/sound_profile_composition.py
           acs/sound_pack_catalog.py
           acs/sound_pack_profile.py
           acs/sound_pack_store.py
@@ -148,6 +153,7 @@ jobs:
           tests/test_sound_profiles.py
           tests/test_sound_profile_store.py
           tests/test_sound_profile_file_store.py
+          tests/test_sound_profile_composition.py
           tests/test_sound_profile_manager_hardening.py
           tests/test_sound_pack_catalog.py
           tests/test_sound_pack_profile.py
@@ -163,6 +169,7 @@ jobs:
           tests.test_sound_profiles
           tests.test_sound_profile_store
           tests.test_sound_profile_file_store
+          tests.test_sound_profile_composition
           tests.test_sound_profile_manager_hardening
           tests.test_sound_pack_catalog
           tests.test_sound_pack_profile
