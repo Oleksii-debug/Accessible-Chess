@@ -244,5 +244,56 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_hidden_books_surface_cannot_replace_starter_material(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-hidden-books-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    booklet = next(
+                        item
+                        for item in catalogue["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    )
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    before_reader = app.reader.snapshot()
+                    before_material = catalogue["current_id"]
+
+                    routed = app.browser_command("shell", "screen.library")
+                    self.assertEqual("route", routed["kind"])
+                    self.assertEqual("library", app.shell.current_route.route_id)
+
+                    rejected = app.browser_command(
+                        "books",
+                        "book.open_starter_material",
+                        {"material_id": booklet["material_id"]},
+                    )
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("library", app.shell.current_route.route_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+                    self.assertEqual(before_reader, app.reader.snapshot())
+                    self.assertEqual(
+                        before_material,
+                        app.snapshot()["books"]["starter_materials"]["current_id"],
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -278,6 +278,11 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._assert_thread()
         if area == "books" and command == "book.open_starter_material":
             try:
+                # The Books WebView may remain alive while another shell route is
+                # visible. Reject stale/hidden catalogue activation before it can
+                # replace the canonical reader or publish a new Books route.
+                if self.shell.current_route.route_id != "books":
+                    raise ValueError("starter material requires the visible Books route")
                 if not isinstance(payload, Mapping) or set(payload) != {"material_id"}:
                     raise ValueError("starter material request is invalid")
                 return self._open_starter_material(payload["material_id"])
