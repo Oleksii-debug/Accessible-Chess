@@ -69,6 +69,14 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Synchronized Main/F1 registry omitted Open Sentence Spelling.");
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening), "Synchronized Main/F1 registry omitted Open Listening.");
+
+        // ShowCurrentWordDeckHelp refreshes the already-synchronized registry without
+        // resupplying Spelling topology. That refresh must preserve the live training surface.
+        mainRegistry.RefreshDeckDefinitions();
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "F1 refresh dropped synchronized Open Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "F1 refresh dropped synchronized Open Sentence Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening), "F1 refresh dropped synchronized Open Listening.");
+
         string spellingCore1 = ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(1));
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == spellingCore1), "Synchronized Main/F1 registry omitted live Spelling deck actions.");
         AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K became unavailable after training definitions were synchronized.");
