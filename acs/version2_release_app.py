@@ -30,6 +30,7 @@ from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+from .version2_windows_library_export import build_version2_windows_library_file_runtime
 from .version2_windows_native_dialog_ownership import Version2OwnedWindowsFileDialogs
 from .webapp_keymap import _asset_root
 
@@ -484,8 +485,10 @@ def create_version2_release_application(
             language_provider=dialog_language_provider,
         )
         application.open_book_dialog = book_dialogs.open_book
-        file_runtime = Version2WindowsFileWorkflowRuntime(
+        file_runtime = build_version2_windows_library_file_runtime(
             owner_control=owner_control,
+            library_service=application.library_export,
+            library_export_event_sink=application._file_event,
             get_pgn_session=lambda: application.session,
             set_pgn_session=lambda session: _install_host_confirmed_document(application, session),
             import_services_factory=application.worker_factory(database_path),
