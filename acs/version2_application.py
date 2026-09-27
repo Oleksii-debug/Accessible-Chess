@@ -144,6 +144,10 @@ class Version2Application:
 
     def open_book(self, source: Path):
         self._assert_thread()
+        # Domain/native Book Open can bypass shell route dispatch. Reject it
+        # before any reader/progress mutation while a modal owns keyboard focus.
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before opening a book")
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before opening another source")
         suffix = source.suffix.casefold()

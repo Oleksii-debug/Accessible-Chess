@@ -489,5 +489,45 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_native_book_open_cannot_replace_reader_behind_modal_dialog(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-modal-open-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    replacement = root / "replacement.md"
+                    replacement.write_text("# Replacement\n\nHidden replacement body.\n", encoding="utf-8")
+                    app.open_book_dialog = lambda: replacement
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    before_reader = app.reader.snapshot()
+
+                    app.adapter.open_dialog(
+                        "test-modal-open",
+                        opener_focus_id="book-reader",
+                        initial_focus_id="test-modal-open-confirm",
+                    )
+                    result = app.adapter.activate_action("book.open")
+
+                    self.assertEqual("error", result.kind)
+                    self.assertEqual("test-modal-open", app.shell.active_dialog_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+                    self.assertEqual(before_reader, app.reader.snapshot())
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
