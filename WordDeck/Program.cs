@@ -38,6 +38,7 @@ internal static class Program
         var main = new MainForm();
         TrainingEntryPoints.Install(main);
         BookReadingEntryPoints.Install(main);
+        BookReadingWritingEntryPoints.Install(main);
         Application.Run(main);
         return 0;
     }
