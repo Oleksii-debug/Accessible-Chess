@@ -550,6 +550,7 @@ internal static class GovernedGrammarA106RuntimeUi
 
         string currentItemId = GetResumeItemForUi(runtime, out string? startupPersistenceWarning);
         string? recommendedItemId = null;
+        string? pendingShownAnnouncement = null;
 
         void RefreshProgress()
         {
@@ -585,7 +586,12 @@ internal static class GovernedGrammarA106RuntimeUi
             RefreshProgress();
             string? announcement = persistenceWarning ?? startupPersistenceWarning;
             if (announcement is not null)
-                AccessibilityAnnouncer.Announce(feedback, announcement);
+            {
+                if (form.Visible)
+                    AccessibilityAnnouncer.Announce(feedback, announcement);
+                else
+                    pendingShownAnnouncement = announcement;
+            }
             startupPersistenceWarning = null;
         }
 
@@ -664,7 +670,19 @@ internal static class GovernedGrammarA106RuntimeUi
 
         form.Controls.Add(root);
         LoadItem(currentItemId, recordExposure: true);
-        form.Shown += (_, _) => prompt.Focus();
+        form.Shown += (_, _) =>
+        {
+            if (pendingShownAnnouncement is not null)
+            {
+                feedback.Focus();
+                AccessibilityAnnouncer.Announce(feedback, pendingShownAnnouncement);
+                pendingShownAnnouncement = null;
+            }
+            else
+            {
+                prompt.Focus();
+            }
+        };
         return form;
     }
 }
