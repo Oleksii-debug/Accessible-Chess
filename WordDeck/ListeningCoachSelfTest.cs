@@ -275,17 +275,27 @@ internal static class ListeningCoachSelfTest
         string statePath = Path.Combine(extensionRoot, "listening-state.json");
         File.WriteAllText(
             statePath,
-            "{\"SchemaVersion\":1,\"ActiveScopeId\":\"b1\",\"SelectionCounter\":3,\"StatsByDictionary\":{},\"History\":[],\"FutureHint\":{\"Mode\":\"adaptive\",\"Weight\":7}}");
+            "{\"SchemaVersion\":1,\"ActiveScopeId\":\"b1\",\"SelectionCounter\":3,\"StatsByDictionary\":{\"test\":{\"word:a\":{\"CompletedReviews\":1,\"CorrectReviews\":1,\"FutureStats\":{\"Confidence\":0.75}}}},\"History\":[{\"AtUtc\":\"2026-09-28T00:00:00+00:00\",\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"Kind\":1,\"Correct\":true,\"ShowedAnswer\":false,\"Skipped\":false,\"WrongAttempts\":0,\"Replays\":0,\"FutureHistory\":\"retained\"}],\"FutureHint\":{\"Mode\":\"adaptive\",\"Weight\":7}}");
 
         var store = new ListeningStateStore(extensionRoot);
         ListeningCoachState loaded = store.Load();
         Require(loaded.ExtensionData is not null && loaded.ExtensionData.ContainsKey("FutureHint"),
             "Listening state dropped an unknown current-schema field during load.");
+        Require(loaded.StatsByDictionary["test"]["word:a"].ExtensionData is not null &&
+                loaded.StatsByDictionary["test"]["word:a"].ExtensionData!.ContainsKey("FutureStats"),
+            "Listening item statistics dropped an unknown current-schema field during load.");
+        Require(loaded.History.Count == 1 && loaded.History[0].ExtensionData is not null &&
+                loaded.History[0].ExtensionData!.ContainsKey("FutureHistory"),
+            "Listening history dropped an unknown current-schema field during load.");
 
         store.Save(loaded);
         string persisted = File.ReadAllText(statePath);
         Require(persisted.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
-                persisted.Contains("\"adaptive\"", StringComparison.Ordinal),
+                persisted.Contains("\"adaptive\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"FutureStats\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"Confidence\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"FutureHistory\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"retained\"", StringComparison.Ordinal),
             "Listening state dropped unknown current-schema data during Load->Save.");
     }
 
