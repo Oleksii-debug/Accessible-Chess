@@ -483,7 +483,6 @@ def create_version2_release_application(
             lambda: owner_control,
             language_provider=dialog_language_provider,
         )
-        application.open_book_dialog = book_dialogs.open_book
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
@@ -503,10 +502,10 @@ def create_version2_release_application(
             book_dialogs,
             before_shutdown=resume_coordinator.prepare_shutdown,
         )
-        # Application-owned PGN replacements, including Library -> Open game,
-        # reuse the exact owner-bound confirmation source used by native PGN Open.
-        # Bind only after the native close guard succeeds so a failed startup
-        # cannot leave application state pointing at a retired file runtime.
+        # Publish every owner-bound application callback only after the native
+        # runtime and FormClosing guard are both live. Failed startup must leave
+        # no callback pointing at a retired/unowned Form.
+        application.open_book_dialog = book_dialogs.open_book
         application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
         return file_runtime
