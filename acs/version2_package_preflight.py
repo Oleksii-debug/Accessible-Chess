@@ -730,6 +730,27 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         text = payload.decode("utf-8-sig")
     except UnicodeError as exc:
         _fail(f"WinForms accessibility app-config must be UTF-8: {type(exc).__name__}")
+
+    # ElementTree receives decoded text below, so it does not enforce that an
+    # XML encoding declaration agrees with the actual packaged bytes.  A .NET
+    # config loader reads the file as bytes and does honor that declaration.
+    # Reject contradictory declarations here so preflight cannot approve UTF-8
+    # bytes that claim to be UTF-16 (or another encoding) at runtime.
+    declaration = re.match(r"\\A<\\?xml\\s+[^?]*\\?>", text, flags=re.IGNORECASE)
+    if declaration is not None:
+        declared_encoding = re.search(
+            r"\\bencoding\\s*=\\s*(['\"])([^'\"]+)\\1",
+            declaration.group(0),
+            flags=re.IGNORECASE,
+        )
+        if (
+            declared_encoding is not None
+            and declared_encoding.group(2).casefold() != "utf-8"
+        ):
+            _fail(
+                "WinForms accessibility app-config XML declaration must declare UTF-8"
+            )
+
     upper = text.upper()
     if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
         _fail("WinForms accessibility app-config must not contain DTD or entities")
