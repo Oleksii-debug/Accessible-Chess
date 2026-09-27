@@ -280,6 +280,44 @@ internal static class LearnerCourseStateSelfTest
             Require(File.ReadAllText(duplicateBackupPath) == backupBeforeDuplicateReject,
                 "Rejected duplicate-schema course state mutated the verified backup.");
 
+            // Parseable state without explicit schema metadata must not inherit the
+            // model's current-version initializer and masquerade as current data.
+            string missingSchemaRoot = Path.Combine(root, "missing schema fixture");
+            Directory.CreateDirectory(missingSchemaRoot);
+            string missingSchemaPrimary = Path.Combine(missingSchemaRoot, LearnerCourseStateStore.FileName);
+            string missingSchemaBackup = Path.Combine(missingSchemaRoot, LearnerCourseStateStore.BackupFileName);
+            string missingSchemaJson =
+                "{\"CoursePositionsByPathId\":{},\"EvidenceHistory\":[],\"MasteryByObjectiveId\":{},\"AdaptiveRouteByPathId\":{},\"SkillLevelsBySkillId\":{},\"OrphanedStableIds\":[]}";
+            File.WriteAllText(missingSchemaPrimary, missingSchemaJson);
+            var missingSchemaStore = new LearnerCourseStateStore(missingSchemaRoot);
+
+            bool missingSchemaLoadRejected = false;
+            try { _ = missingSchemaStore.Load(); }
+            catch (InvalidDataException) { missingSchemaLoadRejected = true; }
+            Require(missingSchemaLoadRejected,
+                "Course state without SchemaVersion metadata inherited the model default and was accepted.");
+
+            bool missingSchemaSaveRejected = false;
+            try { missingSchemaStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { missingSchemaSaveRejected = true; }
+            Require(missingSchemaSaveRejected,
+                "Save overwrote course state that had no explicit SchemaVersion metadata.");
+            Require(File.ReadAllText(missingSchemaPrimary) == missingSchemaJson,
+                "Rejected missing-schema course state mutated the primary file.");
+            Require(!File.Exists(missingSchemaBackup),
+                "Rejected missing-schema course state fabricated a backup.");
+
+            string missingSchemaImport = Path.Combine(root, "course-state-missing-schema-import.json");
+            File.WriteAllText(missingSchemaImport, missingSchemaJson);
+            string beforeMissingSchemaImport = File.ReadAllText(Path.Combine(root, LearnerCourseStateStore.FileName));
+            bool missingSchemaImportRejected = false;
+            try { _ = courseStore.ImportSnapshot(missingSchemaImport); }
+            catch (InvalidDataException) { missingSchemaImportRejected = true; }
+            Require(missingSchemaImportRejected,
+                "Import accepted a course-state snapshot without SchemaVersion metadata.");
+            Require(File.ReadAllText(Path.Combine(root, LearnerCourseStateStore.FileName)) == beforeMissingSchemaImport,
+                "Rejected missing-schema import mutated existing learner-course state.");
+
             // Save must never destroy the only unreadable persisted bytes merely
             // because the caller still has a plausible in-memory state.
             string corruptOnlyRoot = Path.Combine(root, "corrupt only fixture");
