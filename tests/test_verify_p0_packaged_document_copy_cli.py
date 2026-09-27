@@ -33,6 +33,7 @@ class VerifyP0PackagedDocumentCopyCliTests(unittest.TestCase):
         self.evidence.write_text(
             json.dumps(
                 {
+                    "product_sha": SHA,
                     "static_document_text": "Game information",
                     "static_document_outside_edit": True,
                     "native_copy_focus_verified": True,
@@ -42,6 +43,8 @@ class VerifyP0PackagedDocumentCopyCliTests(unittest.TestCase):
                     "textpattern_selection_supported": True,
                     "clipboard_equality": "case-sensitive exact string equality",
                     "ctrl_c_exact_clipboard": True,
+                    "move_input_focus_verified": True,
+                    "move_input_native_ctrl_a_ctrl_c": True,
                     "human_tested": False,
                     "nvda_verified": False,
                 }
