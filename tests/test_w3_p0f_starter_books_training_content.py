@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -427,6 +428,58 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         before_material,
                         app.snapshot()["books"]["starter_materials"]["current_id"],
                     )
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_auto_seek_save_failure_restores_exact_reader_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-save-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    before = app.reader.snapshot()
+                    before_key = app.book_key
+                    self.assertNotEqual("Exercise", app.reader.location().kind)
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated progress write failure"),
+                    ):
+                        browser_result = app.browser_command("shell", "screen.training")
+
+                    self.assertEqual("error", browser_result["kind"])
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before, app.reader.snapshot())
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+
+                    command = app.adapter.activate_action("screen.training")
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated progress write failure"),
+                    ):
+                        self.assertFalse(app.native_command(command))
+
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before, app.reader.snapshot())
                     self.assertIsNone(app.training_workspace)
                     self.assertIsNone(app.training)
                 finally:

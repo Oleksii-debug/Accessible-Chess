@@ -272,8 +272,22 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             )
             if exercise_index is None:
                 return False
+            before = self.reader.snapshot()
+            language = self.books.projection.language
+            bookmark_name = self.books.projection.bookmark_name
             self.reader.go_to(exercise_index)
-            self.save_book_progress()
+            try:
+                self.save_book_progress()
+            except Exception:
+                # Training auto-seek is a durable Book progress mutation. If its
+                # atomic write fails, restore the exact pre-command reader/UI
+                # instead of leaving memory ahead of restart state.
+                self._restore_book_progress(
+                    before,
+                    language=language,
+                    bookmark_name=bookmark_name,
+                )
+                raise
 
         return super()._start_training_from_current_book()
 
