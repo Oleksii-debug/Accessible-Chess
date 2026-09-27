@@ -67,12 +67,7 @@ internal static class BulkWordImportKeyboardPolicy
     internal static void InsertLiteralTab(TextBox editor)
     {
         ArgumentNullException.ThrowIfNull(editor);
-        int start = editor.SelectionStart;
-        int length = editor.SelectionLength;
-        string text = editor.Text ?? string.Empty;
-        editor.Text = text.Remove(start, length).Insert(start, "\t");
-        editor.SelectionStart = start + 1;
-        editor.SelectionLength = 0;
+        editor.SelectedText = "\t";
     }
 }
 
