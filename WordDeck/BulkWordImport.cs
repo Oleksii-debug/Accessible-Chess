@@ -61,7 +61,7 @@ internal static class BulkWordImportKeyboardPolicy
     {
         Keys keyCode = keyData & Keys.KeyCode;
         Keys modifiers = keyData & Keys.Modifiers;
-        return keyCode == Keys.Tab && (modifiers & Keys.Control) == Keys.Control && (modifiers & Keys.Alt) == Keys.None;
+        return keyCode == Keys.Tab && modifiers == Keys.Control;
     }
 
     internal static void InsertLiteralTab(TextBox editor)
@@ -113,15 +113,6 @@ internal sealed class BulkWordImportForm : Form
             AccessibleDescription = "One card per line. English first, Ukrainian second. Plain Tab moves to the next control; Ctrl+Tab inserts the recommended separator."
         };
 
-        _editor.KeyDown += (_, e) =>
-        {
-            if (!BulkWordImportKeyboardPolicy.IsLiteralTabChord(e.KeyData))
-                return;
-            BulkWordImportKeyboardPolicy.InsertLiteralTab(_editor);
-            e.SuppressKeyPress = true;
-            e.Handled = true;
-        };
-
         var buttons = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
@@ -152,5 +143,15 @@ internal sealed class BulkWordImportForm : Form
         AcceptButton = add;
         CancelButton = cancel;
         Shown += (_, _) => _editor.Focus();
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (_editor.Focused && BulkWordImportKeyboardPolicy.IsLiteralTabChord(keyData))
+        {
+            BulkWordImportKeyboardPolicy.InsertLiteralTab(_editor);
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 }
