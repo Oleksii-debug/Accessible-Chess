@@ -74,7 +74,7 @@ internal sealed partial class MainForm
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Complete profile import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            AnnounceStatus("Complete profile import failed. Existing personal state was not replaced.");
+            AnnounceStatus(BuildUnifiedProfileImportFailureStatus(ex));
         }
         FocusCurrentWord();
     }
