@@ -29,8 +29,6 @@ env:
   SOURCE_TEST_BLOB: 3c55d1e85724d0473e8e282d65294ae19040b22c
   SHIPPING_BINDING_BLOB: 6631d8e8a000ed32f60a95f68d9b02cf0422c4df
   SHIPPING_TEST_BLOB: 7cf695af6b7c0975b075d0cee332dbd815af9a6d
-  CURRENT_RELEASE_APP_BLOB: 4462da8db48737b4f66de7e2f4001d601aaec8a6
-  CURRENT_EDUCATION_RELEASE_BLOB: 55956329c1fe2dc9417ae4082fba821667c9ec13
 
 jobs:
   upgrade-status:
@@ -77,6 +75,9 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
 
+          # Keep byte locks scoped to the upgrade-status owner files. Product
+          # composition files are allowed to evolve independently and are
+          # exercised below by the shipping, full-suite and diagnostic gates.
           while IFS='=' read -r path expected; do
             head_blob="$(git rev-parse "HEAD:$path")"
             base_blob="$(git rev-parse "$base:$path")"
@@ -93,8 +94,6 @@ jobs:
           tests/test_v2_windows_upgrade_status.py=$SOURCE_TEST_BLOB
           acs/version2_upgrade_status_release.py=$SHIPPING_BINDING_BLOB
           tests/test_v2_windows_upgrade_status_shipping.py=$SHIPPING_TEST_BLOB
-          acs/version2_release_app.py=$CURRENT_RELEASE_APP_BLOB
-          acs/version2_education_mutation_release.py=$CURRENT_EDUCATION_RELEASE_BLOB
           LOCKS
 
           echo "CURRENT_PRODUCT_BASE=$base"

@@ -11,7 +11,34 @@ const source = fs.readFileSync(
 );
 
 const nonEmptyLiveWrites = [];
+const liveWriteWaiters = [];
+const runtimeTimerDelays = [];
 let liveText = "";
+
+function notifyLiveWriteWaiters() {
+  for (let index = liveWriteWaiters.length - 1; index >= 0; index -= 1) {
+    const waiter = liveWriteWaiters[index];
+    if (nonEmptyLiveWrites.length < waiter.target) continue;
+    liveWriteWaiters.splice(index, 1);
+    clearTimeout(waiter.timer);
+    waiter.resolve();
+  }
+}
+
+function waitForTotalWrites(target, timeoutMs = 2000) {
+  if (nonEmptyLiveWrites.length >= target) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const waiter = { target, resolve, timer: null };
+    waiter.timer = setTimeout(() => {
+      const index = liveWriteWaiters.indexOf(waiter);
+      if (index >= 0) liveWriteWaiters.splice(index, 1);
+      reject(new Error(
+        `Timed out waiting for live-region writes: target=${target} actual=${nonEmptyLiveWrites.length}`
+      ));
+    }, timeoutMs);
+    liveWriteWaiters.push(waiter);
+  });
+}
 const live = {
   hidden: false,
   attributes: new Map(),
@@ -19,7 +46,10 @@ const live = {
   get textContent() { return liveText; },
   set textContent(value) {
     liveText = String(value);
-    if (liveText) nonEmptyLiveWrites.push(liveText);
+    if (liveText) {
+      nonEmptyLiveWrites.push(liveText);
+      notifyLiveWriteWaiters();
+    }
   }
 };
 const main = {
@@ -41,9 +71,21 @@ const documentRef = {
   createTreeWalker() { throw new Error("collapsed test selection must not create a tree walker"); }
 };
 
+let pgnSurfaceInvoke = null;
+let pgnSurfaceAnnounce = null;
+let librarySurfaceInvoke = null;
+let librarySurfaceAnnounce = null;
+let teacherSurfaceInvoke = null;
+let teacherSurfaceAnnounce = null;
+
+function trackedRuntimeSetTimeout(callback, delay) {
+  runtimeTimerDelays.push(Number(delay) || 0);
+  return setTimeout(callback, delay);
+}
+
 const fakeWindow = {
   document: documentRef,
-  setTimeout,
+  setTimeout: trackedRuntimeSetTimeout,
   clearTimeout,
   getSelection() { return { isCollapsed: true, rangeCount: 0 }; },
   pywebview: {
@@ -55,10 +97,35 @@ const fakeWindow = {
   },
   render: async function () {},
   apiAction: async function () {},
-  announce: function () {}
+  announce: function () {},
+  AccessibleChessPgnSurface: Object.freeze({
+    render: function (_root, _snapshot, invoke, announce) {
+      pgnSurfaceInvoke = invoke;
+      pgnSurfaceAnnounce = announce;
+    }
+  }),
+  AccessibleChessLibrarySurface: Object.freeze({
+    render: function (_root, _snapshot, invoke, announce) {
+      librarySurfaceInvoke = invoke;
+      librarySurfaceAnnounce = announce;
+    },
+    apply: function (_root, _event, _invoke, announce) {
+      announce("Passive library import result");
+    }
+  }),
+  AccessibleChessTeacherSurface: Object.freeze({
+    render: function (_root, _snapshot, invoke, announce) {
+      if (typeof invoke === "function") {
+        teacherSurfaceInvoke = invoke;
+        teacherSurfaceAnnounce = announce;
+      } else {
+        announce("Teacher hover-capable result");
+      }
+    }
+  })
 };
 
-vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math }, {
+vm.runInNewContext(source, { window: fakeWindow, console, Date, Object, Array, Number, String, Math, Promise, Boolean }, {
   filename: "p0_accessibility_runtime.js"
 });
 
@@ -74,23 +141,215 @@ assert.strictEqual(
 );
 
 async function run() {
+  let expectedWrites = nonEmptyLiveWrites.length;
   await fakeWindow.apiAction("repeat_result");
   await fakeWindow.apiAction("repeat_result");
-  await new Promise(resolve => setTimeout(resolve, 170));
+  expectedWrites += 2;
+  await waitForTotalWrites(expectedWrites);
   assert.deepStrictEqual(
     nonEmptyLiveWrites.slice(0, 2),
     ["Same explicit result", "Same explicit result"],
     "two distinct explicit actions with identical text must expose two live-region results"
   );
 
+  expectedWrites = nonEmptyLiveWrites.length + 1;
   fakeWindow.announce("Background duplicate");
   fakeWindow.announce("Background duplicate");
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await waitForTotalWrites(expectedWrites);
   const backgroundWrites = nonEmptyLiveWrites.filter(value => value === "Background duplicate");
   assert.strictEqual(
     backgroundWrites.length,
     1,
     "same background dispatch duplicate should remain coalesced"
+  );
+
+  expectedWrites = nonEmptyLiveWrites.length + 2;
+  fakeWindow.announce("Passive A");
+  fakeWindow.announce("Passive B");
+  fakeWindow.announce("Passive A");
+  await waitForTotalWrites(expectedWrites);
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Passive A").length,
+    1,
+    "interleaved passive duplicate inside the bounded window must remain suppressed"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Passive B").length,
+    1,
+    "interleaved distinct passive status must still be exposed"
+  );
+
+  expectedWrites = nonEmptyLiveWrites.length + 2;
+  fakeWindow.announce("First explicit event", "event-1");
+  fakeWindow.announce("Interleaved explicit event", "event-2");
+  fakeWindow.announce("First explicit event", "event-1");
+  await waitForTotalWrites(expectedWrites);
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "First explicit event").length,
+    1,
+    "interleaved duplicate emission from the same event must remain suppressed"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Interleaved explicit event").length,
+    1,
+    "the interleaved distinct event must still be exposed"
+  );
+
+  expectedWrites = nonEmptyLiveWrites.length + 2;
+  fakeWindow.announce("Same-event first message", "event-multi");
+  fakeWindow.announce("Same-event second message", "event-multi");
+  fakeWindow.announce("Same-event first message", "event-multi");
+  await waitForTotalWrites(expectedWrites);
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same-event first message").length,
+    1,
+    "duplicate same-text emission from one event must remain suppressed"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same-event second message").length,
+    1,
+    "a distinct accessible result from the same event must not be dropped"
+  );
+
+  expectedWrites = nonEmptyLiveWrites.length + 2;
+  fakeWindow.announce("Repeated explicit text", "event-3");
+  fakeWindow.announce("Repeated explicit text", "event-4");
+  await waitForTotalWrites(expectedWrites);
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Repeated explicit text").length,
+    2,
+    "distinct explicit event identities must preserve repeated result text"
+  );
+
+  const surfaceWriteStartIndex = nonEmptyLiveWrites.length;
+  const surfaceTimerStartIndex = runtimeTimerDelays.length;
+  let staleCallbackCalls = 0;
+  const staleCallback = function () { staleCallbackCalls += 1; };
+  const repeatPgnResult = async function () {
+    return { kind: "result", payload: { announcement: "Same product-surface result" } };
+  };
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, repeatPgnResult, staleCallback);
+  assert.strictEqual(typeof pgnSurfaceInvoke, "function", "P0 runtime must wrap the PGN invoke boundary");
+  assert.strictEqual(typeof pgnSurfaceAnnounce, "function", "P0 runtime must wrap the PGN announce boundary");
+  const pgnFirst = await pgnSurfaceInvoke("pgn.action", {});
+  pgnSurfaceAnnounce(pgnFirst.payload.announcement);
+  pgnSurfaceAnnounce(pgnFirst.payload.announcement);
+  const pgnSecond = await pgnSurfaceInvoke("pgn.action", {});
+  pgnSurfaceAnnounce(pgnSecond.payload.announcement);
+
+  const concurrentPgnResult = async function () {
+    return { kind: "result", payload: { announcement: "Concurrent product-surface result" } };
+  };
+  fakeWindow.AccessibleChessPgnSurface.render(null, null, concurrentPgnResult, staleCallback);
+  const concurrentResults = await Promise.all([
+    pgnSurfaceInvoke("pgn.concurrent", { ordinal: 1 }),
+    pgnSurfaceInvoke("pgn.concurrent", { ordinal: 2 })
+  ]);
+  pgnSurfaceAnnounce(concurrentResults[0].payload.announcement);
+  pgnSurfaceAnnounce(concurrentResults[0].payload.announcement);
+  pgnSurfaceAnnounce(concurrentResults[1].payload.announcement);
+
+  fakeWindow.AccessibleChessPgnSurface.render(
+    null,
+    null,
+    function () { throw new Error("synchronous bridge failure"); },
+    staleCallback
+  );
+  let synchronousFailureEscaped = false;
+  let rejectedInvoke = null;
+  try {
+    rejectedInvoke = pgnSurfaceInvoke("pgn.sync_failure", {});
+  } catch (_error) {
+    synchronousFailureEscaped = true;
+  }
+  assert.strictEqual(
+    synchronousFailureEscaped,
+    false,
+    "wrapped surface invoke must convert synchronous bridge failure to Promise rejection so accessible consumer catch paths run"
+  );
+  assert.ok(rejectedInvoke && typeof rejectedInvoke.then === "function", "wrapped synchronous failure must return a Promise");
+  await rejectedInvoke.catch(function () {});
+  pgnSurfaceAnnounce("Synchronous bridge failure fallback");
+
+  const repeatLibraryResult = async function () {
+    return { kind: "result", payload: { announcement: "Same library surface result" } };
+  };
+  fakeWindow.AccessibleChessLibrarySurface.render(null, null, repeatLibraryResult, staleCallback);
+  assert.strictEqual(typeof librarySurfaceInvoke, "function", "P0 runtime must wrap the Library invoke boundary");
+  assert.strictEqual(typeof librarySurfaceAnnounce, "function", "P0 runtime must wrap the Library announce boundary");
+  const libraryFirst = await librarySurfaceInvoke("library.action", {});
+  librarySurfaceAnnounce(libraryFirst.payload.announcement);
+  const librarySecond = await librarySurfaceInvoke("library.action", {});
+  librarySurfaceAnnounce(librarySecond.payload.announcement);
+
+  const repeatTeacherResult = async function () {
+    return { kind: "result", payload: { announcement: "Same teacher surface result" } };
+  };
+  fakeWindow.AccessibleChessTeacherSurface.render(null, null, repeatTeacherResult, staleCallback);
+  assert.strictEqual(typeof teacherSurfaceInvoke, "function", "P0 runtime must wrap the Teacher invoke boundary");
+  assert.strictEqual(typeof teacherSurfaceAnnounce, "function", "P0 runtime must wrap the Teacher announce boundary");
+  const teacherFirst = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
+  teacherSurfaceAnnounce(teacherFirst.payload.announcement);
+  const teacherSecond = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
+  teacherSurfaceAnnounce(teacherSecond.payload.announcement);
+
+  // Wait for actual delivery, while measuring the product's requested timer
+  // budget rather than host scheduler delay. A loaded Windows runner can defer
+  // otherwise-correct timers; that is not a product queue-latency regression.
+  await waitForTotalWrites(surfaceWriteStartIndex + 9);
+  assert.ok(
+    nonEmptyLiveWrites.slice(surfaceWriteStartIndex).length >= 9,
+    "all explicit surface results must reach the live region"
+  );
+  const surfaceTimerDelays = runtimeTimerDelays.slice(surfaceTimerStartIndex);
+  const expectedSurfaceTimerDelays = [];
+  for (let index = 0; index < 9; index += 1) expectedSurfaceTimerDelays.push(30, 20);
+  assert.deepStrictEqual(
+    surfaceTimerDelays,
+    expectedSurfaceTimerDelays,
+    "surface queue must preserve the 30 ms clear-to-text and 20 ms post-write cadence"
+  );
+  assert.ok(
+    surfaceTimerDelays.reduce((total, delay) => total + delay, 0) <= 520,
+    "configured explicit surface queue budget must remain inside the frozen 520 ms acceptance window"
+  );
+  assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
+    2,
+    "duplicate emission from one PGN action must coalesce while a second same-text action on the same render stays observable"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Concurrent product-surface result").length,
+    2,
+    "concurrent same-text surface actions must retain separate event identities while one-action duplicates coalesce"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Synchronous bridge failure fallback").length,
+    1,
+    "a synchronous bridge failure must remain reachable through the event-aware accessible fallback announcement"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same library surface result").length,
+    2,
+    "two equal Library user results on one rendered surface must remain two live-region events"
+  );
+  assert.strictEqual(
+    nonEmptyLiveWrites.filter(value => value === "Same teacher surface result").length,
+    2,
+    "two equal Teacher user results on one rendered surface must remain two live-region events"
+  );
+  assert.ok(
+    nonEmptyLiveWrites.every(value => value.indexOf("AccessibleChessEvent:") === -1),
+    "internal surface event identity must never leak into the live-region text"
+  );
+
+  fakeWindow.AccessibleChessLibrarySurface.apply(null, null, null, staleCallback);
+  fakeWindow.AccessibleChessTeacherSurface.render(null, null, null, staleCallback);
+  assert.strictEqual(
+    staleCallbackCalls,
+    2,
+    "passive import and hover-capable paths must retain their bounded bootstrap callback"
   );
 
   assert.strictEqual(live.attributes.get("aria-busy"), "false");

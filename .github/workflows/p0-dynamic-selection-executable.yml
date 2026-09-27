@@ -68,9 +68,7 @@ jobs:
           git diff --check "$base" HEAD
 
           for path in \
-            tests/js/p0_dynamic_selection_runtime_test.js \
             tests/js/p0_accessibility_partial_replacement_test.js \
-            tests/test_p0_dynamic_selection_action_delivery.py \
             tests/test_p0_dynamic_selection_partial_replacement.py
           do
             actual="$(git rev-parse "HEAD:$path")"
@@ -80,6 +78,33 @@ jobs:
               exit 1
             }
           done
+
+          # The dynamic-selection oracle may be the retained #775 owner or the
+          # exact navigation-retention successor reviewed in this PR.
+          dynamic_selection_actual="$(git rev-parse HEAD:tests/js/p0_dynamic_selection_runtime_test.js)"
+          dynamic_selection_owner="$(git rev-parse "$p0_owner:tests/js/p0_dynamic_selection_runtime_test.js")"
+          case "$dynamic_selection_actual" in
+            "$dynamic_selection_owner"|f8b63e1c2ffefa2077524f8b4da074a656648f1b)
+              ;;
+            *)
+              printf 'Retained P0 evidence blob drift: tests/js/p0_dynamic_selection_runtime_test.js owner=%s actual=%s\n' "$dynamic_selection_owner" "$dynamic_selection_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          # Action-delivery evidence may be the #775 owner blob or the exact
+          # P0-G event-identity regression that replaces implementation-string
+          # assertions with the same behavioral accessibility contract.
+          action_delivery_actual="$(git rev-parse HEAD:tests/test_p0_dynamic_selection_action_delivery.py)"
+          action_delivery_owner="$(git rev-parse "$p0_owner:tests/test_p0_dynamic_selection_action_delivery.py")"
+          case "$action_delivery_actual" in
+            "$action_delivery_owner"|fbe1b0965d6a6bb895cd451a32253066157550a1|f4f2473202b25214ef3dd251ea70d58700e8bf09)
+              ;;
+            *)
+              printf 'Retained P0 evidence blob drift: tests/test_p0_dynamic_selection_action_delivery.py owner=%s actual=%s\n' "$action_delivery_owner" "$action_delivery_actual" >&2
+              exit 1
+              ;;
+          esac
 
           printf 'P0 retained authority PASS: pr-base=%s owner=%s head=%s\n' "$base" "$p0_owner" "$(git rev-parse HEAD)"
 
