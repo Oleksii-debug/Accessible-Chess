@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 
 from acs.security_support_policy import (
     MINIMUM_SUPPORT_YEARS,
@@ -205,6 +207,32 @@ class SecuritySupportPolicyTests(unittest.TestCase):
                 "non-symlink",
             ):
                 load_security_support_input(link)
+
+    def test_direct_script_execution_resolves_repo_package(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            input_path = root / "input.json"
+            output_path = root / "support.json"
+            input_path.write_text(json.dumps(self.input()), encoding="utf-8")
+            repo_root = Path(__file__).resolve().parents[1]
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_root / "tools" / "generate_security_support_manifest.py"),
+                    "--input",
+                    str(input_path),
+                    "--output",
+                    str(output_path),
+                ],
+                cwd=repo_root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(output_path.is_file())
+            manifest = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["product"], "Accessible Chess")
 
     def test_cli_fails_closed_without_output(self):
         with tempfile.TemporaryDirectory() as temp:
