@@ -28,6 +28,8 @@ class SoundSettingsWebViewTests(unittest.TestCase):
             'snapshot.writes_blocked === true',
             'bridge.sound_settings_snapshot',
             'bridge.sound_settings_command',
+            'AccessibleChessP0Runtime.exposeAnnouncement',
+            'restoreFocus(restoreFocusId)',
             'setAttribute("for"',
             'setAttribute("role", "status")',
         ):
