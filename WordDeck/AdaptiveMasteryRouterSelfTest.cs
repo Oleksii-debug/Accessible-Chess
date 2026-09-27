@@ -18,7 +18,12 @@ internal static class AdaptiveMasteryRouterSelfTest
         StudyPoolSizesAreExactAndBounded();
         PolicySeamConstrainsModesWithoutCompletionRules();
         SentenceEvidenceFailsClosedOnUnknownStableId();
+        CorruptedRecallAndSentenceCountersFailClosed();
         LearningEvidenceModeMappingFailsClosed();
+        SpeakingAndPronunciationEvidenceMapDistinctly();
+        MalformedLearningEvidenceFailsClosed();
+        LearningEvidenceModeIdentityIsCaseStable();
+        LearningEvidenceSourceBoundaryFailsClosed();
         LearningEvidenceDictionaryMismatchFailsClosed();
         FullOxfordScalePlanIsCompleteAndUnique();
     }
@@ -33,6 +38,8 @@ internal static class AdaptiveMasteryRouterSelfTest
             (AdaptiveEvidenceChannel.SentenceForm, AdaptivePracticeMode.Sentence),
             (AdaptiveEvidenceChannel.Grammar, AdaptivePracticeMode.Grammar),
             (AdaptiveEvidenceChannel.Listening, AdaptivePracticeMode.Listening),
+            (AdaptiveEvidenceChannel.Speaking, AdaptivePracticeMode.Speaking),
+            (AdaptiveEvidenceChannel.Pronunciation, AdaptivePracticeMode.Pronunciation),
             (AdaptiveEvidenceChannel.ReadingContext, AdaptivePracticeMode.Reading),
             (AdaptiveEvidenceChannel.NarrativeContext, AdaptivePracticeMode.Story)
         };
@@ -279,6 +286,57 @@ internal static class AdaptiveMasteryRouterSelfTest
         Require(failed, "Sentence adaptive evidence must fail closed instead of remapping an unknown stable ID by surface form.");
     }
 
+    private static void CorruptedRecallAndSentenceCountersFailClosed()
+    {
+        var recallState = new AppState();
+        recallState.StudyHistoryByEntryId["word"] = new WordStudyHistory
+        {
+            SeenCount = 1,
+            TranslationRevealCount = 2
+        };
+
+        bool recallFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromRecall(recallState, "oxford", new[] { "word" });
+        }
+        catch (InvalidDataException)
+        {
+            recallFailed = true;
+        }
+        Require(recallFailed,
+            "Recall evidence with more reveals than views must fail closed instead of being clamped.");
+
+        var sentenceState = new SentenceCoachState
+        {
+            StatsByDictionary = new Dictionary<string, Dictionary<string, SentenceTargetStats>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["oxford"] = new Dictionary<string, SentenceTargetStats>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["word"] = new SentenceTargetStats
+                    {
+                        CompletedReviews = 1,
+                        FirstTrySuccesses = 2,
+                        WrongAttempts = -1,
+                        ShowAnswerUses = 0
+                    }
+                }
+            }
+        };
+
+        bool sentenceFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromSentence(sentenceState, "oxford", new[] { "word" });
+        }
+        catch (InvalidDataException)
+        {
+            sentenceFailed = true;
+        }
+        Require(sentenceFailed,
+            "Sentence evidence with impossible counters must fail closed instead of being normalized into mastery data.");
+    }
+
     private static void LearningEvidenceModeMappingFailsClosed()
     {
         var source = new FakeEvidenceSource(new LearningEvidenceRecord(
@@ -293,6 +351,125 @@ internal static class AdaptiveMasteryRouterSelfTest
             failed = true;
         }
         Require(failed, "Unknown evidence modes must not be silently assigned to a mastery channel.");
+    }
+
+    private static void SpeakingAndPronunciationEvidenceMapDistinctly()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-28T00:00:00Z");
+        var source = new FakeEvidenceSource(
+            new LearningEvidenceRecord("oxford", "speak-word", "speaking", 4, 1, 3, 0, 0, now.AddHours(-6)),
+            new LearningEvidenceRecord("oxford", "pron-word", "pronunciation", 4, 2, 2, 1, 1, now.AddHours(-4)));
+
+        IReadOnlyList<AdaptiveMasteryObservation> evidence = AdaptiveEvidenceAdapters.FromLearningEvidence(source, "oxford");
+        Require(evidence.Count == 2, "Speaking and pronunciation evidence must both remain available to the adaptive router.");
+        Require(evidence.Single(item => item.TargetId == "speak-word").Channel == AdaptiveEvidenceChannel.Speaking,
+            "Speaking evidence must not be collapsed into Listening or another channel.");
+        Require(evidence.Single(item => item.TargetId == "pron-word").Channel == AdaptiveEvidenceChannel.Pronunciation,
+            "Pronunciation evidence must remain distinct from general Speaking evidence.");
+
+        AdaptiveMasteryRouter router = new();
+        AdaptiveRoutingDecision speaking = router.RouteNext(
+            new[] { Lexical("oxford", "speak-word", AdaptivePracticeMode.Speaking) },
+            evidence.Where(item => item.TargetId == "speak-word"),
+            now) ?? throw new InvalidOperationException("Speaking evidence did not produce an adaptive decision.");
+        AdaptiveRoutingDecision pronunciation = router.RouteNext(
+            new[] { Lexical("oxford", "pron-word", AdaptivePracticeMode.Pronunciation) },
+            evidence.Where(item => item.TargetId == "pron-word"),
+            now) ?? throw new InvalidOperationException("Pronunciation evidence did not produce an adaptive decision.");
+
+        Require(speaking.NextMode == AdaptivePracticeMode.Speaking && speaking.HasDirectNeed,
+            "Weak scored Speaking evidence must route back to Speaking as a direct need.");
+        Require(pronunciation.NextMode == AdaptivePracticeMode.Pronunciation && pronunciation.HasDirectNeed,
+            "Weak scored Pronunciation evidence must route back to Pronunciation as a direct need.");
+    }
+
+    private static void MalformedLearningEvidenceFailsClosed()
+    {
+        LearningEvidenceRecord[] malformed =
+        {
+            new("oxford", "word", "speaking", -1, 0, 0, 0, 0, null),
+            new("oxford", "word", "speaking", 1, 2, 0, 0, 0, null),
+            new("oxford", "word", "pronunciation", 1, 1, -1, 0, 1, null),
+            new("oxford", "word", "pronunciation", 1, 1, 0, -1, 1, null),
+            new("oxford", "word", "speaking", 1, 1, 0, 0, 2, null),
+            new(" oxford", "word", "speaking", 1, 1, 0, 0, 1, null),
+            new("oxford", " word", "speaking", 1, 1, 0, 0, 1, null),
+            new("oxford", "word", " speaking", 1, 1, 0, 0, 1, null)
+        };
+
+        foreach (LearningEvidenceRecord record in malformed)
+        {
+            bool failed = false;
+            try
+            {
+                _ = AdaptiveEvidenceAdapters.FromLearningEvidence(new FakeEvidenceSource(record), "oxford");
+            }
+            catch (InvalidDataException)
+            {
+                failed = true;
+            }
+            Require(failed, "Malformed learning evidence must fail closed instead of being normalized into plausible mastery data.");
+        }
+    }
+
+    private static void LearningEvidenceModeIdentityIsCaseStable()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-28T00:00:00Z");
+        var source = new FakeEvidenceSource(
+            new LearningEvidenceRecord("oxford", "word", "Listening", 2, 1, 1, 0, 0, now.AddHours(-2)),
+            new LearningEvidenceRecord("oxford", "word", "listening", 2, 1, 1, 0, 0, now.AddHours(-1)));
+
+        IReadOnlyList<AdaptiveMasteryObservation> evidence =
+            AdaptiveEvidenceAdapters.FromLearningEvidence(source, "oxford");
+        Require(evidence.Count == 2 &&
+                evidence.All(item => item.SourceId == "listening"),
+            "Case-only mode spelling must normalize to one stable adaptive source identity.");
+
+        bool failed = false;
+        try
+        {
+            _ = new AdaptiveMasteryRouter().RouteNext(
+                new[] { Lexical("oxford", "word", AdaptivePracticeMode.Listening) },
+                evidence,
+                now);
+        }
+        catch (InvalidDataException)
+        {
+            failed = true;
+        }
+        Require(failed,
+            "Case-only duplicate aggregate snapshots must fail closed instead of double-counting mastery evidence.");
+    }
+
+    private static void LearningEvidenceSourceBoundaryFailsClosed()
+    {
+        bool invalidDictionaryFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromLearningEvidence(
+                new FakeEvidenceSource(),
+                " oxford");
+        }
+        catch (InvalidDataException)
+        {
+            invalidDictionaryFailed = true;
+        }
+        Require(invalidDictionaryFailed,
+            "Non-canonical requested dictionary identity must fail closed before querying aggregate evidence.");
+
+        bool nullRecordFailed = false;
+        try
+        {
+            _ = AdaptiveEvidenceAdapters.FromLearningEvidence(
+                new FakeEvidenceSource(null!),
+                "oxford");
+        }
+        catch (InvalidDataException)
+        {
+            nullRecordFailed = true;
+        }
+        Require(nullRecordFailed,
+            "A null aggregate evidence record must fail closed with a controlled data error.");
     }
 
     private static void LearningEvidenceDictionaryMismatchFailsClosed()

@@ -13,6 +13,8 @@ internal enum AdaptiveEvidenceChannel
     SentenceForm,
     Grammar,
     Listening,
+    Speaking,
+    Pronunciation,
     NarrativeContext,
     ReadingContext
 }
@@ -24,6 +26,8 @@ internal enum AdaptivePracticeMode
     Sentence,
     Grammar,
     Listening,
+    Speaking,
+    Pronunciation,
     Story,
     Reading
 }
@@ -141,6 +145,8 @@ internal sealed class AdaptiveMasteryRouter
         AdaptiveEvidenceChannel.SentenceForm,
         AdaptiveEvidenceChannel.Grammar,
         AdaptiveEvidenceChannel.Listening,
+        AdaptiveEvidenceChannel.Speaking,
+        AdaptiveEvidenceChannel.Pronunciation,
         AdaptiveEvidenceChannel.NarrativeContext,
         AdaptiveEvidenceChannel.ReadingContext
     };
@@ -458,6 +464,8 @@ internal sealed class AdaptiveMasteryRouter
         AdaptiveEvidenceChannel.SentenceForm => AdaptivePracticeMode.Sentence,
         AdaptiveEvidenceChannel.Grammar => AdaptivePracticeMode.Grammar,
         AdaptiveEvidenceChannel.Listening => AdaptivePracticeMode.Listening,
+        AdaptiveEvidenceChannel.Speaking => AdaptivePracticeMode.Speaking,
+        AdaptiveEvidenceChannel.Pronunciation => AdaptivePracticeMode.Pronunciation,
         AdaptiveEvidenceChannel.NarrativeContext => AdaptivePracticeMode.Story,
         AdaptiveEvidenceChannel.ReadingContext => AdaptivePracticeMode.Reading,
         _ => throw new ArgumentOutOfRangeException(nameof(channel))
@@ -473,8 +481,10 @@ internal sealed class AdaptiveMasteryRouter
             AdaptiveEvidenceChannel.SentenceForm => 3,
             AdaptiveEvidenceChannel.Grammar => 4,
             AdaptiveEvidenceChannel.Listening => 5,
-            AdaptiveEvidenceChannel.NarrativeContext => 6,
-            AdaptiveEvidenceChannel.ReadingContext => 7,
+            AdaptiveEvidenceChannel.Speaking => 6,
+            AdaptiveEvidenceChannel.Pronunciation => 7,
+            AdaptiveEvidenceChannel.NarrativeContext => 8,
+            AdaptiveEvidenceChannel.ReadingContext => 9,
             _ => 99
         };
     }
@@ -563,14 +573,21 @@ internal static class AdaptiveEvidenceAdapters
         IEnumerable<string>? hiddenEntryIds = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (string.IsNullOrWhiteSpace(dictionaryId) ||
+            !string.Equals(dictionaryId, dictionaryId.Trim(), StringComparison.Ordinal))
+            throw new InvalidDataException("Requested learning-evidence dictionary identity must be non-blank canonical text.");
+
         var hidden = new HashSet<string>(hiddenEntryIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         var result = new List<AdaptiveMasteryObservation>();
         foreach (LearningEvidenceRecord record in source.Snapshot(dictionaryId))
         {
-            if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.Ordinal))
-                throw new InvalidDataException($"Learning evidence returned dictionary '{record.DictionaryId}' while '{dictionaryId}' was requested.");
-            if (hidden.Contains(record.EntryId)) continue;
-            result.Add(Convert(record));
+            if (record is null)
+                throw new InvalidDataException("Learning evidence source returned a null record.");
+            AdaptiveMasteryObservation converted = Convert(record);
+            if (!string.Equals(converted.DictionaryId, dictionaryId, StringComparison.Ordinal))
+                throw new InvalidDataException($"Learning evidence returned dictionary '{converted.DictionaryId}' while '{dictionaryId}' was requested.");
+            if (hidden.Contains(converted.TargetId)) continue;
+            result.Add(converted);
         }
         return result;
     }
@@ -587,8 +604,12 @@ internal static class AdaptiveEvidenceAdapters
         foreach ((string entryId, WordStudyHistory history) in state.StudyHistoryByEntryId.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             if (!known.Contains(entryId) || hidden.Contains(entryId) || history is null) continue;
-            int seen = Math.Max(0, history.SeenCount);
-            int reveals = Math.Clamp(history.TranslationRevealCount, 0, seen);
+            if (history.SeenCount < 0 ||
+                history.TranslationRevealCount < 0 ||
+                history.TranslationRevealCount > history.SeenCount)
+                throw new InvalidDataException($"Recall adaptive evidence for {entryId} contains impossible history counters.");
+            int seen = history.SeenCount;
+            int reveals = history.TranslationRevealCount;
             result.Add(new AdaptiveMasteryObservation(
                 dictionaryId,
                 entryId,
@@ -624,17 +645,21 @@ internal static class AdaptiveEvidenceAdapters
                 throw new InvalidDataException($"Sentence adaptive evidence references unknown stable target {entryId}.");
             if (hidden.Contains(entryId)) continue;
             if (value is null) throw new InvalidDataException($"Sentence adaptive evidence for {entryId} is missing.");
-            int reviews = Math.Max(0, value.CompletedReviews);
-            int successes = Math.Clamp(value.FirstTrySuccesses, 0, reviews);
+            if (value.CompletedReviews < 0 ||
+                value.FirstTrySuccesses < 0 ||
+                value.FirstTrySuccesses > value.CompletedReviews ||
+                value.WrongAttempts < 0 ||
+                value.ShowAnswerUses < 0)
+                throw new InvalidDataException($"Sentence adaptive evidence for {entryId} contains impossible history counters.");
             result.Add(new AdaptiveMasteryObservation(
                 dictionaryId,
                 entryId,
                 AdaptiveTargetKind.Lexical,
                 AdaptiveEvidenceChannel.SentenceForm,
-                reviews,
-                successes,
-                Math.Max(0, value.WrongAttempts),
-                Math.Max(0, value.ShowAnswerUses),
+                value.CompletedReviews,
+                value.FirstTrySuccesses,
+                value.WrongAttempts,
+                value.ShowAnswerUses,
                 CurrentStreak: 0,
                 value.LastReviewedUtc,
                 "sentence-spelling"));
@@ -644,29 +669,49 @@ internal static class AdaptiveEvidenceAdapters
 
     private static AdaptiveMasteryObservation Convert(LearningEvidenceRecord record)
     {
-        (AdaptiveEvidenceChannel channel, string sourceId) = record.ModeId.ToLowerInvariant() switch
+        if (record is null)
+            throw new InvalidDataException("Learning evidence source returned a null record.");
+        if (string.IsNullOrWhiteSpace(record.DictionaryId) ||
+            !string.Equals(record.DictionaryId, record.DictionaryId.Trim(), StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(record.EntryId) ||
+            !string.Equals(record.EntryId, record.EntryId.Trim(), StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(record.ModeId) ||
+            !string.Equals(record.ModeId, record.ModeId.Trim(), StringComparison.Ordinal))
+            throw new InvalidDataException("Learning evidence identity fields must be non-blank canonical text.");
+        if (record.CompletedReviews < 0 ||
+            record.FirstTrySuccesses < 0 ||
+            record.FirstTrySuccesses > record.CompletedReviews ||
+            record.WrongAttempts < 0 ||
+            record.HintUses < 0 ||
+            record.CurrentStreak < 0 ||
+            record.CurrentStreak > record.CompletedReviews)
+            throw new InvalidDataException($"Learning evidence for {record.EntryId} contains impossible counters.");
+
+        string normalizedMode = record.ModeId.ToLowerInvariant();
+        (AdaptiveEvidenceChannel channel, string sourceId) = normalizedMode switch
         {
             "recall" => (AdaptiveEvidenceChannel.MeaningRecall, "recall"),
             "spelling" => (AdaptiveEvidenceChannel.Spelling, "spelling"),
-            "sentence" or "sentence-spelling" => (AdaptiveEvidenceChannel.SentenceForm, record.ModeId),
+            "sentence" or "sentence-spelling" => (AdaptiveEvidenceChannel.SentenceForm, normalizedMode),
             "grammar" => (AdaptiveEvidenceChannel.Grammar, "grammar"),
-            "listening" or "dictation" => (AdaptiveEvidenceChannel.Listening, record.ModeId),
+            "listening" or "dictation" => (AdaptiveEvidenceChannel.Listening, normalizedMode),
+            "speaking" => (AdaptiveEvidenceChannel.Speaking, "speaking"),
+            "pronunciation" => (AdaptiveEvidenceChannel.Pronunciation, "pronunciation"),
             "story" => (AdaptiveEvidenceChannel.NarrativeContext, "story"),
             "reading" => (AdaptiveEvidenceChannel.ReadingContext, "reading"),
             _ => throw new InvalidDataException($"Unknown learning-evidence mode '{record.ModeId}'. Adaptive routing fails closed instead of guessing a channel.")
         };
 
-        int completed = Math.Max(0, record.CompletedReviews);
         return new AdaptiveMasteryObservation(
             record.DictionaryId,
             record.EntryId,
             AdaptiveTargetKind.Lexical,
             channel,
-            completed,
-            Math.Clamp(record.FirstTrySuccesses, 0, completed),
-            Math.Max(0, record.WrongAttempts),
-            Math.Max(0, record.HintUses),
-            Math.Clamp(record.CurrentStreak, 0, completed),
+            record.CompletedReviews,
+            record.FirstTrySuccesses,
+            record.WrongAttempts,
+            record.HintUses,
+            record.CurrentStreak,
             record.LastReviewedUtc,
             sourceId);
     }
