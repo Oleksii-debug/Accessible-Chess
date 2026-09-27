@@ -67,6 +67,7 @@ const document = {
 };
 
 const calls = [];
+const announcements = [];
 const initial = {
   master_enabled: true,
   master_volume_percent: 65,
@@ -108,6 +109,12 @@ const window = {
   document,
   pywebview: {api},
   MutationObserver,
+  AccessibleChessP0Runtime: {
+    exposeAnnouncement(message, dispatchId) {
+      announcements.push([String(message), Number(dispatchId)]);
+      return true;
+    }
+  },
   setTimeout(callback) { callback(); }
 };
 
@@ -153,6 +160,14 @@ async function run() {
   await Promise.resolve();
   await Promise.resolve();
   assert.deepStrictEqual(calls[1], ["preview", {event_id: "move"}]);
+  assert.strictEqual(announcements.length, 2);
+  assert.strictEqual(announcements[0][0], "Saved.");
+  assert.strictEqual(announcements[1][0], "Saved.");
+  assert.ok(announcements[0][1] > 1000000000);
+  assert.ok(announcements[1][1] > announcements[0][1],
+    "repeated explicit results must carry distinct P0 dispatch identities");
+  assert.strictEqual(live.textContent, "",
+    "sound actions must not bypass the canonical P0 announcement queue");
 
   assert.ok(window.AccessibleChessSoundSettingsSurface);
   console.log("SOUND_SETTINGS_WEBVIEW=PASS");
