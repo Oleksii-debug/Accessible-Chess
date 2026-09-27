@@ -729,8 +729,10 @@ internal sealed partial class MainForm : Form
             UpdateCounts();
             ShowEntryById(addedIds[0]);
             RemoveFromShuffleBag(addedIds[0]);
-            SaveState();
-            AnnounceStatus($"Added {addedIds.Count} new cards to {activeDeck.Name} in All Oxford 5000. Custom cards are saved locally.");
+            bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+            AnnounceStatus(saved
+                ? $"Added {addedIds.Count} new cards to {activeDeck.Name} in All Oxford 5000. Custom cards are saved locally."
+                : $"Added {addedIds.Count} new cards to {activeDeck.Name} for this session, but the new cards were not saved locally. {saveError}");
         }
         catch (Exception ex)
         {
@@ -831,8 +833,10 @@ internal sealed partial class MainForm : Form
             RefreshDeckUi();
             ResetSequence();
             UpdateCounts();
-            SaveState();
-            AnnounceStatus($"Created empty deck {deck.Name}. It is active in {StudyScopeIds.DisplayName(ActiveScopeId)}.");
+            bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+            AnnounceStatus(saved
+                ? $"Created empty deck {deck.Name}. It is active in {StudyScopeIds.DisplayName(ActiveScopeId)}."
+                : $"Created deck {deck.Name} for this session, but the new deck was not saved. {saveError}");
             NextWord();
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot create deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -850,8 +854,10 @@ internal sealed partial class MainForm : Form
             _shortcuts.RefreshDeckDefinitions();
             RefreshDeckUi();
             UpdateCounts();
-            SaveState();
-            AnnounceStatus($"Deck renamed to {deck.Name}. Its stable ID and assignments in every study scope were preserved.");
+            bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+            AnnounceStatus(saved
+                ? $"Deck renamed to {deck.Name}. Its stable ID and assignments in every study scope were preserved."
+                : $"Deck renamed to {deck.Name} for this session, but the new name was not saved. Its stable ID and in-memory assignments were preserved. {saveError}");
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot rename deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
@@ -888,8 +894,13 @@ internal sealed partial class MainForm : Form
             RefreshDeckUi();
             ResetSequence();
             UpdateCounts();
-            SaveState();
-            AnnounceStatus(assigned > 0 ? $"Deleted {deletedName}. Saved Recall assignments were moved to {_decks.Find(destination!)?.Name} across study scopes." : $"Deleted empty deck {deletedName}.");
+            bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+            string success = assigned > 0
+                ? $"Deleted {deletedName}. Saved Recall assignments were moved to {_decks.Find(destination!)?.Name} across study scopes."
+                : $"Deleted empty deck {deletedName}.";
+            AnnounceStatus(saved
+                ? success
+                : $"Deleted {deletedName} for this session, but the deletion was not saved. Restore storage access before closing WordDeck. {saveError}");
             NextWord();
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot delete deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -906,8 +917,10 @@ internal sealed partial class MainForm : Form
         }
         RefreshDeckUi();
         UpdateCounts();
-        SaveState();
-        AnnounceStatus($"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in shared deck order. Scope assignments were preserved.");
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? $"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in shared deck order. Scope assignments were preserved."
+            : $"Moved {deck.Name} {(direction < 0 ? "up" : "down")} for this session, but the deck order was not saved. {saveError}");
     }
 
     private void UpdateCounts()
@@ -966,7 +979,11 @@ internal sealed partial class MainForm : Form
         _shortcuts.RefreshDeckDefinitions();
         using var dialog = new ShortcutSettingsForm(_shortcuts);
         dialog.ShowDialog(this);
-        SaveState();
+        if (!RecallClosePersistence.TrySave(() => SaveState(), out string? saveError))
+        {
+            AnnounceStatus($"Keyboard shortcut changes are active for this session, but they were not saved. {saveError}");
+            return;
+        }
         RepeatCurrentWord();
     }
 
