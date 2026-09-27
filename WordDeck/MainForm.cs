@@ -174,10 +174,16 @@ internal sealed partial class MainForm : Form
         PopulateDictionaryCombo();
         SelectInitialPackage();
         Shown += (_, _) => BeginInvoke(new Action(RestoreCurrentOrNextWord));
-        FormClosing += (_, _) =>
+        FormClosing += (_, e) =>
         {
+            if (!RecallPersistenceSafety.TrySave(() => SaveState(), out string? error))
+            {
+                e.Cancel = true;
+                AnnounceStatus($"Closing WordDeck was cancelled because Recall progress could not be saved. WordDeck remains open; resolve the storage problem and try again. {error}");
+                return;
+            }
+
             _audio.Dispose();
-            SaveState();
         };
     }
 
@@ -368,7 +374,8 @@ internal sealed partial class MainForm : Form
         RefreshDeckUi();
         RestoreSequenceForScope();
         UpdateCounts();
-        SaveState(preserveStoredCurrentEntry: true);
+        if (!RecallPersistenceSafety.TrySave(() => SaveState(preserveStoredCurrentEntry: true), out string? saveError))
+            _statusLabel.Text = $"Personal Recall state is loaded for this session, but startup reconciliation could not be saved. {saveError}";
     }
 
     private DictionaryPackage WithCustomEntries(DictionaryPackage basePackage)
@@ -414,8 +421,10 @@ internal sealed partial class MainForm : Form
         RefreshDeckUi();
         RestoreSequenceForScope();
         UpdateCounts();
-        SaveState(preserveStoredCurrentEntry: true);
-        AnnounceStatus($"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope.");
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(preserveStoredCurrentEntry: true), out string? saveError);
+        AnnounceStatus(saved
+            ? $"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope."
+            : $"Recall study scope changed to {StudyScopeIds.DisplayName(scopeId)} for this session, but the change was not saved. {saveError}");
         RestoreCurrentOrNextWord(focusWord);
     }
 
@@ -463,8 +472,10 @@ internal sealed partial class MainForm : Form
         RebuildSwitchDeckMenu();
         ResetSequence();
         UpdateCounts();
-        SaveState();
-        AnnounceStatus($"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name}.");
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? $"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name}."
+            : $"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name} for this session, but the change was not saved. {saveError}");
         NextWord(focusWord);
     }
 
@@ -561,7 +572,8 @@ internal sealed partial class MainForm : Form
             _translationBox.Clear();
             _statusLabel.Text = $"{StudyScopeIds.DisplayName(ActiveScopeId)} — {activeDeck.Name} is empty.";
             UpdateCounts();
-            SaveState();
+            if (!RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError))
+                AnnounceStatus($"{StudyScopeIds.DisplayName(ActiveScopeId)} — {activeDeck.Name} is empty. Current Recall state was not saved. {saveError}");
             if (focusWord)
             {
                 _wordBox.Focus();
@@ -596,10 +608,12 @@ internal sealed partial class MainForm : Form
         string deckName = _decks.Find(_activeDeckId)?.Name ?? "Deck";
         _statusLabel.Text = $"Scope {StudyScopeIds.DisplayName(ActiveScopeId)}. Level {entry.Level}. {deckName}.";
         UpdateCounts();
-        SaveState();
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
         if (focusWord) FocusCurrentWord();
         bool nativeAudioPlayed = _state.AutoPlayPronunciationOnCardChange && TryPlayCurrentPronunciation(announceFailure: false);
         if (focusWord && !nativeAudioPlayed) AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
+        if (!saved)
+            AnnounceStatus($"Current Recall card is available, but this learning progress was not saved. Resolve the storage problem before closing WordDeck. {saveError}");
     }
 
     private void RevealTranslation()
@@ -607,10 +621,14 @@ internal sealed partial class MainForm : Form
         if (_current is null) return;
         _translationBox.Text = _current.Target;
         UserProgressService.RecordTranslationReveal(_state, _current.Id);
-        SaveState();
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
         _translationBox.Focus();
         _translationBox.SelectAll();
-        AccessibilityAnnouncer.Announce(_translationBox, _current.Target);
+        AccessibilityAnnouncer.Announce(
+            _translationBox,
+            saved
+                ? _current.Target
+                : $"{_current.Target}. Warning: this translation reveal was not saved to personal progress. {saveError}");
     }
 
     private void RepeatCurrentWord()
@@ -638,16 +656,20 @@ internal sealed partial class MainForm : Form
     {
         _state.AutoPlayPronunciationOnCardChange = !_state.AutoPlayPronunciationOnCardChange;
         _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
-        SaveState();
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
         if (_state.AutoPlayPronunciationOnCardChange)
         {
-            AnnounceStatus("Automatic British pronunciation enabled.");
+            AnnounceStatus(saved
+                ? "Automatic British pronunciation enabled."
+                : $"Automatic British pronunciation is enabled for this session, but the setting was not saved. {saveError}");
             if (_current is not null) TryPlayCurrentPronunciation(announceFailure: true);
         }
         else
         {
             _audio.Stop();
-            AnnounceStatus("Automatic British pronunciation disabled. Screen-reader word announcements remain enabled.");
+            AnnounceStatus(saved
+                ? "Automatic British pronunciation disabled. Screen-reader word announcements remain enabled."
+                : $"Automatic British pronunciation is disabled for this session, but the setting was not saved. Screen-reader word announcements remain enabled. {saveError}");
         }
     }
 
@@ -707,8 +729,10 @@ internal sealed partial class MainForm : Form
             UpdateCounts();
             ShowEntryById(addedIds[0]);
             RemoveFromShuffleBag(addedIds[0]);
-            SaveState();
-            AnnounceStatus($"Added {addedIds.Count} new cards to {activeDeck.Name} in All Oxford 5000. Custom cards are saved locally.");
+            bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+            AnnounceStatus(saved
+                ? $"Added {addedIds.Count} new cards to {activeDeck.Name} in All Oxford 5000. Custom cards are saved locally."
+                : $"Added {addedIds.Count} new cards to {activeDeck.Name} for this session, but the new cards were not saved locally. {saveError}");
         }
         catch (Exception ex)
         {
@@ -746,8 +770,10 @@ internal sealed partial class MainForm : Form
         _translationBox.Clear();
         UpdateCounts();
         RebuildSwitchDeckMenu();
-        SaveState();
-        AnnounceStatus($"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name} in {StudyScopeIds.DisplayName(scopeId)}. Undo is available.");
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? $"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name} in {StudyScopeIds.DisplayName(scopeId)}. Undo is available."
+            : $"Moved {movedWord} to {targetDeck.Name} for this session, but the move was not saved. Undo remains available. {saveError}");
         NextWord();
     }
 
@@ -778,13 +804,16 @@ internal sealed partial class MainForm : Form
         _lastMove = null;
         UpdateCounts();
         RebuildSwitchDeckMenu();
-        SaveState();
-        if (string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase))
-        {
+        bool activeSourceDeck = string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase);
+        if (activeSourceDeck)
             ShowEntryById(undo.EntryId);
-            AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name} in {StudyScopeIds.DisplayName(undo.ScopeId)}.");
-        }
-        else AnnounceStatus($"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}.");
+
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? activeSourceDeck
+                ? $"Undid move. {entry.Source} is back in {fromDeck.Name} in {StudyScopeIds.DisplayName(undo.ScopeId)}."
+                : $"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}."
+            : $"Undid move for this session. {entry.Source} is back in {fromDeck.Name}, but the undo was not saved. {saveError}");
     }
 
     private void CreateDeck()
@@ -800,8 +829,10 @@ internal sealed partial class MainForm : Form
             RefreshDeckUi();
             ResetSequence();
             UpdateCounts();
-            SaveState();
-            AnnounceStatus($"Created empty deck {deck.Name}. It is active in {StudyScopeIds.DisplayName(ActiveScopeId)}.");
+            bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+            AnnounceStatus(saved
+                ? $"Created empty deck {deck.Name}. It is active in {StudyScopeIds.DisplayName(ActiveScopeId)}."
+                : $"Created deck {deck.Name} for this session, but the new deck was not saved. {saveError}");
             NextWord();
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot create deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -819,8 +850,10 @@ internal sealed partial class MainForm : Form
             _shortcuts.RefreshDeckDefinitions();
             RefreshDeckUi();
             UpdateCounts();
-            SaveState();
-            AnnounceStatus($"Deck renamed to {deck.Name}. Its stable ID and assignments in every study scope were preserved.");
+            bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+            AnnounceStatus(saved
+                ? $"Deck renamed to {deck.Name}. Its stable ID and assignments in every study scope were preserved."
+                : $"Deck renamed to {deck.Name} for this session, but the new name was not saved. Its stable ID and in-memory assignments were preserved. {saveError}");
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot rename deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
@@ -857,8 +890,13 @@ internal sealed partial class MainForm : Form
             RefreshDeckUi();
             ResetSequence();
             UpdateCounts();
-            SaveState();
-            AnnounceStatus(assigned > 0 ? $"Deleted {deletedName}. Saved Recall assignments were moved to {_decks.Find(destination!)?.Name} across study scopes." : $"Deleted empty deck {deletedName}.");
+            bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+            string success = assigned > 0
+                ? $"Deleted {deletedName}. Saved Recall assignments were moved to {_decks.Find(destination!)?.Name} across study scopes."
+                : $"Deleted empty deck {deletedName}.";
+            AnnounceStatus(saved
+                ? success
+                : $"Deleted {deletedName} for this session, but the deletion was not saved. Restore storage access before closing WordDeck. {saveError}");
             NextWord();
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Cannot delete deck", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -875,8 +913,10 @@ internal sealed partial class MainForm : Form
         }
         RefreshDeckUi();
         UpdateCounts();
-        SaveState();
-        AnnounceStatus($"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in shared deck order. Scope assignments were preserved.");
+        bool saved = RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? $"Moved {deck.Name} {(direction < 0 ? "up" : "down")} in shared deck order. Scope assignments were preserved."
+            : $"Moved {deck.Name} {(direction < 0 ? "up" : "down")} for this session, but the deck order was not saved. {saveError}");
     }
 
     private void UpdateCounts()
@@ -921,7 +961,12 @@ internal sealed partial class MainForm : Form
 
     private void SaveProgressNow()
     {
-        SaveState();
+        if (!RecallPersistenceSafety.TrySave(() => SaveState(), out string? error))
+        {
+            AnnounceStatus($"Recall progress was not saved. WordDeck remains open with the current in-memory session; resolve the storage problem and try again. {error}");
+            return;
+        }
+
         AnnounceStatus($"Progress saved locally for {StudyScopeIds.DisplayName(ActiveScopeId)}. Scope assignments, active deck, current card and shuffle progress are stored.");
     }
 
@@ -930,7 +975,11 @@ internal sealed partial class MainForm : Form
         _shortcuts.RefreshDeckDefinitions();
         using var dialog = new ShortcutSettingsForm(_shortcuts);
         dialog.ShowDialog(this);
-        SaveState();
+        if (!RecallPersistenceSafety.TrySave(() => SaveState(), out string? saveError))
+        {
+            AnnounceStatus($"Keyboard shortcut changes are active for this session, but they were not saved. {saveError}");
+            return;
+        }
         RepeatCurrentWord();
     }
 
@@ -1020,6 +1069,17 @@ internal sealed partial class MainForm : Form
                 _scopeService.SetCurrentEntry(ActiveScopeId, _current?.Id);
             PersistActiveShuffle();
         }
-        _store.Save(_state);
+        try
+        {
+            _store.Save(_state);
+        }
+        finally
+        {
+            // AppStateStore.Normalize replaces scope DeckIds dictionaries during every
+            // save attempt. Always reacquire the authoritative map so an in-memory
+            // Recall session never continues against a detached pre-normalization map.
+            if (_scopeService is not null)
+                _deckMap = _scopeService.Assignments(ActiveScopeId);
+        }
     }
 }
