@@ -132,8 +132,11 @@ def _safe_members(archive: zipfile.ZipFile, label: str) -> dict[str, zipfile.Zip
             raise CandidateArtifactError(f"{label} contains unsafe path: {raw}")
         canonical = path.as_posix()
         unix_mode = info.external_attr >> 16
-        if stat.S_ISLNK(unix_mode):
+        file_type = stat.S_IFMT(unix_mode)
+        if file_type == stat.S_IFLNK:
             raise CandidateArtifactError(f"{label} contains symbolic link entry: {canonical}")
+        if file_type not in (0, stat.S_IFREG, stat.S_IFDIR):
+            raise CandidateArtifactError(f"{label} contains unsupported special file entry: {canonical}")
         folded = canonical.casefold()
         if folded in casefold:
             raise CandidateArtifactError(f"{label} contains case-insensitive duplicate: {canonical}")
@@ -738,18 +741,33 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         raise CandidateArtifactError("outer artifact size is unavailable") from exc
     if outer_size <= 0 or outer_size > MAX_OUTER_BYTES:
         raise CandidateArtifactError("outer artifact size is outside accepted bounds")
-    outer_bytes = outer_path.read_bytes()
-    if len(outer_bytes) != outer_size:
-        raise CandidateArtifactError("outer artifact changed while being read")
-    outer_digest = _sha256(outer_bytes)
+    outer_digest_builder = hashlib.sha256()
+    hashed_size = 0
+    try:
+        with outer_path.open("rb") as source:
+            while True:
+                block = source.read(HASH_CHUNK_BYTES)
+                if not block:
+                    break
+                hashed_size += len(block)
+                if hashed_size > outer_size or hashed_size > MAX_OUTER_BYTES:
+                    raise CandidateArtifactError("outer artifact changed while being hashed")
+                outer_digest_builder.update(block)
+    except CandidateArtifactError:
+        raise
+    except OSError as exc:
+        raise CandidateArtifactError("outer artifact read failed") from exc
+    if hashed_size != outer_size:
+        raise CandidateArtifactError("outer artifact changed while being hashed")
+    outer_digest = outer_digest_builder.hexdigest()
     if expected_outer_sha256 is not None:
         wanted = _normalize_sha256(expected_outer_sha256, "outer artifact SHA-256")
         if wanted != outer_digest:
             raise CandidateArtifactError("outer artifact SHA-256 mismatch")
 
     try:
-        outer = zipfile.ZipFile(io.BytesIO(outer_bytes), "r")
-    except zipfile.BadZipFile as exc:
+        outer = zipfile.ZipFile(outer_path, "r")
+    except (OSError, zipfile.BadZipFile) as exc:
         raise CandidateArtifactError("outer artifact is not a valid ZIP") from exc
     with outer:
         outer_members = _safe_members(outer, "outer artifact")
