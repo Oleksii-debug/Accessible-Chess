@@ -1,15 +1,37 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
-from acs import version2_final_release as final_release
+from acs import version2_upgrade_status_release as shipping_release
+
+
+ROOT = Path(__file__).resolve().parents[1]
+LAUNCHER = ROOT / "run_accessible_chess_v2.py"
 
 
 class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
-    def test_event_aware_runtime_is_in_shipping_resource_order(self) -> None:
-        sources = final_release._final_product_resource_sources()
+    def test_launcher_routes_diagnostic_and_real_ui_through_shipping_release(self) -> None:
+        source = LAUNCHER.read_text(encoding="utf-8")
+        diagnostic_marker = 'if "--diagnostic" in sys.argv:'
+        self.assertIn(diagnostic_marker, source)
+        diagnostic, real = source.split(diagnostic_marker, 1)[1].split("\nelse:", 1)
+        self.assertIn(
+            "from acs.version2_upgrade_status_release import (",
+            diagnostic,
+        )
+        self.assertIn("create_version2_release_application", diagnostic)
+        self.assertIn("final_product_resource_sources", diagnostic)
+        self.assertIn(
+            "from acs.version2_upgrade_status_release import main",
+            real,
+        )
+        self.assertIn("main()", real)
+
+    def test_event_aware_runtime_is_in_actual_shipping_resource_order(self) -> None:
+        sources = shipping_release.final_product_resource_sources()
         labels = [label for label, _source in sources]
-        runtime_label = "P0 event-aware accessibility runtime"
+        runtime_label = "P0 accessibility runtime"
         teacher_label = "V2 Teacher surface"
         education_label = "V2 Education surface"
         bootstrap_label = "V2 final-product bootstrap"
@@ -18,13 +40,6 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertLess(labels.index(teacher_label), labels.index(runtime_label))
         self.assertLess(labels.index(education_label), labels.index(runtime_label))
         self.assertLess(labels.index(bootstrap_label), labels.index(runtime_label))
-        previous_resources = final_release._release_ui._resource_sources
-        with final_release._final_product_bindings():
-            self.assertIs(
-                final_release._release_ui._resource_sources,
-                final_release._final_product_resource_sources,
-            )
-        self.assertIs(final_release._release_ui._resource_sources, previous_resources)
 
         runtime_source = dict(sources)[runtime_label]
         for surface in (
