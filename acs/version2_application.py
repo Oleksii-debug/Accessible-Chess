@@ -177,9 +177,17 @@ class Version2Application:
         except BookProgressStoreError as error:
             if error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                 raise
+            # Before offering destructive rollback, prove the existing backup is
+            # actually usable for this exact Book/document. restore() is a
+            # non-mutating read and already owns backup validation semantics;
+            # absent, corrupt, or semantically stale backup data fails closed.
+            try:
+                self.progress_store.restore(book_key, reader.document)
+            except (BookProgressStoreError, LookupError, TypeError, ValueError):
+                raise error
             # Recovery is destructive with respect to the corrupt primary's
-            # newest generation. Never infer consent from the existence of a
-            # valid backup or from a generic Book-open action.
+            # newest generation. Never infer consent from merely having a usable
+            # backup or from a generic Book-open action.
             try:
                 confirmed = self.confirm_book_progress_recovery()
             except Exception:
