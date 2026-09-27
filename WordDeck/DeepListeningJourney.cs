@@ -17,9 +17,28 @@ internal static class DeepListeningJourney
         int NeedsReview,
         int WrongAttempts,
         int Replays,
-        bool CycleCompleted)
+        bool CycleCompleted,
+        bool FeedbackAmbiguous)
     {
         public int Remaining => Math.Max(0, TargetReviews - CompletedReviews);
+    }
+
+    private sealed class CompletionEvidence
+    {
+        public int CorrectBudget { get; init; }
+        public int IncorrectBudget { get; init; }
+        public int CorrectHistory { get; set; }
+        public int IncorrectHistory { get; set; }
+
+        public int CreditedReviews =>
+            Math.Min(CorrectHistory, CorrectBudget) +
+            Math.Min(IncorrectHistory, IncorrectBudget);
+
+        public bool CorrectFeedbackAmbiguous =>
+            CorrectBudget > 0 && CorrectHistory > CorrectBudget;
+
+        public bool IncorrectFeedbackAmbiguous =>
+            IncorrectBudget > 0 && IncorrectHistory > IncorrectBudget;
     }
 
     internal static Progress ActiveProgress(
@@ -43,6 +62,10 @@ internal static class DeepListeningJourney
         if (progress.CompletedReviews == 0)
             return $"Deep Listening journey: 0 of {TargetReviews} reviews complete. Progress is restored from durable Listening history.";
 
+        if (progress.FeedbackAmbiguous)
+            return $"Deep Listening journey: {progress.CompletedReviews} of {TargetReviews} reviews complete; " +
+                   $"detailed feedback is unavailable because stored Listening history is ambiguous; {progress.Remaining} remaining.";
+
         return $"Deep Listening journey: {progress.CompletedReviews} of {TargetReviews} reviews complete; " +
                $"{progress.CorrectReviews} correct, {progress.NeedsReview} need more practice; {progress.Remaining} remaining.";
     }
@@ -55,6 +78,16 @@ internal static class DeepListeningJourney
         Progress progress = CompletionProgress(state, dictionaryId, available);
         if (progress.CompletedReviews == 0)
             return DescribeActive(state, dictionaryId, available);
+
+        if (progress.FeedbackAmbiguous)
+        {
+            if (progress.CycleCompleted)
+                return $"Deep Listening journey complete: {TargetReviews} reviews recorded; detailed feedback is unavailable because stored Listening history is ambiguous. " +
+                       $"Next begins another {TargetReviews}-review journey.";
+
+            return $"Deep Listening journey: {progress.CompletedReviews} of {TargetReviews} complete; " +
+                   $"detailed feedback is unavailable because stored Listening history is ambiguous; {progress.Remaining} remaining.";
+        }
 
         if (progress.CycleCompleted)
             return $"Deep Listening journey complete: {progress.CorrectReviews} of {TargetReviews} correct; " +
@@ -81,31 +114,87 @@ internal static class DeepListeningJourney
         // view would make prior credit disappear and can move a five-review boundary.
         //
         // A completed Listening review is durably evidenced twice in the existing
-        // single ListeningCoachState: History contains the chronological record and
-        // StatsByDictionary records CompletedReviews for the same exercise. Use that
-        // durable completion evidence to reject synthetic/stale history without making
-        // current eligibility rewrite already-counted journey chronology.
-        var completedExerciseIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // single ListeningCoachState: History contains chronological row evidence and
+        // StatsByDictionary contains the aggregate completion/outcome budget for the
+        // same exercise. Aggregate outcome counts can prove how many rows may receive
+        // journey credit, but they cannot identify which one is genuine if history is
+        // over-represented by a stale duplicate with the same outcome. In that case we
+        // preserve the durable journey count/boundary while failing closed only while
+        // that ambiguity can still reach the current five-review feedback window.
+        var evidenceByExercise = new Dictionary<string, CompletionEvidence>(StringComparer.OrdinalIgnoreCase);
         if (state.StatsByDictionary.TryGetValue(dictionaryId, out Dictionary<string, ListeningItemStats>? perDictionary))
         {
             foreach ((string exerciseId, ListeningItemStats stats) in perDictionary)
-                if (stats.CompletedReviews > 0) completedExerciseIds.Add(exerciseId);
+            {
+                int completed = Math.Max(0, stats.CompletedReviews);
+                if (completed == 0) continue;
+
+                int correct = Math.Clamp(stats.CorrectReviews, 0, completed);
+                evidenceByExercise[exerciseId] = new CompletionEvidence
+                {
+                    CorrectBudget = correct,
+                    IncorrectBudget = completed - correct
+                };
+            }
         }
 
-        List<ListeningHistoryRecord> relevant = state.History
-            .Where(record =>
-                string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) &&
-                record.Kind == ListeningExerciseKind.Word &&
-                completedExerciseIds.Contains(record.ExerciseId))
-            .ToList();
+        foreach (ListeningHistoryRecord record in state.History)
+        {
+            if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) ||
+                record.Kind != ListeningExerciseKind.Word ||
+                !evidenceByExercise.TryGetValue(record.ExerciseId, out CompletionEvidence? evidence))
+            {
+                continue;
+            }
 
-        int inCycle = relevant.Count % TargetReviews;
-        if (completionView && relevant.Count > 0 && inCycle == 0)
+            if (record.Correct)
+                evidence.CorrectHistory++;
+            else
+                evidence.IncorrectHistory++;
+        }
+
+        int creditedReviews = evidenceByExercise.Values.Sum(evidence => evidence.CreditedReviews);
+        int inCycle = creditedReviews % TargetReviews;
+        if (completionView && creditedReviews > 0 && inCycle == 0)
             inCycle = TargetReviews;
 
-        List<ListeningHistoryRecord> cycle = inCycle == 0
+        // Keep only unambiguously corroborated rows after the last ambiguous candidate.
+        // If that suffix is large enough to cover the current feedback window, older
+        // ambiguity is safely behind the active cycle and normal detailed feedback can
+        // resume. Zero-budget rows are provably stale and never create ambiguity.
+        var safeSuffix = new List<ListeningHistoryRecord>();
+        bool sawAmbiguousCandidate = false;
+        foreach (ListeningHistoryRecord record in state.History)
+        {
+            if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase) ||
+                record.Kind != ListeningExerciseKind.Word ||
+                !evidenceByExercise.TryGetValue(record.ExerciseId, out CompletionEvidence? evidence))
+            {
+                continue;
+            }
+
+            int budget = record.Correct ? evidence.CorrectBudget : evidence.IncorrectBudget;
+            if (budget <= 0)
+                continue;
+
+            bool ambiguousCandidate = record.Correct
+                ? evidence.CorrectFeedbackAmbiguous
+                : evidence.IncorrectFeedbackAmbiguous;
+
+            if (ambiguousCandidate)
+            {
+                sawAmbiguousCandidate = true;
+                safeSuffix.Clear();
+                continue;
+            }
+
+            safeSuffix.Add(record);
+        }
+
+        bool feedbackAmbiguous = inCycle > 0 && sawAmbiguousCandidate && safeSuffix.Count < inCycle;
+        List<ListeningHistoryRecord> cycle = feedbackAmbiguous || inCycle == 0
             ? new List<ListeningHistoryRecord>()
-            : relevant.Skip(relevant.Count - inCycle).ToList();
+            : safeSuffix.Skip(Math.Max(0, safeSuffix.Count - inCycle)).ToList();
 
         return new Progress(
             CompletedReviews: inCycle,
@@ -114,6 +203,7 @@ internal static class DeepListeningJourney
             NeedsReview: cycle.Count(record => !record.Correct),
             WrongAttempts: cycle.Sum(record => Math.Max(0, record.WrongAttempts)),
             Replays: cycle.Sum(record => Math.Max(0, record.Replays)),
-            CycleCompleted: completionView && inCycle == TargetReviews);
+            CycleCompleted: completionView && inCycle == TargetReviews,
+            FeedbackAmbiguous: feedbackAmbiguous);
     }
 }
