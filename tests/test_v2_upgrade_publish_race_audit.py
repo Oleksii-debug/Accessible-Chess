@@ -10,6 +10,7 @@ from unittest import mock
 from acs.acsdb import AcsDatabase
 from acs.settings import Settings, SettingsError
 import acs.version2_upgrade as upgrade_module
+import acs.version2_upgrade_base as upgrade_base_module
 from acs.version2_upgrade import (
     UserDataLayout,
     Version2UpgradeCoordinator,
@@ -80,7 +81,7 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                     raise RuntimeError("forced late failure after publication")
 
             with mock.patch.object(
-                upgrade_module, "_atomic_bytes", side_effect=race_atomic_bytes
+                upgrade_base_module, "_atomic_bytes", side_effect=race_atomic_bytes
             ):
                 with self.assertRaises(Version2UpgradeError):
                     Version2UpgradeCoordinator(
@@ -125,7 +126,7 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 real_atomic_bytes(path, payload)
 
             with mock.patch.object(
-                upgrade_module, "_atomic_bytes", side_effect=race_atomic_bytes
+                upgrade_base_module, "_atomic_bytes", side_effect=race_atomic_bytes
             ):
                 report = Version2UpgradeCoordinator(UserDataLayout(root)).run()
 
