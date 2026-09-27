@@ -91,9 +91,13 @@ class P0PackagedAcceptanceOrchestratorTests(unittest.TestCase):
         self.assertIn("Document-copy evidence SHA changed", tail)
         self.assertIn("P0-G evidence SHA changed", tail)
 
-    def test_machine_human_nvda_overclaim_check_is_missing_property_safe(self) -> None:
+    def test_machine_acceptance_flags_are_required_exact_false_booleans(self) -> None:
         self.assertIn("function Assert-NoMachineHumanClaim", self.text)
         self.assertIn("$Evidence.PSObject.Properties[$name]", self.text)
+        self.assertIn("$null -eq $property", self.text)
+        self.assertIn("$property.Value -isnot [bool]", self.text)
+        self.assertIn("$property.Value -ne $false", self.text)
+        self.assertIn("machine evidence must explicitly declare $name=false", self.text)
         self.assertNotIn("$copy.human_tested", self.text)
         self.assertNotIn("$copy.nvda_verified", self.text)
 
