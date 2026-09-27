@@ -8,6 +8,8 @@ on:
     paths:
       - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
       - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_release_payload.py'
 
 permissions:
@@ -19,8 +21,8 @@ concurrency:
 
 env:
   CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
-  CURRENT_ASSEMBLER_BLOB: 0a365844b491cb4e0978a595debac56453ff4240
-  CURRENT_PREFLIGHT_BLOB: fed6d8e4c768563c022590f1debb66d0a1557952
+  CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
+  CURRENT_PREFLIGHT_BLOB: 66161cf84caa4729b4f11c5ef72f97a5d3f0cfdb
   SOURCE_PAYLOAD_OWNER: acd277cafd5ac6f7d312e26dc79105308c6fac0b
   SOURCE_PAYLOAD_BLOB: 30ac7dcf47bd7f605df50c8cca3f45d1242ac30e
   SOURCE_TEST_BLOB: 71454dd5b4de1e75d41a55708bd2793300171acd
