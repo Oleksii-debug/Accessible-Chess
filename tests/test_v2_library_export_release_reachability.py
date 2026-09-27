@@ -7,10 +7,12 @@ import unittest
 from unittest.mock import Mock, patch
 
 from acs.acsdb import AcsDatabase
+from acs.full_product_ui_shell import UILanguage
 from acs.library_export_service import LibraryExportRequest, LibraryExportService
 from acs.pgn_service import open_pgn
+from acs.version2_application import Version2Application
 from acs.version2_release_app import _build_version2_windows_file_runtime
-from acs.version2_windows_library_export import LibraryExportHostEventKind
+from acs.version2_windows_library_export import LibraryExportHostEvent, LibraryExportHostEventKind
 
 
 class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
@@ -231,6 +233,36 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             application._file_event.assert_called_once_with(event)
         finally:
             database.close()
+
+
+    def test_library_export_events_use_existing_localized_path_free_status_projection(self) -> None:
+        fake = SimpleNamespace(
+            _events=[],
+            shell=SimpleNamespace(language=UILanguage.UA),
+        )
+        exported = LibraryExportHostEvent(
+            LibraryExportHostEventKind.EXPORTED,
+            focus_target="library-results",
+            game_count=2,
+        )
+        Version2Application._file_event(fake, exported)
+        self.assertEqual(
+            fake._events,
+            [{"kind": "status", "payload": {"announcement": "Експорт завершено."}}],
+        )
+        self.assertNotIn("library-results", repr(fake._events))
+
+        fake._events.clear()
+        fake.shell.language = UILanguage.EN
+        cancelled = LibraryExportHostEvent(
+            LibraryExportHostEventKind.DIALOG_CANCELLED,
+            focus_target="library-results",
+        )
+        Version2Application._file_event(fake, cancelled)
+        self.assertEqual(
+            fake._events,
+            [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
+        )
 
 
 if __name__ == "__main__":
