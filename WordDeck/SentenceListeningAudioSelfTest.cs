@@ -162,13 +162,25 @@ internal static class SentenceListeningAudioSelfTest
         using var second = new ListeningAudioFilePlayer();
         using var third = new ListeningAudioFilePlayer();
 
-        string[] aliases = { first.AliasForTest, second.AliasForTest, third.AliasForTest };
+        string firstAlias = first.AliasForTest;
+        string[] aliases = { firstAlias, second.AliasForTest, third.AliasForTest };
+        Require(string.Equals(firstAlias, first.AliasForTest, StringComparison.Ordinal),
+            "One Sentence Listening player changed its MCI alias during its lifetime.");
         Require(aliases.Distinct(StringComparer.Ordinal).Count() == aliases.Length,
             "Separate Sentence Listening players reused the same Windows MCI alias.");
         Require(aliases.All(alias => alias.StartsWith("worddeck_listening_sentence_", StringComparison.Ordinal)),
             "Sentence Listening player alias left the dedicated safe MCI namespace.");
         Require(aliases.All(alias => alias.All(ch => char.IsAsciiLetterOrDigit(ch) || ch == '_')),
             "Sentence Listening player alias contains characters outside the safe MCI identifier set.");
+
+        var parallelAliases = new System.Collections.Concurrent.ConcurrentBag<string>();
+        Parallel.For(0, 64, _ =>
+        {
+            using var player = new ListeningAudioFilePlayer();
+            parallelAliases.Add(player.AliasForTest);
+        });
+        Require(parallelAliases.Count == 64 && parallelAliases.Distinct(StringComparer.Ordinal).Count() == 64,
+            "Concurrent Sentence Listening player construction reused an MCI alias.");
     }
 
     private static bool IsContained(string candidate, string root) =>
