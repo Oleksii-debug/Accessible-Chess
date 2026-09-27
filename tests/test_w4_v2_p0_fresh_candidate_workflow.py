@@ -37,7 +37,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
 
     def test_requested_sha_must_equal_live_canonical_full_product_head(self) -> None:
         self.assertIn("FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911", self.text)
-        self.assertIn('git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"', self.text)
+        self.assertIn('git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"', self.text)
         self.assertIn('live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"', self.text)
         self.assertIn('test "$requested" = "$live"', self.text)
         self.assertIn("product_sha must be one exact 40-hex commit", self.text)
