@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from acs.acsdb import AcsDatabase
+from acs.library_export_service import LibraryExportService
 from acs.version2_release_app import _build_version2_windows_file_runtime
+from acs.version2_windows_library_export import LibraryExportHostEventKind
 
 
 class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
@@ -95,6 +98,55 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
         self.assertIs(kwargs["library_export_event_sink"], application._file_event)
         self.assertNotIn("destination", kwargs)
         self.assertNotIn("path", kwargs)
+
+
+    def test_real_runtime_chain_rejects_browser_destination_before_native_dialog(self) -> None:
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("invalid Library export must not post UI work")
+
+        database = AcsDatabase()
+        try:
+            application = SimpleNamespace(
+                library_export=LibraryExportService(database),
+                _file_event=Mock(),
+                session=None,
+                worker_factory=Mock(return_value=lambda: None),
+                pgn_commands=SimpleNamespace(export_selected=Mock()),
+                import_ui_ready=Mock(),
+                _focus="library-results",
+                confirm_document_replace=lambda: True,
+                set_document=Mock(),
+            )
+            runtime = _build_version2_windows_file_runtime(
+                application=application,
+                api=SimpleNamespace(v2_board_dispatch=Mock()),
+                database_path=Path("library.acsdb"),
+                owner_control=Owner(),
+                dialog_language_provider=lambda: "uk",
+            )
+            try:
+                event = runtime(
+                    "library.export",
+                    {
+                        "scope": "selected",
+                        "game_ids": [1],
+                        "path": r"C:\\Users\\Private\\stolen.pgn",
+                    },
+                )
+                self.assertEqual(event.kind, LibraryExportHostEventKind.FAILED)
+                self.assertEqual(event.error_code, "invalid_export_request")
+                self.assertEqual(event.focus_target, "library-results")
+                self.assertNotIn("stolen.pgn", repr(event))
+                application._file_event.assert_called_once_with(event)
+            finally:
+                self.assertTrue(runtime.shutdown())
+        finally:
+            database.close()
 
 
 if __name__ == "__main__":
