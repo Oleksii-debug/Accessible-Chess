@@ -125,6 +125,41 @@ class ChildCoachingProjectionTests(unittest.TestCase):
             self.assertNotIn("Teacher may discuss alternatives.", repr(student.payload))
 
 
+    def test_student_preview_never_leaks_target_answer_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app, projection = self.make_projection(temp, UILanguage.EN)
+            catalog = app.open_catalog()
+            catalog = app.copy_template(
+                "preset-preschool-4-6",
+                template_id="target-template",
+                title="Target template",
+                expected_revision=catalog.revision,
+            )
+            target = LessonBlock(
+                "find-square",
+                LessonBlockKind.POINTER_TASK,
+                "Find square",
+                3,
+                TeachingActivity.SHOW_SQUARE,
+                "Find the requested square.",
+                target_square="e4",
+            )
+            catalog = app.append_block(
+                "target-template",
+                target,
+                expected_revision=catalog.revision,
+            )
+
+            teacher = projection.open_teacher_template("target-template")
+            student = projection.student_preview("target-template")
+            teacher_target = teacher.payload["template"]["blocks"][-1]
+            student_target = student.payload["template"]["blocks"][-1]
+            self.assertEqual(teacher_target["target_square"], "e4")
+            self.assertIsNone(teacher_target["target_piece"])
+            self.assertNotIn("target_square", student_target)
+            self.assertNotIn("target_piece", student_target)
+            self.assertNotIn('"e4"', repr(student.payload))
+
     def test_projection_does_not_create_move_or_board_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             _, projection = self.make_projection(temp)
