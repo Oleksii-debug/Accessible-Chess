@@ -32,6 +32,7 @@ internal static class ListeningCoachSelfTest
             TestProfileRoundTrip(root);
             TestMigrationBackup(root);
             TestUnknownFieldsSurviveRoundTrip(root);
+            TestMalformedRecordsFailClosed(root);
         }
         finally
         {
@@ -313,6 +314,40 @@ internal static class ListeningCoachSelfTest
                 persisted.Contains("\"FutureHistory\"", StringComparison.Ordinal) &&
                 persisted.Contains("\"retained\"", StringComparison.Ordinal),
             "Listening state dropped unknown current-schema data during Load->Save.");
+    }
+
+    private static void TestMalformedRecordsFailClosed(string root)
+    {
+        string[] malformedStates =
+        {
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"\":{\"word:a\":{}}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":null},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{\" \":{}}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{\"word:a\":null}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"\",\"ExerciseId\":\"word:a\"}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\" \"}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"WrongAttempts\":-1}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"Replays\":-1}]}"
+        };
+
+        for (int index = 0; index < malformedStates.Length; index++)
+        {
+            string caseRoot = Path.Combine(root, "malformed-state-" + index);
+            Directory.CreateDirectory(caseRoot);
+            string statePath = Path.Combine(caseRoot, "listening-state.json");
+            File.WriteAllText(statePath, malformedStates[index]);
+            byte[] before = File.ReadAllBytes(statePath);
+
+            bool rejected = false;
+            try { _ = new ListeningStateStore(caseRoot).Load(); }
+            catch (InvalidDataException) { rejected = true; }
+
+            Require(rejected, $"Malformed Listening state case {index} was silently normalized instead of failing closed.");
+            Require(before.SequenceEqual(File.ReadAllBytes(statePath)),
+                $"Malformed Listening state case {index} was rewritten while failing closed.");
+            Require(!File.Exists(Path.Combine(caseRoot, "listening-state.backup.json")),
+                $"Malformed Listening state case {index} fabricated a recovery file.");
+        }
     }
 
     private static DictionaryPackage Package() => new()
