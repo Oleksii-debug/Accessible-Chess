@@ -13,6 +13,7 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         cls.v2_bootstrap = (ROOT / "web" / "version2_final_product_bootstrap.js").read_text(encoding="utf-8")
+        cls.p0_runtime = (ROOT / "web" / "p0_accessibility_runtime.js").read_text(encoding="utf-8")
         cls.stage1_release = (ROOT / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
         cls.release_ui = (ROOT / "acs" / "version2_release_ui.py").read_text(encoding="utf-8")
         cls.final_release = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
@@ -52,7 +53,17 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("#v2-workspace", self.v2_bootstrap)
         self.assertIn("#main-content button", self.v2_bootstrap)
         self.assertIn("#v2-workspace button", self.v2_bootstrap)
+        self.assertIn("#v2-navigation", self.v2_bootstrap)
+        self.assertIn("#v2-navigation button", self.v2_bootstrap)
         self.assertNotRegex(self.v2_bootstrap, r"(?i)user-select\s*:\s*none")
+
+    def test_v2_navigation_selection_is_inside_the_same_retention_authority(self) -> None:
+        self.assertIn('const navigation = documentRef.getElementById("v2-navigation");', self.p0_runtime)
+        self.assertIn("navigation && navigation.contains(node)", self.p0_runtime)
+        self.assertIn(
+            "observer.observe(navigation, { subtree: true, childList: true, characterData: true });",
+            self.p0_runtime,
+        )
 
     def test_v2_refresh_preserves_meaningful_workspace_selection(self) -> None:
         self.assertIn("function captureWorkspaceSelection()", self.v2_bootstrap)
