@@ -320,6 +320,52 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(restored.snapshot(), expected)
 
 
+    def test_book_recovery_publishes_only_the_semantically_validated_backup_revision(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        self.assertTrue(store.backup_path.exists())
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        swapped_backup = b'{"entries":{},"generation":1,"schema_version":2}'
+        confirmations = []
+
+        def confirm_and_swap_backup():
+            confirmations.append(True)
+            store.backup_path.write_bytes(swapped_backup)
+            return True
+
+        self.app.confirm_book_progress_recovery = confirm_and_swap_backup
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(confirmations, [True])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), swapped_backup)
+
+    def test_book_store_expected_backup_revision_is_exact_and_backward_compatible(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        revision = store.validated_backup_revision(key, self.app.reader.document)
+        self.assertEqual(len(revision), 64)
+        self.assertTrue(all(character in "0123456789abcdef" for character in revision))
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        self.assertTrue(store.recover_from_backup(expected_backup_revision=revision))
+        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
+
+        store.path.write_bytes(corrupt_primary)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            store.recover_from_backup(expected_backup_revision="not-a-revision")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.INVALID_ARGUMENT)
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+
     def test_book_open_fails_closed_when_release_board_rejects_position(self):
         _book, origin = self._open_book_game()
         self.app._board_position_projector = lambda _fen: {"ok": False}
