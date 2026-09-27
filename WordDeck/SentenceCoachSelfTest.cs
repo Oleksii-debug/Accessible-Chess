@@ -269,6 +269,14 @@ internal static class SentenceCoachSelfTest
             Require(File.ReadAllBytes(backupPath).SequenceEqual(validBackupBeforeRejectedSave),
                 "Sentence Coach changed the valid backup after rejecting invalid in-memory counters.");
 
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":1,\"StatsByDictionary\":{\"dict\":{\"ox-improve\":{\"CompletedReviews\":0,\"FirstTrySuccesses\":0,\"WrongAttempts\":-1,\"ShowAnswerUses\":0}}}}");
+            File.WriteAllBytes(backupPath, validBackupBeforeRejectedSave);
+            SentenceStateSession startupRecovery = TrainingStateContinuityGuard.LoadSentence(root);
+            Require(startupRecovery.State.ActivePackId == "pack-1",
+                "Normal Sentence Coach startup did not reject semantically invalid primary state and recover the valid backup.");
+            startupRecovery.Store.Save(startupRecovery.State);
+
             File.WriteAllText(primaryPath, "{ broken primary");
             File.WriteAllText(backupPath, "{ broken backup");
             byte[] corruptPrimary = File.ReadAllBytes(primaryPath);
