@@ -22,7 +22,12 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def _candidate_bytes(*, tamper: str | None = None, nvda_verified: bool = False) -> bytes:
+def _candidate_bytes(
+    *,
+    tamper: str | None = None,
+    nvda_verified: bool = False,
+    human_tested: bool | None = None,
+) -> bytes:
     payload = {
         "AccessibleChess/AccessibleChess.exe": b"exe",
         "AccessibleChess/engines/stockfish/stockfish.exe": b"stockfish",
@@ -32,9 +37,13 @@ def _candidate_bytes(*, tamper: str | None = None, nvda_verified: bool = False) 
         "AccessibleChess/release-content/w2-starter/sample_library.acsdb": b"sqlite-fixture",
         "AccessibleChess/web/index.html": b"<!doctype html>",
     }
-    manifest = json.dumps(
-        {"integration_sha": SHA, "nvda_verified": nvda_verified}
-    ).encode()
+    manifest_payload: dict[str, object] = {
+        "integration_sha": SHA,
+        "nvda_verified": nvda_verified,
+    }
+    if human_tested is not None:
+        manifest_payload["human_tested"] = human_tested
+    manifest = json.dumps(manifest_payload).encode()
     checksummed = dict(payload)
     checksummed["RELEASE_MANIFEST.json"] = manifest
     checksums = "".join(
@@ -250,6 +259,11 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
     def test_manifest_nvda_overclaim_fails(self) -> None:
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(nvda_verified=True)))
         with self.assertRaises(CandidateArtifactError):
+            verify(self.path, SHA)
+
+    def test_manifest_human_overclaim_fails(self) -> None:
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(human_tested=True)))
+        with self.assertRaisesRegex(CandidateArtifactError, "human/NVDA acceptance claim"):
             verify(self.path, SHA)
 
     def test_evidence_human_overclaim_fails(self) -> None:
