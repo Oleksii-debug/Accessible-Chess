@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 15
     env:
       W4_VERIFIER_COMMIT: 0468d2736c9d7d20742bb3d829bf8902e25afab2
-      W4_VERIFIER_BLOB_SHA: 877804819fdcd8b487023dc1174f90b994254427
+      W4_VERIFIER_BLOB_SHA: b017838a5480b6fe9de9d4105e18261f9d28914c
     steps:
       - name: Checkout exact canonical workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
