@@ -167,8 +167,11 @@ internal static class AccessibilityAcceptanceRound4SelfTest
             "F1 help omitted the current private Reading learner mode.");
         AssertTrue(help.Contains("typed fallback does not create Speaking or Pronunciation evidence", StringComparison.Ordinal),
             "F1 help overstated current Course Speaking evidence.");
-        AssertTrue(help.Contains("Recall, Spelling, Sentence, Listening and Course/Story learner state", StringComparison.Ordinal),
+        AssertTrue(help.Contains("unified learner-state families for Recall, Spelling, Sentence, Listening and Course/Story", StringComparison.Ordinal),
             "F1 help understated the current unified-profile state coverage.");
+        AssertTrue(help.Contains("Separate per-course Story/Course runtime progress files", StringComparison.Ordinal) &&
+                   help.Contains("outside that JSON export", StringComparison.Ordinal),
+            "F1 help overstated unified-profile coverage of separate Story/Course runtime progress.");
         AssertTrue(help.Contains("Tools > Export complete personal profile", StringComparison.Ordinal) &&
                    !help.Contains("File > Export personal progress profile", StringComparison.Ordinal),
             "F1 help did not match the current complete-profile menu route.");
