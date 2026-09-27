@@ -46,9 +46,9 @@
   selectionStyle.id = "v2-semantic-selection-style";
   selectionStyle.textContent = [
     "#main-content, #v2-workspace,",
-    "#main-content p, #main-content div, #main-content span, #main-content li,",
+    "#main-content p, #main-content div, #main-content span, #main-content li, #main-content button,",
     "#main-content h1, #main-content h2, #main-content h3, #main-content pre, #main-content code,",
-    "#v2-workspace p, #v2-workspace div, #v2-workspace span, #v2-workspace li,",
+    "#v2-workspace p, #v2-workspace div, #v2-workspace span, #v2-workspace li, #v2-workspace button,",
     "#v2-workspace h1, #v2-workspace h2, #v2-workspace h3, #v2-workspace pre, #v2-workspace code {",
     "  -webkit-user-select: text !important;",
     "  user-select: text !important;",

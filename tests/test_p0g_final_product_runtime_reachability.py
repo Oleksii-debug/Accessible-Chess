@@ -18,10 +18,13 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertLess(labels.index(teacher_label), labels.index(runtime_label))
         self.assertLess(labels.index(education_label), labels.index(runtime_label))
         self.assertLess(labels.index(bootstrap_label), labels.index(runtime_label))
-        self.assertIs(
-            final_release._release_ui._resource_sources,
-            final_release._final_product_resource_sources,
-        )
+        previous_resources = final_release._release_ui._resource_sources
+        with final_release._final_product_bindings():
+            self.assertIs(
+                final_release._release_ui._resource_sources,
+                final_release._final_product_resource_sources,
+            )
+        self.assertIs(final_release._release_ui._resource_sources, previous_resources)
 
         runtime_source = dict(sources)[runtime_label]
         for surface in (
