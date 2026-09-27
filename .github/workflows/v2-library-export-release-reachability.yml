@@ -8,6 +8,7 @@ on:
       - 'acs/version2_release_app.py'
       - 'tests/test_v2_library_export_release_reachability.py'
       - 'tests/test_v2_native_dialog_language.py'
+      - 'tests/test_w3_library_dirty_replace_confirmation.py'
       - '.github/workflows/v2-library-export-release-reachability.yml'
   push:
     branches:
@@ -54,7 +55,8 @@ jobs:
             '.github/workflows/v2-library-export-release-reachability.yml' \
             'acs/version2_release_app.py' \
             'tests/test_v2_library_export_release_reachability.py' \
-            'tests/test_v2_native_dialog_language.py' | LC_ALL=C sort)"
+            'tests/test_v2_native_dialog_language.py' \
+            'tests/test_w3_library_dirty_replace_confirmation.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
           # Preserve the existing D07/D06 export authorities exactly.
@@ -73,6 +75,7 @@ jobs:
           acs/version2_windows_library_export.py
           tests/test_v2_library_export_release_reachability.py
           tests/test_v2_native_dialog_language.py
+          tests/test_w3_library_dirty_replace_confirmation.py
 
       - name: Run focused Library export reachability regressions
         run: >-
@@ -86,6 +89,7 @@ jobs:
           tests.test_v2_windows_host_runtime
           tests.test_v2_library_export_dialog_language
           tests.test_v2_native_dialog_language
+          tests.test_w3_library_dirty_replace_confirmation
 
       - name: Run Library and release integration guards
         run: >-
