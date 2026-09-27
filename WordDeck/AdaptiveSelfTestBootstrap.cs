@@ -13,6 +13,7 @@ internal static class AdaptiveSelfTestBootstrap
         AdaptiveMasteryRouterSelfTest.Run();
         AdaptiveGrammarEvidenceSelfTest.Run();
         AdaptiveEvidenceIdentitySelfTest.Run();
+        AdaptiveDiagnosticStateBridgeSelfTest.Run();
         Console.WriteLine("WordDeck global adaptive mastery self-test PASS.");
     }
 }
