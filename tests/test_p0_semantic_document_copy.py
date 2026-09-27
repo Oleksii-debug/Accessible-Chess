@@ -50,6 +50,8 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("-webkit-user-select: text !important", self.v2_bootstrap)
         self.assertIn("#main-content", self.v2_bootstrap)
         self.assertIn("#v2-workspace", self.v2_bootstrap)
+        self.assertIn("#main-content button", self.v2_bootstrap)
+        self.assertIn("#v2-workspace button", self.v2_bootstrap)
         self.assertNotRegex(self.v2_bootstrap, r"(?i)user-select\s*:\s*none")
 
     def test_v2_refresh_preserves_meaningful_workspace_selection(self) -> None:
