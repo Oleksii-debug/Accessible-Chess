@@ -73,6 +73,23 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         )
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
+        self.assertIn(
+            'git worktree add --detach .w4-readback "$W4_VERIFIER_COMMIT"',
+            self.text,
+        )
+        self.assertIn(
+            'test "$(git -C .w4-readback rev-parse HEAD)" = "$W4_VERIFIER_COMMIT"',
+            self.text,
+        )
+        self.assertIn(
+            "test -s .w4-readback/scripts/verify_w4_candidate_artifact.py",
+            self.text,
+        )
+        self.assertIn("W4_READBACK_PINNED_DEPENDENCY_CLOSURE=PASS", self.text)
+        self.assertNotIn(
+            'git show "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py" > .w4-readback/verify_w4_candidate_artifact.py',
+            self.text,
+        )
 
     def test_artifact_resolution_is_bound_to_exact_completed_run(self) -> None:
         self.assertIn("RUN_ID: ${{ github.event.workflow_run.id }}", self.text)
@@ -99,7 +116,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_POST_BUILD_FRESHNESS=PASS", self.text)
 
     def test_independent_verifier_receives_independently_bound_product_sha(self) -> None:
-        self.assertIn("python .w4-readback/verify_w4_candidate_artifact.py", self.text)
+        self.assertIn("python .w4-readback/scripts/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
         self.assertIn("--product-sha '${{ steps.product.outputs.product_sha }}'", self.text)
         self.assertIn("W4_EXACT_RUN_ARTIFACT_READBACK=PASS", self.text)
