@@ -770,9 +770,14 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
             _fail("WinForms accessibility app-config switch names must be unique")
         parsed[name] = setting.casefold()
 
-    missing = [name for name in _WINFORMS_ACCESSIBILITY_SWITCHES if name not in parsed]
+    expected_switches = set(_WINFORMS_ACCESSIBILITY_SWITCHES)
+    actual_switches = set(parsed)
+    missing = sorted(expected_switches - actual_switches)
     if missing:
         _fail("WinForms accessibility app-config is missing required accessibility switches")
+    unexpected = sorted(actual_switches - expected_switches)
+    if unexpected:
+        _fail("WinForms accessibility app-config contains unexpected accessibility switches")
     if any(parsed[name] != "false" for name in _WINFORMS_ACCESSIBILITY_SWITCHES):
         _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
 
