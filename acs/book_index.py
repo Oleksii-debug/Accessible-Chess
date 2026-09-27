@@ -53,6 +53,7 @@ class BookIndexEntry:
     heading_path: tuple[str, ...]
     position_fen: str | None = None
     side_to_move: str | None = None
+    heading_level: int | None = None
 
 
 class AmbiguousBookTargetError(LookupError):
@@ -60,11 +61,19 @@ class AmbiguousBookTargetError(LookupError):
 
 
 class BookIndex:
-    """Immutable semantic index built from one BookDocument snapshot."""
+    """Immutable semantic index built from one validated BookDocument snapshot."""
 
     def __init__(self, document: BookDocument):
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be a BookDocument")
+        # BookDocument blocks are authoring-mutable. Materialize one detached
+        # canonical snapshot through BookDocument's own wire authority, then
+        # build every index field from that same validated payload. This closes
+        # the validate-then-reread TOCTOU window without introducing a second
+        # Book parser or chess-rules authority.
+        snapshot = BookDocument.from_dict(document.as_dict())
         self.document = document
-        self._entries = tuple(self._build_entries())
+        self._entries = tuple(self._build_entries(snapshot))
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
@@ -74,8 +83,8 @@ class BookIndex:
     def entries(self) -> tuple[BookIndexEntry, ...]:
         return self._entries
 
-    def _target(self, index: int) -> BookTarget:
-        block = self.document.blocks[index]
+    @staticmethod
+    def _target(index: int, block) -> BookTarget:
         if block.block_id:
             key = f"block:{block.block_id}"
         elif block.source_anchor:
@@ -122,11 +131,13 @@ class BookIndex:
             return BookEntryKind.LIST, block.items[0]
         raise TypeError(f"Unsupported BookDocument block type: {type(block).__name__}")
 
-    def _build_entries(self):
+    def _build_entries(self, snapshot: BookDocument):
         levels: list[str | None] = [None] * 6
-        for index, block in enumerate(self.document.blocks):
+        for index, block in enumerate(snapshot.blocks):
+            heading_level = None
             if isinstance(block, Heading):
-                level = block.level - 1
+                heading_level = block.level
+                level = heading_level - 1
                 levels[level] = block.text
                 for deeper in range(level + 1, 6):
                     levels[deeper] = None
@@ -134,26 +145,31 @@ class BookIndex:
             kind, label = self._kind_and_label(block)
             fen, side = self._position(block)
             yield BookIndexEntry(
-                target=self._target(index),
+                target=self._target(index, block),
                 kind=kind,
                 label=label,
                 heading_path=heading_path,
                 position_fen=fen,
                 side_to_move=side,
+                heading_level=heading_level,
             )
 
     def contents(self, *, max_heading_level: int = 6) -> tuple[BookIndexEntry, ...]:
+        if type(max_heading_level) is not int:
+            raise TypeError("max_heading_level must be an integer")
         if not 1 <= max_heading_level <= 6:
             raise ValueError("max_heading_level must be between 1 and 6")
-        result = []
-        for entry in self._entries:
-            if entry.kind is BookEntryKind.HEADING:
-                block = self.document.blocks[entry.target.index]
-                if isinstance(block, Heading) and block.level <= max_heading_level:
-                    result.append(entry)
-        return tuple(result)
+        return tuple(
+            entry
+            for entry in self._entries
+            if entry.kind is BookEntryKind.HEADING
+            and entry.heading_level is not None
+            and entry.heading_level <= max_heading_level
+        )
 
     def of_kind(self, kind: BookEntryKind) -> tuple[BookIndexEntry, ...]:
+        if not isinstance(kind, BookEntryKind):
+            raise TypeError("Book entry kind must be a BookEntryKind")
         return tuple(entry for entry in self._entries if entry.kind is kind)
 
     def resolve(self, target: BookTarget | str) -> BookIndexEntry:
@@ -163,6 +179,8 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
+        if not isinstance(target, (BookTarget, str)):
+            raise TypeError("Book target must be a BookTarget or string")
         key = target.key if isinstance(target, BookTarget) else target
         matches = self._by_key.get(key, ())
         if not matches:
@@ -173,6 +191,13 @@ class BookIndex:
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
         """Case-insensitive semantic label search preserving linear reading order."""
+        if type(text) is not str:
+            raise TypeError("Search text must be a string")
+        if kinds is not None:
+            if type(kinds) is not set or not all(
+                isinstance(kind, BookEntryKind) for kind in kinds
+            ):
+                raise TypeError("Search kinds must be a set of BookEntryKind values")
         needle = text.strip().casefold()
         if not needle:
             raise ValueError("Search text must not be empty")
