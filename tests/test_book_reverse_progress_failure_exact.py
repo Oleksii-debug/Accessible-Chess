@@ -138,5 +138,32 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 )
 
 
+    def test_shared_action_adapter_keeps_reverse_progress_failure_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                before_reader = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+
+                with patch.object(
+                    progress,
+                    "save",
+                    side_effect=OSError("simulated native-route progress failure"),
+                ):
+                    result = app.adapter.activate_action("book.previous_position")
+
+                self.assertEqual(result.kind, "error")
+                self.assertEqual(app.reader.snapshot(), before_reader)
+                self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+
+
+
 if __name__ == "__main__":
     unittest.main()
