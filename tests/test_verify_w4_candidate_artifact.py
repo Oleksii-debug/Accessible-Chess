@@ -27,14 +27,19 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def _pgn_fixture(prefix: str, count: int) -> bytes:
-    return "".join(
+def _pgn_record(prefix: str, index: int) -> str:
+    return (
         f'[Event "{prefix} {index}"]\n'
         f'[White "White {index}"]\n'
         f'[Black "Black {index}"]\n'
-        '[Result "1-0"]\n\n1. e4 e5 1-0\n\n'
-        for index in range(count)
-    ).encode("utf-8")
+        '[Result "1-0"]\n\n1. e4 e5 1-0'
+    )
+
+
+def _pgn_fixture(prefix: str, count: int) -> bytes:
+    return ("\n\n".join(_pgn_record(prefix, index) for index in range(count)) + "\n\n").encode(
+        "utf-8"
+    )
 
 
 def _database_fixture_bytes(game_count: int = STARTER_GAMES, *, schema_version: int = 6) -> bytes:
@@ -71,7 +76,9 @@ def _selected_game_fixture(index: int) -> dict[str, object]:
         "plies": plies,
         "length_band": "20-59" if plies < 60 else ("60-99" if plies < 100 else "100+"),
         "opening_prefix": [f"M{opening_id}a", f"M{opening_id}b", f"M{opening_id}c", f"M{opening_id}d"],
-        "record_sha256": hashlib.sha256(f"record-{index}".encode()).hexdigest(),
+        "record_sha256": hashlib.sha256(
+            _pgn_record("Starter", index).encode("utf-8")
+        ).hexdigest(),
     }
 
 
@@ -408,6 +415,38 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         starter[manifest_path] = json.dumps(manifest).encode("utf-8")
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "starter file SHA-256 mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_selected_record_hashes_bind_to_packaged_pgn(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        manifest["starter_source"]["curation"]["selected_games"][0]["record_sha256"] = "0" * 64
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "selected record hashes do not match packaged starter PGN",
+        ):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_actual_record_count_is_verified(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        starter_path = f"{STARTER_ROOT}/starter_uk.pgn"
+        starter[starter_path] = starter[starter_path].replace(
+            b'[Event "Starter 239"]',
+            b'[Site "Starter 239"]',
+            1,
+        )
+        manifest = json.loads(starter[manifest_path])
+        digest = hashlib.sha256(starter[starter_path]).hexdigest()
+        manifest["files"]["starter_uk.pgn"]["sha256"] = digest
+        manifest["files"]["starter_uk.pgn"]["bytes"] = len(starter[starter_path])
+        manifest["starter_source"]["subset_sha256"] = digest
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(CandidateArtifactError, "complete-record count mismatch"):
             verify(self.path, SHA)
 
     def test_lawful_starter_database_claim_is_verified_against_sqlite(self) -> None:
