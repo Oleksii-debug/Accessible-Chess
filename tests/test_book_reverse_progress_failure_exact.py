@@ -239,5 +239,39 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
 
 
 
+    def test_native_command_queues_reverse_refresh_contract(self) -> None:
+        cases = (
+            ("book.next_position", "book.previous_position"),
+            ("book.next_game", "book.previous_game"),
+        )
+        for forward, reverse in cases:
+            with self.subTest(reverse=reverse):
+                with tempfile.TemporaryDirectory() as root_text:
+                    with self._app(Path(root_text)) as (app, progress):
+                        self.assertEqual(app.browser_command("books", forward)["kind"], "render")
+                        self.assertEqual(app.browser_command("books", forward)["kind"], "render")
+                        app.drain_events()
+
+                        command = app.adapter.activate_action(reverse)
+                        self.assertEqual(command.kind, "delegated")
+                        self.assertEqual(command.payload, {"action_id": reverse})
+                        self.assertEqual(
+                            self._durable_snapshot(app, progress),
+                            app.reader.snapshot(),
+                        )
+
+                        app.native_command(command)
+                        self.assertEqual(
+                            app.drain_events(),
+                            ({"kind": "delegated", "payload": {"action_id": reverse}},),
+                        )
+                        current_block = app.snapshot()["books"]["block"]
+                        self.assertEqual(
+                            current_block["dom_id"],
+                            f"book-block-{app.reader.index}",
+                        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
