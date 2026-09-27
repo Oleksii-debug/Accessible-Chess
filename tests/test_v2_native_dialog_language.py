@@ -155,6 +155,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         books = _Version2OwnedBookDialogs(
             lambda: owner,
             forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
             language_provider=provider,
         )
 
@@ -163,12 +164,19 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(books.open_book(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Відкрити шахову книгу")
         self.assertIn("Підтримувані книги", _OpenDialog.instances[-1].Filter)
+        self.assertTrue(books.confirm_recover_book_progress())
+        self.assertEqual(_MessageBox.calls[-1][0], owner)
+        self.assertEqual(_MessageBox.calls[-1][2], "Відновити збережений прогрес читання")
+        self.assertIn("резервну копію", _MessageBox.calls[-1][1])
 
         language["value"] = UILanguage.EN
         self.assertEqual(exports.export_selection(), Path("selection.pgn"))
         self.assertEqual(_SaveDialog.instances[-1].Title, "Export PGN selection")
         self.assertEqual(books.open_book(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Open chess book")
+        self.assertTrue(books.confirm_recover_book_progress())
+        self.assertEqual(_MessageBox.calls[-1][2], "Recover saved reading progress")
+        self.assertIn("previous valid backup", _MessageBox.calls[-1][1])
 
     def test_dirty_exit_confirmation_uses_same_live_language_owner(self) -> None:
         owner = _Owner()
@@ -282,6 +290,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 self.assertIs(native_runtime_factory(owner), native_runtime)
                 self.assertEqual(len(owner.FormClosing.handlers), 1)
 
+            self.assertTrue(callable(application.confirm_book_progress_recovery))
             provider = runtime_class.call_args.kwargs["dialog_language_provider"]
             self.assertEqual(provider(), UILanguage.UA)
             application.shell.language = UILanguage.EN
