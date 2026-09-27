@@ -22,7 +22,8 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, authoritative training-topology F1/settings synchronization, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        TestCurrentHelpTruthfulness();
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, authoritative training-topology F1/settings synchronization, current-mode truthful F1 content, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -147,6 +148,31 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         AssertTrue(KeyboardSelectorFocusGuard.IsNativeSelectionNavigation(Keys.Home), "Selector Home must be recognized as native selection navigation.");
         AssertFalse(KeyboardSelectorFocusGuard.IsNativeSelectionNavigation(Keys.Control | Keys.Down), "Modified Down must not be mistaken for native selector navigation.");
         AssertFalse(KeyboardSelectorFocusGuard.IsNativeSelectionNavigation(Keys.Tab), "Tab is focus traversal, not selector selection navigation.");
+    }
+
+    private static void TestCurrentHelpTruthfulness()
+    {
+        string help = MainForm.BuildCurrentWordDeckHelpText("TEST SHORTCUTS", "enabled");
+
+        AssertTrue(help.Contains("LISTENING AND DEEP LISTENING", StringComparison.Ordinal),
+            "F1 help omitted the current Listening/Deep Listening learner mode.");
+        AssertTrue(help.Contains("STORY / COURSE", StringComparison.Ordinal),
+            "F1 help omitted the current Story/Course learner mode.");
+        AssertTrue(help.Contains("DEEP GRAMMAR", StringComparison.Ordinal),
+            "F1 help omitted the current governed Deep Grammar learner mode.");
+        AssertTrue(help.Contains("READING / PRIVATE LOCAL BOOKS", StringComparison.Ordinal),
+            "F1 help omitted the current private Reading learner mode.");
+        AssertTrue(help.Contains("typed fallback does not create Speaking or Pronunciation evidence", StringComparison.Ordinal),
+            "F1 help overstated current Course Speaking evidence.");
+        AssertTrue(help.Contains("Recall, Spelling, Sentence, Listening and Course/Story learner state", StringComparison.Ordinal),
+            "F1 help understated the current unified-profile state coverage.");
+        AssertTrue(help.Contains("%LOCALAPPDATA%\\WordDeck\\Reading", StringComparison.Ordinal) &&
+                   help.Contains("not claimed as part of the unified profile export", StringComparison.Ordinal),
+            "F1 help did not preserve the private Reading/profile boundary.");
+        AssertTrue(help.Contains("Automatic pronunciation on card change is currently enabled", StringComparison.Ordinal),
+            "F1 help lost the live pronunciation-mode statement.");
+        AssertTrue(help.Contains("TEST SHORTCUTS", StringComparison.Ordinal),
+            "F1 help lost the live shortcut registry text.");
     }
 
     private static void AssertTrue(bool value, string message)
