@@ -80,6 +80,24 @@ def _copy_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obj
     return value
 
 
+def _strict_uia_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "product_sha": product_sha,
+        "classification": "A",
+        "evidence_complete": True,
+        "move_runtime_id": "42.17.3",
+        "e4_fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        "invalid_e9_fen_unchanged": True,
+        "clipboard": "e9",
+        "semantic_square_count": 64,
+        "board_focus_continuity": True,
+        "black_e5_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+        "raw_exception_noise": False,
+    }
+    value.update(overrides)
+    return value
+
+
 def _p0g_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, object]:
     value: dict[str, object] = {
         "product_sha": product_sha,
@@ -111,17 +129,21 @@ def _outer_bytes(
     candidate: bytes | None = None,
     copy_sha: str = SHA,
     p0g_sha: str = SHA,
+    uia_sha: str = SHA,
     candidate_name: str | None = None,
     copy_overrides: dict[str, object] | None = None,
     p0g_overrides: dict[str, object] | None = None,
+    uia_overrides: dict[str, object] | None = None,
 ) -> bytes:
     copy = _copy_evidence(copy_sha, **(copy_overrides or {}))
     p0g = _p0g_evidence(p0g_sha, **(p0g_overrides or {}))
+    uia = _strict_uia_evidence(uia_sha, **(uia_overrides or {}))
     return _zip_bytes(
         {
             candidate_name or "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": candidate or _candidate_bytes(),
             "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(copy).encode(),
             "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(p0g).encode(),
+            "p0-evidence/packaged-uia-strict-summary.json": json.dumps(uia).encode(),
         }
     )
 
@@ -181,6 +203,38 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             verify(self.path, SHA)
 
 
+
+    def test_strict_uia_evidence_is_required_and_sha_bound(self) -> None:
+        self.path.write_bytes(_outer_bytes(uia_sha="1" * 40))
+        with self.assertRaisesRegex(CandidateArtifactError, "strict UIA evidence product_sha mismatch"):
+            verify(self.path, SHA)
+
+    def test_strict_uia_evidence_requires_classification_a(self) -> None:
+        self.path.write_bytes(_outer_bytes(uia_overrides={"classification": "C"}))
+        with self.assertRaisesRegex(CandidateArtifactError, "classification must be A"):
+            verify(self.path, SHA)
+
+    def test_strict_uia_evidence_requires_64_squares_and_board_focus(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(
+                uia_overrides={
+                    "semantic_square_count": 63,
+                    "board_focus_continuity": False,
+                }
+            )
+        )
+        with self.assertRaises(CandidateArtifactError):
+            verify(self.path, SHA)
+
+    def test_strict_uia_evidence_requires_native_clipboard_and_canonical_fens(self) -> None:
+        for overrides in (
+            {"clipboard": "sentinel"},
+            {"e4_fen": "8/8/8/8/8/8/8/8 w - - 0 1"},
+            {"black_e5_fen": "8/8/8/8/8/8/8/8 w - - 0 1"},
+        ):
+            self.path.write_bytes(_outer_bytes(uia_overrides=overrides))
+            with self.assertRaises(CandidateArtifactError):
+                verify(self.path, SHA)
 
     def test_copy_evidence_requires_exact_clipboard_payload(self) -> None:
         self.path.write_bytes(
@@ -242,6 +296,22 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             verify(self.path, SHA)
 
 
+    def test_missing_strict_uia_evidence_fails(self) -> None:
+        outer = _zip_bytes(
+            {
+                "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": _candidate_bytes(),
+                "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(
+                    _copy_evidence()
+                ).encode(),
+                "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
+                    _p0g_evidence()
+                ).encode(),
+            }
+        )
+        self.path.write_bytes(outer)
+        with self.assertRaisesRegex(CandidateArtifactError, "strict UIA"):
+            verify(self.path, SHA)
+
     def test_unexpected_outer_file_fails(self) -> None:
         outer = _zip_bytes(
             {
@@ -251,6 +321,9 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 ).encode(),
                 "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
                     {"product_sha": SHA, "human_tested": False, "nvda_verified": False}
+                ).encode(),
+                "p0-evidence/packaged-uia-strict-summary.json": json.dumps(
+                    _strict_uia_evidence()
                 ).encode(),
                 "unexpected.bin": b"not part of canonical candidate artifact",
             }
@@ -297,6 +370,9 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 ).encode(),
                 "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
                     {"product_sha": SHA, "human_tested": False, "nvda_verified": False}
+                ).encode(),
+                "p0-evidence/packaged-uia-strict-summary.json": json.dumps(
+                    _strict_uia_evidence()
                 ).encode(),
             }
         )

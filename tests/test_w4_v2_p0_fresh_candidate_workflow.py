@@ -77,6 +77,17 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(uia, p0)
         self.assertLess(p0, upload)
 
+    def test_strict_uia_summary_is_retained_in_uploaded_p0_evidence(self) -> None:
+        baseline = self.text.index("FRESH_PACKAGED_UIA_BASELINE=PASS")
+        retained = self.text.index("FRESH_PACKAGED_UIA_EVIDENCE_RETAINED=PASS")
+        combined = self.text.index("& scripts\\run_p0_packaged_acceptance.ps1")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(retained, baseline)
+        self.assertLess(baseline, combined)
+        self.assertLess(combined, upload)
+        self.assertIn("candidate-output\\p0-evidence", self.text)
+        self.assertIn("packaged-uia-strict-summary.json", self.text)
+
     def test_combined_p0_acceptance_uses_exact_sha_and_requires_both_evidence_files(self) -> None:
         self.assertIn("-ProductSha $env:PRODUCT_SHA", self.text)
         self.assertIn("packaged-v2-document-copy-summary.json", self.text)

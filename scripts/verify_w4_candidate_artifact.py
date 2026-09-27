@@ -187,6 +187,27 @@ P0G_REQUIRED_TRUE = (
 )
 
 
+def _verify_strict_uia_evidence(value: dict[str, object], expected_sha: str) -> None:
+    product_sha = value.get("product_sha")
+    if not isinstance(product_sha, str) or product_sha.lower() != expected_sha:
+        raise CandidateArtifactError("strict UIA evidence product_sha mismatch")
+    if value.get("classification") != "A":
+        raise CandidateArtifactError("strict UIA evidence classification must be A")
+    _require_true(value, "evidence_complete", "strict UIA evidence")
+    _require_true(value, "invalid_e9_fen_unchanged", "strict UIA evidence")
+    _require_true(value, "board_focus_continuity", "strict UIA evidence")
+    _require_false(value, "raw_exception_noise", "strict UIA evidence")
+    if value.get("semantic_square_count") != 64:
+        raise CandidateArtifactError("strict UIA evidence must prove exactly 64 semantic squares")
+    if value.get("clipboard") != "e9":
+        raise CandidateArtifactError("strict UIA evidence native clipboard proof mismatch")
+    if value.get("e4_fen") != "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1":
+        raise CandidateArtifactError("strict UIA evidence canonical e4 FEN mismatch")
+    if value.get("black_e5_fen") != "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2":
+        raise CandidateArtifactError("strict UIA evidence canonical e5 FEN mismatch")
+    _bounded_evidence_text(value, "move_runtime_id", "strict UIA evidence", maximum=1024)
+
+
 def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | None = None) -> None:
     expected_sha = expected_sha.strip().lower()
     if not HEX40.fullmatch(expected_sha):
@@ -218,21 +239,31 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         candidate_names = [name for name in files if name.endswith("-NVDA-test-candidate.zip")]
         copy_names = [name for name in files if name.endswith("packaged-v2-document-copy-summary.json")]
         p0g_names = [name for name in files if name.endswith("packaged-p0g-hotkey-result-summary.json")]
+        uia_names = [name for name in files if name.endswith("packaged-uia-strict-summary.json")]
         if len(candidate_names) != 1:
             raise CandidateArtifactError("outer artifact must contain exactly one candidate ZIP")
         candidate_name = PurePosixPath(candidate_names[0]).name
         expected_name = f"Accessible-Chess-V2-{expected_sha[:7]}-NVDA-test-candidate.zip"
         if candidate_name.lower() != expected_name.lower():
             raise CandidateArtifactError("candidate ZIP filename Product prefix mismatch")
-        if len(copy_names) != 1 or len(p0g_names) != 1:
-            raise CandidateArtifactError("outer artifact must contain both exact P0 evidence JSON files")
-        expected_outer_files = {candidate_names[0], copy_names[0], p0g_names[0]}
+        if len(copy_names) != 1 or len(p0g_names) != 1 or len(uia_names) != 1:
+            raise CandidateArtifactError(
+                "outer artifact must contain exact strict UIA, copy and P0-G evidence JSON files"
+            )
+        expected_outer_files = {
+            candidate_names[0],
+            copy_names[0],
+            p0g_names[0],
+            uia_names[0],
+        }
         if set(files) != expected_outer_files:
             unexpected = sorted(set(files) - expected_outer_files)
             raise CandidateArtifactError(f"outer artifact contains unexpected files: {unexpected}")
 
         copy_evidence = _load_json(outer.read(copy_names[0]), "copy evidence")
         p0g_evidence = _load_json(outer.read(p0g_names[0]), "P0-G evidence")
+        uia_evidence = _load_json(outer.read(uia_names[0]), "strict UIA evidence")
+        _verify_strict_uia_evidence(uia_evidence, expected_sha)
         _verify_p0_evidence(
             copy_evidence,
             expected_sha,
