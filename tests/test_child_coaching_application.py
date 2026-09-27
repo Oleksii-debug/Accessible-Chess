@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from acs.child_coaching import LessonBlock, LessonBlockKind, preset_templates
+from acs.child_coaching import LessonBlock, LessonBlockKind, copy_as_custom, preset_templates
 from acs.child_coaching_application import (
     ChildCoachingApplication,
     ChildCoachingApplicationError,
@@ -182,13 +182,8 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             store = ChildCoachingTemplateStore(path)
             presets = preset_templates()
             first_revision = store.save(presets, expected_revision=None)
-            custom = presets + (
-                preset_templates()[0],
-            )
             # Advance once with a valid distinct catalog so the original complete
             # preset set is retained as the known-valid backup.
-            copied = app_copy = None
-            from acs.child_coaching import copy_as_custom
             copied = copy_as_custom(
                 presets[0],
                 template_id="backup-custom",
