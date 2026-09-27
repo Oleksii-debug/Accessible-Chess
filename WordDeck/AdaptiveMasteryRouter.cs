@@ -573,14 +573,21 @@ internal static class AdaptiveEvidenceAdapters
         IEnumerable<string>? hiddenEntryIds = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (string.IsNullOrWhiteSpace(dictionaryId) ||
+            !string.Equals(dictionaryId, dictionaryId.Trim(), StringComparison.Ordinal))
+            throw new InvalidDataException("Requested learning-evidence dictionary identity must be non-blank canonical text.");
+
         var hidden = new HashSet<string>(hiddenEntryIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         var result = new List<AdaptiveMasteryObservation>();
         foreach (LearningEvidenceRecord record in source.Snapshot(dictionaryId))
         {
-            if (!string.Equals(record.DictionaryId, dictionaryId, StringComparison.Ordinal))
-                throw new InvalidDataException($"Learning evidence returned dictionary '{record.DictionaryId}' while '{dictionaryId}' was requested.");
-            if (hidden.Contains(record.EntryId)) continue;
-            result.Add(Convert(record));
+            if (record is null)
+                throw new InvalidDataException("Learning evidence source returned a null record.");
+            AdaptiveMasteryObservation converted = Convert(record);
+            if (!string.Equals(converted.DictionaryId, dictionaryId, StringComparison.Ordinal))
+                throw new InvalidDataException($"Learning evidence returned dictionary '{converted.DictionaryId}' while '{dictionaryId}' was requested.");
+            if (hidden.Contains(converted.TargetId)) continue;
+            result.Add(converted);
         }
         return result;
     }
