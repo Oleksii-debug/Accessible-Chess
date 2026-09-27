@@ -716,7 +716,7 @@ def _validate_stockfish_source_archive(
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
 
-def _validate_winforms_accessibility_config(path: Path) -> None:
+def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
     try:
@@ -778,7 +778,7 @@ def _validate_required_runtime_resources(
         _REQUIRED_WINFORMS_APPCONFIG,
         label="WinForms accessibility app-config",
     )
-    _validate_winforms_accessibility_config(app_config)
+    validate_winforms_accessibility_app_config(app_config)
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
             root,
