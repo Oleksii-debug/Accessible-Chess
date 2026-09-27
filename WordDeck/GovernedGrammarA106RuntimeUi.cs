@@ -797,13 +797,6 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
             Directory.Delete(root, recursive: true);
             File.WriteAllText(root, "block-course-state-directory");
 
-            string fallbackResume = GovernedGrammarA106RuntimeUi.GetResumeItemForUi(
-                runtime, out string? resumeError);
-            Require(fallbackResume == GovernedGrammarA106StudyCatalog.PrimaryItemId &&
-                    !string.IsNullOrWhiteSpace(resumeError) &&
-                    resumeError.Contains("не вдалося прочитати", StringComparison.OrdinalIgnoreCase),
-                "Unavailable Grammar state did not fall back to a usable primary item with truthful feedback.");
-
             bool practiceSaved = GovernedGrammarA106RuntimeUi.TryRecordPracticeForUi(
                 runtime,
                 GovernedGrammarA106StudyCatalog.PrimaryItemId,
@@ -831,6 +824,30 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
         {
             try { if (File.Exists(root)) File.Delete(root); } catch { }
             try { Directory.Delete(parent, recursive: true); } catch { }
+        }
+
+        string readParent = Path.Combine(Path.GetTempPath(), "WordDeck GA106 UI resume " + Guid.NewGuid().ToString("N"));
+        string readRoot = Path.Combine(readParent, "profile");
+        Directory.CreateDirectory(readRoot);
+        try
+        {
+            File.WriteAllText(Path.Combine(readRoot, LearnerCourseStateStore.FileName), "{ broken primary");
+            File.WriteAllText(Path.Combine(readRoot, LearnerCourseStateStore.BackupFileName), "{ broken backup");
+            var readRuntime = new GovernedGrammarA106StudyRuntime(
+                new LearnerCourseStateStore(readRoot),
+                () => "unused",
+                () => now);
+
+            string fallbackResume = GovernedGrammarA106RuntimeUi.GetResumeItemForUi(
+                readRuntime, out string? resumeError);
+            Require(fallbackResume == GovernedGrammarA106StudyCatalog.PrimaryItemId &&
+                    !string.IsNullOrWhiteSpace(resumeError) &&
+                    resumeError.Contains("не вдалося прочитати", StringComparison.OrdinalIgnoreCase),
+                "Unreadable Grammar state did not fall back to a usable primary item with truthful feedback.");
+        }
+        finally
+        {
+            try { Directory.Delete(readParent, recursive: true); } catch { }
         }
     }
 
