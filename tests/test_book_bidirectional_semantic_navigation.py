@@ -7,8 +7,10 @@ from acs.book_webview_projection import BookWebViewProjection
 from acs.bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
+from acs.full_product_actions import FULL_PRODUCT_ACTION_IDS
 from acs.full_product_presenters import BookReaderPresenter
 from acs.full_product_ui_shell import UILanguage
+from acs.version2_application import Version2Application
 
 
 class CountingBlocks(list):
@@ -41,6 +43,12 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                 Game(pgn='[Result "*"]\n\n1. d4 *', title="Game two", block_id="game-2"),
             ],
         )
+
+    def test_reverse_commands_are_registered_and_progress_atomic(self) -> None:
+        for command in ("book.previous_position", "book.previous_game"):
+            with self.subTest(command=command):
+                self.assertIn(command, FULL_PRODUCT_ACTION_IDS)
+                self.assertIn(command, Version2Application._BOOK_PROGRESS_COMMANDS)
 
     def test_reader_navigates_positions_and_games_in_both_directions(self) -> None:
         reader = BookReader(self.make_document())
