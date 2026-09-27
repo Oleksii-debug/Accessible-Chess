@@ -17,6 +17,7 @@ on:
       - 'acs/version2_starter_content_application.py'
       - 'tests/test_book_reverse_progress_failure_exact.py'
       - 'tests/test_w3_p0f_starter_books_training_content.py'
+      - 'tests/test_version2_application.py'
       - 'tests/test_v2_shared_presentation_path_privacy.py'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/books-bidirectional-semantic-navigation.yml'
@@ -71,6 +72,7 @@ jobs:
             'tests/test_book_bidirectional_semantic_navigation.py'
             'tests/test_book_reverse_progress_failure_exact.py'
             'tests/test_w3_p0f_starter_books_training_content.py'
+            'tests/test_version2_application.py'
             'tests/test_full_product_native_menu.py'
             'tests/test_v2_shared_presentation_path_privacy.py'
           )
@@ -95,6 +97,7 @@ jobs:
           tests/test_book_bidirectional_semantic_navigation.py
           tests/test_book_reverse_progress_failure_exact.py
           tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_version2_application.py
           tests/test_full_product_native_menu.py
           tests/test_v2_shared_presentation_path_privacy.py
 
@@ -104,6 +107,7 @@ jobs:
           tests.test_book_bidirectional_semantic_navigation
           tests.test_book_reverse_progress_failure_exact
           tests.test_w3_p0f_starter_books_training_content
+          tests.test_version2_application
           tests.test_full_product_native_menu
           tests.test_v2_shared_presentation_path_privacy
           tests.test_book_board_progress_failure_exact
