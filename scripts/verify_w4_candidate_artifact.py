@@ -193,9 +193,15 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         raise CandidateArtifactError("expected product SHA must be exact 40-hex")
     if not outer_path.is_file() or outer_path.is_symlink():
         raise CandidateArtifactError("outer artifact must be a direct regular file")
-    outer_bytes = outer_path.read_bytes()
-    if not outer_bytes or len(outer_bytes) > MAX_OUTER_BYTES:
+    try:
+        outer_size = outer_path.stat().st_size
+    except OSError as exc:
+        raise CandidateArtifactError("outer artifact size is unavailable") from exc
+    if outer_size <= 0 or outer_size > MAX_OUTER_BYTES:
         raise CandidateArtifactError("outer artifact size is outside accepted bounds")
+    outer_bytes = outer_path.read_bytes()
+    if len(outer_bytes) != outer_size:
+        raise CandidateArtifactError("outer artifact changed while being read")
     outer_digest = _sha256(outer_bytes)
     if expected_outer_sha256 is not None:
         wanted = _normalize_sha256(expected_outer_sha256, "outer artifact SHA-256")
@@ -248,9 +254,12 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         _verify_copy_payload(copy_evidence)
         _verify_p0g_payload(p0g_evidence)
 
-        candidate_bytes = outer.read(candidate_names[0])
-        if not candidate_bytes or len(candidate_bytes) > MAX_INNER_BYTES:
+        candidate_info = outer_members[candidate_names[0]]
+        if candidate_info.file_size <= 0 or candidate_info.file_size > MAX_INNER_BYTES:
             raise CandidateArtifactError("candidate ZIP size is outside accepted bounds")
+        candidate_bytes = outer.read(candidate_names[0])
+        if len(candidate_bytes) != candidate_info.file_size:
+            raise CandidateArtifactError("candidate ZIP changed while being read")
 
     try:
         candidate = zipfile.ZipFile(io.BytesIO(candidate_bytes), "r")
