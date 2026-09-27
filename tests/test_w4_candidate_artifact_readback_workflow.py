@@ -35,8 +35,8 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_PRODUCT_AUTHORITY", self.text)
 
     def test_verifier_is_materialized_from_pinned_w4_authority(self) -> None:
-        self.assertIn("W4_VERIFIER_COMMIT: a355f46b08a04e24f6c1d5d352e9ecf47e9db2d3", self.text)
-        self.assertIn("W4_VERIFIER_BLOB_SHA: ab24bb319dbdd1152541466e20a967b8787648d6", self.text)
+        self.assertIn("W4_VERIFIER_COMMIT: 73cdcf707ec405b3876ea98bbfd54217366059f6", self.text)
+        self.assertIn("W4_VERIFIER_BLOB_SHA: 5f7b3223b0bc405426be645ac09b68f9060bca76", self.text)
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
         self.assertIn('actual_blob="$(git rev-parse "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py")"', self.text)
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
@@ -49,18 +49,22 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("expected exactly one non-expired candidate artifact", self.text)
         self.assertIn("candidate artifact API digest missing", self.text)
 
-    def test_raw_outer_archive_is_downloaded_by_exact_artifact_id(self) -> None:
+    def test_raw_outer_archive_is_downloaded_by_exact_artifact_id_with_bound(self) -> None:
         self.assertIn("ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}", self.text)
         self.assertIn("/actions/artifacts/{artifact}/zip", self.text)
         self.assertIn("candidate-artifact.zip", self.text)
+        self.assertIn("max_outer_bytes=300 * 1024 * 1024", self.text)
+        self.assertIn("candidate artifact exceeds 300 MiB download bound", self.text)
+        self.assertIn("W4_RAW_ARTIFACT_DOWNLOAD_BYTES", self.text)
         self.assertIn("W4_RAW_ARTIFACT_DOWNLOAD=PASS", self.text)
 
-    def test_manifest_sha_filename_and_completed_run_sha_must_agree(self) -> None:
-        self.assertIn("candidate filename Product prefix mismatches manifest", self.text)
-        self.assertIn("PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}", self.text)
+    def test_expected_product_sha_comes_from_completed_run_without_preverifier_archive_parse(self) -> None:
+        self.assertIn("Bind expected Product SHA from completed canonical workflow authority", self.text)
         self.assertIn("WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
-        self.assertIn('test "$PRODUCT_SHA" = "$WORKFLOW_SHA"', self.text)
-        self.assertIn("W4_READBACK_EXACT_PRODUCT_WORKFLOW_BINDING=PASS", self.text)
+        self.assertIn("completed workflow head_sha is not exact 40-hex", self.text)
+        self.assertIn("W4_READBACK_EXPECTED_PRODUCT_SHA", self.text)
+        self.assertNotIn("zipfile.ZipFile('candidate-artifact.zip'", self.text)
+        self.assertNotIn("RELEASE_MANIFEST.json", self.text)
 
     def test_long_build_staleness_is_rejected_after_artifact_publication(self) -> None:
         self.assertIn("Recheck live Full Product freshness after build and upload", self.text)
@@ -74,6 +78,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
     def test_independent_verifier_receives_api_outer_digest(self) -> None:
         self.assertIn("python .w4-readback/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
+        self.assertIn("--product-sha '${{ steps.product.outputs.product_sha }}'", self.text)
         self.assertIn("--outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'", self.text)
         self.assertIn("W4_EXACT_RUN_ARTIFACT_READBACK=PASS", self.text)
 
