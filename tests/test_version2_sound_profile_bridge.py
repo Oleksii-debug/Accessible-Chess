@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import unittest
 
 from acs.sound_profile_store import SoundProfileManager
@@ -35,6 +36,10 @@ def _api():
     runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
     settings = SoundSettingsApplication(manager, runtime)
     api = object.__new__(Version2ReleaseAccessibleChessAPI)
+    api._ui_thread = threading.get_ident()
+    api._ui_owner = None
+    api._ui_action = None
+    api._ui_closed = False
     api.lang = "en"
     api._sound_settings_application = None
     api.bind_sound_settings_application(settings)
