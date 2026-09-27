@@ -556,8 +556,14 @@ class BookReaderPresenter:
     def next_position(self) -> BookBlockView:
         return self._block_view(self._reader.next_position())
 
+    def previous_position(self) -> BookBlockView:
+        return self._block_view(self._reader.previous_position())
+
     def next_game(self) -> BookBlockView:
         return self._block_view(self._reader.next_game())
+
+    def previous_game(self) -> BookBlockView:
+        return self._block_view(self._reader.previous_game())
 
     def bookmark(self, name: str = "default") -> BookBlockView:
         return self._block_view(self._reader.save_return_point(name))
