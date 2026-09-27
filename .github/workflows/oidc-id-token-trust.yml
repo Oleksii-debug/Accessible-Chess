@@ -1,0 +1,75 @@
+name: OIDC ID Token Trust Contract
+
+on:
+  pull_request:
+    paths:
+      - 'acs/oidc_id_token.py'
+      - 'tests/test_oidc_id_token.py'
+      - 'tests/test_oidc_id_token_hostile_mapping.py'
+      - '.github/workflows/oidc-id-token-trust.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oidc-id-token-trust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact candidate identity and isolated post-signature trust scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha }}"
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head" || {
+            printf 'Expected exact OIDC candidate %s, got %s\n' "$expected_head" "$actual_head" >&2
+            exit 1
+          }
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/oidc-id-token-trust.yml' 'acs/oidc_id_token.py' 'tests/test_oidc_id_token.py' 'tests/test_oidc_id_token_hostile_mapping.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected OIDC ID-token trust scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          echo "OIDC_ID_TOKEN_EXACT_HEAD=$actual_head"
+
+      - name: Compile trust boundary and tests
+        run: >-
+          python -m compileall -q
+          acs/oidc_id_token.py
+          tests/test_oidc_id_token.py
+          tests/test_oidc_id_token_hostile_mapping.py
+
+      - name: Execute OIDC ID-token trust tests
+        run: >-
+          python -m unittest -v
+          tests.test_oidc_id_token
+          tests.test_oidc_id_token_hostile_mapping
+
+      - name: Core selftest
+        run: python -m acs.selftest
