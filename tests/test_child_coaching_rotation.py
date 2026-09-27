@@ -24,9 +24,11 @@ from acs.child_coaching_rotation import (
 )
 from acs.child_coaching_rotation_store import (
     ChildCoachingRotationStore,
+    ChildCoachingRotationStoreBusyError,
     ChildCoachingRotationStoreConflictError,
     ChildCoachingRotationStoreError,
 )
+from acs.child_coaching_store import _exclusive_store_lock
 from acs.teaching_session import PositionSourceKind, TeachingPositionSource
 
 
@@ -272,6 +274,21 @@ class ChildCoachingRotationTests(unittest.TestCase):
                     state,
                     expected_revision=first_revision,
                 )
+
+    def test_rotation_store_maps_shared_lock_contention_to_rotation_busy_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            store = ChildCoachingRotationStore(path)
+            plan = default_group_rotation(self.lesson(), rotation_id="rotation-busy")
+            state = start_rotation(plan)
+            lock_path = path.with_name(f".{path.name}.lock")
+
+            with _exclusive_store_lock(lock_path):
+                with self.assertRaises(ChildCoachingRotationStoreBusyError):
+                    store.save(plan, state, expected_revision=None)
+
+            revision = store.save(plan, state, expected_revision=None)
+            self.assertEqual(store.load().revision, revision)
 
     def test_store_fails_closed_on_corruption_future_schema_and_mismatched_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
