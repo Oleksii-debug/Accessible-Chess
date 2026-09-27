@@ -110,7 +110,7 @@ jobs:
           recovery_successor=false
           if git merge-base --is-ancestor "$current_product" HEAD; then
             current_delta="$(git diff --name-only "$current_product" HEAD | sort)"
-            recovery_expected="$(printf '%s\n' '.github/workflows/books-progress-backup-recovery.yml' '.github/workflows/v2-book-progress-production-repair.yml' 'acs/book_progress_store.py' 'acs/version2_application.py' 'acs/version2_release_app.py' 'acs/version2_windows_native_dialog_ownership.py' 'tests/test_v2_native_dialog_language.py' 'tests/test_version2_application.py' | sort)"
+            recovery_expected="$(printf '%s\n' '.github/workflows/books-progress-backup-recovery.yml' '.github/workflows/v2-book-progress-production-repair.yml' '.github/workflows/v2-composition-publication-boundary.yml' 'acs/book_progress_store.py' 'acs/version2_application.py' 'acs/version2_release_app.py' 'acs/version2_windows_native_dialog_ownership.py' 'tests/test_v2_native_dialog_language.py' 'tests/test_version2_application.py' | sort)"
             if [ "$current_delta" = "$recovery_expected" ]; then
               recovery_successor=true
             fi
