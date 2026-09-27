@@ -155,6 +155,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         books = _Version2OwnedBookDialogs(
             lambda: owner,
             forms_loader=_forms_loader,
+            message_box_loader=_message_box_loader,
             language_provider=provider,
         )
 
@@ -163,12 +164,19 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(books.open_book(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Відкрити шахову книгу")
         self.assertIn("Підтримувані книги", _OpenDialog.instances[-1].Filter)
+        self.assertTrue(books.confirm_recover_book_progress())
+        self.assertEqual(_MessageBox.calls[-1][0], owner)
+        self.assertEqual(_MessageBox.calls[-1][2], "Відновити збережений прогрес читання")
+        self.assertIn("резервну копію", _MessageBox.calls[-1][1])
 
         language["value"] = UILanguage.EN
         self.assertEqual(exports.export_selection(), Path("selection.pgn"))
         self.assertEqual(_SaveDialog.instances[-1].Title, "Export PGN selection")
         self.assertEqual(books.open_book(), Path("selected.pgn"))
         self.assertEqual(_OpenDialog.instances[-1].Title, "Open chess book")
+        self.assertTrue(books.confirm_recover_book_progress())
+        self.assertEqual(_MessageBox.calls[-1][2], "Recover saved reading progress")
+        self.assertIn("previous valid backup", _MessageBox.calls[-1][1])
 
     def test_dirty_exit_confirmation_uses_same_live_language_owner(self) -> None:
         owner = _Owner()
@@ -282,10 +290,76 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 self.assertIs(native_runtime_factory(owner), native_runtime)
                 self.assertEqual(len(owner.FormClosing.handlers), 1)
 
+            open_book = application.open_book_dialog
+            self.assertIsInstance(open_book.__self__, release_app._Version2OwnedBookDialogs)
+            recovery_confirmation = application.confirm_book_progress_recovery
+            self.assertIsInstance(recovery_confirmation.__self__, release_app._Version2OwnedBookDialogs)
+            self.assertIs(open_book.__self__, recovery_confirmation.__self__)
             provider = runtime_class.call_args.kwargs["dialog_language_provider"]
             self.assertEqual(provider(), UILanguage.UA)
             application.shell.language = UILanguage.EN
             self.assertEqual(provider(), UILanguage.EN)
+
+    def test_failed_native_runtime_composition_does_not_bind_book_recovery_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            layout = SimpleNamespace(
+                root=root,
+                settings_path=root / "settings.json",
+                library_path=root / "library.acsdb",
+            )
+            settings = mock.Mock()
+            settings.data = {"language": "uk"}
+            settings.get.side_effect = lambda key, default=None: settings.data.get(key, default)
+            engine_runtime = mock.Mock()
+            engine_runtime.provider = mock.Mock()
+            api = mock.MagicMock()
+            application = mock.MagicMock()
+            application.shell.language = UILanguage.UA
+            application._native_unsaved_close_guard = None
+            original_open_book = object()
+            application.open_book_dialog = original_open_book
+            original_recovery = object()
+            application.confirm_book_progress_recovery = original_recovery
+            database = mock.MagicMock()
+            native_runtime = mock.MagicMock()
+
+            with (
+                mock.patch.object(release_app, "_prepare_version2_user_data", return_value=layout),
+                mock.patch.object(release_app, "Settings", return_value=settings),
+                mock.patch.object(release_app, "AnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "EngineAssistedWorkflowService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "ContinuousAnalysisService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
+                mock.patch.object(release_app, "AcsDatabase", return_value=database),
+                mock.patch.object(release_app, "Version2Application", return_value=application),
+                mock.patch.object(release_app, "_share_v2_action_registry"),
+                mock.patch.object(
+                    release_app,
+                    "Version2WindowsFileWorkflowRuntime",
+                    return_value=native_runtime,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "_install_close_guard_or_shutdown",
+                    side_effect=RuntimeError("close guard unavailable"),
+                ),
+            ):
+                _, returned_application, _, native_runtime_factory = (
+                    release_app.create_version2_release_application(
+                        runtime_factory=lambda _config: engine_runtime,
+                        sound_playback=object(),
+                    )
+                )
+                self.assertIs(returned_application, application)
+                with self.assertRaisesRegex(RuntimeError, "close guard unavailable"):
+                    native_runtime_factory(_Owner())
+
+            self.assertIs(application.open_book_dialog, original_open_book)
+            self.assertIs(application.confirm_book_progress_recovery, original_recovery)
 
     def test_language_projection_fails_safe_without_exposing_provider_exception(self) -> None:
         def broken_provider():

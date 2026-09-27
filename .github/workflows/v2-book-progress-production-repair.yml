@@ -32,7 +32,7 @@ jobs:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
       CURRENT_PROGRESS_OWNER: e3b233f603cefd3a513a5ba39c85e64e51aff557
-      CURRENT_STORE_BLOB: c322f19744139056fb4ae9ea49a9c2b5d71e08bb
+      CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
       CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
       CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
     steps:
@@ -107,6 +107,14 @@ jobs:
               workflow_repair=true
             fi
           fi
+          recovery_successor=false
+          if git merge-base --is-ancestor "$current_product" HEAD; then
+            current_delta="$(git diff --name-only "$current_product" HEAD | sort)"
+            recovery_expected="$(printf '%s\n' '.github/workflows/books-progress-backup-recovery.yml' '.github/workflows/v2-book-progress-production-repair.yml' '.github/workflows/v2-composition-publication-boundary.yml' 'acs/book_progress_store.py' 'acs/version2_application.py' 'acs/version2_release_app.py' 'acs/version2_windows_native_dialog_ownership.py' 'tests/test_v2_native_dialog_language.py' 'tests/test_version2_application.py' | sort)"
+            if [ "$current_delta" = "$recovery_expected" ]; then
+              recovery_successor=true
+            fi
+          fi
 
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
@@ -145,6 +153,14 @@ jobs:
           elif [ "$workflow_repair" = true ]; then
             git diff --check "$current_product" HEAD
             echo 'BOOK_PROGRESS_TOPOLOGY=WORKFLOW_ONLY_REPAIR'
+          elif [ "$recovery_successor" = true ]; then
+            git diff --check "$current_product" HEAD
+            # The recovery successor may change the store implementation but
+            # not the canonical BookProgress regression authorities.
+            git diff --quiet "$current_product" HEAD -- \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_SUCCESSOR'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.

@@ -76,9 +76,15 @@ jobs:
                 exit 1
               }
             done <<< "$expected"
-            echo 'V2_PUBLICATION_SCOPE_MODE=CONVERGENCE_RETAINED'
+            # A successor may legitimately change the composition root, but only
+            # when it starts from the exact qualified publication-boundary product
+            # blob and retains the exact executable regression authority.
+            test "$(git rev-parse "$EXPECTED_BASE_SHA":acs/version2_release_app.py)" = "$CANDIDATE_PRODUCT_BLOB"
+            echo 'V2_PUBLICATION_SCOPE_MODE=CONVERGENCE_SUCCESSOR'
           fi
-          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$CANDIDATE_PRODUCT_BLOB"
+          if test "$EXPECTED_HEAD_REF" = "$OWNER_HEAD"; then
+            test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$CANDIDATE_PRODUCT_BLOB"
+          fi
           test "$(git rev-parse HEAD:tests/test_version2_composition_publication_boundary.py)" = "$REGRESSION_BLOB"
 
       - name: Compile publication-boundary scope
