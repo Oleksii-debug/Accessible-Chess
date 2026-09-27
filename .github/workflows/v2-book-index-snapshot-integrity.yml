@@ -45,12 +45,15 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base='${{ github.event.pull_request.base.sha }}'
+            base="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
             git merge-base --is-ancestor "$base" HEAD
             test "$(git merge-base "$base" HEAD)" = "$base"
             git diff --check "$base" HEAD
             changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
-            wanted="$(printf '%s\n'               '.github/workflows/v2-book-index-snapshot-integrity.yml'               'acs/book_index.py'               'tests/test_book_index.py' | LC_ALL=C sort)"
+            wanted="$(printf '%s\n' \
+              '.github/workflows/v2-book-index-snapshot-integrity.yml' \
+              'acs/book_index.py' \
+              'tests/test_book_index.py' | LC_ALL=C sort)"
             test "$changed" = "$wanted"
           fi
 
