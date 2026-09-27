@@ -752,6 +752,11 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     node = switch_nodes[0]
     if set(node.attrib) != {"value"}:
         _fail("WinForms accessibility app-config switch attributes are invalid")
+    if list(node) or (node.text is not None and node.text.strip()):
+        _fail(
+            "WinForms accessibility app-config AppContextSwitchOverrides "
+            "must not contain child content"
+        )
     value = node.attrib.get("value", "")
     parsed: dict[str, str] = {}
     for raw_entry in value.split(";"):
