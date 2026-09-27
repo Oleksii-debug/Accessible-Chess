@@ -9,6 +9,7 @@ from typing import Any
 
 
 MAX_JSON_BYTES = 64 * 1024
+MAX_CHECKSUM_BYTES = 4 * 1024 * 1024
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 CHECKSUM_PATH = "AccessibleChess/AccessibleChess.exe"
@@ -94,20 +95,34 @@ def _verify_package_binding(product_root: Path, expected_sha: str) -> None:
         raise EvidenceError("release manifest integration_sha does not match expected product SHA")
 
     checksums = package_root / "SHA256SUMS.txt"
+    if not checksums.is_file() or checksums.is_symlink():
+        raise EvidenceError("SHA256SUMS.txt must be a direct regular file")
+    try:
+        checksum_size = checksums.stat().st_size
+    except OSError as exc:
+        raise EvidenceError("SHA256SUMS.txt size is unavailable") from exc
+    if checksum_size <= 0 or checksum_size > MAX_CHECKSUM_BYTES:
+        raise EvidenceError("SHA256SUMS.txt size is outside the accepted bound")
     try:
         text = checksums.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise EvidenceError("SHA256SUMS.txt is unavailable or invalid UTF-8") from exc
 
     matches: list[str] = []
+    seen_paths: set[str] = set()
     for raw_line in text.splitlines():
-        if "  " not in raw_line:
+        if not raw_line:
             continue
+        if "  " not in raw_line:
+            raise EvidenceError("SHA256SUMS.txt contains a malformed line")
         digest, rel = raw_line.split("  ", 1)
         digest = digest.lower()
+        if not HEX64.fullmatch(digest) or not rel:
+            raise EvidenceError("SHA256SUMS.txt contains a malformed entry")
+        if rel in seen_paths:
+            raise EvidenceError(f"SHA256SUMS.txt contains duplicate path: {rel}")
+        seen_paths.add(rel)
         if rel == CHECKSUM_PATH:
-            if not HEX64.fullmatch(digest):
-                raise EvidenceError("canonical executable checksum is malformed")
             matches.append(digest)
     if len(matches) != 1:
         raise EvidenceError("checksum inventory must contain exactly one AccessibleChess.exe entry")
