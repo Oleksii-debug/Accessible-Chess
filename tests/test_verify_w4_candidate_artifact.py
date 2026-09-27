@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import sqlite3
 from unittest.mock import patch
 import tempfile
 import unittest
@@ -13,6 +14,9 @@ from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
 
 
 SHA = "f" * 40
+STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
+STARTER_GAMES = 240
+STRESS_GAMES = 1200
 
 
 def _zip_bytes(files: dict[str, bytes]) -> bytes:
@@ -23,19 +27,162 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+def _pgn_fixture(prefix: str, count: int) -> bytes:
+    return "".join(
+        f'[Event "{prefix} {index}"]\n'
+        f'[White "White {index}"]\n'
+        f'[Black "Black {index}"]\n'
+        '[Result "1-0"]\n\n1. e4 e5 1-0\n\n'
+        for index in range(count)
+    ).encode("utf-8")
+
+
+def _database_fixture_bytes(game_count: int = STARTER_GAMES, *, schema_version: int = 6) -> bytes:
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute(
+            "CREATE TABLE games (pgn_text TEXT NOT NULL, white TEXT NOT NULL, "
+            "black TEXT NOT NULL, event TEXT NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO games(pgn_text, white, black, event) VALUES (?, ?, ?, ?)",
+            [
+                (f"fixture-pgn-{i}", f"White {i}", f"Black {i}", f"Event {i % 5}")
+                for i in range(game_count)
+            ],
+        )
+        connection.execute(f"PRAGMA user_version = {schema_version}")
+        connection.commit()
+        return connection.serialize()
+    finally:
+        connection.close()
+
+
+def _selected_game_fixture(index: int) -> dict[str, object]:
+    result = "0-1" if index < 20 else ("1/2-1/2" if index < 28 else "1-0")
+    plies = 40 if index < 20 else (80 if index < 40 else 120)
+    opening_id = index if index < 12 else 0
+    return {
+        "source_index": index + 1,
+        "event": f"Event {index}",
+        "white": f"White {index}",
+        "black": f"Black {index}",
+        "result": result,
+        "plies": plies,
+        "length_band": "20-59" if plies < 60 else ("60-99" if plies < 100 else "100+"),
+        "opening_prefix": [f"M{opening_id}a", f"M{opening_id}b", f"M{opening_id}c", f"M{opening_id}d"],
+        "record_sha256": hashlib.sha256(f"record-{index}".encode()).hexdigest(),
+    }
+
+
+def _starter_bundle_files(
+    *,
+    database_games: int = STARTER_GAMES,
+    database_schema: int = 6,
+) -> dict[str, bytes]:
+    starter = _pgn_fixture("Starter", STARTER_GAMES)
+    stress = _pgn_fixture("Stress", STRESS_GAMES)
+    database = _database_fixture_bytes(database_games, schema_version=database_schema)
+    selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
+    result_counts: dict[str, int] = {}
+    length_counts: dict[str, int] = {}
+    openings: set[tuple[str, ...]] = set()
+    for item in selected:
+        result = str(item["result"])
+        band = str(item["length_band"])
+        result_counts[result] = result_counts.get(result, 0) + 1
+        length_counts[band] = length_counts.get(band, 0) + 1
+        openings.add(tuple(item["opening_prefix"]))
+
+    payloads = {
+        "starter_uk.pgn": starter,
+        "stress_uk.pgn": stress,
+        "sample_library.acsdb": database,
+    }
+    license_ids = {
+        "starter_uk.pgn": "CC0-1.0",
+        "stress_uk.pgn": "LicenseRef-Accessible-Chess-Starter-Content-1.0",
+        "sample_library.acsdb": "CC0-1.0",
+    }
+    manifest = {
+        "schema_version": 3,
+        "bundle_kind": "lawful-curated-real-game-starter",
+        "runtime_network_required": False,
+        "starter_source": {
+            "name": "lichess-standard-rated-2013-01",
+            "url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-01.pgn.zst",
+            "license_id": "CC0-1.0",
+            "published_games": 121_332,
+            "compressed_sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635",
+            "compressed_bytes": 1_000_000,
+            "selection": "accessible-chess-p0f-real-sample-v1",
+            "subset_sha256": hashlib.sha256(starter).hexdigest(),
+            "selected_games": STARTER_GAMES,
+            "curation": {
+                "policy_id": "accessible-chess-p0f-real-sample-v1",
+                "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+                "criteria": {
+                    "minimum_plies": 20,
+                    "valid_results": ["0-1", "1-0", "1/2-1/2"],
+                    "required_metadata": ["Event", "White", "Black"],
+                    "result_minimums": {"1-0": 20, "0-1": 20, "1/2-1/2": 8},
+                    "length_band_minimums": {"20-59": 20, "60-99": 20, "100+": 8},
+                    "minimum_distinct_opening_prefixes": 12,
+                    "opening_prefix_plies": 4,
+                    "maximum_scanned_games": 5000,
+                },
+                "scanned_records": 300,
+                "eligible_records": 260,
+                "rejected_records": {"too_short": 40},
+                "selected_games": selected,
+                "selected_result_counts": dict(sorted(result_counts.items())),
+                "selected_length_band_counts": dict(sorted(length_counts.items())),
+                "distinct_opening_prefixes": len(openings),
+            },
+        },
+        "licenses": {
+            "CC0-1.0": {
+                "type": "public-domain-dedication",
+                "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+                "source": "Lichess standard database publication",
+            },
+            "LicenseRef-Accessible-Chess-Starter-Content-1.0": {
+                "type": "project-owned-redistribution-grant",
+                "terms_uk": "Fixture redistribution terms retained for W4 semantic readback.",
+            },
+        },
+        "counts": {"starter_games": STARTER_GAMES, "stress_games": STRESS_GAMES},
+        "sample_library": {
+            "games": STARTER_GAMES,
+            "distinct_games": STARTER_GAMES,
+            "distinct_player_pairs": STARTER_GAMES,
+            "distinct_events": 5,
+        },
+        "files": {
+            name: {
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+                "license_id": license_ids[name],
+            }
+            for name, payload in payloads.items()
+        },
+    }
+    result = {f"{STARTER_ROOT}/{name}": payload for name, payload in payloads.items()}
+    result[f"{STARTER_ROOT}/manifest.json"] = json.dumps(manifest).encode("utf-8")
+    return result
+
+
 def _candidate_bytes(
     *,
     tamper: str | None = None,
     nvda_verified: bool = False,
     human_tested: bool = False,
+    starter_files: dict[str, bytes] | None = None,
 ) -> bytes:
     payload = {
         "AccessibleChess/AccessibleChess.exe": b"exe",
         "AccessibleChess/engines/stockfish/stockfish.exe": b"stockfish",
-        "AccessibleChess/release-content/w2-starter/manifest.json": b"{}",
-        "AccessibleChess/release-content/w2-starter/starter_uk.pgn": b"[Event \"Starter\"]\n",
-        "AccessibleChess/release-content/w2-starter/stress_uk.pgn": b"[Event \"Stress\"]\n",
-        "AccessibleChess/release-content/w2-starter/sample_library.acsdb": b"sqlite-fixture",
+        **(starter_files or _starter_bundle_files()),
         "AccessibleChess/web/index.html": b"<!doctype html>",
     }
     manifest_payload: dict[str, object] = {
@@ -241,6 +388,48 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             return original_read(archive, name, *args, **kwargs)
 
         with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_source_authority_is_verified(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        manifest["starter_source"]["license_id"] = "LicenseRef-Unverified"
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(CandidateArtifactError, "source authority mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_manifest_hash_is_bound_to_packaged_bytes(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        manifest["files"]["starter_uk.pgn"]["sha256"] = "0" * 64
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(CandidateArtifactError, "starter file SHA-256 mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_database_claim_is_verified_against_sqlite(self) -> None:
+        starter = _starter_bundle_files(database_games=STARTER_GAMES - 1)
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(CandidateArtifactError, "ACSDB semantic evidence mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_database_schema_is_verified(self) -> None:
+        starter = _starter_bundle_files(database_schema=5)
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(CandidateArtifactError, "ACSDB schema version mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_curation_record_evidence_is_fail_closed(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        manifest["starter_source"]["curation"]["selected_games"][0]["record_sha256"] = "bad"
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(CandidateArtifactError, "record SHA-256 is invalid"):
             verify(self.path, SHA)
 
     def test_wrong_outer_digest_fails(self) -> None:
