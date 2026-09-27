@@ -19,6 +19,12 @@ BLACK_FEN = "8/8/8/8/8/8/8/K6k b - - 0 1"
 
 
 class BookIndexTests(unittest.TestCase):
+    def test_constructor_rejects_non_book_document(self):
+        for value in (None, {}, [], "book"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(TypeError, "BookDocument"):
+                    BookIndex(value)  # type: ignore[arg-type]
+
     def make_document(self):
         return BookDocument(
             title="Study",
@@ -111,6 +117,16 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.target.index for entry in games], [4])
         with self.assertRaises(ValueError):
             index.find("   ")
+        invalid_kind_filters = (
+            {BookEntryKind.GAME.value},
+            {BookEntryKind.GAME, "exercise"},
+            [BookEntryKind.GAME],
+            frozenset({BookEntryKind.GAME}),
+        )
+        for kinds in invalid_kind_filters:
+            with self.subTest(kinds=kinds):
+                with self.assertRaisesRegex(TypeError, "Search kinds"):
+                    index.find("model", kinds=kinds)  # type: ignore[arg-type]
 
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
