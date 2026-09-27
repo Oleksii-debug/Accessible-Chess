@@ -487,5 +487,48 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 self.assertEqual(app.reader.snapshot(), origin)
 
 
+    def test_hidden_active_book_board_rejects_native_mutations_but_allows_return(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                opened = app.browser_command("books", "book.open_position")
+                self.assertEqual(opened["kind"], "delegated")
+                self.assertTrue(app.book_workflow.active)
+                origin = app.reader.snapshot()
+                board_before = app.book_workflow.view()
+                durable_before = self._durable_snapshot(app, progress)
+
+                routed = app.browser_command("shell", "screen.library")
+                self.assertEqual(routed["kind"], "route")
+                self.assertEqual(app.shell.current_route.route_id, "library")
+
+                with patch.object(
+                    app.book_workflow,
+                    "dispatch",
+                    side_effect=AssertionError(
+                        "hidden Book Board commands must be rejected before workflow dispatch"
+                    ),
+                ) as dispatch:
+                    for action in sorted(app._BOOK_BOARD_ACTIVE_COMMANDS):
+                        with self.subTest(action=action):
+                            result = app.adapter.activate_action(action)
+                            self.assertEqual(result.kind, "error")
+
+                dispatch.assert_not_called()
+                self.assertTrue(app.book_workflow.active)
+                self.assertEqual(app.book_workflow.view(), board_before)
+                self.assertEqual(app.reader.snapshot(), origin)
+                self.assertEqual(self._durable_snapshot(app, progress), durable_before)
+
+                returned = app.adapter.activate_action("book.return")
+                self.assertEqual(returned.kind, "delegated")
+                self.assertFalse(app.book_workflow.active)
+                self.assertEqual(app.shell.current_route.route_id, "books")
+                self.assertEqual(app.reader.snapshot(), origin)
+
+
 if __name__ == "__main__":
     unittest.main()
