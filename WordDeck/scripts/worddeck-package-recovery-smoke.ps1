@@ -92,15 +92,75 @@ function Close-CandidateGracefully {
     Fail "WordDeck process $closingPid remained alive for 15 seconds after Alt+F4."
 }
 
-function Assert-NoPersonalStateInPackage([string]$root, [string]$context) {
-    $forbidden = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
-        $_.Name -match '^state(\.backup)?\.json$' -or
-        $_.Name -match '^spelling-state(\.backup)?\.json$' -or
-        $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
-        $_.Name -like 'WordDeck-profile*.json' -or
-        $_.FullName -match '[\\/]Backups[\\/]'
+function Get-PersonalStateArtifacts([string]$root) {
+    $fullRoot = [IO.Path]::GetFullPath($root)
+    $forbiddenFiles = @(Get-ChildItem -LiteralPath $fullRoot -Recurse -File | Where-Object {
+        $_.Name -match '^state(\.backup)?\.json(\.tmp)?$' -or
+        $_.Name -match '^spelling-state(\.backup)?\.json(\.tmp)?$' -or
+        $_.Name -match '^sentence-coach-state(\.backup)?\.json(\.tmp)?$' -or
+        $_.Name -match '^listening-state(\.backup)?\.json(\.tmp)?$' -or
+        $_.Name -match '^course-learning-state(\.backup)?\.json(\.tmp)?$' -or
+        $_.Name -match '^assessment-runtime\.json(\.bak|\.tmp-[a-f0-9]+)?$' -or
+        $_.Name -match '^WordDeck-profile.*\.json(\.tmp)?$' -or
+        $_.Name -match '^WordDeck-listening-profile.*\.json(\.tmp)?$' -or
+        $_.Name -match '^profile-(import|rollback)-[a-f0-9]+\.v2\.tmp\.json$'
     })
-    if ($forbidden.Count -ne 0) { Fail "$context contains personal state: $($forbidden.FullName -join ', ')" }
+    $forbiddenDirectories = @(Get-ChildItem -LiteralPath $fullRoot -Recurse -Directory | Where-Object {
+        $_.Name -in @('Backups', 'Reading', 'SentencePacks', 'StoryCourseProgress')
+    })
+    return @($forbiddenFiles) + @($forbiddenDirectories)
+}
+
+function Assert-NoPersonalStateInPackage([string]$root, [string]$context) {
+    $forbidden = @(Get-PersonalStateArtifacts $root)
+    if ($forbidden.Count -ne 0) { Fail "$context contains personal/private state: $($forbidden.FullName -join ', ')" }
+}
+
+function Assert-PersonalStateDetectorCoverage {
+    $probeRoot = Join-Path ([IO.Path]::GetTempPath()) ("WordDeck-package-privacy-probe-" + [Guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Force $probeRoot | Out-Null
+        $relativeArtifacts = @(
+            'state.json',
+            'spelling-state.backup.json',
+            'sentence-coach-state.json',
+            'listening-state.backup.json',
+            'listening-state.json.tmp',
+            'course-learning-state.json',
+            'course-learning-state.json.tmp',
+            'assessment-runtime.json.bak',
+            'assessment-runtime.json.tmp-0123456789abcdef',
+            'WordDeck-profile-v5.json.tmp',
+            'WordDeck-listening-profile-v1.json.tmp',
+            'profile-import-0123456789abcdef.v2.tmp.json',
+            'Backups\state-old.json',
+            'Reading\books.sqlite',
+            'Reading\Sources\private-book.epub',
+            'SentencePacks\user-pack.generation.sqlite',
+            'StoryCourseProgress\course-a.progress.json'
+        )
+        foreach ($relative in $relativeArtifacts) {
+            $path = Join-Path $probeRoot $relative
+            $parent = Split-Path -Parent $path
+            if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force $parent | Out-Null }
+            Set-Content -LiteralPath $path -Value 'privacy-probe' -Encoding utf8
+        }
+
+        $detected = @(Get-PersonalStateArtifacts $probeRoot)
+        foreach ($relative in $relativeArtifacts) {
+            $expected = Join-Path $probeRoot $relative
+            $covered = $detected | Where-Object {
+                $_.FullName -eq $expected -or
+                ($_.PSIsContainer -and $expected.StartsWith($_.FullName + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))
+            }
+            if ($null -eq $covered -or @($covered).Count -eq 0) {
+                Fail "package privacy detector missed personal-state probe '$relative'."
+            }
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $probeRoot) { Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Assert-PersistedJourney([string]$expectedWord, [string]$context) {
@@ -111,6 +171,7 @@ function Assert-PersistedJourney([string]$expectedWord, [string]$context) {
 }
 
 try {
+    Assert-PersonalStateDetectorCoverage
     $candidate = (Resolve-Path -LiteralPath $CandidateRoot).Path
     Assert-NoPersonalStateInPackage $candidate 'original candidate'
 

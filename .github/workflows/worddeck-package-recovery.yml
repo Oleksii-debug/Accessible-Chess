@@ -123,14 +123,22 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
-            $_.Name -match '^state(\.backup)?\.json$' -or
-            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
-            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
-            $_.Name -like 'WordDeck-profile*.json' -or
-            $_.FullName -match '[\\/]Backups[\\/]'
+          $forbiddenFiles = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^listening-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^course-learning-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^assessment-runtime\.json(\.bak|\.tmp-[a-f0-9]+)?$' -or
+            $_.Name -match '^WordDeck-profile.*\.json(\.tmp)?$' -or
+            $_.Name -match '^WordDeck-listening-profile.*\.json(\.tmp)?$' -or
+            $_.Name -match '^profile-(import|rollback)-[a-f0-9]+\.v2\.tmp\.json$'
           })
-          if ($forbidden.Count -ne 0) { throw "Published tree contains personal state: $($forbidden.FullName -join ', ')" }
+          $forbiddenDirectories = @(Get-ChildItem .\artifacts\release -Recurse -Directory | Where-Object {
+            $_.Name -in @('Backups', 'Reading', 'SentencePacks', 'StoryCourseProgress')
+          })
+          $forbidden = @($forbiddenFiles) + @($forbiddenDirectories)
+          if ($forbidden.Count -ne 0) { throw "Published tree contains personal/private state: $($forbidden.FullName -join ', ')" }
 
       - name: Setup WinApp CLI for real Windows UI Automation
         uses: microsoft/setup-WinAppCli@v0.1
@@ -189,15 +197,23 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
-            $_.Name -match '^state(\.backup)?\.json$' -or
-            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
-            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
-            $_.Name -like 'WordDeck-profile*.json' -or
-            $_.FullName -match '[\\/]Backups[\\/]'
+          $forbiddenFiles = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^listening-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^course-learning-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^assessment-runtime\.json(\.bak|\.tmp-[a-f0-9]+)?$' -or
+            $_.Name -match '^WordDeck-profile.*\.json(\.tmp)?$' -or
+            $_.Name -match '^WordDeck-listening-profile.*\.json(\.tmp)?$' -or
+            $_.Name -match '^profile-(import|rollback)-[a-f0-9]+\.v2\.tmp\.json$'
           })
+          $forbiddenDirectories = @(Get-ChildItem .\artifacts\release -Recurse -Directory | Where-Object {
+            $_.Name -in @('Backups', 'Reading', 'SentencePacks', 'StoryCourseProgress')
+          })
+          $forbidden = @($forbiddenFiles) + @($forbiddenDirectories)
           if ($forbidden.Count -ne 0) {
-            throw "Release artifact contains personal state after acceptance: $($forbidden.FullName -join ', ')"
+            throw "Release artifact contains personal/private state after acceptance: $($forbidden.FullName -join ', ')"
           }
           if (-not (Test-Path -LiteralPath .\artifacts\release\CONTENT_ASSET_INDEX.json -PathType Leaf)) {
             throw 'Release artifact is missing CONTENT_ASSET_INDEX.json.'
