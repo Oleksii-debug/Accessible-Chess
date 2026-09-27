@@ -81,9 +81,24 @@ internal sealed class PronunciationAudio : IDisposable
 
         return new[]
         {
-            Path.Combine(portableRoot, dictionaryFolder, fileName),
-            Path.Combine(localRoot, dictionaryFolder, fileName)
+            CombineContained(portableRoot, dictionaryFolder, fileName),
+            CombineContained(localRoot, dictionaryFolder, fileName)
         };
+    }
+
+    private static string CombineContained(string root, string folder, string fileName)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        string fullCandidate = Path.GetFullPath(Path.Combine(fullRoot, folder, fileName));
+        string rootPrefix = fullRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? fullRoot
+            : fullRoot + Path.DirectorySeparatorChar;
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!fullCandidate.StartsWith(rootPrefix, comparison))
+            throw new InvalidDataException("Pronunciation audio path escaped its configured AudioPacks root.");
+        return fullCandidate;
     }
 
     private static string SafeName(string value)
