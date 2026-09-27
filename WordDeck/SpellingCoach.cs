@@ -469,6 +469,30 @@ internal sealed class SpellingDeckService
     }
 }
 
+internal static class SpellingHintEvidence
+{
+    public static bool ShouldRecordPronunciationHint(bool playbackSucceeded) => playbackSucceeded;
+}
+
+internal static class SpellingClosePersistence
+{
+    public static bool TrySave(Action saveAction, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(saveAction);
+        try
+        {
+            saveAction();
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+}
+
 internal static class SpellingAnswerComparer
 {
     public static bool IsCorrect(string typed, string expected) =>
@@ -552,6 +576,7 @@ internal sealed class SpellingForm : Form
     private readonly ISpellingScheduler _scheduler = new ConservativeSpellingScheduler();
     private readonly Random _random = new();
     private readonly Queue<string> _shuffleBag = new();
+    private readonly BlankLearningSubmissionGuard _blankSubmissionGuard;
     private readonly ComboBox _scopeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Spelling study scope", Width = 220 };
     private readonly ComboBox _deckCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = nameof(DeckDefinition.Name), AccessibleName = "Active spelling deck", Width = 260 };
     private readonly Label _counts = new() { AutoSize = true, AccessibleName = "Spelling scope and deck counts" };
@@ -616,6 +641,7 @@ internal sealed class SpellingForm : Form
         root.Controls.Add(_status, 0, 6);
         Controls.Add(root);
         root.BringToFront();
+        _blankSubmissionGuard = BlankLearningSubmissionGuard.Attach(this, _answer.AccessibleName!);
 
         _scopeCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -639,7 +665,17 @@ internal sealed class SpellingForm : Form
         RefreshScopeUi();
         RefreshDeckUi();
         Shown += (_, _) => BeginInvoke(new Action(RestoreOrNext));
-        FormClosing += (_, _) => { _audio.Dispose(); Save(); };
+        FormClosing += (_, e) =>
+        {
+            if (!SpellingClosePersistence.TrySave(Save, out string? error))
+            {
+                e.Cancel = true;
+                Announce($"Closing Spelling was cancelled because personal progress could not be saved. The trainer remains open; resolve the storage problem and try again. {error}");
+                return;
+            }
+            _audio.Dispose();
+        };
+        FormClosed += (_, _) => _blankSubmissionGuard.Dispose();
     }
 
     private MenuStrip BuildMenu()
@@ -816,6 +852,12 @@ internal sealed class SpellingForm : Form
     private void Submit()
     {
         if (_current is null) return;
+        if (BlankLearningSubmissionGuard.ShouldSuppressBlankEnter(Keys.Enter, _answer.Text))
+        {
+            Announce("Type an answer before pressing Enter. No learning statistics were changed.");
+            _answer.Focus();
+            return;
+        }
         SpellingEntryStats stats = GetStats(_current.Id);
         if (!SpellingAnswerComparer.IsCorrect(_answer.Text, _current.Source))
         {
@@ -885,10 +927,15 @@ internal sealed class SpellingForm : Form
     private void PlayPronunciation()
     {
         if (_current is null) return;
+        bool played = _audio.TryPlay(_package, _current, out string? error);
+        if (!SpellingHintEvidence.ShouldRecordPronunciationHint(played))
+        {
+            Announce(error ?? "British pronunciation hint is unavailable. No hint use was recorded.");
+            return;
+        }
         _usedHint = true;
         GetStats(_current.Id).HintUses++;
         Save();
-        if (!_audio.TryPlay(_package, _current, out string? error) && error is not null) Announce(error);
     }
 
     private void ToggleCoach()
