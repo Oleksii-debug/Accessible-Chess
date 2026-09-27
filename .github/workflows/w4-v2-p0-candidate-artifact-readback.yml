@@ -45,21 +45,26 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
 
-      - name: Materialize verifier from exact completed workflow authority
+      - name: Materialize immutable verifier dependency graph from completed workflow authority
         shell: bash
         run: |
           set -euo pipefail
           workflow_sha="$(git rev-parse HEAD)"
-          actual_blob="$(git rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py")"
+          rm -rf .w4-readback-source
+          git worktree add --detach .w4-readback-source "$workflow_sha"
+          test "$(git -C .w4-readback-source rev-parse HEAD)" = "$workflow_sha"
+          actual_blob="$(git -C .w4-readback-source rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py")"
           test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA" || {
             printf 'Completed-run W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
             exit 1
           }
-          mkdir -p .w4-readback
-          git show "HEAD:scripts/verify_w4_candidate_artifact.py" > .w4-readback/verify_w4_candidate_artifact.py
-          test -s .w4-readback/verify_w4_candidate_artifact.py
+          test -s .w4-readback-source/scripts/verify_w4_candidate_artifact.py
+          test -s .w4-readback-source/acs/acsdb.py
+          test -s .w4-readback-source/acs/gametree.py
+          test -s .w4-readback-source/acs/pgn_roundtrip.py
           echo "W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha"
           echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
+          echo 'W4_READBACK_PINNED_DEPENDENCY_GRAPH=PASS'
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
