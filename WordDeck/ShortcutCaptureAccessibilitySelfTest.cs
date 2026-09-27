@@ -16,6 +16,12 @@ internal static class ShortcutCaptureAccessibilitySelfTest
     {
         Require(ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(Keys.Alt | Keys.F4),
             "Alt+F4 must remain the standard Windows close command in shortcut capture.");
+        Require(ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(Keys.Alt | Keys.Tab),
+            "Alt+Tab must remain the standard Windows task-switch command.");
+        Require(ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(Keys.Control | Keys.Escape),
+            "Ctrl+Esc must remain the standard Windows Start-menu command.");
+        Require(ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(Keys.Alt | Keys.Space),
+            "Alt+Space must remain the standard Windows system-menu command.");
         Require(ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(Keys.Tab),
             "Plain Tab must remain native forward focus navigation in shortcut capture.");
         Require(ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(Keys.Shift | Keys.Tab),
