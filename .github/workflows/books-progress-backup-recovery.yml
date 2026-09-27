@@ -13,6 +13,7 @@ on:
       - 'tests/test_v2_native_dialog_language.py'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/v2-composition-publication-boundary.yml'
   workflow_dispatch:
 
 permissions:
@@ -54,6 +55,7 @@ jobs:
           expected_paths=(
             '.github/workflows/books-progress-backup-recovery.yml'
             '.github/workflows/v2-book-progress-production-repair.yml'
+            '.github/workflows/v2-composition-publication-boundary.yml'
             'acs/book_progress_store.py'
             'acs/version2_application.py'
             'acs/version2_release_app.py'
@@ -89,6 +91,9 @@ jobs:
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
+
+      - name: Install pytest for repository pytest gate
+        run: python -m pip install pytest==8.4.2
 
       - name: Full repository pytest
         run: python -m pytest -q tests
