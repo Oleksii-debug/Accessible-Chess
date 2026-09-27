@@ -16,11 +16,15 @@ internal static class PronunciationAudioPathSelfTest
                 "Pronunciation dictionary segment must never remain '..'.");
         }
 
-        string portableRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "AudioPacks")) +
-                              Path.DirectorySeparatorChar;
-        string portableTraversal = Path.GetFullPath(traversal[0]);
-        Require(portableTraversal.StartsWith(portableRoot, StringComparison.OrdinalIgnoreCase),
+        string portableRoot = WithTrailingSeparator(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "AudioPacks")));
+        string localRoot = WithTrailingSeparator(Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WordDeck",
+            "AudioPacks")));
+        Require(IsContained(traversal[0], portableRoot),
             "Portable pronunciation candidate escaped the AudioPacks root.");
+        Require(IsContained(traversal[1], localRoot),
+            "LocalAppData pronunciation candidate escaped the AudioPacks root.");
 
         IReadOnlyList<string> collisionA = PronunciationAudio.CandidatePaths("custom", "a:b");
         IReadOnlyList<string> collisionB = PronunciationAudio.CandidatePaths("custom", "a?b");
@@ -41,8 +45,24 @@ internal static class PronunciationAudioPathSelfTest
                 StringComparison.OrdinalIgnoreCase),
             "Reserved Windows device names must not be emitted as pronunciation path segments.");
 
+        string longId = new('a', 300);
+        IReadOnlyList<string> longPath = PronunciationAudio.CandidatePaths(longId, longId);
+        Require(Path.GetFileNameWithoutExtension(longPath[0]).Length < longId.Length,
+            "Excessively long pronunciation IDs must be reduced to bounded safe segments.");
+        Require(IsContained(longPath[0], portableRoot) && IsContained(longPath[1], localRoot),
+            "Long pronunciation IDs must remain inside both AudioPacks roots.");
+
         Console.WriteLine("Pronunciation audio path self-test passed: root containment, collision resistance and existing safe IDs verified.");
     }
+
+    private static bool IsContained(string candidate, string root)
+    {
+        string full = Path.GetFullPath(candidate);
+        return full.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string WithTrailingSeparator(string path) =>
+        path.EndsWith(Path.DirectorySeparatorChar) ? path : path + Path.DirectorySeparatorChar;
 
     private static void Require(bool condition, string message)
     {
