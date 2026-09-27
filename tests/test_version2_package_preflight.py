@@ -28,6 +28,18 @@ from acs.version2_upgrade import UPGRADE_JOURNAL_SCHEMA_VERSION
 
 _SHA = "a" * 40
 
+_VALID_WINFORMS_CONFIG = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<configuration><runtime><AppContextSwitchOverrides value="'
+    'Switch.UseLegacyAccessibilityFeatures=false;'
+    'Switch.UseLegacyAccessibilityFeatures.2=false;'
+    'Switch.UseLegacyAccessibilityFeatures.3=false;'
+    'Switch.UseLegacyAccessibilityFeatures.4=false;'
+    'Switch.UseLegacyAccessibilityFeatures.5=false'
+    '" /></runtime></configuration>\n'
+)
+
+
 
 def _validate_tree(root, **kwargs):
     return validate_version2_package_tree(
@@ -80,7 +92,7 @@ def _make_tree(root: Path) -> None:
     product.mkdir(parents=True)
     (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
     (product / "AccessibleChess.exe.config").write_text(
-        "<configuration><runtime /></configuration>\n", encoding="utf-8"
+        _VALID_WINFORMS_CONFIG, encoding="utf-8"
     )
 
     web = product / "web"
@@ -215,16 +227,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 _validate_tree(root)
 
     def test_winforms_accessibility_app_config_semantics_fail_closed(self):
-        valid = (
-            '<?xml version="1.0" encoding="utf-8"?>\n'
-            '<configuration><runtime><AppContextSwitchOverrides value="'
-            'Switch.UseLegacyAccessibilityFeatures=false;'
-            'Switch.UseLegacyAccessibilityFeatures.2=false;'
-            'Switch.UseLegacyAccessibilityFeatures.3=false;'
-            'Switch.UseLegacyAccessibilityFeatures.4=false;'
-            'Switch.UseLegacyAccessibilityFeatures.5=false'
-            '" /></runtime></configuration>\n'
-        )
+        valid = _VALID_WINFORMS_CONFIG
         cases = (
             ("<configuration><runtime /></configuration>\n", "missing required accessibility switches"),
             (
