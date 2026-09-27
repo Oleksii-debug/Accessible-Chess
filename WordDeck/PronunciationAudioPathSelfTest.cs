@@ -64,6 +64,18 @@ internal static class PronunciationAudioPathSelfTest
                 StringComparison.OrdinalIgnoreCase),
             "Safe existing pronunciation IDs must keep their established path names.");
 
+        IReadOnlyList<DictionaryEntry> additions = ReviewedOxford5000Bootstrap.BuildEntriesForTest();
+        Require(additions.Count == ReviewedOxford5000Bootstrap.ExpectedCanonicalRows,
+            "Oxford 5000 audio compatibility regression did not receive the full canonical addition set.");
+        foreach (DictionaryEntry addition in additions)
+        {
+            IReadOnlyList<string> paths = PronunciationAudio.CandidatePaths("oxford-3000-en-uk", addition.Id);
+            Require(string.Equals(Path.GetFileName(paths[0]), addition.Id + ".mp3", StringComparison.Ordinal),
+                $"Canonical Oxford 5000 audio filename changed for {addition.Id}.");
+            Require(IsContained(paths[0], portableRoot) && IsContained(paths[1], localRoot),
+                $"Canonical Oxford 5000 audio path escaped its AudioPacks root for {addition.Id}.");
+        }
+
         IReadOnlyList<string> reserved = PronunciationAudio.CandidatePaths("CON", "NUL");
         Require(!reserved[0].Contains(
                 Path.Combine("AudioPacks", "CON", "NUL.mp3"),
