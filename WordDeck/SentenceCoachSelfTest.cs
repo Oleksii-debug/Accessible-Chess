@@ -277,6 +277,22 @@ internal static class SentenceCoachSelfTest
                 "Normal Sentence Coach startup did not reject semantically invalid primary state and recover the valid backup.");
             startupRecovery.Store.Save(startupRecovery.State);
 
+            File.Copy(primaryPath, backupPath, true);
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":1,\"CurrentTargetEntryIds\":null,\"RecentSentenceIds\":[],\"StatsByDictionary\":{}}");
+            SentenceCoachState nullStructureRecovery = new SentenceCoachStateStore(root).Load();
+            Require(nullStructureRecovery.ActivePackId == "pack-1",
+                "Sentence Coach normalized an explicitly null persisted target list instead of recovering the valid backup.");
+            store.Save(nullStructureRecovery);
+
+            File.Copy(primaryPath, backupPath, true);
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":1,\"CurrentTargetEntryIds\":[],\"RecentSentenceIds\":[],\"StatsByDictionary\":{\"dict\":null}}");
+            SentenceCoachState nullStatsRecovery = new SentenceCoachStateStore(root).Load();
+            Require(nullStatsRecovery.ActivePackId == "pack-1",
+                "Sentence Coach normalized an explicitly null statistics map instead of recovering the valid backup.");
+            store.Save(nullStatsRecovery);
+
             File.WriteAllText(primaryPath, "{ broken primary");
             File.WriteAllText(backupPath, "{ broken backup");
             byte[] corruptPrimary = File.ReadAllBytes(primaryPath);
