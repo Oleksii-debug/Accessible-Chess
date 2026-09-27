@@ -93,6 +93,19 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("candidate-output\\p0-evidence", self.text)
         self.assertIn("packaged-uia-strict-summary.json", self.text)
 
+    def test_strict_uia_machine_acceptance_truth_is_explicit_before_retention(self) -> None:
+        summary = self.text.index("$summary=Get-Content packaged-uia-strict-summary.json")
+        annotate = self.text.index("$summary | Add-Member -NotePropertyName $name -NotePropertyValue $false -Force")
+        persist = self.text.index("$summary | ConvertTo-Json -Depth 20 | Set-Content")
+        retained = self.text.index("FRESH_PACKAGED_UIA_EVIDENCE_RETAINED=PASS")
+        self.assertLess(summary, annotate)
+        self.assertLess(annotate, persist)
+        self.assertLess(persist, retained)
+        self.assertIn("foreach($name in @('human_tested','nvda_verified'))", self.text)
+        self.assertIn("$property.Value -isnot [bool]", self.text)
+        self.assertIn("$property.Value -ne $false", self.text)
+        self.assertIn("Strict UIA machine evidence must never claim or malformed-declare $name", self.text)
+
     def test_combined_p0_acceptance_uses_exact_sha_and_requires_both_evidence_files(self) -> None:
         self.assertIn("-ProductSha $env:PRODUCT_SHA", self.text)
         self.assertIn("packaged-v2-document-copy-summary.json", self.text)

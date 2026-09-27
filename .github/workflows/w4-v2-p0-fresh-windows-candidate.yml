@@ -368,6 +368,14 @@ jobs:
             if([string]$summary.clipboard -ne 'e9'){throw 'Fresh candidate Move Input Ctrl+A/Ctrl+C proof did not pass'}
             if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Fresh candidate invalid-input atomicity proof did not pass'}
             if(-not [bool]$summary.board_focus_continuity){throw 'Fresh candidate board focus continuity proof did not pass'}
+            foreach($name in @('human_tested','nvda_verified')){
+              $property=$summary.PSObject.Properties[$name]
+              if($null -ne $property -and ($property.Value -isnot [bool] -or $property.Value -ne $false)){
+                throw "Strict UIA machine evidence must never claim or malformed-declare $name"
+              }
+              $summary | Add-Member -NotePropertyName $name -NotePropertyValue $false -Force
+            }
+            $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath packaged-uia-strict-summary.json -Encoding utf8
             $evidenceDir='candidate-output\p0-evidence'
             New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
             Copy-Item -LiteralPath 'packaged-uia-strict-summary.json' -Destination (Join-Path $evidenceDir 'packaged-uia-strict-summary.json')
