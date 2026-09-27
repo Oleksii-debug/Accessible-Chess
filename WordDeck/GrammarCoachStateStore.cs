@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace WordDeck;
@@ -71,7 +72,15 @@ internal sealed class GrammarCoachStateStore
         while (reader.Read())
         {
             string id = reader.GetString(0);
-            result[id] = new GrammarSkillMastery(id, reader.GetInt32(1), reader.GetInt32(2), reader.GetDouble(3), DateTimeOffset.Parse(reader.GetString(4)));
+            GrammarSkillMastery row = new(
+                id,
+                reader.GetInt32(1),
+                reader.GetInt32(2),
+                reader.GetDouble(3),
+                ParseTimestamp(reader.GetString(4), $"grammar mastery '{id}'"));
+            ValidateMasteryRow(row, "persisted grammar mastery");
+            if (!result.TryAdd(id, row))
+                throw new InvalidDataException($"Grammar profile contains duplicate mastery skill id '{id}'.");
         }
         return result;
     }
@@ -149,8 +158,33 @@ internal sealed class GrammarCoachStateStore
         using SqliteDataReader reader = command.ExecuteReader();
         var result = new List<GrammarAttemptRecord>();
         while (reader.Read())
-            result.Add(new GrammarAttemptRecord(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3) != 0,
-                (GrammarErrorKind)reader.GetInt32(4), reader.GetString(5), reader.GetString(6), DateTimeOffset.Parse(reader.GetString(7))));
+        {
+            long attemptId = reader.GetInt64(0);
+            string exerciseId = reader.GetString(1);
+            string skillId = reader.GetString(2);
+            int correctRaw = reader.GetInt32(3);
+            int errorRaw = reader.GetInt32(4);
+            string submitted = reader.GetString(5);
+            string expected = reader.GetString(6);
+            DateTimeOffset attemptedUtc = ParseTimestamp(reader.GetString(7), $"grammar attempt {attemptId}");
+
+            if (correctRaw is not 0 and not 1)
+                throw new InvalidDataException($"Grammar attempt {attemptId} contains invalid correct flag {correctRaw}.");
+            if (!Enum.IsDefined(typeof(GrammarErrorKind), errorRaw))
+                throw new InvalidDataException($"Grammar attempt {attemptId} contains undefined error kind {errorRaw}.");
+
+            var row = new GrammarAttemptRecord(
+                attemptId,
+                exerciseId,
+                skillId,
+                correctRaw == 1,
+                (GrammarErrorKind)errorRaw,
+                submitted,
+                expected,
+                attemptedUtc);
+            ValidateAttemptRow(row);
+            result.Add(row);
+        }
         return result;
     }
 
@@ -159,11 +193,7 @@ internal sealed class GrammarCoachStateStore
         ArgumentNullException.ThrowIfNull(snapshot);
         GrammarSkillMastery[] rows = snapshot.ToArray();
         foreach (GrammarSkillMastery row in rows)
-        {
-            if (!GrammarSkillCatalog.ById.ContainsKey(row.SkillId)) throw new InvalidDataException("Grammar snapshot contains unknown skill id " + row.SkillId);
-            if (row.Attempts < 0 || row.Correct < 0 || row.Correct > row.Attempts || row.Mastery is < 0 or > 1)
-                throw new InvalidDataException("Grammar snapshot contains invalid mastery counters.");
-        }
+            ValidateMasteryRow(row, "grammar snapshot");
         Initialize();
         CreateBackup("before-import");
         using SqliteConnection connection = Open();
@@ -193,6 +223,37 @@ internal sealed class GrammarCoachStateStore
             transaction.Rollback();
             throw;
         }
+    }
+
+    private static void ValidateMasteryRow(GrammarSkillMastery row, string source)
+    {
+        if (!GrammarSkillCatalog.ById.ContainsKey(row.SkillId))
+            throw new InvalidDataException($"{source} contains unknown skill id '{row.SkillId}'.");
+        if (row.Attempts < 0 || row.Correct < 0 || row.Correct > row.Attempts ||
+            !double.IsFinite(row.Mastery) || row.Mastery is < 0 or > 1)
+            throw new InvalidDataException($"{source} contains invalid mastery counters for '{row.SkillId}'.");
+    }
+
+    private static void ValidateAttemptRow(GrammarAttemptRecord row)
+    {
+        if (row.AttemptId <= 0)
+            throw new InvalidDataException("Grammar attempt id must be positive.");
+        GrammarSkill.RequireId(row.ExerciseId, "grammar attempt exercise id");
+        if (!GrammarSkillCatalog.ById.ContainsKey(row.SkillId))
+            throw new InvalidDataException($"Grammar attempt {row.AttemptId} references unknown skill id '{row.SkillId}'.");
+        if (string.IsNullOrWhiteSpace(row.ExpectedAnswer))
+            throw new InvalidDataException($"Grammar attempt {row.AttemptId} has no expected answer.");
+        if (row.Correct && row.ErrorKind != GrammarErrorKind.None)
+            throw new InvalidDataException($"Grammar attempt {row.AttemptId} is correct but carries error kind '{row.ErrorKind}'.");
+        if (!row.Correct && row.ErrorKind == GrammarErrorKind.None)
+            throw new InvalidDataException($"Grammar attempt {row.AttemptId} is incorrect but carries no error kind.");
+    }
+
+    private static DateTimeOffset ParseTimestamp(string value, string label)
+    {
+        if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp))
+            throw new InvalidDataException($"{label} contains an invalid timestamp.");
+        return timestamp;
     }
 
     private static GrammarSkillMastery? LoadMastery(SqliteConnection connection, SqliteTransaction transaction, string skillId)
