@@ -246,11 +246,14 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
             b'<html><body><div data-acs-fen="8/8/8/8/8/8/8/8 w - - 0 1"></div></body></html>',
         )
         self.app.open_book_dialog = lambda: invalid
+        self.app.record_focus(f"book-block-{self.app.reader.index}")
+        focus_before = self.app.snapshot()["screen"]["focus_target"]
 
         result = self.app.browser_command("shell", "book.open")
 
         self.assertEqual(result["kind"], "error")
         self.assertNotIn(str(self.root), json.dumps(result, ensure_ascii=False))
+        self.assertEqual(self.app.snapshot()["screen"]["focus_target"], focus_before)
         self.assertIs(self.app.reader, reader_before)
         self.assertEqual(self.app.book_key, key_before)
         self.assertEqual(self.app.shell.current_route.route_id, route_before)
