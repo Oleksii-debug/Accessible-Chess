@@ -739,7 +739,7 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     declaration = re.match(r"\A<\?xml\s+[^?]*\?>", text, flags=re.IGNORECASE)
     if declaration is not None:
         declared_encoding = re.search(
-            r"\\bencoding\\s*=\\s*(['\"])([^'\"]+)\\1",
+            r"\bencoding\s*=\s*(['\"])([^'\"]+)\1",
             declaration.group(0),
             flags=re.IGNORECASE,
         )
