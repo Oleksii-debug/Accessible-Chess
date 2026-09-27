@@ -187,15 +187,6 @@ class BookReader:
             raise LookupError("Beginning of book")
         return self.go_to(self._index - 1)
 
-    def _has_matching(self, predicate, *, direction: int) -> bool:
-        self._require_content()
-        cursor = self._index + direction
-        while 0 <= cursor < len(self.document.blocks):
-            if predicate(self.document.blocks[cursor]):
-                return True
-            cursor += direction
-        return False
-
     def _next_matching(self, predicate, *, direction: int) -> ReadingLocation:
         self._require_content()
         cursor = self._index + direction
@@ -206,21 +197,42 @@ class BookReader:
         raise LookupError("No matching semantic block in that direction")
 
     def navigation_availability(self) -> dict[str, bool]:
-        """Return non-mutating semantic navigation reachability at the cursor."""
+        """Return non-mutating semantic navigation reachability at the cursor.
+
+        Each side of the cursor is scanned at most once. WebView snapshots request
+        all semantic directions together, so six independent linear scans would
+        add avoidable keyboard-navigation latency for large books.
+        """
         self._require_content()
-        position = lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree))
-        game = lambda block: isinstance(block, Game)
-        heading = lambda block: isinstance(block, Heading)
-        return {
+        availability = {
             "previous": self._index > 0,
             "next": self._index < len(self.document.blocks) - 1,
-            "previous_heading": self._has_matching(heading, direction=-1),
-            "next_heading": self._has_matching(heading, direction=1),
-            "previous_position": self._has_matching(position, direction=-1),
-            "next_position": self._has_matching(position, direction=1),
-            "previous_game": self._has_matching(game, direction=-1),
-            "next_game": self._has_matching(game, direction=1),
+            "previous_heading": False,
+            "next_heading": False,
+            "previous_position": False,
+            "next_position": False,
+            "previous_game": False,
+            "next_game": False,
         }
+
+        for direction, prefix in ((-1, "previous"), (1, "next")):
+            cursor = self._index + direction
+            while 0 <= cursor < len(self.document.blocks):
+                block = self.document.blocks[cursor]
+                if isinstance(block, Heading):
+                    availability[f"{prefix}_heading"] = True
+                if isinstance(block, (Position, Diagram, Exercise, VariationTree)):
+                    availability[f"{prefix}_position"] = True
+                if isinstance(block, Game):
+                    availability[f"{prefix}_game"] = True
+                if (
+                    availability[f"{prefix}_heading"]
+                    and availability[f"{prefix}_position"]
+                    and availability[f"{prefix}_game"]
+                ):
+                    break
+                cursor += direction
+        return availability
 
     def next_heading(self) -> ReadingLocation:
         return self._next_matching(lambda block: isinstance(block, Heading), direction=1)
