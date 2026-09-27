@@ -31,7 +31,7 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
 )
 
 _ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
-_VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9a-z]+(?:[.-][0-9a-z]+)*))?$")
+_VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9a-z]+(?:[.-][0-9a-z]+)*))?$")
 
 
 @dataclass(frozen=True)
