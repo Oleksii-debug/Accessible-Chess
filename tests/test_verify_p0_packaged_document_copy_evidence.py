@@ -44,7 +44,7 @@ class VerifyP0PackagedDocumentCopyEvidenceTests(unittest.TestCase):
         self.exe.write_bytes(b"accessible-chess-fixture")
         digest = hashlib.sha256(self.exe.read_bytes()).hexdigest()
         (self.root / "RELEASE_MANIFEST.json").write_text(
-            json.dumps({"integration_sha": SHA}), encoding="utf-8"
+            json.dumps({"integration_sha": SHA, "human_tested": False, "nvda_verified": False}), encoding="utf-8"
         )
         (self.root / "SHA256SUMS.txt").write_text(
             f"{digest}  AccessibleChess/AccessibleChess.exe\n", encoding="utf-8"
