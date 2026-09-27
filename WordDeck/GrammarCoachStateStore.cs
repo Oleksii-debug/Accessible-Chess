@@ -30,20 +30,24 @@ internal sealed class GrammarCoachStateStore
         string? directory = Path.GetDirectoryName(_databasePath);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
 
-        using SqliteConnection connection = Open();
-        using SqliteCommand bootstrap = connection.CreateCommand();
-        bootstrap.CommandText = "CREATE TABLE IF NOT EXISTS grammar_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);";
-        bootstrap.ExecuteNonQuery();
-
-        int version = ReadSchemaVersion(connection);
+        bool existingState = File.Exists(_databasePath) && new FileInfo(_databasePath).Length > 0;
+        using SqliteConnection connection = OpenRaw(SqliteOpenMode.ReadWriteCreate);
+        int version = HasMetadataTable(connection) ? ReadSchemaVersion(connection) : 0;
         if (version > CurrentSchemaVersion)
             throw new InvalidDataException($"Grammar profile schema {version} is newer than supported schema {CurrentSchemaVersion}; data was not modified.");
-        if (version < CurrentSchemaVersion)
+
+        if (version < CurrentSchemaVersion && existingState)
+            CreateBackup("before-migration");
+
+        ConfigureWritableConnection(connection);
+        using (SqliteCommand bootstrap = connection.CreateCommand())
         {
-            if (File.Exists(_databasePath) && new FileInfo(_databasePath).Length > 0)
-                CreateBackup("before-migration");
-            Migrate(connection, version);
+            bootstrap.CommandText = "CREATE TABLE IF NOT EXISTS grammar_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);";
+            bootstrap.ExecuteNonQuery();
         }
+
+        if (version < CurrentSchemaVersion)
+            Migrate(connection, version);
     }
 
     public string CreateBackup(string reason)
@@ -54,9 +58,11 @@ internal sealed class GrammarCoachStateStore
         string? directory = Path.GetDirectoryName(backupPath);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
 
-        using SqliteConnection source = Open();
-        using var destination = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = backupPath, Mode = SqliteOpenMode.ReadWriteCreate }.ToString());
-        destination.Open();
+        if (!File.Exists(_databasePath) || new FileInfo(_databasePath).Length == 0)
+            throw new InvalidDataException("No existing Grammar profile exists to back up.");
+
+        using SqliteConnection source = OpenRaw(SqliteOpenMode.ReadOnly);
+        using SqliteConnection destination = OpenRaw(backupPath, SqliteOpenMode.ReadWriteCreate);
         source.BackupDatabase(destination);
         return backupPath;
     }
@@ -318,23 +324,47 @@ internal sealed class GrammarCoachStateStore
         }
     }
 
+    private static bool HasMetadataTable(SqliteConnection connection)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='grammar_metadata' LIMIT 1;";
+        return command.ExecuteScalar() is not null;
+    }
+
     private static int ReadSchemaVersion(SqliteConnection connection)
     {
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = "SELECT value FROM grammar_metadata WHERE key='schema_version'";
         object? value = command.ExecuteScalar();
-        return value is null ? 0 : int.Parse(Convert.ToString(value)!, System.Globalization.CultureInfo.InvariantCulture);
+        if (value is null) return 0;
+        string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int version) || version < 0)
+            throw new InvalidDataException("Grammar profile contains an invalid schema version.");
+        return version;
     }
 
     private SqliteConnection Open()
     {
-        var builder = new SqliteConnectionStringBuilder { DataSource = _databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared };
+        SqliteConnection connection = OpenRaw(SqliteOpenMode.ReadWriteCreate);
+        ConfigureWritableConnection(connection);
+        return connection;
+    }
+
+    private SqliteConnection OpenRaw(SqliteOpenMode mode) => OpenRaw(_databasePath, mode);
+
+    private static SqliteConnection OpenRaw(string path, SqliteOpenMode mode)
+    {
+        var builder = new SqliteConnectionStringBuilder { DataSource = path, Mode = mode, Cache = SqliteCacheMode.Shared };
         var connection = new SqliteConnection(builder.ToString());
         connection.Open();
+        return connection;
+    }
+
+    private static void ConfigureWritableConnection(SqliteConnection connection)
+    {
         using SqliteCommand pragma = connection.CreateCommand();
         pragma.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;";
         pragma.ExecuteNonQuery();
-        return connection;
     }
 }
 
