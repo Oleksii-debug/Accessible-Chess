@@ -747,8 +747,14 @@ internal sealed class SentenceCoachForm : Form
 
     private void Submit()
     {
-        if (_currentSentence is null || _targetSession is null || _targetSession.Complete || string.IsNullOrWhiteSpace(_answer.Text))
+        if (_currentSentence is null || _targetSession is null || _targetSession.Complete)
             return;
+        if (BlankLearningSubmissionGuard.ShouldSuppressBlankEnter(Keys.Enter, _answer.Text))
+        {
+            Announce("Type an answer before pressing Enter. No learning statistics were changed.");
+            _answer.Focus();
+            return;
+        }
 
         SentenceCoachTargetOnlyPrompt prompt = _targetSession.CurrentPrompt();
         SentenceCoachTargetOnlyCheck result = _targetSession.Check(_answer.Text);
