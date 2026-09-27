@@ -52,7 +52,7 @@ class Version2FormatsCanonicalNullMoveGateTests(unittest.TestCase):
 
         self.assertIn("protected_other=", self.workflow)
         self.assertNotIn(
-            "protected_other="$(printf '%s\\n' "$changed" | grep -E '^(acs/chesscore\\.py|",
+            "grep -E '^(acs/chesscore\\\\.py|",
             self.workflow,
         )
 
