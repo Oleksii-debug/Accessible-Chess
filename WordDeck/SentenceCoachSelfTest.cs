@@ -215,6 +215,42 @@ internal static class SentenceCoachSelfTest
             SentenceCoachState recovered = new SentenceCoachStateStore(root).Load();
             Require(recovered.ActivePackId == "pack-1", "Sentence Coach backup recovery did not restore the last good state.");
             Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
+
+            // A corrupt primary is replaceable only because the verified recovery copy is still valid.
+            store.Save(recovered);
+            SentenceCoachState afterRecoverySave = new SentenceCoachStateStore(root).Load();
+            Require(afterRecoverySave.ActivePackId == "pack-1", "Sentence Coach could not save recovered state while retaining a valid recovery path.");
+
+            string primaryPath = Path.Combine(root, "sentence-coach-state.json");
+            string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+            File.WriteAllText(primaryPath, "{ broken primary");
+            File.WriteAllText(backupPath, "{ broken backup");
+            byte[] corruptPrimary = File.ReadAllBytes(primaryPath);
+            byte[] corruptBackup = File.ReadAllBytes(backupPath);
+
+            ExpectInvalid(
+                () => new SentenceCoachStateStore(root).Load(),
+                "Sentence Coach silently fabricated fresh state when both persisted copies were unreadable.");
+            ExpectInvalid(
+                () => store.Save(recovered),
+                "Sentence Coach overwrote unreadable persisted state without a verified recovery copy.");
+            Require(File.ReadAllBytes(primaryPath).SequenceEqual(corruptPrimary),
+                "Sentence Coach changed the unreadable primary after a refused save.");
+            Require(File.ReadAllBytes(backupPath).SequenceEqual(corruptBackup),
+                "Sentence Coach changed the unreadable backup after a refused save.");
+
+            File.Delete(primaryPath);
+            File.WriteAllText(backupPath, "{ broken backup only");
+            byte[] corruptBackupOnly = File.ReadAllBytes(backupPath);
+            ExpectInvalid(
+                () => new SentenceCoachStateStore(root).Load(),
+                "Sentence Coach silently fabricated fresh state from a missing primary plus unreadable recovery copy.");
+            ExpectInvalid(
+                () => store.Save(recovered),
+                "Sentence Coach created a new primary over an unreadable lone recovery copy.");
+            Require(!File.Exists(primaryPath), "Sentence Coach created a primary after a refused save.");
+            Require(File.ReadAllBytes(backupPath).SequenceEqual(corruptBackupOnly),
+                "Sentence Coach changed the lone unreadable recovery copy after a refused save.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
     }
