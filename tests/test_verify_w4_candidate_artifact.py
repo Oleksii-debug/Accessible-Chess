@@ -48,22 +48,62 @@ def _candidate_bytes(*, tamper: str | None = None, nvda_verified: bool = False) 
     return _zip_bytes(files)
 
 
+
+def _copy_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "product_sha": product_sha,
+        "static_document_outside_edit": True,
+        "native_copy_focus_verified": True,
+        "foreground_product_verified": True,
+        "manifest_product_sha_verified": True,
+        "executable_checksum_verified": True,
+        "textpattern_selection_supported": True,
+        "ctrl_c_exact_clipboard": True,
+        "move_input_focus_verified": True,
+        "move_input_native_ctrl_a_ctrl_c": True,
+        "human_tested": False,
+        "nvda_verified": False,
+    }
+    value.update(overrides)
+    return value
+
+
+def _p0g_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "product_sha": product_sha,
+        "native_keyboard_dispatch": True,
+        "foreground_product_verified": True,
+        "manifest_product_sha_verified": True,
+        "executable_checksum_verified": True,
+        "alt_1_action_occurred": True,
+        "alt_1_accessible_result_exposed": True,
+        "alt_2_action_occurred": True,
+        "alt_2_accessible_result_exposed": True,
+        "board_application_entered": False,
+        "raw_uci_or_debug_exposed": False,
+        "human_tested": False,
+        "nvda_verified": False,
+    }
+    value.update(overrides)
+    return value
+
+
 def _outer_bytes(
     *,
     candidate: bytes | None = None,
     copy_sha: str = SHA,
     p0g_sha: str = SHA,
     candidate_name: str | None = None,
+    copy_overrides: dict[str, object] | None = None,
+    p0g_overrides: dict[str, object] | None = None,
 ) -> bytes:
+    copy = _copy_evidence(copy_sha, **(copy_overrides or {}))
+    p0g = _p0g_evidence(p0g_sha, **(p0g_overrides or {}))
     return _zip_bytes(
         {
             candidate_name or "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": candidate or _candidate_bytes(),
-            "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(
-                {"product_sha": copy_sha, "human_tested": False, "nvda_verified": False}
-            ).encode(),
-            "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
-                {"product_sha": p0g_sha, "human_tested": False, "nvda_verified": False}
-            ).encode(),
+            "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(copy).encode(),
+            "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(p0g).encode(),
         }
     )
 
@@ -99,6 +139,28 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             _outer_bytes(candidate_name="Accessible-Chess-V2-1234567-NVDA-test-candidate.zip")
         )
         with self.assertRaisesRegex(CandidateArtifactError, "filename Product prefix mismatch"):
+            verify(self.path, SHA)
+
+
+    def test_copy_evidence_requires_native_move_input_copy_proof(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"move_input_native_ctrl_a_ctrl_c": False})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "move_input_native_ctrl_a_ctrl_c"):
+            verify(self.path, SHA)
+
+    def test_p0g_evidence_requires_both_accessible_hotkey_results(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(p0g_overrides={"alt_2_accessible_result_exposed": False})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "alt_2_accessible_result_exposed"):
+            verify(self.path, SHA)
+
+    def test_p0g_evidence_requires_board_application_to_remain_false(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(p0g_overrides={"board_application_entered": True})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "board_application_entered"):
             verify(self.path, SHA)
 
     def test_wrong_evidence_sha_fails(self) -> None:
