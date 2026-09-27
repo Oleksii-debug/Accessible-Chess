@@ -887,7 +887,7 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
 
     def test_manifest_human_overclaim_fails(self) -> None:
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(human_tested=True)))
-        with self.assertRaisesRegex(CandidateArtifactError, "human/NVDA acceptance claim"):
+        with self.assertRaisesRegex(CandidateArtifactError, "human_tested"):
             verify(self.path, SHA)
 
     def test_evidence_human_overclaim_fails(self) -> None:
