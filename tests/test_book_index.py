@@ -51,6 +51,8 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in index.contents(max_heading_level=1)], ["Chapter One"])
         self.assertEqual([entry.label for entry in index.of_kind(BookEntryKind.GAME)], ["Model game"])
         self.assertEqual([entry.label for entry in index.of_kind(BookEntryKind.EXERCISE)], ["Find the winning move"])
+        with self.assertRaisesRegex(TypeError, "Book entry kind"):
+            index.of_kind("game")  # type: ignore[arg-type]
 
     def test_contents_uses_immutable_heading_snapshot_after_document_edit(self):
         document = self.make_document()
@@ -66,6 +68,10 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in index.contents(max_heading_level=1)], ["Chapter One"])
         self.assertEqual([entry.label for entry in index.contents(max_heading_level=2)], ["Chapter One", "Calculation"])
 
+        document.blocks.reverse()
+        self.assertEqual([entry.target.index for entry in index.entries], list(range(8)))
+        self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
+
     def test_index_construction_revalidates_mutated_document_blocks(self):
         document = self.make_document()
         heading = document.blocks[0]
@@ -80,6 +86,10 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual(index.entries[1].target.key, "source:p-1")
         self.assertEqual(index.resolve("block:pos-1").target.index, 3)
         self.assertEqual(index.resolve(index.entries[6].target).label, "Main branch")
+        for invalid in (None, 3, True):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(TypeError, "Book target"):
+                    index.resolve(invalid)  # type: ignore[arg-type]
 
     def test_duplicate_semantic_target_is_rejected_not_silently_resolved(self):
         document = BookDocument(
