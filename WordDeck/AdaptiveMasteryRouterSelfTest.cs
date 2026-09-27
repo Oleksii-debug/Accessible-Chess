@@ -20,6 +20,7 @@ internal static class AdaptiveMasteryRouterSelfTest
         SentenceEvidenceFailsClosedOnUnknownStableId();
         LearningEvidenceModeMappingFailsClosed();
         SpeakingAndPronunciationEvidenceMapDistinctly();
+        MalformedLearningEvidenceFailsClosed();
         LearningEvidenceDictionaryMismatchFailsClosed();
         FullOxfordScalePlanIsCompleteAndUnique();
     }
@@ -326,6 +327,35 @@ internal static class AdaptiveMasteryRouterSelfTest
             "Weak scored Speaking evidence must route back to Speaking as a direct need.");
         Require(pronunciation.NextMode == AdaptivePracticeMode.Pronunciation && pronunciation.HasDirectNeed,
             "Weak scored Pronunciation evidence must route back to Pronunciation as a direct need.");
+    }
+
+    private static void MalformedLearningEvidenceFailsClosed()
+    {
+        LearningEvidenceRecord[] malformed =
+        {
+            new("oxford", "word", "speaking", -1, 0, 0, 0, 0, null),
+            new("oxford", "word", "speaking", 1, 2, 0, 0, 0, null),
+            new("oxford", "word", "pronunciation", 1, 1, -1, 0, 1, null),
+            new("oxford", "word", "pronunciation", 1, 1, 0, -1, 1, null),
+            new("oxford", "word", "speaking", 1, 1, 0, 0, 2, null),
+            new(" oxford", "word", "speaking", 1, 1, 0, 0, 1, null),
+            new("oxford", " word", "speaking", 1, 1, 0, 0, 1, null),
+            new("oxford", "word", " speaking", 1, 1, 0, 0, 1, null)
+        };
+
+        foreach (LearningEvidenceRecord record in malformed)
+        {
+            bool failed = false;
+            try
+            {
+                _ = AdaptiveEvidenceAdapters.FromLearningEvidence(new FakeEvidenceSource(record), "oxford");
+            }
+            catch (InvalidDataException)
+            {
+                failed = true;
+            }
+            Require(failed, "Malformed learning evidence must fail closed instead of being normalized into plausible mastery data.");
+        }
     }
 
     private static void LearningEvidenceDictionaryMismatchFailsClosed()
