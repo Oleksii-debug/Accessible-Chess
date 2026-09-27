@@ -194,6 +194,38 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_winforms_accessibility_config_rejects_unexpected_runtime_sibling(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(
+                _VALID_WINFORMS_CONFIG.replace(
+                    "</runtime>",
+                    "<gcServer enabled=\"true\" /></runtime>",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "runtime must contain only AppContextSwitchOverrides",
+            ):
+                validate_winforms_accessibility_app_config(path)
+
+    def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(
+                _VALID_WINFORMS_CONFIG.replace(
+                    "<AppContextSwitchOverrides",
+                    "unexpected<AppContextSwitchOverrides",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "runtime must contain only AppContextSwitchOverrides",
+            ):
+                validate_winforms_accessibility_app_config(path)
+
     def test_valid_tree_and_zip_post_build_readback(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
