@@ -45,7 +45,8 @@
   const selectionStyle = documentRef.createElement("style");
   selectionStyle.id = "v2-semantic-selection-style";
   selectionStyle.textContent = [
-    "#main-content, #v2-workspace,",
+    "#main-content, #v2-workspace, #v2-navigation,",
+    "#v2-navigation h2, #v2-navigation li, #v2-navigation button,",
     "#main-content p, #main-content div, #main-content span, #main-content li, #main-content button,",
     "#main-content h1, #main-content h2, #main-content h3, #main-content pre, #main-content code,",
     "#v2-workspace p, #v2-workspace div, #v2-workspace span, #v2-workspace li, #v2-workspace button,",
