@@ -66,7 +66,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertNotIn('product_sha="$(unzip', self.text)
         self.assertNotIn("RELEASE_MANIFEST.json", self.text)
 
-    def test_verifier_dependency_graph_is_bound_to_completed_workflow_authority(self) -> None:
+    def test_verifier_bytes_and_product_dependencies_have_separate_exact_authorities(self) -> None:
         self.assertNotIn("W4_VERIFIER_COMMIT:", self.text)
         self.assertIn(
             "W4_VERIFIER_BLOB_SHA: 45219a753090d822ec95c5766c8ad94586793da2",
@@ -74,20 +74,34 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         )
         self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
         self.assertIn('git worktree add --detach .w4-readback-source "$workflow_sha"', self.text)
-        self.assertIn('git -C .w4-readback-source rev-parse HEAD', self.text)
         self.assertIn(
             'git -C .w4-readback-source rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py"',
             self.text,
         )
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
+        self.assertNotIn(".w4-readback-source/acs/acsdb.py", self.text)
+        self.assertIn('PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}', self.text)
+        self.assertIn('git fetch --no-tags origin "$PRODUCT_SHA"', self.text)
+        self.assertIn('git worktree add --detach .w4-product-source "$PRODUCT_SHA"', self.text)
+        self.assertIn('test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"', self.text)
         for dependency in (
-            ".w4-readback-source/acs/acsdb.py",
-            ".w4-readback-source/acs/gametree.py",
-            ".w4-readback-source/acs/pgn_roundtrip.py",
+            "acs/acsdb.py",
+            "acs/gametree.py",
+            "acs/pgn_roundtrip.py",
         ):
             self.assertIn(dependency, self.text)
-        self.assertIn("W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha", self.text)
-        self.assertIn("W4_READBACK_PINNED_DEPENDENCY_GRAPH=PASS", self.text)
+        self.assertIn(
+            "cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py "
+            ".w4-product-source/scripts/verify_w4_candidate_artifact.py",
+            self.text,
+        )
+        self.assertIn(
+            'copied_blob="$(git hash-object .w4-product-source/scripts/verify_w4_candidate_artifact.py)"',
+            self.text,
+        )
+        self.assertIn('test "$copied_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
+        self.assertIn("W4_READBACK_VERIFIER_AUTHORITY=PASS", self.text)
+        self.assertIn("W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:
         declared = "45219a753090d822ec95c5766c8ad94586793da2"
@@ -124,7 +138,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.head_sha", self.text)
 
     def test_independent_verifier_receives_independently_bound_product_sha(self) -> None:
-        self.assertIn("python .w4-readback-source/scripts/verify_w4_candidate_artifact.py", self.text)
+        self.assertIn("python .w4-product-source/scripts/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
         self.assertIn("--product-sha '${{ steps.product.outputs.product_sha }}'", self.text)
         self.assertIn("--workflow-sha '${{ github.event.workflow_run.head_sha }}'", self.text)
