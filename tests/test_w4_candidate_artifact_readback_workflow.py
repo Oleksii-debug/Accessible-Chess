@@ -63,17 +63,17 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertNotIn('product_sha="$(unzip', self.text)
         self.assertNotIn("RELEASE_MANIFEST.json", self.text)
 
-    def test_verifier_is_materialized_from_pinned_authority(self) -> None:
-        self.assertIn(
-            "W4_VERIFIER_COMMIT: a8beb88f89ab69bb9476e30f2a68df40a832c19d",
-            self.text,
-        )
+    def test_verifier_is_materialized_from_completed_workflow_authority(self) -> None:
+        self.assertNotIn("W4_VERIFIER_COMMIT:", self.text)
         self.assertIn(
             "W4_VERIFIER_BLOB_SHA: 01922a47d6fe54b2944f2ae54933eac5d9cdb050",
             self.text,
         )
-        self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
+        self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
+        self.assertIn('git rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py"', self.text)
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
+        self.assertIn('git show "HEAD:scripts/verify_w4_candidate_artifact.py"', self.text)
+        self.assertIn("W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha", self.text)
 
     def test_artifact_resolution_is_bound_to_exact_completed_run(self) -> None:
         self.assertIn("RUN_ID: ${{ github.event.workflow_run.id }}", self.text)
