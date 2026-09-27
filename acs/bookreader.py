@@ -46,8 +46,7 @@ class BookReader:
     its immutable ``BookIndex``. Authoring/import code may mutate ``BookDocument``
     in place, but navigation and durable progress operations then fail closed
     instead of resolving through stale index entries. Persist progress before
-    editing and restore it
-    into a fresh ``BookReader`` for the new document revision.
+    editing and restore it into a fresh ``BookReader`` for the new document revision.
     """
 
     def __init__(self, document: BookDocument):
@@ -129,14 +128,14 @@ class BookReader:
 
     def _go_to_target(self, key: str) -> ReadingLocation:
         self._require_indexed_revision()
+        self._require_content()
         if type(key) is not str:
             raise TypeError("Book target key must be a string")
         entry = self._book_index.resolve(key)
-        return self.go_to(entry.target.index)
+        return self._go_to_snapshot_index(entry.target.index)
 
-    def location(self) -> ReadingLocation:
-        self._require_indexed_revision()
-        self._require_content()
+    def _snapshot_location(self) -> ReadingLocation:
+        """Return the already-validated indexed location without rehashing the source."""
         entry = self._book_index.entries[self._index]
         return ReadingLocation(
             index=self._index,
@@ -148,29 +147,38 @@ class BookReader:
             side_to_move=entry.side_to_move,
         )
 
-    def go_to(self, index: int) -> ReadingLocation:
-        self._require_indexed_revision()
-        self._require_content()
+    def _go_to_snapshot_index(self, index: int) -> ReadingLocation:
+        """Move inside the immutable index after the caller validated the revision."""
         if type(index) is not int:
             raise TypeError("Book reading index must be an integer")
         if not 0 <= index < len(self._book_index.entries):
             raise IndexError("Book reading index is outside the document")
         self._index = index
-        return self.location()
+        return self._snapshot_location()
+
+    def location(self) -> ReadingLocation:
+        self._require_indexed_revision()
+        self._require_content()
+        return self._snapshot_location()
+
+    def go_to(self, index: int) -> ReadingLocation:
+        self._require_indexed_revision()
+        self._require_content()
+        return self._go_to_snapshot_index(index)
 
     def next_block(self) -> ReadingLocation:
         self._require_indexed_revision()
         self._require_content()
         if self._index >= len(self._book_index.entries) - 1:
             raise LookupError("End of book")
-        return self.go_to(self._index + 1)
+        return self._go_to_snapshot_index(self._index + 1)
 
     def previous_block(self) -> ReadingLocation:
         self._require_indexed_revision()
         self._require_content()
         if self._index <= 0:
             raise LookupError("Beginning of book")
-        return self.go_to(self._index - 1)
+        return self._go_to_snapshot_index(self._index - 1)
 
     def _next_matching(
         self,
@@ -184,7 +192,7 @@ class BookReader:
         entries = self._book_index.entries
         while 0 <= cursor < len(entries):
             if entries[cursor].kind in kinds:
-                return self.go_to(cursor)
+                return self._go_to_snapshot_index(cursor)
             cursor += direction
         raise LookupError("No matching semantic block in that direction")
 
@@ -213,9 +221,10 @@ class BookReader:
         validated_name = self._return_point_name(name)
         self._require_indexed_revision()
         self._require_content()
-        key = self._durable_target_key()
+        key = self._book_index.entries[self._index].target.key
+        self._book_index.resolve(key)
         self._return_points[validated_name] = key
-        return self.location()
+        return self._snapshot_location()
 
     def restore_return_point(self, name: str = "default") -> ReadingLocation:
         validated_name = self._return_point_name(name)
