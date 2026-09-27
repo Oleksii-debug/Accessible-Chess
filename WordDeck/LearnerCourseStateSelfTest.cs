@@ -246,7 +246,41 @@ internal static class LearnerCourseStateSelfTest
             Require(extensionDoc.RootElement.TryGetProperty("FutureOpaqueField", out JsonElement opaque) && opaque.GetProperty("keep").GetBoolean(),
                 "Unknown future course-state data was lost during load/save.");
 
-            Console.WriteLine("WordDeck learner course-state acceptance passed: exposure/practice/mastery/assessment separation, Fast Track/Deep Practice routing, independent course positions/skill estimates, LocalAppData sidecar continuity, backups, import/export, fail-closed newer schema, non-destructive migration and unknown-field preservation verified.");
+            // Duplicate schema metadata is ambiguous authority, not ordinary corruption.
+            // A supported value followed by a newer value must not bypass the early
+            // schema gate and silently fall back to an older verified backup.
+            string duplicateSchemaRoot = Path.Combine(root, "duplicate schema fixture");
+            Directory.CreateDirectory(duplicateSchemaRoot);
+            var duplicateSchemaStore = new LearnerCourseStateStore(duplicateSchemaRoot);
+            LearnerCourseState duplicateSeed = LearnerCourseStateStore.NewEmpty();
+            duplicateSchemaStore.Save(duplicateSeed);
+            duplicateSeed.OrphanedStableIds.Add("backup-marker");
+            duplicateSchemaStore.Save(duplicateSeed);
+
+            string duplicatePrimaryPath = Path.Combine(duplicateSchemaRoot, LearnerCourseStateStore.FileName);
+            string duplicateBackupPath = Path.Combine(duplicateSchemaRoot, LearnerCourseStateStore.BackupFileName);
+            string duplicatePrimary =
+                "{\"SchemaVersion\":1,\"SchemaVersion\":999,\"CoursePositionsByPathId\":{},\"EvidenceHistory\":[],\"MasteryByObjectiveId\":{},\"AdaptiveRouteByPathId\":{},\"SkillLevelsBySkillId\":{},\"OrphanedStableIds\":[]}";
+            File.WriteAllText(duplicatePrimaryPath, duplicatePrimary);
+            string backupBeforeDuplicateReject = File.ReadAllText(duplicateBackupPath);
+
+            bool duplicateLoadRejected = false;
+            try { _ = duplicateSchemaStore.Load(); }
+            catch (InvalidDataException) { duplicateLoadRejected = true; }
+            Require(duplicateLoadRejected,
+                "Duplicate course-state SchemaVersion metadata silently fell back to an older backup.");
+
+            bool duplicateSaveRejected = false;
+            try { duplicateSchemaStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { duplicateSaveRejected = true; }
+            Require(duplicateSaveRejected,
+                "Save overwrote course state with ambiguous duplicate SchemaVersion metadata.");
+            Require(File.ReadAllText(duplicatePrimaryPath) == duplicatePrimary,
+                "Rejected duplicate-schema course state mutated the primary file.");
+            Require(File.ReadAllText(duplicateBackupPath) == backupBeforeDuplicateReject,
+                "Rejected duplicate-schema course state mutated the verified backup.");
+
+            Console.WriteLine("WordDeck learner course-state acceptance passed: exposure/practice/mastery/assessment separation, Fast Track/Deep Practice routing, independent course positions/skill estimates, LocalAppData sidecar continuity, backups, import/export, fail-closed newer/ambiguous schema, non-destructive migration and unknown-field preservation verified.");
         }
         finally
         {
