@@ -575,5 +575,72 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_modal_dialog_blocks_book_board_open_mutation_and_return(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-modal-board-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    moved = app.browser_command("books", "book.next_position")
+                    self.assertEqual("render", moved["kind"])
+                    reader_before = app.reader.snapshot()
+
+                    app.adapter.open_dialog(
+                        "test-book-open-modal",
+                        opener_focus_id="book-reader",
+                        initial_focus_id="test-book-open-modal-confirm",
+                    )
+                    with patch.object(
+                        app.book_workflow,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "modal Book Board open must be rejected before workflow dispatch"
+                        ),
+                    ) as dispatch:
+                        rejected_open = app.browser_command("books", "book.open_position")
+                    self.assertEqual("error", rejected_open["kind"])
+                    dispatch.assert_not_called()
+                    self.assertFalse(app.book_workflow.active)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    app.adapter.close_dialog("test-book-open-modal")
+
+                    opened = app.browser_command("books", "book.open_position")
+                    self.assertEqual("delegated", opened["kind"])
+                    self.assertTrue(app.book_workflow.active)
+                    board_before = app.book_workflow.view()
+                    app.adapter.open_dialog(
+                        "test-book-return-modal",
+                        opener_focus_id="board-launcher",
+                        initial_focus_id="test-book-return-modal-confirm",
+                    )
+                    with patch.object(
+                        app.book_workflow,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "modal Book Board return must be rejected before workflow dispatch"
+                        ),
+                    ) as dispatch:
+                        rejected_return = app.browser_command("review", "book.return")
+                    self.assertEqual("error", rejected_return["kind"])
+                    dispatch.assert_not_called()
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual(board_before, app.book_workflow.view())
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()

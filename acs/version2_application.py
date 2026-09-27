@@ -409,6 +409,11 @@ class Version2Application:
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
+                # Modal focus owns the application while open. Reject every Book
+                # Board transition before workflow dispatch so open/navigation/
+                # analysis/return cannot partially mutate state behind the dialog.
+                if self.shell.active_dialog_id is not None:
+                    raise ValueError("close the active dialog before changing Book Board state")
                 opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
                 if action in self._BOOK_BOARD_ACTIVE_COMMANDS:
                     # Book Board navigation/analysis is meaningful only while the
