@@ -93,6 +93,9 @@ def _verify_package_binding(product_root: Path, expected_sha: str) -> None:
     manifest_sha = manifest.get("integration_sha")
     if not isinstance(manifest_sha, str) or manifest_sha.lower() != expected_sha:
         raise EvidenceError("release manifest integration_sha does not match expected product SHA")
+    for key in ("human_tested", "nvda_verified"):
+        if manifest.get(key) is not False:
+            raise EvidenceError(f"release manifest must explicitly declare {key}=false")
 
     checksums = package_root / "SHA256SUMS.txt"
     if not checksums.is_file() or checksums.is_symlink():
