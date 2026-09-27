@@ -162,7 +162,7 @@ function Exercise-NativeTextKeys([string]$selector, [scriptblock]$invariant, [st
     Wait-For $selector
     Focus $selector
     Assert-Focus $selector "$context initial"
-    foreach ($key in @('up','down','left','right','home','end','pgup','pgdn')) {
+    foreach ($key in @('up','down','left','right','ctrl+left','ctrl+right','home','end','pgup','pgdn')) {
         Send-Keys $key $selector
         Assert-Focus $selector "$context key $key"
         if (-not (& $invariant)) { Fail "$context key $key violated the current-card/prompt invariant." }
@@ -224,6 +224,13 @@ try {
     Send-Keys 'up' 'Current English word'
     Assert-Focus 'Current English word' 'Recall true previous'
     if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Up did not restore the previous actually shown Recall card.' }
+
+    Send-Keys 'ctrl+right' 'Current English word'
+    Assert-Focus 'Current English word' 'Recall compatibility Ctrl+Right'
+    if ((Get-Value 'Current English word') -ne $secondWord) { Fail 'Ctrl+Right on Current English word did not move forward through shown Recall history.' }
+    Send-Keys 'ctrl+left' 'Current English word'
+    Assert-Focus 'Current English word' 'Recall compatibility Ctrl+Left'
+    if ((Get-Value 'Current English word') -ne $firstWord) { Fail 'Ctrl+Left on Current English word did not return to the previous actually shown Recall card.' }
 
     Exercise-Combo 'Dictionary' 6
     Exercise-Combo 'Recall study scope' 40
