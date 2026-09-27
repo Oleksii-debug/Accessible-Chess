@@ -62,7 +62,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertNotIn('product_sha="$(unzip', self.text)
         self.assertNotIn("RELEASE_MANIFEST.json", self.text)
 
-    def test_verifier_is_materialized_from_pinned_authority(self) -> None:
+    def test_verifier_and_semantic_dependencies_share_one_pinned_authority(self) -> None:
         self.assertIn(
             "W4_VERIFIER_COMMIT: 61ba5980ac9121a5396744c05d6b685731823e82",
             self.text,
@@ -72,7 +72,16 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
             self.text,
         )
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
+        self.assertIn('git worktree add --detach .w4-readback-source "$W4_VERIFIER_COMMIT"', self.text)
+        self.assertIn('git -C .w4-readback-source rev-parse HEAD', self.text)
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
+        for dependency in (
+            ".w4-readback-source/acs/acsdb.py",
+            ".w4-readback-source/acs/gametree.py",
+            ".w4-readback-source/acs/pgn_roundtrip.py",
+        ):
+            self.assertIn(dependency, self.text)
+        self.assertIn("W4_READBACK_PINNED_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_artifact_resolution_is_bound_to_exact_completed_run(self) -> None:
         self.assertIn("RUN_ID: ${{ github.event.workflow_run.id }}", self.text)
@@ -99,7 +108,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_POST_BUILD_FRESHNESS=PASS", self.text)
 
     def test_independent_verifier_receives_independently_bound_product_sha(self) -> None:
-        self.assertIn("python .w4-readback/verify_w4_candidate_artifact.py", self.text)
+        self.assertIn("python .w4-readback-source/scripts/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
         self.assertIn("--product-sha '${{ steps.product.outputs.product_sha }}'", self.text)
         self.assertIn("W4_EXACT_RUN_ARTIFACT_READBACK=PASS", self.text)
