@@ -23,8 +23,8 @@ jobs:
     timeout-minutes: 15
     env:
       FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
-      W4_VERIFIER_COMMIT: 70fa4fd75910d659161abcc8bcd192e9a88a7905
-      W4_VERIFIER_BLOB_SHA: 74282656f5a38e198640c35e390128448935cde1
+      W4_VERIFIER_COMMIT: 61ba5980ac9121a5396744c05d6b685731823e82
+      W4_VERIFIER_BLOB_SHA: bf924a1ebc6b73080bdce0f58927ebe3c65b04da
     steps:
       - name: Checkout exact default-branch workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
