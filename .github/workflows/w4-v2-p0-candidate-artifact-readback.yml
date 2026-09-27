@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
-      W4_VERIFIER_COMMIT: a8beb88f89ab69bb9476e30f2a68df40a832c19d
       W4_VERIFIER_BLOB_SHA: 01922a47d6fe54b2944f2ae54933eac5d9cdb050
     steps:
       - name: Checkout exact default-branch workflow authority from completed run
@@ -46,21 +45,20 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
 
-      - name: Materialize immutable W4 artifact verifier
+      - name: Materialize verifier from exact completed workflow authority
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$W4_VERIFIER_COMMIT"
-          git cat-file -e "${W4_VERIFIER_COMMIT}^{commit}"
-          actual_blob="$(git rev-parse "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py")"
+          workflow_sha="$(git rev-parse HEAD)"
+          actual_blob="$(git rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py")"
           test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA" || {
-            printf 'Pinned W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
+            printf 'Completed-run W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
             exit 1
           }
           mkdir -p .w4-readback
-          git show "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py" > .w4-readback/verify_w4_candidate_artifact.py
+          git show "HEAD:scripts/verify_w4_candidate_artifact.py" > .w4-readback/verify_w4_candidate_artifact.py
           test -s .w4-readback/verify_w4_candidate_artifact.py
-          echo "W4_READBACK_VERIFIER_COMMIT=$W4_VERIFIER_COMMIT"
+          echo "W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha"
           echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
 
       - name: Set up exact Python
