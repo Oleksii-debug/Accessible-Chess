@@ -233,6 +233,93 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(store.backup_path.read_bytes(), backup_before)
         self.assertNotIn("private dialog failure", str(caught.exception))
 
+
+    def test_runtime_book_save_does_not_offer_recovery_without_backup(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        store.backup_path.unlink(missing_ok=True)
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertFalse(store.backup_path.exists())
+
+    def test_runtime_book_save_does_not_offer_recovery_from_corrupt_backup(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        corrupt_backup = b'{"schema_version":2,"entries":'
+        store.path.write_bytes(corrupt_primary)
+        store.backup_path.write_bytes(corrupt_backup)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), corrupt_backup)
+
+
+
+    def test_runtime_book_save_does_not_offer_recovery_from_unrelated_valid_backup(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        unrelated_backup = b'{"entries":{},"generation":1,"schema_version":2}'
+        store.path.write_bytes(corrupt_primary)
+        store.backup_path.write_bytes(unrelated_backup)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
+
+
+
+    def test_runtime_book_save_recovers_only_after_usable_backup_confirmation(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        # A second successful write pins a valid previous generation as backup.
+        store.save(key, self.app.reader)
+        self.assertTrue(store.backup_path.exists())
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+        expected = self.app.reader.snapshot()
+
+        self.app.save_book_progress()
+
+        self.assertEqual(confirmations, [True])
+        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
+        restored = store.restore(key, self.app.reader.document)
+        self.assertEqual(restored.snapshot(), expected)
+
+
     def test_book_open_fails_closed_when_release_board_rejects_position(self):
         _book, origin = self._open_book_game()
         self.app._board_position_projector = lambda _fen: {"ok": False}
