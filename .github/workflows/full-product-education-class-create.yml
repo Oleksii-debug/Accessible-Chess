@@ -25,6 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  EXPECTED_PRODUCT_SHA: 18c717b88b968d43420a59fe819c7bff97aea504
   INTEGRATED_EDUCATION_OWNER: 7580f614a2d422a4af8120a4ee33264d78cf1502
   MUTATION_APP_BLOB: f9429f3c9e9a6fdc32708716cacfa669c7cb4184
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
@@ -68,6 +69,11 @@ jobs:
         run: |
           set -euo pipefail
           product_base="$(git rev-parse HEAD^1)"
+          if [ '${{ github.event.pull_request.head.ref }}' = 'reconverge/keybindings-terminal-current-product-20260926' ]; then
+            git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            product_base="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
+            test "$product_base" = "$EXPECTED_PRODUCT_SHA"
+          fi
 
           git cat-file -e "${product_base}^{commit}"
           test "$(git merge-base HEAD "$product_base")" = "$product_base"
