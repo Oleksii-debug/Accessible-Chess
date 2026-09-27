@@ -152,8 +152,9 @@ internal static class GrammarAnswerEvaluator
         ArgumentNullException.ThrowIfNull(exercise);
         exercise.Validate();
         string answer = Normalize(submitted ?? string.Empty);
-        string[] accepted = exercise.AcceptedEnglishAnswers.Select(Normalize).Distinct(StringComparer.Ordinal).ToArray();
-        string expected = accepted[0];
+        string[] canonicalAccepted = exercise.AcceptedEnglishAnswers.Select(Normalize).Distinct(StringComparer.Ordinal).ToArray();
+        string[] accepted = canonicalAccepted.SelectMany(ExpandAcceptedSurfaceForms).Distinct(StringComparer.Ordinal).ToArray();
+        string expected = canonicalAccepted[0];
         if (answer.Length == 0) return new(false, GrammarErrorKind.Blank, answer, expected, "Відповідь порожня.");
         if (accepted.Contains(answer, StringComparer.Ordinal)) return new(true, GrammarErrorKind.None, answer, expected, "Правильно.");
         GrammarErrorKind error = Classify(exercise, answer, expected);
@@ -167,6 +168,60 @@ internal static class GrammarAnswerEvaluator
         v = Regex.Replace(v, @"\s+([,.!?;:])", "$1");
         v = Spaces.Replace(v, " ");
         return v.TrimEnd('.', '!', '?');
+    }
+
+    private static readonly (string Expanded, string Contracted)[] ContractionPairs =
+    {
+        ("do not", "don't"), ("does not", "doesn't"), ("did not", "didn't"),
+        ("is not", "isn't"), ("are not", "aren't"), ("was not", "wasn't"), ("were not", "weren't"),
+        ("have not", "haven't"), ("has not", "hasn't"), ("had not", "hadn't"),
+        ("will not", "won't"), ("would not", "wouldn't"), ("could not", "couldn't"),
+        ("should not", "shouldn't"), ("must not", "mustn't"), ("cannot", "can not"), ("can not", "can't"),
+        ("would have", "would've"), ("could have", "could've"), ("should have", "should've"),
+        ("must have", "must've"), ("might have", "might've"),
+        ("i am", "i'm"),
+        ("you are", "you're"), ("we are", "we're"), ("they are", "they're"),
+        ("he is", "he's"), ("she is", "she's"), ("it is", "it's"),
+        ("i have", "i've"), ("you have", "you've"), ("we have", "we've"), ("they have", "they've"),
+        ("he has", "he's"), ("she has", "she's"), ("it has", "it's"),
+        ("i will", "i'll"), ("you will", "you'll"), ("we will", "we'll"), ("they will", "they'll"),
+        ("he will", "he'll"), ("she will", "she'll"), ("it will", "it'll"),
+        ("i would", "i'd"), ("you would", "you'd"), ("we would", "we'd"), ("they would", "they'd"),
+        ("he would", "he'd"), ("she would", "she'd"), ("it would", "it'd"),
+        ("i had", "i'd"), ("you had", "you'd"), ("we had", "we'd"), ("they had", "they'd"),
+        ("he had", "he'd"), ("she had", "she'd"), ("it had", "it'd"),
+        ("that is", "that's"), ("there is", "there's")
+    };
+
+    private static IReadOnlyList<string> ExpandAcceptedSurfaceForms(string canonical)
+    {
+        var forms = new HashSet<string>(StringComparer.Ordinal) { canonical };
+        var pending = new Queue<string>();
+        pending.Enqueue(canonical);
+
+        while (pending.Count > 0)
+        {
+            string current = pending.Dequeue();
+            foreach ((string expanded, string contracted) in ContractionPairs)
+            {
+                string? next = ReplaceWholePhrase(current, expanded, contracted);
+                if (next is not null && forms.Add(next))
+                    pending.Enqueue(next);
+            }
+        }
+
+        return forms.ToArray();
+    }
+
+    private static string? ReplaceWholePhrase(string value, string expanded, string contracted)
+    {
+        Match match = Regex.Match(
+            value,
+            $@"(?<![a-z]){Regex.Escape(expanded)}(?![a-z])",
+            RegexOptions.CultureInvariant);
+        if (!match.Success)
+            return null;
+        return value[..match.Index] + contracted + value[(match.Index + match.Length)..];
     }
 
     private static GrammarErrorKind Classify(GrammarExercise exercise, string actual, string expected)
