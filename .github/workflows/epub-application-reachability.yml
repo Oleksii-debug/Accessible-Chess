@@ -43,7 +43,7 @@ jobs:
 
           stacked_branch='fix/book-progress-backup-recovery-20260927'
           product_branch='work/full-product-teacher-education-reachability-20260911'
-          minimum_recovery_owner='b7a012bce36d4049779112d122fe40504f35aa46'
+          minimum_recovery_owner='16e57226481b70842eefc5bc4108223634012ad7'
           base_ref='${{ github.event.pull_request.base.ref || '' }}'
 
           case "$base_ref" in
