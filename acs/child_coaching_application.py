@@ -78,22 +78,30 @@ class ChildCoachingApplication:
 
     def open_catalog(self) -> TemplateCatalogSnapshot:
         loaded = self._load_or_seed()
-        seeded = ensure_preset_templates(loaded.templates)
-        if seeded != loaded.templates:
+        conflicts = 0
+        while True:
+            seeded = ensure_preset_templates(loaded.templates)
+            if seeded == loaded.templates:
+                return self._snapshot(loaded)
             try:
                 revision = self.store.save(
                     seeded,
                     expected_revision=loaded.revision,
                 )
-            except ChildCoachingStoreConflictError:
+            except ChildCoachingStoreConflictError as exc:
+                conflicts += 1
+                if conflicts >= 4:
+                    raise ChildCoachingApplicationError(
+                        "lesson templates changed; reopen them before saving"
+                    ) from exc
                 loaded = self._require_loaded()
-            else:
-                loaded = LoadedChildCoachingTemplates(
-                    templates=tuple(sorted(seeded, key=lambda item: item.template_id)),
-                    revision=revision,
-                    recovered_from_backup=False,
-                )
-        return self._snapshot(loaded)
+                continue
+            loaded = LoadedChildCoachingTemplates(
+                templates=tuple(sorted(seeded, key=lambda item: item.template_id)),
+                revision=revision,
+                recovered_from_backup=False,
+            )
+            return self._snapshot(loaded)
 
     def get_template(self, template_id: str) -> tuple[LessonTemplate, str]:
         loaded = self._load_or_seed()
