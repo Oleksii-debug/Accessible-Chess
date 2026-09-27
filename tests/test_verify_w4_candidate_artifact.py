@@ -48,10 +48,16 @@ def _candidate_bytes(*, tamper: str | None = None, nvda_verified: bool = False) 
     return _zip_bytes(files)
 
 
-def _outer_bytes(*, candidate: bytes | None = None, copy_sha: str = SHA, p0g_sha: str = SHA) -> bytes:
+def _outer_bytes(
+    *,
+    candidate: bytes | None = None,
+    copy_sha: str = SHA,
+    p0g_sha: str = SHA,
+    candidate_name: str | None = None,
+) -> bytes:
     return _zip_bytes(
         {
-            "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": candidate or _candidate_bytes(),
+            candidate_name or "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": candidate or _candidate_bytes(),
             "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(
                 {"product_sha": copy_sha, "human_tested": False, "nvda_verified": False}
             ).encode(),
@@ -86,6 +92,14 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
     def test_malformed_prefixed_digest_fails(self) -> None:
         with self.assertRaises(CandidateArtifactError):
             verify(self.path, SHA, "sha256:xyz")
+
+
+    def test_wrong_candidate_filename_product_prefix_fails(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(candidate_name="Accessible-Chess-V2-1234567-NVDA-test-candidate.zip")
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "filename Product prefix mismatch"):
+            verify(self.path, SHA)
 
     def test_wrong_evidence_sha_fails(self) -> None:
         self.path.write_bytes(_outer_bytes(copy_sha="1" * 40))
