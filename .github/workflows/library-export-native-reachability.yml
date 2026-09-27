@@ -71,6 +71,7 @@ jobs:
           expected_paths=(
             '.github/workflows/library-export-native-reachability.yml'
             'acs/version2_release_app.py'
+            'tests/test_v2_library_export_production_composition.py'
             'tests/test_v2_native_dialog_language.py'
           )
           mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
@@ -91,6 +92,7 @@ jobs:
           acs/version2_release_app.py
           acs/library_export_service.py
           acs/version2_windows_library_export.py
+          tests/test_v2_library_export_production_composition.py
           tests/test_v2_native_dialog_language.py
 
       - name: Run Library export whole-product regressions
@@ -101,6 +103,7 @@ jobs:
           tests.test_d07_library_export_reachability
           tests.test_v2_windows_library_export
           tests.test_v2_library_export_dialog_language
+          tests.test_v2_library_export_production_composition
           tests.test_v2_native_dialog_language
           tests.test_version2_release_app
 
