@@ -571,6 +571,7 @@ internal sealed class SpellingForm : Form
     private readonly ISpellingScheduler _scheduler = new ConservativeSpellingScheduler();
     private readonly Random _random = new();
     private readonly Queue<string> _shuffleBag = new();
+    private readonly BlankLearningSubmissionGuard _blankSubmissionGuard;
     private readonly ComboBox _scopeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Spelling study scope", Width = 220 };
     private readonly ComboBox _deckCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = nameof(DeckDefinition.Name), AccessibleName = "Active spelling deck", Width = 260 };
     private readonly Label _counts = new() { AutoSize = true, AccessibleName = "Spelling scope and deck counts" };
@@ -635,6 +636,7 @@ internal sealed class SpellingForm : Form
         root.Controls.Add(_status, 0, 6);
         Controls.Add(root);
         root.BringToFront();
+        _blankSubmissionGuard = BlankLearningSubmissionGuard.Attach(this, _answer.AccessibleName!);
 
         _scopeCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -668,6 +670,7 @@ internal sealed class SpellingForm : Form
             }
             _audio.Dispose();
         };
+        FormClosed += (_, _) => _blankSubmissionGuard.Dispose();
     }
 
     private MenuStrip BuildMenu()
