@@ -111,9 +111,12 @@ class PreparedPositionNavigator:
         workspace = self._workspace()
         selected = self._normalized_selected(workspace.prepared_positions)
         if selected is None:
-            raise ChildCoachingPreparedPositionError(
+            message = (
                 "no prepared positions are available"
+                if not workspace.prepared_positions
+                else "selected prepared position is unavailable; select again"
             )
+            raise ChildCoachingPreparedPositionError(message)
         for item in workspace.prepared_positions:
             if item.position_id == selected:
                 return item
@@ -154,9 +157,12 @@ class PreparedPositionNavigator:
         positions = workspace.prepared_positions
         selected = self._normalized_selected(positions)
         if selected is None:
-            raise ChildCoachingPreparedPositionError(
+            message = (
                 "no prepared positions are available"
+                if not workspace.prepared_positions
+                else "selected prepared position is unavailable; select again"
             )
+            raise ChildCoachingPreparedPositionError(message)
         index = next(
             offset
             for offset, item in enumerate(positions)
@@ -178,8 +184,11 @@ class PreparedPositionNavigator:
         if not ids:
             self._selected_position_id = None
             return None
-        if self._selected_position_id not in ids:
+        if self._selected_position_id is None:
             self._selected_position_id = ids[0]
+            return self._selected_position_id
+        if self._selected_position_id not in ids:
+            return None
         return self._selected_position_id
 
     def _workspace(self) -> EducationWorkspace:
