@@ -65,6 +65,15 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
 
     def test_probe_retains_real_textpattern_selection_and_native_copy(self) -> None:
         self.assertIn("TextPattern]::Pattern", self.text)
+        self.assertIn("function AssertVisibleTextRange", self.text)
+        self.assertIn("$Range.GetBoundingRectangles()", self.text)
+        self.assertIn("$target.ScrollIntoView($true)", self.text)
+        self.assertIn("$null=AssertVisibleTextRange $target", self.text)
+        self.assertIn("static_text_visible_rectangle=$true", self.text)
+        self.assertLess(
+            self.text.index("$null=AssertVisibleTextRange $target"),
+            self.text.index("$target.Select()"),
+        )
         self.assertIn("$target.Select()", self.text)
         self.assertIn("$textPattern.GetSelection()", self.text)
         self.assertIn("$activeSelection.CompareEndpoints(", self.text)

@@ -232,6 +232,20 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   throw "Clipboard did not receive exact selected text; expected='$Expected' actual='$last'"
 }
 
+function AssertVisibleTextRange($Range) {
+  try {$rectangles=@($Range.GetBoundingRectangles())}
+  catch {throw "Static TextPattern target bounding rectangles unavailable: $($_.Exception.Message)"}
+  if($rectangles.Count -lt 4 -or ($rectangles.Count % 4) -ne 0){
+    throw "Static TextPattern target has malformed/empty bounding rectangles"
+  }
+  for($index=0;$index -lt $rectangles.Count;$index+=4){
+    $width=[double]$rectangles[$index+2]
+    $height=[double]$rectangles[$index+3]
+    if($width -gt 0 -and $height -gt 0){return $true}
+  }
+  throw "Static TextPattern target has no positive-area visible bounding rectangle"
+}
+
 $root=(Resolve-Path -LiteralPath $ProductRoot).Path
 $exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
 AssertExactPackageBinding $root $ProductSha $exe
@@ -292,6 +306,11 @@ try {
   if([string]$focused.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
     throw 'Static document copy focus landed in an edit control'
   }
+  try {$target.ScrollIntoView($true)}
+  catch {throw "Static TextPattern target could not be scrolled into view: $($_.Exception.Message)"}
+  Start-Sleep -Milliseconds 100
+  $null=AssertVisibleTextRange $target
+  $null=AssertProviderFocus $roots 'static document visibility proof'
   $target.Select()
   Start-Sleep -Milliseconds 100
   $activeSelections=@($textPattern.GetSelection())
@@ -355,6 +374,7 @@ try {
     focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
     static_document_text=$selected
     static_document_outside_edit=$true
+    static_text_visible_rectangle=$true
     native_copy_focus_verified=$true
     foreground_product_verified=$true
     manifest_product_sha_verified=$true
