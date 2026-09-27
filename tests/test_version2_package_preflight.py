@@ -20,6 +20,7 @@ from acs.version2_package_preflight import (
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
     Version2PackagePreflightError,
+    validate_winforms_accessibility_app_config,
     validate_version2_package_tree,
     validate_version2_package_zip,
 )
