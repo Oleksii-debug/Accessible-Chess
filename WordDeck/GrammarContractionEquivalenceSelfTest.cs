@@ -42,6 +42,16 @@ internal static class GrammarContractionEquivalenceSelfTest
         Require(!GrammarAnswerEvaluator.Evaluate(question, "They're ready?").Correct,
             "Contraction equivalence incorrectly accepted statement word order as a question.");
 
+        var punctuationExercise = new GrammarExercise(
+            "grammar.test.contraction-punctuation",
+            "verb.be.present",
+            GrammarExerciseKind.Statement,
+            "Вона, однак, не готова.",
+            new[] { "She is not, however, ready." },
+            Array.Empty<string>());
+        Require(GrammarAnswerEvaluator.Evaluate(punctuationExercise, "She isn't, however, ready.").Correct,
+            "A valid contraction immediately before punctuation was rejected.");
+
         Console.WriteLine("WordDeck grammar contraction self-test passed: natural contractions accepted without tense, negation or word-order drift.");
     }
 
