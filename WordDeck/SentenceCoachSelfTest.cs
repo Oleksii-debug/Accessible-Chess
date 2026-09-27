@@ -13,6 +13,7 @@ internal static class SentenceCoachSelfTest
         TestGeneratorFallbackContract();
         TestGeneratorFallbackValidation();
         TestSentenceCoachStatePersistence();
+        TestClosePersistenceFailureIsFailClosed();
     }
 
     private static SentencePack BuildPack()
@@ -217,6 +218,29 @@ internal static class SentenceCoachSelfTest
             Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
+    }
+
+    private static void TestClosePersistenceFailureIsFailClosed()
+    {
+        int successfulCalls = 0;
+        bool saved = SentenceCoachForm.TrySaveForClose(
+            () => successfulCalls++,
+            out string? successError);
+        Require(saved, "Sentence close save helper rejected a successful persistence call.");
+        Require(successfulCalls == 1, "Sentence close save helper did not invoke persistence exactly once.");
+        Require(successError is null, "Sentence close save helper reported an error after successful persistence.");
+
+        bool failed = SentenceCoachForm.TrySaveForClose(
+            () => throw new IOException("simulated disk failure"),
+            out string? failureError);
+        Require(!failed, "Sentence close save helper accepted a persistence failure.");
+        Require(!string.IsNullOrWhiteSpace(failureError), "Sentence close save failure did not produce a truthful status message.");
+        Require(failureError.Contains("kept the window open", StringComparison.OrdinalIgnoreCase),
+            "Sentence close save failure did not tell the learner that the window stays open.");
+        Require(failureError.Contains("not silently lost", StringComparison.OrdinalIgnoreCase),
+            "Sentence close save failure did not explain the personal-progress safety boundary.");
+        Require(failureError.Contains("simulated disk failure", StringComparison.OrdinalIgnoreCase),
+            "Sentence close save failure hid the underlying persistence error.");
     }
 
     private sealed class StubGenerator : IControlledSentenceGenerator
