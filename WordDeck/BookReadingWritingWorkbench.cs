@@ -636,14 +636,14 @@ internal sealed class BookReadingWritingWorkbenchForm : Form
         }
         try
         {
-            _service.CaptureMappedOccurrenceToLearningDeck(
+            _service.CaptureMappedOccurrenceToLearningDeckAndPersist(
                 _document,
                 _sentences[_sentenceIndex],
                 option.Id,
                 _state,
                 _dictionary,
-                learning.Id);
-            _saveState();
+                learning.Id,
+                _saveState);
             RefreshSentenceContext();
             SetStatus($"{_activeBook.Text} Captured {option.Id} from the current sentence into Learning. Ambiguous written forms require the explicit stable ID you selected; capture does not imply mastery.");
         }
