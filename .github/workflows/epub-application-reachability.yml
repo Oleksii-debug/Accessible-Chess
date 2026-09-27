@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/book-progress-backup-recovery-20260927
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_application.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
@@ -33,21 +34,43 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact stacked parent and bounded scope
+      - name: Prove exact integration topology and bounded scope
         shell: bash
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
 
-          parent_branch='fix/book-progress-backup-recovery-20260927'
-          git fetch --no-tags origin "+refs/heads/$parent_branch:refs/remotes/origin/$parent_branch"
-          parent="$(git rev-parse "refs/remotes/origin/$parent_branch")"
-          git merge-base --is-ancestor "$parent" HEAD
-          test "$(git merge-base "$parent" HEAD)" = "$parent"
-          git diff --check "$parent" HEAD
+          stacked_branch='fix/book-progress-backup-recovery-20260927'
+          product_branch='work/full-product-teacher-education-reachability-20260911'
+          minimum_recovery_owner='b7a012bce36d4049779112d122fe40504f35aa46'
+          base_ref='${{ github.event.pull_request.base.ref || '' }}'
 
-          mapfile -t actual < <(git diff --name-only "$parent" HEAD | LC_ALL=C sort)
+          case "$base_ref" in
+            "$stacked_branch")
+              git fetch --no-tags origin "+refs/heads/$stacked_branch:refs/remotes/origin/$stacked_branch"
+              upstream="$(git rev-parse "refs/remotes/origin/$stacked_branch")"
+              mode='STACKED_RECOVERY_PARENT'
+              ;;
+            "$product_branch")
+              git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+              upstream="$(git rev-parse "refs/remotes/origin/$product_branch")"
+              git merge-base --is-ancestor "$minimum_recovery_owner" "$upstream"
+              mode='CURRENT_FULL_PRODUCT'
+              ;;
+            *)
+              echo "unsupported EPUB reachability base: $base_ref" >&2
+              exit 1
+              ;;
+          esac
+
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          echo "EPUB_REACHABILITY_TOPOLOGY=$mode"
+          echo "EPUB_REACHABILITY_UPSTREAM=$upstream"
+
+          mapfile -t actual < <(git diff --name-only "$upstream" HEAD | LC_ALL=C sort)
           expected_paths=(
             '.github/workflows/epub-application-reachability.yml'
             'acs/version2_application.py'
