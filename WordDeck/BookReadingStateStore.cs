@@ -228,6 +228,61 @@ internal sealed class BookReadingStateStore
         return result;
     }
 
+    internal void RestoreUnknownCapture(BookDocument document, string stableEntryId, BookUnknownWord? previous)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        document.Validate();
+        string id = (stableEntryId ?? string.Empty).Trim().ToLowerInvariant();
+        if (id.Length == 0) throw new InvalidDataException("Unknown-word rollback stable id is required.");
+        if (previous is not null)
+        {
+            if (!previous.BookId.Equals(document.BookId, StringComparison.OrdinalIgnoreCase) ||
+                !previous.StableEntryId.Equals(id, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Unknown-word rollback snapshot does not match the requested book and stable id.");
+            if (!document.Chapters.SelectMany(c => c.Sentences).Any(s =>
+                    s.SentenceId.Equals(previous.SourceSentenceId, StringComparison.OrdinalIgnoreCase) &&
+                    s.StableEntryIds.Contains(id, StringComparer.OrdinalIgnoreCase)))
+                throw new InvalidDataException("Unknown-word rollback snapshot no longer belongs to the private book sentence.");
+        }
+
+        Initialize();
+        using SqliteConnection connection = Open();
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        try
+        {
+            using (SqliteCommand delete = connection.CreateCommand())
+            {
+                delete.Transaction = transaction;
+                delete.CommandText = "DELETE FROM book_unknown_capture WHERE book_id=$book AND stable_entry_id=$id";
+                delete.Parameters.AddWithValue("$book", document.BookId);
+                delete.Parameters.AddWithValue("$id", id);
+                delete.ExecuteNonQuery();
+            }
+
+            if (previous is not null)
+            {
+                using SqliteCommand restore = connection.CreateCommand();
+                restore.Transaction = transaction;
+                restore.CommandText = """
+                    INSERT INTO book_unknown_capture(book_id,stable_entry_id,source_sentence_id,added_utc)
+                    VALUES($book,$id,$sentence,$utc);
+                    """;
+                restore.Parameters.AddWithValue("$book", previous.BookId);
+                restore.Parameters.AddWithValue("$id", previous.StableEntryId);
+                restore.Parameters.AddWithValue("$sentence", previous.SourceSentenceId);
+                restore.Parameters.AddWithValue("$utc", previous.AddedUtc.ToString("O"));
+                restore.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+        catch
+        {
+            try { transaction.Rollback(); } catch { }
+            throw;
+        }
+    }
+
     private SqliteConnection Open()
     {
         var builder = new SqliteConnectionStringBuilder
