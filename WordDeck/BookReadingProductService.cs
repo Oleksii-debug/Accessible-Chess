@@ -145,7 +145,44 @@ internal sealed class BookReadingProductService
         string stableEntryId,
         AppState appState,
         DictionaryPackage dictionary,
-        string learningDeckId)
+        string learningDeckId) =>
+        CaptureMappedOccurrenceToLearningDeckCore(
+            document,
+            sentence,
+            stableEntryId,
+            appState,
+            dictionary,
+            learningDeckId,
+            persistAppState: null);
+
+    public void CaptureMappedOccurrenceToLearningDeckAndPersist(
+        BookDocument document,
+        BookSentenceRecord sentence,
+        string stableEntryId,
+        AppState appState,
+        DictionaryPackage dictionary,
+        string learningDeckId,
+        Action persistAppState)
+    {
+        ArgumentNullException.ThrowIfNull(persistAppState);
+        CaptureMappedOccurrenceToLearningDeckCore(
+            document,
+            sentence,
+            stableEntryId,
+            appState,
+            dictionary,
+            learningDeckId,
+            persistAppState);
+    }
+
+    private void CaptureMappedOccurrenceToLearningDeckCore(
+        BookDocument document,
+        BookSentenceRecord sentence,
+        string stableEntryId,
+        AppState appState,
+        DictionaryPackage dictionary,
+        string learningDeckId,
+        Action? persistAppState)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(sentence);
@@ -166,28 +203,57 @@ internal sealed class BookReadingProductService
         KeyValuePair<string, string>[] assignmentSnapshot = hadAssignments && originalAssignments is not null
             ? originalAssignments.ToArray()
             : Array.Empty<KeyValuePair<string, string>>();
+        BookUnknownWord? priorCapture = _stateStore.LoadUnknowns(document.BookId)
+            .FirstOrDefault(item => item.StableEntryId.Equals(id, StringComparison.OrdinalIgnoreCase));
+
         try
         {
             Dictionary<string, string> assignments = decks.EnsureDictionaryAssignments(dictionary.Id, dictionary.Entries.Select(entry => entry.Id));
             assignments[id] = learningDeckId;
             _stateStore.CaptureUnknown(document, id, sentence.SentenceId);
+            persistAppState?.Invoke();
         }
-        catch
+        catch (Exception operationFailure)
         {
-            // Deck assignment normalization mutates caller AppState before SQLite capture.
-            // A durable capture failure must therefore restore the exact pre-call map,
-            // including stale/invalid entries and the case where the map did not exist.
-            if (!hadAssignments || originalAssignments is null)
+            var rollbackFailures = new List<Exception>();
+
+            try
             {
-                appState.DeckIdsByDictionary.Remove(dictionary.Id);
+                if (!hadAssignments || originalAssignments is null)
+                {
+                    appState.DeckIdsByDictionary.Remove(dictionary.Id);
+                }
+                else
+                {
+                    originalAssignments.Clear();
+                    foreach (KeyValuePair<string, string> pair in assignmentSnapshot)
+                        originalAssignments[pair.Key] = pair.Value;
+                    appState.DeckIdsByDictionary[dictionary.Id] = originalAssignments;
+                }
             }
-            else
+            catch (Exception rollbackFailure)
             {
-                originalAssignments.Clear();
-                foreach (KeyValuePair<string, string> pair in assignmentSnapshot)
-                    originalAssignments[pair.Key] = pair.Value;
-                appState.DeckIdsByDictionary[dictionary.Id] = originalAssignments;
+                rollbackFailures.Add(rollbackFailure);
             }
+
+            try
+            {
+                _stateStore.RestoreUnknownCapture(document, id, priorCapture);
+            }
+            catch (Exception rollbackFailure)
+            {
+                rollbackFailures.Add(rollbackFailure);
+            }
+
+            if (rollbackFailures.Count > 0)
+            {
+                var failures = new List<Exception> { operationFailure };
+                failures.AddRange(rollbackFailures);
+                throw new AggregateException(
+                    "Reading vocabulary capture failed and rollback was incomplete. Preserve the private Reading store and personal state for recovery before retrying.",
+                    failures);
+            }
+
             throw;
         }
     }
