@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PRODUCT_SHA: 232016879709adc0c90eb41b886fd4b8f5e5cf72
+  EXPECTED_PRODUCT_SHA: 73f20316c68837ba3ec3b91c15d52f047e970dcc
 
 jobs:
   keybindings:

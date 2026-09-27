@@ -50,7 +50,7 @@ jobs:
       D06_BOUNDED_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
       PR_BASE: ${{ github.event.pull_request.base.sha }}
-      EXPECTED_PRODUCT_SHA: 232016879709adc0c90eb41b886fd4b8f5e5cf72
+      EXPECTED_PRODUCT_SHA: 73f20316c68837ba3ec3b91c15d52f047e970dcc
     steps:
       - uses: actions/checkout@v4
         with:
