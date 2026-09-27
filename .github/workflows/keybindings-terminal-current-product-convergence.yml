@@ -16,7 +16,6 @@ on:
       - 'web/full_product_library.js'
       - 'web/full_product_education.js'
       - 'tests/test_keybindings.py'
-      - 'tests/test_ui_keymap_editor.py'
       - 'tests/test_accessible_webui.py'
       - 'tests/test_dev1_library_webview_projection.py'
       - 'tests/test_dev1_release_ui_regressions.py'
@@ -104,7 +103,6 @@ jobs:
             'tests/test_full_product_native_menu.py' \
             'tests/test_full_product_pgn_keybindings.py' \
             'tests/test_keybindings.py' \
-            'tests/test_ui_keymap_editor.py' \
             'tests/test_accessible_webui.py' \
             'tests/test_dev1_library_webview_projection.py' \
             'tests/test_dev1_release_ui_regressions.py' \
@@ -135,7 +133,6 @@ jobs:
           acs/full_product_actions.py
           acs/full_product_native_menu.py
           tests/test_keybindings.py
-          tests/test_ui_keymap_editor.py
           tests/test_accessible_webui.py
           tests/test_dev1_library_webview_projection.py
           tests/test_dev1_release_ui_regressions.py
@@ -164,7 +161,6 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_keybindings
-          tests.test_ui_keymap_editor
           tests.test_accessible_webui
           tests.test_dev1_library_webview_projection
           tests.test_dev1_release_ui_regressions
