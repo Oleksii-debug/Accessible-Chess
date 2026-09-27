@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Preserve committed Git bytes
         shell: bash
@@ -57,6 +57,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
           product="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
           git merge-base --is-ancestor "$product" HEAD
           test "$(git merge-base "$product" HEAD)" = "$product"
