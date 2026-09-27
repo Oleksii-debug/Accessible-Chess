@@ -804,5 +804,45 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_active_book_board_blocks_native_picker_before_selection(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-board-picker-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    self.assertEqual(
+                        "render",
+                        app.browser_command("books", "book.next_position")["kind"],
+                    )
+                    self.assertEqual(
+                        "delegated",
+                        app.browser_command("books", "book.open_position")["kind"],
+                    )
+                    self.assertTrue(app.book_workflow.active)
+                    picker_calls = []
+                    app.open_book_dialog = lambda: picker_calls.append(True) or None
+
+                    result = app.adapter.activate_action("book.open")
+
+                    self.assertEqual("error", result.kind)
+                    self.assertEqual([], picker_calls)
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
