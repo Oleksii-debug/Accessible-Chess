@@ -166,6 +166,9 @@ internal static class AccessibilityAcceptanceRound4SelfTest
             "F1 help overstated current Course Speaking evidence.");
         AssertTrue(help.Contains("Recall, Spelling, Sentence, Listening and Course/Story learner state", StringComparison.Ordinal),
             "F1 help understated the current unified-profile state coverage.");
+        AssertTrue(help.Contains("Tools > Export complete personal profile", StringComparison.Ordinal) &&
+                   !help.Contains("File > Export personal progress profile", StringComparison.Ordinal),
+            "F1 help did not match the current complete-profile menu route.");
         AssertTrue(help.Contains("%LOCALAPPDATA%\\WordDeck\\Reading", StringComparison.Ordinal) &&
                    help.Contains("not claimed as part of the unified profile export", StringComparison.Ordinal),
             "F1 help did not preserve the private Reading/profile boundary.");
