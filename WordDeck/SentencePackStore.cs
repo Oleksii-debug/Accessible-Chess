@@ -189,6 +189,7 @@ internal sealed class SentencePackStore
                 .Select(path => ManifestSafeIdFromPointer(path, ".installed.backup.json")))
             .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json.tmp", SearchOption.TopDirectoryOnly)
                 .Select(path => ManifestSafeIdFromPointer(path, ".installed.backup.json.tmp")))
+            .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(id => id, StringComparer.OrdinalIgnoreCase);
 
@@ -350,9 +351,9 @@ internal sealed class SentencePackStore
     private static string ManifestSafeIdFromPointer(string path, string suffix)
     {
         string name = Path.GetFileName(path);
-        if (!name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) || name.Length <= suffix.Length)
-            throw new InvalidDataException("SentencePack activation pointer has an invalid file name.");
-        return name[..^suffix.Length];
+        return name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && name.Length > suffix.Length
+            ? name[..^suffix.Length]
+            : string.Empty;
     }
     private static bool TryReadManifest(string path, out SentencePackInstallManifest? manifest)
     {
