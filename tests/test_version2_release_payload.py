@@ -214,6 +214,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.assertEqual(result.root, self.root / "payload")
         self.assertTrue((result.product_dir / "AccessibleChess.exe").is_file())
         self.assertTrue((result.product_dir / "AccessibleChess.exe.config").is_file())
+        self.assertEqual(
+            (result.product_dir / "AccessibleChess.exe.config").read_bytes(),
+            (self.standalone / "AccessibleChess.exe.config").read_bytes(),
+        )
         for name in _REQUIRED_WEB_FILES:
             self.assertTrue((result.product_dir / "web" / name).is_file())
         self.assertEqual(result.stockfish_executable.read_bytes(), self.stockfish_executable)
