@@ -413,5 +413,36 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
 
 
 
+    def test_off_route_native_board_open_cannot_open_hidden_book(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                before_reader = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+
+                routed = app.browser_command("shell", "screen.library")
+                self.assertEqual(routed["kind"], "route")
+                self.assertEqual(app.shell.current_route.route_id, "library")
+
+                with patch.object(
+                    app.books,
+                    "dispatch",
+                    side_effect=AssertionError(
+                        "off-route native Book open must not enter Book surface"
+                    ),
+                ) as dispatch:
+                    result = app.adapter.activate_action("book.open_position")
+
+                self.assertEqual(result.kind, "error")
+                dispatch.assert_not_called()
+                self.assertFalse(app.book_workflow.active)
+                self.assertEqual(app.shell.current_route.route_id, "library")
+                self.assertEqual(app.reader.snapshot(), before_reader)
+                self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+
+
 if __name__ == "__main__":
     unittest.main()
