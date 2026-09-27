@@ -17,6 +17,13 @@ internal static class UserDataSelfTest
         Require(!RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Left, englishWordSurfaceFocused: true) &&
                 !RecallKeyboardFocusPolicy.IsFastCardArrow(Keys.Control | Keys.Down, englishWordSurfaceFocused: true),
             "Recall fast-card policy intercepted a non-contract key.");
+        Require(RecallKeyboardFocusPolicy.IsLegacyCtrlCardArrow(Keys.Control | Keys.Right, englishWordSurfaceFocused: true) &&
+                RecallKeyboardFocusPolicy.IsLegacyCtrlCardArrow(Keys.Control | Keys.Left, englishWordSurfaceFocused: true),
+            "Legacy Ctrl+Left/Right Recall aliases must remain available on the English word surface.");
+        Require(!RecallKeyboardFocusPolicy.IsLegacyCtrlCardArrow(Keys.Control | Keys.Right, englishWordSurfaceFocused: false) &&
+                !RecallKeyboardFocusPolicy.IsLegacyCtrlCardArrow(Keys.Control | Keys.Left, englishWordSurfaceFocused: false) &&
+                !RecallKeyboardFocusPolicy.IsLegacyCtrlCardArrow(Keys.Control | Keys.Down, englishWordSurfaceFocused: true),
+            "Recall Ctrl+Arrow compatibility policy would steal standard word navigation outside the English word surface or intercept a non-contract key.");
         Require(!RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(selectorContainsFocus: true) &&
                 RecallKeyboardFocusPolicy.ShouldFocusCardAfterSelectorChange(selectorContainsFocus: false),
             "Selector focus policy would steal focus from a focused Dictionary/Scope/Deck ComboBox.");
