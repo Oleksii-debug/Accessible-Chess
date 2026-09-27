@@ -64,11 +64,11 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
 
     def test_verifier_is_materialized_from_pinned_authority(self) -> None:
         self.assertIn(
-            "W4_VERIFIER_COMMIT: 70fa4fd75910d659161abcc8bcd192e9a88a7905",
+            "W4_VERIFIER_COMMIT: 61ba5980ac9121a5396744c05d6b685731823e82",
             self.text,
         )
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 74282656f5a38e198640c35e390128448935cde1",
+            "W4_VERIFIER_BLOB_SHA: bf924a1ebc6b73080bdce0f58927ebe3c65b04da",
             self.text,
         )
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
