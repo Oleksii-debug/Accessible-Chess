@@ -15,6 +15,7 @@ from acs.full_product_native_menu import (
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.full_product_webview_adapter import FullProductWebViewAdapter
 from acs.ui_native_menu import native_menu_attachment_state
+from acs.version2_profile import build_version2_action_registry, build_version2_menu_spec
 
 
 class EventHook:
@@ -208,6 +209,24 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua_labels = {item.action_id: item.label for item in ua_books.items}
         self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
         self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
+
+    def test_shipping_version2_menu_inherits_reverse_book_navigation(self) -> None:
+        registry = build_version2_action_registry()
+        menus = build_version2_menu_spec(registry, language=UILanguage.EN)
+        books_menu = next(menu for menu in menus if menu.menu_id == "books")
+        action_ids = {
+            item.action_id
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        self.assertTrue(
+            {
+                "book.previous_position",
+                "book.next_position",
+                "book.previous_game",
+                "book.next_game",
+            }.issubset(action_ids)
+        )
 
     def test_native_and_webview_actions_share_router_and_focus_restoration(self) -> None:
         controller, calls, commands, exits = make_controller()
