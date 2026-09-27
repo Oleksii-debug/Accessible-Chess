@@ -10,6 +10,7 @@ internal static class AssessmentRuntimeSelfTest
         TestRetakeRotation();
         TestDifficultyRouting();
         TestResumePersistenceAndFailClosedVersion();
+        TestStateStoreRecoveryBoundaries();
         TestPersistedStateCrossLinksFailClosed();
         Console.WriteLine("WordDeck assessment runtime self-test PASS.");
     }
@@ -136,6 +137,90 @@ internal static class AssessmentRuntimeSelfTest
         }
     }
 
+    private static void TestStateStoreRecoveryBoundaries()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "worddeck-assessment-recovery-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "assessment-runtime.json");
+        try
+        {
+            var store = new AssessmentRuntimeStateStore(path);
+            AssessmentRuntimeState durableBackup = BuildOneAttemptState("backup-session", "backup-attempt");
+
+            store.Save(durableBackup);
+            store.Save(new AssessmentRuntimeState());
+            Require(File.Exists(store.BackupPath), "recovery fixture did not create a valid backup");
+
+            byte[] backupBeforeRecovery = File.ReadAllBytes(store.BackupPath);
+            File.Delete(store.StatePath);
+            AssessmentRuntimeState recoveredMissingPrimary = store.Load();
+            Require(recoveredMissingPrimary.Sessions.Count == 1 &&
+                    recoveredMissingPrimary.Sessions[0].SessionId == "backup-session" &&
+                    recoveredMissingPrimary.Attempts.Count == 1,
+                "missing primary silently reset assessment history instead of loading the valid backup");
+            Require(!File.Exists(store.StatePath), "read-only missing-primary recovery unexpectedly rewrote the primary state");
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBeforeRecovery),
+                "missing-primary recovery mutated the durable backup");
+
+            File.WriteAllText(store.StatePath, "{not valid assessment json", new System.Text.UTF8Encoding(false));
+            AssessmentRuntimeState recoveredCorruptPrimary = store.Load();
+            Require(recoveredCorruptPrimary.Sessions.Count == 1 &&
+                    recoveredCorruptPrimary.Sessions[0].SessionId == "backup-session",
+                "corrupt primary did not recover from the valid assessment backup");
+
+            byte[] validBackupBeforeRepairSave = File.ReadAllBytes(store.BackupPath);
+            store.Save(recoveredCorruptPrimary);
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(validBackupBeforeRepairSave),
+                "saving recovered state overwrote the valid backup with the corrupt primary");
+            AssessmentRuntimeState repairedPrimary = store.Load();
+            Require(repairedPrimary.Sessions.Count == 1 &&
+                    repairedPrimary.Sessions[0].SessionId == "backup-session",
+                "saving recovered state did not replace the corrupt primary with recoverable state");
+
+            string legacyJson = "{\"SchemaVersion\":0,\"Attempts\":[],\"Sessions\":[]}";
+            File.WriteAllText(store.StatePath, legacyJson, new System.Text.UTF8Encoding(false));
+            AssessmentRuntimeState recoveredLegacyPrimary = store.Load();
+            Require(recoveredLegacyPrimary.Sessions.Count == 1 &&
+                    recoveredLegacyPrimary.Sessions[0].SessionId == "backup-session",
+                "unsupported legacy primary did not recover from the valid current backup");
+            byte[] validBackupBeforeLegacyRepair = File.ReadAllBytes(store.BackupPath);
+            store.Save(recoveredLegacyPrimary);
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(validBackupBeforeLegacyRepair),
+                "legacy recovery save overwrote the valid current backup");
+
+            string futureJson = "{\"SchemaVersion\":" +
+                (AssessmentRuntimeState.CurrentSchemaVersion + 1) +
+                ",\"Attempts\":[],\"Sessions\":[]}";
+            File.WriteAllText(store.StatePath, futureJson, new System.Text.UTF8Encoding(false));
+            byte[] futurePrimaryBefore = File.ReadAllBytes(store.StatePath);
+            byte[] backupBeforeFutureReject = File.ReadAllBytes(store.BackupPath);
+            bool futureRejected = false;
+            try { _ = store.Load(); }
+            catch (UnsupportedAssessmentRuntimeSchemaException ex)
+            {
+                futureRejected = ex.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1 &&
+                                 ex.IsNewerThanSupported;
+            }
+            Require(futureRejected, "newer primary schema silently downgraded to an older backup");
+
+            bool futureSaveRejected = false;
+            try { store.Save(new AssessmentRuntimeState()); }
+            catch (UnsupportedAssessmentRuntimeSchemaException ex)
+            {
+                futureSaveRejected = ex.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
+            }
+            Require(futureSaveRejected, "normal save overwrote a newer unsupported assessment state");
+
+            Require(File.ReadAllBytes(store.StatePath).SequenceEqual(futurePrimaryBefore),
+                "newer unsupported primary was mutated while rejecting downgrade/save");
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBeforeFutureReject),
+                "backup was mutated while rejecting newer primary schema");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static void TestPersistedStateCrossLinksFailClosed()
     {
         AssessmentRuntimeState orphan = BuildOneAttemptState();
@@ -162,12 +247,12 @@ internal static class AssessmentRuntimeSelfTest
         RequireStateRejected(completeRuntime.State, "complete session without completion timestamp was accepted");
     }
 
-    private static AssessmentRuntimeState BuildOneAttemptState()
+    private static AssessmentRuntimeState BuildOneAttemptState(string sessionId = "integrity-one", string attemptId = "integrity-attempt")
     {
         AssessmentItemPool pool = BuildPool(1, 1);
         var runtime = new AssessmentRuntime();
-        AssessmentSessionState session = runtime.StartSession(pool, AssessmentMode.Assessment, 2, false, sessionId: "integrity-one");
-        runtime.RecordAttempt(session.SessionId, pool, AssessmentMark.Correct, attemptId: "integrity-attempt");
+        AssessmentSessionState session = runtime.StartSession(pool, AssessmentMode.Assessment, 2, false, sessionId: sessionId);
+        runtime.RecordAttempt(session.SessionId, pool, AssessmentMark.Correct, attemptId: attemptId);
         runtime.State.Validate();
         return runtime.State;
     }
