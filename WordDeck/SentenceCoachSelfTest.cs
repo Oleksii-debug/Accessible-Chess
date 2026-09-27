@@ -184,6 +184,28 @@ internal static class SentenceCoachSelfTest
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-state-{Guid.NewGuid():N}");
         try
         {
+            string extensionRoot = Path.Combine(root, "extension-roundtrip");
+            Directory.CreateDirectory(extensionRoot);
+            string extensionPrimary = Path.Combine(extensionRoot, "sentence-coach-state.json");
+            File.WriteAllText(extensionPrimary,
+                "{\"ActivePackId\":\"pack-ext\",\"TargetCount\":1,\"CurrentTargetEntryIds\":[],\"RecentSentenceIds\":[],\"StatsByDictionary\":{\"dict\":{\"ox-improve\":{\"CompletedReviews\":1,\"FirstTrySuccesses\":1,\"WrongAttempts\":0,\"ShowAnswerUses\":0,\"FutureStat\":{\"weight\":3}}}},\"FutureState\":{\"enabled\":true}}");
+            var extensionStore = new SentenceCoachStateStore(extensionRoot);
+            SentenceCoachState extensionState = extensionStore.Load();
+            extensionStore.Save(extensionState);
+            using (JsonDocument extensionJson = JsonDocument.Parse(File.ReadAllText(extensionPrimary)))
+            {
+                JsonElement rootElement = extensionJson.RootElement;
+                Require(rootElement.TryGetProperty("FutureState", out JsonElement futureState) &&
+                        futureState.GetProperty("enabled").GetBoolean(),
+                    "Sentence Coach dropped an unknown supported root-state field during Load-Save.");
+                JsonElement futureStat = rootElement.GetProperty("StatsByDictionary")
+                    .GetProperty("dict")
+                    .GetProperty("ox-improve")
+                    .GetProperty("FutureStat");
+                Require(futureStat.GetProperty("weight").GetInt32() == 3,
+                    "Sentence Coach dropped an unknown per-target statistics field during Load-Save.");
+            }
+
             var store = new SentenceCoachStateStore(root);
             var state = new SentenceCoachState
             {
