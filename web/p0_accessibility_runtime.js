@@ -7,6 +7,7 @@
   if (!documentRef) return;
   const main = documentRef.getElementById("main-content");
   const workspace = documentRef.getElementById("v2-workspace");
+  const navigation = documentRef.getElementById("v2-navigation");
   const live = documentRef.getElementById("live");
   if (!main || !live) return;
 
@@ -21,6 +22,7 @@
   function rootForNode(node) {
     if (!node) return null;
     if (workspace && workspace.contains(node)) return workspace;
+    if (navigation && navigation.contains(node)) return navigation;
     if (main.contains(node)) return main;
     return null;
   }
@@ -177,6 +179,7 @@
     });
     observer.observe(main, { subtree: true, childList: true, characterData: true });
     if (workspace) observer.observe(workspace, { subtree: true, childList: true, characterData: true });
+    if (navigation) observer.observe(navigation, { subtree: true, childList: true, characterData: true });
   }
 
   let lastAnnouncement = "";
