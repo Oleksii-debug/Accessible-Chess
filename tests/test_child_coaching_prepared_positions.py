@@ -177,6 +177,44 @@ class ChildCoachingPreparedPositionTests(unittest.TestCase):
                 selected.source.fen,
             )
 
+    def test_launch_can_reject_stale_reviewed_prepared_position_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            holder, app, navigator = self.make_context(temp)
+            catalog = app.open_catalog()
+            navigator.select("prep-fen")
+            reviewed = navigator.current()
+            holder["workspace"] = ew.save_prepared_position(
+                holder["workspace"],
+                position_id="prep-fen",
+                source=TeachingPositionSource(
+                    PositionSourceKind.FEN,
+                    fen="8/8/8/8/8/8/3K4/6k1 w - - 0 1",
+                ),
+                expected_position_revision=reviewed.revision,
+            )
+
+            with self.assertRaisesRegex(
+                ChildCoachingPreparedPositionError,
+                "changed; review it before launching",
+            ):
+                navigator.launch_current(
+                    "preset-preschool-4-6",
+                    session_id="stale-position-session",
+                    lesson_id="lesson-1",
+                    expected_template_revision=catalog.revision,
+                    expected_position_revision=reviewed.revision,
+                )
+
+            current = navigator.current()
+            launched = navigator.launch_current(
+                "preset-preschool-4-6",
+                session_id="current-position-session",
+                lesson_id="lesson-1",
+                expected_template_revision=catalog.revision,
+                expected_position_revision=current.revision,
+            )
+            self.assertEqual(launched.source, current.source)
+
     def test_launch_rejects_stale_reviewed_template_revision(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             _, app, navigator = self.make_context(temp)
