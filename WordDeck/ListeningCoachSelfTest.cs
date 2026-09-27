@@ -33,6 +33,7 @@ internal static class ListeningCoachSelfTest
             TestMigrationBackup(root);
             TestUnknownFieldsSurviveRoundTrip(root);
             TestMalformedRecordsFailClosed(root);
+            TestMalformedPrimaryUsesVerifiedRecovery(root);
         }
         finally
         {
@@ -351,6 +352,46 @@ internal static class ListeningCoachSelfTest
             Require(!File.Exists(Path.Combine(caseRoot, "listening-state.backup.json")),
                 $"Malformed Listening state case {index} fabricated a recovery file.");
         }
+    }
+
+    private static void TestMalformedPrimaryUsesVerifiedRecovery(string root)
+    {
+        string caseRoot = Path.Combine(root, "malformed-primary-recovery");
+        Directory.CreateDirectory(caseRoot);
+        var store = new ListeningStateStore(caseRoot);
+
+        ListeningCoachState first = store.Load();
+        first.ActiveScopeId = StudyScopeIds.A1;
+        first.StatsByDictionary["test"] = new Dictionary<string, ListeningItemStats>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["word:a"] = new() { CompletedReviews = 1, CorrectReviews = 1 }
+        };
+        store.Save(first);
+
+        ListeningCoachState second = store.Load();
+        second.ActiveScopeId = StudyScopeIds.C1;
+        second.StatsByDictionary["test"]["word:a"].CompletedReviews = 2;
+        second.StatsByDictionary["test"]["word:a"].CorrectReviews = 1;
+        store.Save(second);
+
+        string primary = Path.Combine(caseRoot, "listening-state.json");
+        string recovery = Path.Combine(caseRoot, "listening-state.backup.json");
+        Require(File.Exists(recovery), "Listening semantic-recovery fixture did not create a verified recovery copy.");
+        byte[] recoveryBefore = File.ReadAllBytes(recovery);
+
+        const string malformedPrimary =
+            "{\"SchemaVersion\":1,\"ActiveScopeId\":\"c1\",\"StatsByDictionary\":{\"test\":{\"word:a\":null}},\"History\":[]}";
+        File.WriteAllText(primary, malformedPrimary);
+        byte[] primaryBefore = File.ReadAllBytes(primary);
+
+        ListeningCoachState recovered = store.Load();
+        Require(recovered.ActiveScopeId == StudyScopeIds.A1 &&
+                recovered.StatsByDictionary["test"]["word:a"].CompletedReviews == 1,
+            "Semantically malformed Listening primary did not recover the verified previous state.");
+        Require(primaryBefore.SequenceEqual(File.ReadAllBytes(primary)),
+            "Loading from verified recovery rewrote the malformed primary unexpectedly.");
+        Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
+            "Loading from verified recovery rewrote the recovery copy unexpectedly.");
     }
 
     private static DictionaryPackage Package() => new()
