@@ -279,6 +279,15 @@ internal static class UnifiedProfileSelfTest
                 new IOException("forced import failure"), isolatedFailures);
             Require(explicitFailure is IncompletePersonalStateRecoveryException,
                 "Incomplete personal-state recovery did not expose its dedicated fail-closed exception type.");
+            string incompleteUiStatus = MainForm.BuildUnifiedProfileImportFailureStatus(explicitFailure);
+            Require(incompleteUiStatus.Contains("automatic recovery was incomplete", StringComparison.OrdinalIgnoreCase) &&
+                    incompleteUiStatus.Contains("Do not continue learning", StringComparison.OrdinalIgnoreCase) &&
+                    !incompleteUiStatus.Contains("state was not replaced", StringComparison.OrdinalIgnoreCase),
+                "Incomplete recovery would still expose a falsely reassuring profile-import status to the screen reader.");
+            string ordinaryUiStatus = MainForm.BuildUnifiedProfileImportFailureStatus(new InvalidDataException("ordinary import rejection"));
+            Require(ordinaryUiStatus.Contains("state was not replaced", StringComparison.OrdinalIgnoreCase) &&
+                    !ordinaryUiStatus.Contains("Do not continue learning", StringComparison.OrdinalIgnoreCase),
+                "Ordinary non-mutating import rejection lost its distinct truthful status.");
             Require(explicitFailure.InnerException is AggregateException explicitAggregate &&
                     explicitAggregate.InnerExceptions.Count == 3 &&
                     explicitFailure.Message.Contains("recovery was incomplete", StringComparison.OrdinalIgnoreCase),
