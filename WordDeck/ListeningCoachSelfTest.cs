@@ -34,6 +34,7 @@ internal static class ListeningCoachSelfTest
             TestUnknownFieldsSurviveRoundTrip(root);
             TestMalformedRecordsFailClosed(root);
             TestMalformedPrimaryUsesVerifiedRecovery(root);
+            TestNewerSchemaSaveFailsClosed(root);
         }
         finally
         {
@@ -392,6 +393,41 @@ internal static class ListeningCoachSelfTest
             "Loading from verified recovery rewrote the malformed primary unexpectedly.");
         Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
             "Loading from verified recovery rewrote the recovery copy unexpectedly.");
+    }
+
+    private static void TestNewerSchemaSaveFailsClosed(string root)
+    {
+        string caseRoot = Path.Combine(root, "newer-schema-save");
+        Directory.CreateDirectory(caseRoot);
+        var store = new ListeningStateStore(caseRoot);
+
+        ListeningCoachState first = store.Load();
+        first.ActiveScopeId = StudyScopeIds.A1;
+        store.Save(first);
+        ListeningCoachState second = store.Load();
+        second.ActiveScopeId = StudyScopeIds.B1;
+        store.Save(second);
+
+        string primary = Path.Combine(caseRoot, "listening-state.json");
+        string recovery = Path.Combine(caseRoot, "listening-state.backup.json");
+        byte[] primaryBefore = File.ReadAllBytes(primary);
+        byte[] recoveryBefore = File.ReadAllBytes(recovery);
+
+        ListeningCoachState newer = store.Load();
+        newer.SchemaVersion = ListeningStateStore.CurrentSchemaVersion + 1;
+        newer.ActiveScopeId = StudyScopeIds.C1;
+
+        bool rejected = false;
+        try { store.Save(newer); }
+        catch (InvalidDataException) { rejected = true; }
+
+        Require(rejected, "Saving a newer-schema Listening state silently downgraded it.");
+        Require(newer.SchemaVersion == ListeningStateStore.CurrentSchemaVersion + 1,
+            "Rejected newer-schema Listening state was mutated in memory.");
+        Require(primaryBefore.SequenceEqual(File.ReadAllBytes(primary)),
+            "Rejected newer-schema Listening save changed the primary state file.");
+        Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
+            "Rejected newer-schema Listening save changed the recovery state file.");
     }
 
     private static DictionaryPackage Package() => new()
