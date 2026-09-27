@@ -55,6 +55,40 @@ internal static class BulkWordParser
     }
 }
 
+internal static class BulkWordImportKeyboardPolicy
+{
+    internal static bool IsLiteralTabChord(Keys keyData)
+    {
+        Keys keyCode = keyData & Keys.KeyCode;
+        Keys modifiers = keyData & Keys.Modifiers;
+        return keyCode == Keys.Tab && modifiers == Keys.Control;
+    }
+
+    internal static void InsertLiteralTab(TextBox editor)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        editor.SelectedText = "\t";
+    }
+}
+
+internal static class BulkWordImportValidation
+{
+    internal static bool TryValidate(string text, out string? error)
+    {
+        try
+        {
+            _ = BulkWordParser.Parse(text);
+            error = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+}
+
 internal sealed class BulkWordImportForm : Form
 {
     private readonly TextBox _editor;
@@ -76,10 +110,12 @@ internal sealed class BulkWordImportForm : Form
             Multiline = true,
             ReadOnly = true,
             TabStop = true,
+            TabIndex = 0,
             AccessibleName = "Word import format instructions",
             Text =
                 $"Words will be added to: {deckName}.\r\n" +
                 "Use ONE CARD PER LINE. Recommended format: English, then TAB, then Ukrainian.\r\n" +
+                "Plain Tab and Shift+Tab move between controls. Press Ctrl+Tab only when you want to type a TAB character.\r\n" +
                 "Example: apple<TAB>яблуко\r\n" +
                 "Phrases are safe: take care of<TAB>піклуватися про.\r\n" +
                 "Also accepted between English and Ukrainian: |, =, an em dash, or comma+space."
@@ -89,11 +125,12 @@ internal sealed class BulkWordImportForm : Form
         {
             Dock = DockStyle.Fill,
             Multiline = true,
-            AcceptsTab = true,
+            AcceptsTab = false,
             ScrollBars = ScrollBars.Both,
             WordWrap = false,
+            TabIndex = 1,
             AccessibleName = "Paste English and Ukrainian word pairs here",
-            AccessibleDescription = "One card per line. English first, Ukrainian second. Tab is the recommended separator."
+            AccessibleDescription = "One card per line. English first, Ukrainian second. Plain Tab moves to the next control; Ctrl+Tab inserts the recommended separator."
         };
 
         var buttons = new FlowLayoutPanel
@@ -101,13 +138,14 @@ internal sealed class BulkWordImportForm : Form
             Dock = DockStyle.Bottom,
             Height = 54,
             Padding = new Padding(8),
-            FlowDirection = FlowDirection.LeftToRight
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 2
         };
         var add = new Button
         {
             Text = "Add words",
             AutoSize = true,
-            DialogResult = DialogResult.OK,
+            TabIndex = 0,
             AccessibleName = "Add pasted words to active deck"
         };
         var cancel = new Button
@@ -115,8 +153,23 @@ internal sealed class BulkWordImportForm : Form
             Text = "Cancel",
             AutoSize = true,
             DialogResult = DialogResult.Cancel,
+            TabIndex = 1,
             AccessibleName = "Cancel adding words"
         };
+        add.Click += (_, _) =>
+        {
+            if (!BulkWordImportValidation.TryValidate(_editor.Text, out string? error))
+            {
+                MessageBox.Show(this, error ?? "The pasted word pairs are not valid.", "Cannot add words",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _editor.Focus();
+                return;
+            }
+
+            DialogResult = DialogResult.OK;
+            Close();
+        };
+
         buttons.Controls.Add(add);
         buttons.Controls.Add(cancel);
 
@@ -126,5 +179,15 @@ internal sealed class BulkWordImportForm : Form
         AcceptButton = add;
         CancelButton = cancel;
         Shown += (_, _) => _editor.Focus();
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (_editor.Focused && BulkWordImportKeyboardPolicy.IsLiteralTabChord(keyData))
+        {
+            BulkWordImportKeyboardPolicy.InsertLiteralTab(_editor);
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 }
