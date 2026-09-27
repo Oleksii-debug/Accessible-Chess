@@ -11,6 +11,17 @@ from acs.full_product_presenters import BookReaderPresenter
 from acs.full_product_ui_shell import UILanguage
 
 
+class CountingBlocks(list):
+    def __init__(self, values):
+        super().__init__(values)
+        self.reads = 0
+
+    def __getitem__(self, index):
+        if isinstance(index, int):
+            self.reads += 1
+        return super().__getitem__(index)
+
+
 class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
     def make_document(self) -> BookDocument:
         return BookDocument(
@@ -80,6 +91,24 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertTrue(availability["previous_heading"])
         self.assertTrue(availability["previous_position"])
         self.assertTrue(availability["previous_game"])
+
+    def test_navigation_availability_scans_each_direction_at_most_once(self) -> None:
+        document = self.make_document()
+        reader = BookReader(document)
+        counted = CountingBlocks(document.blocks)
+        document.blocks = counted
+        reader.go_to(3)
+        counted.reads = 0
+
+        availability = reader.navigation_availability()
+
+        self.assertTrue(availability["previous_heading"])
+        self.assertTrue(availability["previous_position"])
+        self.assertFalse(availability["previous_game"])
+        self.assertFalse(availability["next_heading"])
+        self.assertTrue(availability["next_position"])
+        self.assertTrue(availability["next_game"])
+        self.assertLessEqual(counted.reads, 2 * (len(counted) - 1))
 
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())
