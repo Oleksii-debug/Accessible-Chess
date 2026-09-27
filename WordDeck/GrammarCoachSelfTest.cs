@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Microsoft.Data.Sqlite;
 
 namespace WordDeck;
 
@@ -84,6 +85,50 @@ internal static class GrammarCoachSelfTest
             restarted.ImportMasterySnapshot(new[] { new GrammarSkillMastery("present.simple.core", 4, 3, 0.7, DateTimeOffset.UtcNow) });
             Require(restarted.LoadMastery()["present.simple.core"].Attempts == 4, "Grammar mastery import failed.");
             Require(Directory.GetFiles(temp, "*.backup.sqlite").Length >= 2, "Risky grammar import did not create its own backup.");
+
+            RequireThrowsInvalidData(
+                () => restarted.ImportMasterySnapshot(new[]
+                {
+                    new GrammarSkillMastery("present.simple.core", 1, 1, double.NaN, DateTimeOffset.UtcNow)
+                }),
+                "Grammar mastery import accepted non-finite mastery.");
+
+            using (var raw = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db }.ToString()))
+            {
+                raw.Open();
+
+                ExecuteRaw(raw,
+                    "INSERT INTO grammar_mastery(skill_id,attempts,correct_count,mastery,updated_utc) VALUES('unknown.skill',1,1,0.5,$utc);",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+                RequireThrowsInvalidData(() => _ = restarted.LoadMastery(),
+                    "Persisted unknown grammar skill was accepted as mastery state.");
+                ExecuteRaw(raw, "DELETE FROM grammar_mastery WHERE skill_id='unknown.skill';");
+
+                ExecuteRaw(raw,
+                    "INSERT INTO grammar_attempt(exercise_id,skill_id,correct,error_kind,submitted_answer,expected_answer,attempted_utc) VALUES('grammar.verb.be.present.999','verb.be.present',0,999,'x','expected',$utc);",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+                RequireThrowsInvalidData(() => _ = restarted.LoadRecentAttempts(),
+                    "Persisted undefined grammar error kind was accepted.");
+                ExecuteRaw(raw, "DELETE FROM grammar_attempt WHERE exercise_id='grammar.verb.be.present.999';");
+
+                ExecuteRaw(raw,
+                    "INSERT INTO grammar_attempt(exercise_id,skill_id,correct,error_kind,submitted_answer,expected_answer,attempted_utc) VALUES('grammar.verb.be.present.998','verb.be.present',0,0,'x','expected',$utc);",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+                RequireThrowsInvalidData(() => _ = restarted.LoadRecentAttempts(),
+                    "Persisted incorrect grammar attempt without an error kind was accepted.");
+                ExecuteRaw(raw, "DELETE FROM grammar_attempt WHERE exercise_id='grammar.verb.be.present.998';");
+
+                ExecuteRaw(raw,
+                    "UPDATE grammar_mastery SET updated_utc='not-a-timestamp' WHERE skill_id='present.simple.core';");
+                RequireThrowsInvalidData(() => _ = restarted.LoadMastery(),
+                    "Persisted malformed grammar mastery timestamp was accepted.");
+                ExecuteRaw(raw,
+                    "UPDATE grammar_mastery SET updated_utc=$utc WHERE skill_id='present.simple.core';",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+            }
+
+            Require(restarted.LoadMastery()["present.simple.core"].Attempts == 4,
+                "Grammar state did not recover after corruption fixtures were removed.");
         }
         finally
         {
@@ -95,6 +140,23 @@ internal static class GrammarCoachSelfTest
             new[] { "present.simple.core" }, new[] { "ox:book" }, true);
         privateEvidence.Validate();
         Require(privateEvidence.PrivateLocalOnly, "Private book sentence evidence lost its privacy boundary.");
+    }
+
+    private static void ExecuteRaw(SqliteConnection connection, string sql, params (string Name, object Value)[] parameters)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach ((string name, object value) in parameters)
+            command.Parameters.AddWithValue(name, value);
+        command.ExecuteNonQuery();
+    }
+
+    private static void RequireThrowsInvalidData(Action action, string message)
+    {
+        bool rejected = false;
+        try { action(); }
+        catch (InvalidDataException) { rejected = true; }
+        Require(rejected, message);
     }
 
     private static void AssertAcyclicGraph()
