@@ -79,7 +79,7 @@
   masterVolume.id = "sound-master-volume";
   masterVolume.min = "0";
   masterVolume.max = "100";
-  masterVolume.step = "5";
+  masterVolume.step = "1";
   masterVolume.inputMode = "numeric";
   root.appendChild(masterVolumeLabel);
   root.appendChild(masterVolume);
@@ -165,7 +165,7 @@
     volume.id = "sound-event-" + safeId + "-volume";
     volume.min = "0";
     volume.max = "100";
-    volume.step = "5";
+    volume.step = "1";
     volume.inputMode = "numeric";
     volume.value = String(item.volume_percent);
     volume.disabled = writesBlocked || busy;
@@ -244,7 +244,7 @@
     const value = clampVolume(masterVolume.value);
     if (value === null) {
       if (currentSnapshot) masterVolume.value = String(currentSnapshot.master_volume_percent);
-      announce(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."));
+      announce(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."), true);
       return;
     }
     invoke("set_master", {volume_percent: value});
