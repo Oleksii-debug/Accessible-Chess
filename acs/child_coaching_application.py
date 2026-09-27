@@ -78,35 +78,7 @@ class ChildCoachingApplication:
         self.store = store
 
     def open_catalog(self) -> TemplateCatalogSnapshot:
-        loaded = self._load_or_seed()
-        conflicts = 0
-        while True:
-            seeded = ensure_preset_templates(loaded.templates)
-            if seeded == loaded.templates:
-                return self._snapshot(loaded)
-            try:
-                revision = self.store.save(
-                    seeded,
-                    expected_revision=loaded.revision,
-                )
-            except ChildCoachingStoreBusyError as exc:
-                raise ChildCoachingApplicationError(
-                    "lesson template catalog is busy; retry"
-                ) from exc
-            except ChildCoachingStoreConflictError as exc:
-                conflicts += 1
-                if conflicts >= 4:
-                    raise ChildCoachingApplicationError(
-                        "lesson templates changed; reopen them before saving"
-                    ) from exc
-                loaded = self._require_loaded()
-                continue
-            loaded = LoadedChildCoachingTemplates(
-                templates=tuple(sorted(seeded, key=lambda item: item.template_id)),
-                revision=revision,
-                recovered_from_backup=False,
-            )
-            return self._snapshot(loaded)
+        return self._snapshot(self._load_or_seed())
 
     def get_template(self, template_id: str) -> tuple[LessonTemplate, str]:
         loaded = self._load_or_seed()
@@ -266,21 +238,48 @@ class ChildCoachingApplication:
 
     def _load_or_seed(self) -> LoadedChildCoachingTemplates:
         loaded = self.store.load()
-        if loaded is not None:
-            return loaded
-        presets = ensure_preset_templates(())
-        try:
-            revision = self.store.save(presets, expected_revision=None)
-        except ChildCoachingStoreBusyError as exc:
-            raise ChildCoachingApplicationError(
-                "lesson template catalog is busy; retry"
-            ) from exc
-        except ChildCoachingStoreConflictError:
-            return self._require_loaded()
-        return LoadedChildCoachingTemplates(
-            templates=tuple(sorted(presets, key=lambda item: item.template_id)),
-            revision=revision,
-        )
+        conflicts = 0
+        while True:
+            if loaded is None:
+                desired = ensure_preset_templates(())
+                expected_revision = None
+                recovered_from_backup = False
+                needs_publish = True
+            else:
+                desired = ensure_preset_templates(loaded.templates)
+                expected_revision = loaded.revision
+                recovered_from_backup = loaded.recovered_from_backup
+                needs_publish = (
+                    desired != loaded.templates
+                    or loaded.migrated_from_schema is not None
+                    or loaded.recovered_from_backup
+                )
+                if not needs_publish:
+                    return loaded
+
+            try:
+                revision = self.store.save(
+                    desired,
+                    expected_revision=expected_revision,
+                )
+            except ChildCoachingStoreBusyError as exc:
+                raise ChildCoachingApplicationError(
+                    "lesson template catalog is busy; retry"
+                ) from exc
+            except ChildCoachingStoreConflictError as exc:
+                conflicts += 1
+                if conflicts >= 4:
+                    raise ChildCoachingApplicationError(
+                        "lesson templates changed; reopen them before saving"
+                    ) from exc
+                loaded = self._require_loaded()
+                continue
+
+            return LoadedChildCoachingTemplates(
+                templates=tuple(sorted(desired, key=lambda item: item.template_id)),
+                revision=revision,
+                recovered_from_backup=recovered_from_backup,
+            )
 
     def _require_loaded(self) -> LoadedChildCoachingTemplates:
         loaded = self.store.load()
