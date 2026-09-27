@@ -41,6 +41,8 @@ class VerifyP0PackagedDocumentCopyCliTests(unittest.TestCase):
                     "manifest_product_sha_verified": True,
                     "executable_checksum_verified": True,
                     "textpattern_selection_supported": True,
+                    "textpattern_target_selected": True,
+                    "textpattern_selection_equality": "UIA exact range endpoints and case-sensitive text equality",
                     "clipboard_equality": "case-sensitive exact string equality",
                     "ctrl_c_exact_clipboard": True,
                     "move_input_focus_verified": True,

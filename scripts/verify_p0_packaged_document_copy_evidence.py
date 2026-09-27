@@ -149,10 +149,9 @@ def _verify_evidence(evidence: dict[str, Any], expected_sha: str) -> None:
     if evidence.get("clipboard_equality") != "case-sensitive exact string equality":
         raise EvidenceError("clipboard equality contract is not exact")
 
-    if evidence.get("human_tested") is True:
-        raise EvidenceError("machine evidence must not claim human testing")
-    if evidence.get("nvda_verified") is True:
-        raise EvidenceError("machine evidence must not claim NVDA verification")
+    for key in ("human_tested", "nvda_verified"):
+        if evidence.get(key) is not False:
+            raise EvidenceError(f"machine evidence must explicitly declare {key}=false")
 
 
 def verify(evidence_path: Path, product_root: Path, product_sha: str) -> None:

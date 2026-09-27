@@ -130,6 +130,19 @@ class VerifyP0PackagedDocumentCopyEvidenceTests(unittest.TestCase):
                 with self.assertRaises(EvidenceError):
                     verify(self.evidence, self.product, SHA)
 
+    def test_machine_acceptance_flags_are_required_exact_false_booleans(self) -> None:
+        for key in ("human_tested", "nvda_verified"):
+            for invalid in (None, "no", 0):
+                with self.subTest(key=key, invalid=invalid):
+                    value = _base_evidence()
+                    if invalid is None:
+                        del value[key]
+                    else:
+                        value[key] = invalid
+                    self._write_evidence(value)
+                    with self.assertRaisesRegex(EvidenceError, key):
+                        verify(self.evidence, self.product, SHA)
+
     def test_duplicate_json_key_fails(self) -> None:
         self.evidence.write_text(
             '{"foreground_product_verified":true,"foreground_product_verified":true}',
