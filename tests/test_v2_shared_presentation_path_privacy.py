@@ -32,6 +32,18 @@ class _StaticBookPresenter(BookReaderPresenter):
     def current(self) -> BookBlockView:
         return self._block
 
+    def navigation_availability(self) -> dict[str, bool]:
+        return {
+            "previous": False,
+            "next": False,
+            "previous_heading": False,
+            "next_heading": False,
+            "previous_position": False,
+            "next_position": False,
+            "previous_game": False,
+            "next_game": False,
+        }
+
 
 class _StaticTrainingPresenter(TrainingPresenter):
     def __init__(self, view: TrainingView) -> None:
