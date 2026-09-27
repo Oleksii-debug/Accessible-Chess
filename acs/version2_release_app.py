@@ -484,7 +484,6 @@ def create_version2_release_application(
             language_provider=dialog_language_provider,
         )
         application.open_book_dialog = book_dialogs.open_book
-        application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
@@ -508,6 +507,7 @@ def create_version2_release_application(
         # reuse the exact owner-bound confirmation source used by native PGN Open.
         # Bind only after the native close guard succeeds so a failed startup
         # cannot leave application state pointing at a retired file runtime.
+        application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
         return file_runtime
 
