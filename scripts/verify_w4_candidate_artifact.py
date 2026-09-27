@@ -132,6 +132,10 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         p0g_names = [name for name in files if name.endswith("packaged-p0g-hotkey-result-summary.json")]
         if len(candidate_names) != 1:
             raise CandidateArtifactError("outer artifact must contain exactly one candidate ZIP")
+        candidate_name = PurePosixPath(candidate_names[0]).name
+        expected_name = f"Accessible-Chess-V2-{expected_sha[:7]}-NVDA-test-candidate.zip"
+        if candidate_name.lower() != expected_name.lower():
+            raise CandidateArtifactError("candidate ZIP filename Product prefix mismatch")
         if len(copy_names) != 1 or len(p0g_names) != 1:
             raise CandidateArtifactError("outer artifact must contain both exact P0 evidence JSON files")
 
