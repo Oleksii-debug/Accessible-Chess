@@ -53,7 +53,7 @@ internal sealed class ListeningCoachForm : Form
         var statistics = new ToolStripMenuItem("&Statistics...")
         {
             AccessibleName = "Listening statistics",
-            AccessibleDescription = "Show Listening accuracy, mastery, attempts, replays, answer reveals and skips for the current study scope."
+            AccessibleDescription = ListeningStatisticsPresentation.AccessibleDescription
         };
         statistics.Click += (_, _) => ShowStatistics();
         var export = new ToolStripMenuItem("&Export Listening progress...") { AccessibleName = "Export Listening progress" };
@@ -238,19 +238,7 @@ internal sealed class ListeningCoachForm : Form
         {
             ListeningStatistics stats = _engine.Statistics();
             string scope = StudyScopeIds.DisplayName(_state.ActiveScopeId);
-            string message =
-                $"Study scope: {scope}\n" +
-                $"Available audio items: {stats.AvailableItems}\n" +
-                $"Items reviewed: {stats.ReviewedItems}\n" +
-                $"Completed reviews: {stats.CompletedReviews}\n" +
-                $"Correct reviews: {stats.CorrectReviews}\n" +
-                $"Accuracy: {stats.Accuracy:P1}\n" +
-                $"Average mastery: {stats.AverageMastery:P1}\n" +
-                $"Wrong attempts: {stats.WrongAttempts}\n" +
-                $"Audio replays: {stats.ReplayCount}\n" +
-                $"Answers shown: {stats.ShowAnswerUses}\n" +
-                $"Skipped items: {stats.SkipCount}\n" +
-                $"History entries in this scope: {stats.HistoryEntries}";
+            string message = ListeningStatisticsPresentation.Build(scope, stats);
             MessageBox.Show(this, message, "Listening statistics", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex) { SetStatus($"Listening statistics could not be calculated: {ex.Message}"); }
@@ -410,3 +398,29 @@ internal sealed class ListeningCoachForm : Form
         public override string ToString() => StudyScopeIds.DisplayName(Id);
     }
 }
+
+internal static class ListeningStatisticsPresentation
+{
+    public const string AccessibleDescription =
+        "Show Listening accuracy, practice success indicators, attempts, replays, answer reveals and skips for the current study scope.";
+
+    public static string Build(string scope, ListeningStatistics stats)
+    {
+        ArgumentNullException.ThrowIfNull(stats);
+        string displayScope = string.IsNullOrWhiteSpace(scope) ? "Unknown" : scope.Trim();
+        return
+            $"Study scope: {displayScope}\n" +
+            $"Available audio items: {stats.AvailableItems}\n" +
+            $"Items reviewed: {stats.ReviewedItems}\n" +
+            $"Completed reviews: {stats.CompletedReviews}\n" +
+            $"Correct reviews: {stats.CorrectReviews}\n" +
+            $"Accuracy: {stats.Accuracy:P1}\n" +
+            $"Practice success indicator: {stats.AverageMastery:P1} (practice evidence only, not a mastery claim).\n" +
+            $"Wrong attempts: {stats.WrongAttempts}\n" +
+            $"Audio replays: {stats.ReplayCount}\n" +
+            $"Answers shown: {stats.ShowAnswerUses}\n" +
+            $"Skipped items: {stats.SkipCount}\n" +
+            $"History entries in this scope: {stats.HistoryEntries}";
+    }
+}
+
