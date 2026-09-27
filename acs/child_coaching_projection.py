@@ -210,10 +210,10 @@ class ChildCoachingProjection:
             "prompt": block.prompt,
             "notation_required": block.notation_required,
             "student_engine_visible": block.student_engine_visible,
-            "target_square": block.target_square,
-            "target_piece": block.target_piece,
         }
         if include_teacher_notes:
+            payload["target_square"] = block.target_square
+            payload["target_piece"] = block.target_piece
             payload["solution_text"] = block.solution_text
             payload["teacher_note"] = block.teacher_note
             payload["teacher_note_label"] = teacher_note_label
