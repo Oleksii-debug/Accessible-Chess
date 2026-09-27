@@ -779,11 +779,11 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
     {
         string parent = Path.Combine(Path.GetTempPath(), "WordDeck GA106 UI persistence " + Guid.NewGuid().ToString("N"));
         string root = Path.Combine(parent, "profile");
+        DateTimeOffset now = new(2026, 9, 28, 0, 30, 0, TimeSpan.Zero);
         Directory.CreateDirectory(root);
         try
         {
             int eventNumber = 0;
-            DateTimeOffset now = new(2026, 9, 28, 0, 30, 0, TimeSpan.Zero);
             var runtime = new GovernedGrammarA106StudyRuntime(
                 new LearnerCourseStateStore(root),
                 () => "ga106.ui.failure." + (++eventNumber).ToString("D4"),
