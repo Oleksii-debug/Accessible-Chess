@@ -654,6 +654,24 @@ internal static class AdaptiveEvidenceAdapters
 
     private static AdaptiveMasteryObservation Convert(LearningEvidenceRecord record)
     {
+        if (record is null)
+            throw new InvalidDataException("Learning evidence source returned a null record.");
+        if (string.IsNullOrWhiteSpace(record.DictionaryId) ||
+            !string.Equals(record.DictionaryId, record.DictionaryId.Trim(), StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(record.EntryId) ||
+            !string.Equals(record.EntryId, record.EntryId.Trim(), StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(record.ModeId) ||
+            !string.Equals(record.ModeId, record.ModeId.Trim(), StringComparison.Ordinal))
+            throw new InvalidDataException("Learning evidence identity fields must be non-blank canonical text.");
+        if (record.CompletedReviews < 0 ||
+            record.FirstTrySuccesses < 0 ||
+            record.FirstTrySuccesses > record.CompletedReviews ||
+            record.WrongAttempts < 0 ||
+            record.HintUses < 0 ||
+            record.CurrentStreak < 0 ||
+            record.CurrentStreak > record.CompletedReviews)
+            throw new InvalidDataException($"Learning evidence for {record.EntryId} contains impossible counters.");
+
         (AdaptiveEvidenceChannel channel, string sourceId) = record.ModeId.ToLowerInvariant() switch
         {
             "recall" => (AdaptiveEvidenceChannel.MeaningRecall, "recall"),
@@ -668,17 +686,16 @@ internal static class AdaptiveEvidenceAdapters
             _ => throw new InvalidDataException($"Unknown learning-evidence mode '{record.ModeId}'. Adaptive routing fails closed instead of guessing a channel.")
         };
 
-        int completed = Math.Max(0, record.CompletedReviews);
         return new AdaptiveMasteryObservation(
             record.DictionaryId,
             record.EntryId,
             AdaptiveTargetKind.Lexical,
             channel,
-            completed,
-            Math.Clamp(record.FirstTrySuccesses, 0, completed),
-            Math.Max(0, record.WrongAttempts),
-            Math.Max(0, record.HintUses),
-            Math.Clamp(record.CurrentStreak, 0, completed),
+            record.CompletedReviews,
+            record.FirstTrySuccesses,
+            record.WrongAttempts,
+            record.HintUses,
+            record.CurrentStreak,
             record.LastReviewedUtc,
             sourceId);
     }
