@@ -141,8 +141,7 @@ internal static class DictionaryLoader
                 throw new InvalidDataException($"Dictionary contains duplicate entry ID '{entryId}' at source line {sourceLine}.");
 
             entries.Add(new DictionaryEntry(entryId, level, source, target));
-            if (entries.Count > MaxEntries)
-                throw new InvalidDataException($"Dictionary contains more than the supported {MaxEntries:N0} entries.");
+            EnsureEntryCountWithinLimit(entries.Count);
         }
 
         if (entries.Count == 0)
@@ -171,6 +170,12 @@ internal static class DictionaryLoader
             TargetLanguage = targetLanguage,
             Entries = entries
         };
+    }
+
+    internal static void EnsureEntryCountWithinLimit(int count)
+    {
+        if (count > MaxEntries)
+            throw new InvalidDataException($"Dictionary contains more than the supported {MaxEntries:N0} entries.");
     }
 
     private static void RequireFieldLength(string value, int sourceLine, string description)
