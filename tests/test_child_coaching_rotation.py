@@ -144,6 +144,37 @@ class ChildCoachingRotationTests(unittest.TestCase):
         self.assertIsNone(after.pair_play_batch_ref)
         self.assertEqual(current_round(plan, after).activity, RotationActivity.REVIEW)
 
+    def test_pair_play_bind_retry_is_idempotent_but_different_stale_bind_fails(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-pair-retry")
+        state = start_rotation(plan)
+        state = advance_rotation(plan, state, expected_revision=state.revision)
+        state = advance_rotation(plan, state, expected_revision=state.revision)
+        before_bind_revision = state.revision
+        bound = bind_pair_play_batch(
+            plan,
+            state,
+            "external-batch-17",
+            expected_revision=before_bind_revision,
+        )
+
+        retried = bind_pair_play_batch(
+            plan,
+            bound,
+            "external-batch-17",
+            expected_revision=before_bind_revision,
+        )
+        self.assertEqual(retried, bound)
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "stale rotation revision",
+        ):
+            bind_pair_play_batch(
+                plan,
+                bound,
+                "different-batch",
+                expected_revision=before_bind_revision,
+            )
+
     def test_pair_play_batch_cannot_bind_during_non_pair_round(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-bind")
         state = start_rotation(plan)
@@ -156,6 +187,33 @@ class ChildCoachingRotationTests(unittest.TestCase):
                 state,
                 "batch-1",
                 expected_revision=state.revision,
+            )
+
+    def test_planned_rotation_cannot_advance_before_explicit_start(self) -> None:
+        plan = build_rotation_plan(
+            self.lesson(),
+            rotation_id="rotation-planned",
+            rounds=(
+                RotationRound(
+                    "only",
+                    RotationActivity.REVIEW,
+                    "Only round",
+                    5,
+                ),
+            ),
+        )
+        planned = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+        )
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "rotation must be active",
+        ):
+            advance_rotation(
+                plan,
+                planned,
+                expected_revision=planned.revision,
             )
 
     def test_rotation_completes_deterministically_and_stale_revision_fails(self) -> None:
