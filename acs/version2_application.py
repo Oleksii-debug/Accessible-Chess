@@ -190,7 +190,7 @@ class Version2Application:
         if self.training_workspace is not None and self.training is not None:
             self.training_workspace.save()
 
-    def _restore_book_progress(self, snapshot, *, language, bookmark_name):
+    def _restore_book_progress(self, snapshot, *, language, bookmark_name, restore_training=False):
         """Restore a failed Book progress transaction without partial UI state."""
         training_was_active = self.training_workspace is not None or self.training is not None
         restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
@@ -219,10 +219,21 @@ class Version2Application:
         # replaces that reader, discard any bridge that would otherwise reference
         # the rejected post-mutation state.
         self.training_workspace = self.training = None
-        # If that invalidated Training model was the active shell surface, do not
-        # leave a dead Training route published. Recover through the canonical
-        # Books route/focus contract; unrelated active routes remain untouched.
-        if training_was_active and self.shell.current_route.route_id == "training":
+        if restore_training and training_was_active:
+            workspace = Version2BookTrainingWorkspace(
+                restored_reader,
+                progress_root=self.training_progress_root,
+                language=self.shell.language,
+            )
+            self.training = workspace.start_current()
+            self.training_workspace = workspace
+        # If that invalidated Training model cannot be restored, do not leave a
+        # dead Training route published. Recover through canonical Books instead.
+        if (
+            training_was_active
+            and self.shell.current_route.route_id == "training"
+            and self.training_workspace is None
+        ):
             self._focus = self.shell.open_route("books")
             # The packaged WebView consumes the application event queue on its
             # polling seam. A route event requests one authoritative snapshot
@@ -248,6 +259,32 @@ class Version2Application:
         bridge = workspace.start_current()
         self.training_workspace, self.training = workspace, bridge
         return True
+
+    def _dispatch_training_surface_command(self, command, payload=None):
+        if self.shell.current_route.route_id != "training":
+            raise ValueError("Training command requires the visible Training route")
+        if self.training_workspace is None or self.training is None:
+            raise ValueError("Training exercise is unavailable")
+        before_reader = None
+        language = bookmark_name = None
+        if command == "training.continue":
+            before_reader = self.reader.snapshot()
+            language = self.books.projection.language
+            bookmark_name = self.books.projection.bookmark_name
+        result = self.training_workspace.dispatch(command, payload)
+        self.training = self.training_workspace.bridge
+        if command == "training.continue" and result.kind != "error":
+            try:
+                self.save_book_progress()
+            except Exception:
+                self._restore_book_progress(
+                    before_reader,
+                    language=language,
+                    bookmark_name=bookmark_name,
+                    restore_training=True,
+                )
+                raise
+        return result
 
     def _dispatch_book_surface_command(self, command, payload=None):
         """Publish mutating Book commands only after durable progress succeeds."""
@@ -464,17 +501,12 @@ class Version2Application:
             if result.kind == "error": raise ValueError("book command failed")
             return result
         if action.startswith("training."):
-            if self.shell.current_route.route_id != "training":
-                raise ValueError("Training command requires the visible Training route")
-            if self.training_workspace is None or self.training is None:
-                raise ValueError("no Training exercise is active")
             if action == "training.reset":
                 raise ValueError("Training reset requires explicit WebView confirmation")
             command = "training.reveal" if action == "training.reveal_solution" else action
-            result = self.training_workspace.dispatch(command, payload)
-            if result.kind == "error": raise ValueError("Training command failed")
-            if command == "training.continue": self.save_book_progress()
-            self.training = self.training_workspace.bridge
+            result = self._dispatch_training_surface_command(command, payload)
+            if result.kind == "error":
+                raise ValueError("Training command failed")
             return result
         if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
@@ -513,14 +545,7 @@ class Version2Application:
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
             if area == "training":
-                if self.shell.current_route.route_id != "training":
-                    raise ValueError("Training command requires the visible Training route")
-                if self.training_workspace is None or self.training is None:
-                    raise ValueError("Training exercise is unavailable")
-                value = self.training_workspace.dispatch(command, payload)
-                self.training = self.training_workspace.bridge
-                if command == "training.continue" and value.kind != "error": self.save_book_progress()
-                return asdict(value)
+                return asdict(self._dispatch_training_surface_command(command, payload))
             if area == "books":
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)

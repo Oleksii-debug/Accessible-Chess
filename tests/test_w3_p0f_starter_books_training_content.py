@@ -642,5 +642,64 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_continue_book_progress_failure_restores_completed_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-continue-save-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    completed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    self.assertEqual("render", completed["kind"])
+                    self.assertTrue(app.training_workspace.session.completed)
+                    reader_before = app.reader.snapshot()
+                    training_before = app.training_workspace.snapshot()
+                    key_before = app.book_key
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated Book progress failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertTrue(app.training_workspace.session.completed)
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated Book progress failure"),
+                    ):
+                        native = app.adapter.activate_action("training.continue")
+                    self.assertEqual("error", native.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
