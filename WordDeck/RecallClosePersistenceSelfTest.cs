@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-
 namespace WordDeck;
 
 internal static class RecallClosePersistenceSelfTestBootstrap
