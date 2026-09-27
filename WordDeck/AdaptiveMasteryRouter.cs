@@ -13,6 +13,8 @@ internal enum AdaptiveEvidenceChannel
     SentenceForm,
     Grammar,
     Listening,
+    Speaking,
+    Pronunciation,
     NarrativeContext,
     ReadingContext
 }
@@ -24,6 +26,8 @@ internal enum AdaptivePracticeMode
     Sentence,
     Grammar,
     Listening,
+    Speaking,
+    Pronunciation,
     Story,
     Reading
 }
@@ -141,6 +145,8 @@ internal sealed class AdaptiveMasteryRouter
         AdaptiveEvidenceChannel.SentenceForm,
         AdaptiveEvidenceChannel.Grammar,
         AdaptiveEvidenceChannel.Listening,
+        AdaptiveEvidenceChannel.Speaking,
+        AdaptiveEvidenceChannel.Pronunciation,
         AdaptiveEvidenceChannel.NarrativeContext,
         AdaptiveEvidenceChannel.ReadingContext
     };
@@ -458,6 +464,8 @@ internal sealed class AdaptiveMasteryRouter
         AdaptiveEvidenceChannel.SentenceForm => AdaptivePracticeMode.Sentence,
         AdaptiveEvidenceChannel.Grammar => AdaptivePracticeMode.Grammar,
         AdaptiveEvidenceChannel.Listening => AdaptivePracticeMode.Listening,
+        AdaptiveEvidenceChannel.Speaking => AdaptivePracticeMode.Speaking,
+        AdaptiveEvidenceChannel.Pronunciation => AdaptivePracticeMode.Pronunciation,
         AdaptiveEvidenceChannel.NarrativeContext => AdaptivePracticeMode.Story,
         AdaptiveEvidenceChannel.ReadingContext => AdaptivePracticeMode.Reading,
         _ => throw new ArgumentOutOfRangeException(nameof(channel))
@@ -473,8 +481,10 @@ internal sealed class AdaptiveMasteryRouter
             AdaptiveEvidenceChannel.SentenceForm => 3,
             AdaptiveEvidenceChannel.Grammar => 4,
             AdaptiveEvidenceChannel.Listening => 5,
-            AdaptiveEvidenceChannel.NarrativeContext => 6,
-            AdaptiveEvidenceChannel.ReadingContext => 7,
+            AdaptiveEvidenceChannel.Speaking => 6,
+            AdaptiveEvidenceChannel.Pronunciation => 7,
+            AdaptiveEvidenceChannel.NarrativeContext => 8,
+            AdaptiveEvidenceChannel.ReadingContext => 9,
             _ => 99
         };
     }
@@ -651,6 +661,8 @@ internal static class AdaptiveEvidenceAdapters
             "sentence" or "sentence-spelling" => (AdaptiveEvidenceChannel.SentenceForm, record.ModeId),
             "grammar" => (AdaptiveEvidenceChannel.Grammar, "grammar"),
             "listening" or "dictation" => (AdaptiveEvidenceChannel.Listening, record.ModeId),
+            "speaking" => (AdaptiveEvidenceChannel.Speaking, "speaking"),
+            "pronunciation" => (AdaptiveEvidenceChannel.Pronunciation, "pronunciation"),
             "story" => (AdaptiveEvidenceChannel.NarrativeContext, "story"),
             "reading" => (AdaptiveEvidenceChannel.ReadingContext, "reading"),
             _ => throw new InvalidDataException($"Unknown learning-evidence mode '{record.ModeId}'. Adaptive routing fails closed instead of guessing a channel.")
