@@ -46,12 +46,12 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
             book.write_text(
                 "# Reverse progress\n\n"
                 "First position.\n\n"
-                "~~~fen\n" + Board.START + "\nFirst position\n~~~\n\n"
+                "```fen\n" + Board.START + "\nFirst position\n```\n\n"
                 "Between positions.\n\n"
-                "~~~fen\n" + Board.START + "\nSecond position\n~~~\n\n"
-                "~~~pgn\n" + PGN_ONE + "~~~\n\n"
+                "```fen\n" + Board.START + "\nSecond position\n```\n\n"
+                "```pgn\n" + PGN_ONE + "```\n\n"
                 "Between games.\n\n"
-                "~~~pgn\n" + PGN_TWO + "~~~\n",
+                "```pgn\n" + PGN_TWO + "```\n",
                 encoding="utf-8",
             )
             app.open_book(book)
