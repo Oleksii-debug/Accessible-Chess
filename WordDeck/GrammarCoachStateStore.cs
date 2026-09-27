@@ -251,7 +251,7 @@ internal sealed class GrammarCoachStateStore
 
     private static DateTimeOffset ParseTimestamp(string value, string label)
     {
-        if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp))
+        if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset timestamp))
             throw new InvalidDataException($"{label} contains an invalid timestamp.");
         return timestamp;
     }
