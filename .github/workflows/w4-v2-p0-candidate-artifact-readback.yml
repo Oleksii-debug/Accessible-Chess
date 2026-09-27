@@ -58,10 +58,12 @@ jobs:
             printf 'Pinned W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
             exit 1
           }
-          rm -rf .w4-readback
-          git worktree add --detach .w4-readback "$W4_VERIFIER_COMMIT"
-          test "$(git -C .w4-readback rev-parse HEAD)" = "$W4_VERIFIER_COMMIT"
-          test -s .w4-readback/scripts/verify_w4_candidate_artifact.py
+          verifier_root="$RUNNER_TEMP/w4-readback"
+          rm -rf "$verifier_root"
+          git worktree add --detach "$verifier_root" "$W4_VERIFIER_COMMIT"
+          test "$(git -C "$verifier_root" rev-parse HEAD)" = "$W4_VERIFIER_COMMIT"
+          test -s "$verifier_root/scripts/verify_w4_candidate_artifact.py"
+          echo "W4_READBACK_VERIFIER_ROOT=$verifier_root" >> "$GITHUB_ENV"
           echo "W4_READBACK_VERIFIER_COMMIT=$W4_VERIFIER_COMMIT"
           echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
           echo 'W4_READBACK_PINNED_DEPENDENCY_CLOSURE=PASS'
@@ -191,7 +193,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python .w4-readback/scripts/verify_w4_candidate_artifact.py \
+          python "$W4_READBACK_VERIFIER_ROOT/scripts/verify_w4_candidate_artifact.py" \
             --artifact candidate-artifact.zip \
             --product-sha '${{ steps.product.outputs.product_sha }}' \
             --outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'
