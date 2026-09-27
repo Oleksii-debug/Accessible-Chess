@@ -327,7 +327,10 @@ internal static class ListeningCoachSelfTest
             "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"\",\"ExerciseId\":\"word:a\"}]}",
             "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\" \"}]}",
             "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"WrongAttempts\":-1}]}",
-            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"Replays\":-1}]}"
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"Replays\":-1}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[null]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{},\"TEST\":{}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{\"word:a\":{},\"WORD:A\":{}}},\"History\":[]}"
         };
 
         for (int index = 0; index < malformedStates.Length; index++)
