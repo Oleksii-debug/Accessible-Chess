@@ -22,6 +22,7 @@ from .child_coaching import (
     preset_templates,
 )
 from .child_coaching_store import (
+    ChildCoachingStoreBusyError,
     ChildCoachingStoreConflictError,
     ChildCoachingTemplateStore,
     LoadedChildCoachingTemplates,
@@ -88,6 +89,10 @@ class ChildCoachingApplication:
                     seeded,
                     expected_revision=loaded.revision,
                 )
+            except ChildCoachingStoreBusyError as exc:
+                raise ChildCoachingApplicationError(
+                    "lesson template catalog is busy; retry"
+                ) from exc
             except ChildCoachingStoreConflictError as exc:
                 conflicts += 1
                 if conflicts >= 4:
@@ -266,6 +271,10 @@ class ChildCoachingApplication:
         presets = ensure_preset_templates(())
         try:
             revision = self.store.save(presets, expected_revision=None)
+        except ChildCoachingStoreBusyError as exc:
+            raise ChildCoachingApplicationError(
+                "lesson template catalog is busy; retry"
+            ) from exc
         except ChildCoachingStoreConflictError:
             return self._require_loaded()
         return LoadedChildCoachingTemplates(
@@ -297,6 +306,10 @@ class ChildCoachingApplication:
                 templates,
                 expected_revision=loaded.revision,
             )
+        except ChildCoachingStoreBusyError as exc:
+            raise ChildCoachingApplicationError(
+                "lesson template catalog is busy; retry"
+            ) from exc
         except ChildCoachingStoreConflictError as exc:
             raise ChildCoachingApplicationError(
                 "lesson templates changed; reopen them before saving"
