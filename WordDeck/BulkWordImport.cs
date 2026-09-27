@@ -71,6 +71,24 @@ internal static class BulkWordImportKeyboardPolicy
     }
 }
 
+internal static class BulkWordImportValidation
+{
+    internal static bool TryValidate(string text, out string? error)
+    {
+        try
+        {
+            _ = BulkWordParser.Parse(text);
+            error = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+}
+
 internal sealed class BulkWordImportForm : Form
 {
     private readonly TextBox _editor;
@@ -127,7 +145,6 @@ internal sealed class BulkWordImportForm : Form
         {
             Text = "Add words",
             AutoSize = true,
-            DialogResult = DialogResult.OK,
             TabIndex = 0,
             AccessibleName = "Add pasted words to active deck"
         };
@@ -139,6 +156,20 @@ internal sealed class BulkWordImportForm : Form
             TabIndex = 1,
             AccessibleName = "Cancel adding words"
         };
+        add.Click += (_, _) =>
+        {
+            if (!BulkWordImportValidation.TryValidate(_editor.Text, out string? error))
+            {
+                MessageBox.Show(this, error ?? "The pasted word pairs are not valid.", "Cannot add words",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _editor.Focus();
+                return;
+            }
+
+            DialogResult = DialogResult.OK;
+            Close();
+        };
+
         buttons.Controls.Add(add);
         buttons.Controls.Add(cancel);
 
