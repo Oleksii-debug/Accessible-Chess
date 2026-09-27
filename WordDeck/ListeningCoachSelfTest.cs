@@ -288,6 +288,22 @@ internal static class ListeningCoachSelfTest
                 loaded.History[0].ExtensionData!.ContainsKey("FutureHistory"),
             "Listening history dropped an unknown current-schema field during load.");
 
+        ListeningCoachState snapshot = ListeningStateTransaction.Snapshot(loaded);
+        Require(snapshot.ExtensionData is not null && snapshot.ExtensionData.ContainsKey("FutureHint") &&
+                snapshot.StatsByDictionary["test"]["word:a"].ExtensionData is not null &&
+                snapshot.StatsByDictionary["test"]["word:a"].ExtensionData!.ContainsKey("FutureStats") &&
+                snapshot.History[0].ExtensionData is not null &&
+                snapshot.History[0].ExtensionData!.ContainsKey("FutureHistory"),
+            "Listening transaction snapshot dropped unknown current-schema data.");
+
+        string profilePath = Path.Combine(extensionRoot, "profile.json");
+        new ListeningProfileService(store).Export(loaded, profilePath);
+        string profile = File.ReadAllText(profilePath);
+        Require(profile.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
+                profile.Contains("\"FutureStats\"", StringComparison.Ordinal) &&
+                profile.Contains("\"FutureHistory\"", StringComparison.Ordinal),
+            "Listening profile export dropped unknown current-schema state data.");
+
         store.Save(loaded);
         string persisted = File.ReadAllText(statePath);
         Require(persisted.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
