@@ -1,16 +1,5 @@
 namespace WordDeck;
 
-internal static class RecallPersistenceSafetySelfTestBootstrap
-{
-    [ModuleInitializer]
-    internal static void Initialize()
-    {
-        if (Environment.GetCommandLineArgs().Any(arg =>
-                string.Equals(arg, "--self-test", StringComparison.OrdinalIgnoreCase)))
-            RecallPersistenceSafetySelfTest.Run();
-    }
-}
-
 internal static class RecallPersistenceSafetySelfTest
 {
     public static void Run()
