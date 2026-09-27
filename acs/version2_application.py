@@ -268,6 +268,8 @@ class Version2Application:
     def _dispatch_training_surface_command(self, command, payload=None):
         if self.shell.current_route.route_id != "training":
             raise ValueError("Training command requires the visible Training route")
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before changing Training state")
         if self.training_workspace is None or self.training is None:
             raise ValueError("Training exercise is unavailable")
         before_reader = None

@@ -755,5 +755,52 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_modal_dialog_blocks_training_mutations_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-modal-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    before = app.training_workspace.snapshot()
+                    dialog = app.adapter.open_dialog(
+                        "training-modal",
+                        opener_focus_id="training-answer",
+                        initial_focus_id="training-modal-confirm",
+                    )
+                    self.assertEqual("dialog-open", dialog.kind)
+
+                    with patch.object(
+                        app.training_workspace,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "modal Training commands must be rejected before workspace dispatch"
+                        ),
+                    ) as dispatch:
+                        browser_result = app.browser_command("training", "training.hint")
+                        native_result = app.adapter.activate_action("training.hint")
+
+                    self.assertEqual("error", browser_result["kind"])
+                    self.assertEqual("error", native_result.kind)
+                    dispatch.assert_not_called()
+                    self.assertEqual(before, app.training_workspace.snapshot())
+                    self.assertEqual("training-modal", app.shell.active_dialog_id)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
