@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'acs/book_progress_store.py'
+      - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
       - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
@@ -65,11 +66,23 @@ jobs:
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-book-progress-production-repair.yml' \
-            'acs/book_progress_store.py' \
-            'tests/test_v2_book_progress_store_production.py' | sort)"
-          test "$changed" = "$expected"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            allowed="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' | sort)"
+            unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$allowed"))"
+            test -z "$unexpected"
+            printf '%s\n' "$changed" | grep -Fx 'acs/book_progress_store.py'
+            printf '%s\n' "$changed" | grep -Fx 'tests/test_v2_book_progress_store.py'
+          else
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' | sort)"
+            test "$changed" = "$expected"
+          fi
           git diff --quiet "$upstream" HEAD -- \
             .github/workflows/v2-book-progress-store.yml \
             acs/bookreader.py \
