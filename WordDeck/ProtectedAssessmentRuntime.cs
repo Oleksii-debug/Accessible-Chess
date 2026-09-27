@@ -209,6 +209,22 @@ internal sealed class ProtectedAssessmentRuntimeSnapshot
     }
 }
 
+internal sealed class UnsupportedProtectedAssessmentSchemaException : Exception
+{
+    public UnsupportedProtectedAssessmentSchemaException(string component, int schemaVersion, int supportedSchemaVersion)
+        : base($"Unsupported protected assessment {component} schema {schemaVersion}; expected {supportedSchemaVersion}.")
+    {
+        Component = component;
+        SchemaVersion = schemaVersion;
+        SupportedSchemaVersion = supportedSchemaVersion;
+    }
+
+    public string Component { get; }
+    public int SchemaVersion { get; }
+    public int SupportedSchemaVersion { get; }
+    public bool IsNewerThanSupported => SchemaVersion > SupportedSchemaVersion;
+}
+
 internal sealed class ProtectedAssessmentRuntime
 {
     private readonly AssessmentItemPool _pool;
@@ -479,13 +495,46 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
 
     public ProtectedAssessmentRuntimeSnapshot Load()
     {
-        if (!File.Exists(_path)) return new ProtectedAssessmentRuntimeSnapshot();
+        if (!File.Exists(_path))
+        {
+            if (!File.Exists(BackupPath)) return new ProtectedAssessmentRuntimeSnapshot();
+            try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (UnsupportedProtectedAssessmentSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
+            {
+                throw new InvalidDataException("Protected assessment state is missing and its backup is invalid.", backup);
+            }
+        }
+
         try { return ReadValidated(_path); }
+        catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw new InvalidDataException(schema.Message, schema);
+        }
+        catch (UnsupportedProtectedAssessmentSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw new InvalidDataException(schema.Message, schema);
+        }
         catch (Exception primary) when (primary is JsonException or InvalidDataException or IOException)
         {
             if (!File.Exists(BackupPath))
                 throw new InvalidDataException("Protected assessment state is invalid and no backup is available.", primary);
             try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (UnsupportedProtectedAssessmentSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
                 throw new InvalidDataException("Protected assessment state and its backup are both invalid.", new AggregateException(primary, backup));
@@ -497,13 +546,15 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         snapshot.Validate();
+
+        bool refreshBackupFromPrimary = ShouldRefreshBackupFromPrimary();
         string? directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         string temp = _path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
             File.WriteAllText(temp, JsonSerializer.Serialize(snapshot, JsonOptions), new System.Text.UTF8Encoding(false));
-            if (File.Exists(_path)) File.Copy(_path, BackupPath, true);
+            if (refreshBackupFromPrimary) File.Copy(_path, BackupPath, true);
             File.Move(temp, _path, true);
         }
         finally
@@ -512,10 +563,69 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
         }
     }
 
+    private bool ShouldRefreshBackupFromPrimary()
+    {
+        if (!File.Exists(_path)) return false;
+
+        try
+        {
+            _ = ReadValidated(_path);
+            return true;
+        }
+        catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw new InvalidDataException(schema.Message, schema);
+        }
+        catch (UnsupportedProtectedAssessmentSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw new InvalidDataException(schema.Message, schema);
+        }
+        catch (Exception primary) when (primary is JsonException or InvalidDataException)
+        {
+            if (!File.Exists(BackupPath))
+                throw new InvalidDataException("Existing protected assessment state is invalid and no valid backup is available; refusing to overwrite it.", primary);
+            try
+            {
+                _ = ReadValidated(BackupPath);
+                return false;
+            }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (UnsupportedProtectedAssessmentSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
+            {
+                throw new InvalidDataException(
+                    "Existing protected assessment state is invalid and its backup is not recoverable; refusing to overwrite either copy.",
+                    new AggregateException(primary, backup));
+            }
+        }
+    }
+
     private static ProtectedAssessmentRuntimeSnapshot ReadValidated(string path)
     {
         ProtectedAssessmentRuntimeSnapshot? snapshot = JsonSerializer.Deserialize<ProtectedAssessmentRuntimeSnapshot>(File.ReadAllText(path), JsonOptions);
         if (snapshot is null) throw new InvalidDataException("Protected assessment state is empty.");
+        if (snapshot.SchemaVersion > ProtectedAssessmentRuntimeSnapshot.CurrentSchemaVersion)
+            throw new UnsupportedProtectedAssessmentSchemaException(
+                "snapshot",
+                snapshot.SchemaVersion,
+                ProtectedAssessmentRuntimeSnapshot.CurrentSchemaVersion);
+        if (snapshot.RuntimeState is not null &&
+            snapshot.RuntimeState.SchemaVersion > AssessmentRuntimeState.CurrentSchemaVersion)
+            throw new UnsupportedAssessmentRuntimeSchemaException(
+                snapshot.RuntimeState.SchemaVersion,
+                AssessmentRuntimeState.CurrentSchemaVersion);
+        if (snapshot.BindingState is not null &&
+            snapshot.BindingState.SchemaVersion > ProtectedAssessmentBindingState.CurrentSchemaVersion)
+            throw new UnsupportedProtectedAssessmentSchemaException(
+                "binding",
+                snapshot.BindingState.SchemaVersion,
+                ProtectedAssessmentBindingState.CurrentSchemaVersion);
         snapshot.Validate();
         return snapshot;
     }

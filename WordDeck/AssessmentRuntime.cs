@@ -199,6 +199,20 @@ internal sealed class AssessmentRuntimeState
     }
 }
 
+internal sealed class UnsupportedAssessmentRuntimeSchemaException : Exception
+{
+    public UnsupportedAssessmentRuntimeSchemaException(int schemaVersion, int supportedSchemaVersion)
+        : base($"Unsupported assessment runtime schema {schemaVersion}; expected {supportedSchemaVersion}.")
+    {
+        SchemaVersion = schemaVersion;
+        SupportedSchemaVersion = supportedSchemaVersion;
+    }
+
+    public int SchemaVersion { get; }
+    public int SupportedSchemaVersion { get; }
+    public bool IsNewerThanSupported => SchemaVersion > SupportedSchemaVersion;
+}
+
 internal sealed record AssessmentResumeSnapshot(string SessionId, AssessmentMode Mode, AssessmentItem? CurrentItem, int CompletedItems, int TotalItems, bool IsComplete);
 internal sealed record AssessmentSkillResult(string SkillId, int Attempts, int Correct, int Incorrect, int Skipped, int Unscored, double? DescriptiveAccuracy)
 {
@@ -425,12 +439,35 @@ internal sealed class AssessmentRuntimeStateStore
 
     public AssessmentRuntimeState Load()
     {
-        if (!File.Exists(_path)) return new AssessmentRuntimeState();
+        if (!File.Exists(_path))
+        {
+            if (!File.Exists(BackupPath)) return new AssessmentRuntimeState();
+            try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
+            catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
+            {
+                throw new InvalidDataException("Assessment runtime state is missing and its backup is invalid.", backup);
+            }
+        }
+
         try { return ReadValidated(_path); }
+        catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            // A newer primary may contain progress this build cannot understand. Never hide it
+            // by silently downgrading to an older backup.
+            throw new InvalidDataException(schema.Message, schema);
+        }
         catch (Exception primary) when (primary is JsonException or InvalidDataException or IOException)
         {
             if (!File.Exists(BackupPath)) throw new InvalidDataException("Assessment runtime state is invalid and no backup is available.", primary);
             try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
                 throw new InvalidDataException("Assessment runtime state and its backup are both invalid.", new AggregateException(primary, backup));
@@ -442,22 +479,59 @@ internal sealed class AssessmentRuntimeStateStore
     {
         ArgumentNullException.ThrowIfNull(state);
         state.Validate();
+
+        bool refreshBackupFromPrimary = ShouldRefreshBackupFromPrimary();
         string? directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         string temp = _path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
             File.WriteAllText(temp, JsonSerializer.Serialize(state, JsonOptions), new System.Text.UTF8Encoding(false));
-            if (File.Exists(_path)) File.Copy(_path, BackupPath, true);
+            if (refreshBackupFromPrimary) File.Copy(_path, BackupPath, true);
             File.Move(temp, _path, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
+    private bool ShouldRefreshBackupFromPrimary()
+    {
+        if (!File.Exists(_path)) return false;
+
+        try
+        {
+            _ = ReadValidated(_path);
+            return true;
+        }
+        catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            // A newer persisted state may contain information this build cannot represent.
+            // Never overwrite it through the normal save path.
+            throw new InvalidDataException(schema.Message, schema);
+        }
+        catch (Exception primary) when (primary is JsonException or InvalidDataException)
+        {
+            if (!File.Exists(BackupPath))
+                throw new InvalidDataException("Existing assessment runtime state is invalid and no valid backup is available; refusing to overwrite it.", primary);
+            try
+            {
+                _ = ReadValidated(BackupPath);
+                return false;
+            }
+            catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
+            {
+                throw new InvalidDataException(
+                    "Existing assessment runtime state is invalid and its backup is not recoverable; refusing to overwrite either copy.",
+                    new AggregateException(primary, backup));
+            }
+        }
     }
 
     private static AssessmentRuntimeState ReadValidated(string path)
     {
         AssessmentRuntimeState? state = JsonSerializer.Deserialize<AssessmentRuntimeState>(File.ReadAllText(path), JsonOptions);
         if (state is null) throw new InvalidDataException("Assessment runtime state is empty.");
+        if (state.SchemaVersion > AssessmentRuntimeState.CurrentSchemaVersion)
+            throw new UnsupportedAssessmentRuntimeSchemaException(state.SchemaVersion, AssessmentRuntimeState.CurrentSchemaVersion);
         state.Validate();
         return state;
     }

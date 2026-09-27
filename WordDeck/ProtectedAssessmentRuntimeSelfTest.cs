@@ -11,6 +11,7 @@ internal static class ProtectedAssessmentRuntimeSelfTest
         TestTamperedOrderFailsClosed();
         TestTamperedExposureGroupFailsClosed();
         TestSameExposureGroupReserveFailsClosed();
+        TestProtectedStateStoreRecoveryBoundaries();
         Console.WriteLine("WordDeck protected assessment runtime self-test PASS.");
     }
 
@@ -146,6 +147,161 @@ internal static class ProtectedAssessmentRuntimeSelfTest
         try { _ = new ProtectedAssessmentRuntime(pool, contract, snapshot.RuntimeState, snapshot.BindingState); }
         catch (InvalidDataException) { rejected = true; }
         Require(rejected, "same-exposure-group reserve was accepted as a persisted fresh-equivalent fallback");
+    }
+
+    private static void TestProtectedStateStoreRecoveryBoundaries()
+    {
+        (AssessmentItemPool pool, ProtectedAssessmentFormContract contract) = BuildProtectedForm();
+        string root = Path.Combine(Path.GetTempPath(), "worddeck-protected-assessment-recovery-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "protected-assessment.json");
+        try
+        {
+            var runtime = new ProtectedAssessmentRuntime(pool, contract);
+            AssessmentSessionState session = runtime.StartSession(sessionId: "protected-backup-session");
+            _ = runtime.ResumeSession(session.SessionId);
+            ProtectedAssessmentRuntimeSnapshot durable = runtime.CreateSnapshot();
+            var store = new ProtectedAssessmentRuntimeStateStore(path);
+
+            store.Save(durable);
+            store.Save(new ProtectedAssessmentRuntimeSnapshot());
+            Require(File.Exists(store.BackupPath), "protected recovery fixture did not create a backup");
+
+            byte[] backupBeforeMissingPrimaryRecovery = File.ReadAllBytes(store.BackupPath);
+            File.Delete(store.StatePath);
+            ProtectedAssessmentRuntimeSnapshot missingPrimaryRecovered = store.Load();
+            Require(missingPrimaryRecovered.RuntimeState.Sessions.Count == 1 &&
+                    missingPrimaryRecovered.RuntimeState.Sessions[0].SessionId == "protected-backup-session" &&
+                    missingPrimaryRecovered.BindingState.Exposures.Count == 1,
+                "missing protected primary silently reset state instead of loading the valid backup");
+            Require(!File.Exists(store.StatePath), "protected missing-primary recovery unexpectedly rewrote primary");
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBeforeMissingPrimaryRecovery),
+                "protected missing-primary recovery mutated backup");
+
+            File.WriteAllText(store.StatePath, "{broken protected primary", new System.Text.UTF8Encoding(false));
+            ProtectedAssessmentRuntimeSnapshot corruptPrimaryRecovered = store.Load();
+            Require(corruptPrimaryRecovered.RuntimeState.Sessions.Count == 1 &&
+                    corruptPrimaryRecovered.BindingState.Exposures.Count == 1,
+                "corrupt protected primary did not recover from backup");
+
+            byte[] backupBeforeRepairSave = File.ReadAllBytes(store.BackupPath);
+            store.Save(corruptPrimaryRecovered);
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBeforeRepairSave),
+                "protected recovery save overwrote valid backup with corrupt primary");
+            Require(store.Load().RuntimeState.Sessions.Count == 1,
+                "protected recovery save did not repair primary");
+
+            ProtectedAssessmentRuntimeSnapshot legacyRoot = CloneSnapshot(corruptPrimaryRecovered);
+            legacyRoot.SchemaVersion = 0;
+            WriteSnapshotUnchecked(store.StatePath, legacyRoot);
+            ProtectedAssessmentRuntimeSnapshot legacyRecovered = store.Load();
+            Require(legacyRecovered.RuntimeState.Sessions.Count == 1,
+                "legacy protected snapshot did not recover from valid current backup");
+            byte[] backupBeforeLegacyRepair = File.ReadAllBytes(store.BackupPath);
+            store.Save(legacyRecovered);
+            Require(File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBeforeLegacyRepair),
+                "legacy protected recovery save replaced valid backup");
+
+            ProtectedAssessmentRuntimeSnapshot futureRoot = CloneSnapshot(legacyRecovered);
+            futureRoot.SchemaVersion = ProtectedAssessmentRuntimeSnapshot.CurrentSchemaVersion + 1;
+            AssertNewerProtectedSchemaRejectedWithoutMutation(store, futureRoot, "snapshot");
+
+            ProtectedAssessmentRuntimeSnapshot validForNested = CloneSnapshot(legacyRecovered);
+            WriteSnapshotUnchecked(store.StatePath, validForNested);
+            ProtectedAssessmentRuntimeSnapshot futureRuntime = CloneSnapshot(validForNested);
+            futureRuntime.RuntimeState.SchemaVersion = AssessmentRuntimeState.CurrentSchemaVersion + 1;
+            byte[] futureRuntimePrimary = WriteSnapshotUnchecked(store.StatePath, futureRuntime);
+            byte[] futureRuntimeBackup = File.ReadAllBytes(store.BackupPath);
+            bool futureRuntimeLoadRejected = false;
+            try { _ = store.Load(); }
+            catch (InvalidDataException ex) when (ex.InnerException is UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                futureRuntimeLoadRejected = schema.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
+            }
+            Require(futureRuntimeLoadRejected, "newer nested assessment runtime silently downgraded in protected state");
+            bool futureRuntimeSaveRejected = false;
+            try { store.Save(new ProtectedAssessmentRuntimeSnapshot()); }
+            catch (InvalidDataException ex) when (ex.InnerException is UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                futureRuntimeSaveRejected = schema.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
+            }
+            Require(futureRuntimeSaveRejected, "protected save overwrote newer nested assessment runtime");
+            Require(File.ReadAllBytes(store.StatePath).SequenceEqual(futureRuntimePrimary) &&
+                    File.ReadAllBytes(store.BackupPath).SequenceEqual(futureRuntimeBackup),
+                "newer nested assessment runtime rejection mutated protected state files");
+
+            WriteSnapshotUnchecked(store.StatePath, validForNested);
+            ProtectedAssessmentRuntimeSnapshot futureBinding = CloneSnapshot(validForNested);
+            futureBinding.BindingState.SchemaVersion = ProtectedAssessmentBindingState.CurrentSchemaVersion + 1;
+            AssertNewerProtectedSchemaRejectedWithoutMutation(store, futureBinding, "binding");
+
+            File.Delete(store.StatePath);
+            File.WriteAllText(store.BackupPath, "{broken protected backup", new System.Text.UTF8Encoding(false));
+            byte[] brokenBackupBefore = File.ReadAllBytes(store.BackupPath);
+            bool brokenBackupRejected = false;
+            try { _ = store.Load(); }
+            catch (InvalidDataException) { brokenBackupRejected = true; }
+            Require(brokenBackupRejected, "missing protected primary plus invalid backup fabricated fresh state");
+            Require(!File.Exists(store.StatePath) &&
+                    File.ReadAllBytes(store.BackupPath).SequenceEqual(brokenBackupBefore),
+                "failed protected missing-primary recovery mutated persisted evidence");
+
+            File.WriteAllText(store.StatePath, "{broken protected primary", new System.Text.UTF8Encoding(false));
+            File.Delete(store.BackupPath);
+            byte[] brokenPrimaryBefore = File.ReadAllBytes(store.StatePath);
+            bool unsafeOverwriteRejected = false;
+            try { store.Save(new ProtectedAssessmentRuntimeSnapshot()); }
+            catch (InvalidDataException) { unsafeOverwriteRejected = true; }
+            Require(unsafeOverwriteRejected, "protected save overwrote unrecoverable primary with no backup");
+            Require(File.ReadAllBytes(store.StatePath).SequenceEqual(brokenPrimaryBefore) &&
+                    !File.Exists(store.BackupPath),
+                "rejected protected save mutated unrecoverable persisted state");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AssertNewerProtectedSchemaRejectedWithoutMutation(
+        ProtectedAssessmentRuntimeStateStore store,
+        ProtectedAssessmentRuntimeSnapshot future,
+        string expectedComponent)
+    {
+        byte[] primaryBefore = WriteSnapshotUnchecked(store.StatePath, future);
+        byte[] backupBefore = File.ReadAllBytes(store.BackupPath);
+
+        bool loadRejected = false;
+        try { _ = store.Load(); }
+        catch (InvalidDataException ex) when (ex.InnerException is UnsupportedProtectedAssessmentSchemaException schema)
+        {
+            loadRejected = schema.Component == expectedComponent && schema.IsNewerThanSupported;
+        }
+        Require(loadRejected, $"newer protected {expectedComponent} schema silently downgraded to backup");
+
+        bool saveRejected = false;
+        try { store.Save(new ProtectedAssessmentRuntimeSnapshot()); }
+        catch (InvalidDataException ex) when (ex.InnerException is UnsupportedProtectedAssessmentSchemaException schema)
+        {
+            saveRejected = schema.Component == expectedComponent && schema.IsNewerThanSupported;
+        }
+        Require(saveRejected, $"normal save overwrote newer protected {expectedComponent} schema");
+        Require(File.ReadAllBytes(store.StatePath).SequenceEqual(primaryBefore) &&
+                File.ReadAllBytes(store.BackupPath).SequenceEqual(backupBefore),
+            $"newer protected {expectedComponent} schema rejection mutated persisted files");
+    }
+
+    private static ProtectedAssessmentRuntimeSnapshot CloneSnapshot(ProtectedAssessmentRuntimeSnapshot snapshot)
+    {
+        string json = System.Text.Json.JsonSerializer.Serialize(snapshot);
+        return System.Text.Json.JsonSerializer.Deserialize<ProtectedAssessmentRuntimeSnapshot>(json)
+            ?? throw new InvalidDataException("Could not clone protected assessment snapshot for self-test.");
+    }
+
+    private static byte[] WriteSnapshotUnchecked(string path, ProtectedAssessmentRuntimeSnapshot snapshot)
+    {
+        string json = System.Text.Json.JsonSerializer.Serialize(snapshot);
+        File.WriteAllText(path, json, new System.Text.UTF8Encoding(false));
+        return File.ReadAllBytes(path);
     }
 
     private static (AssessmentItemPool Pool, ProtectedAssessmentFormContract Contract) BuildProtectedForm()
