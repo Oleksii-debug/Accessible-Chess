@@ -34,6 +34,10 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 report.inventory,
             )
             self.assertIn(
+                "AccessibleChess/web/full_product_sound_settings.js",
+                report.inventory,
+            )
+            self.assertIn(
                 "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json",
                 report.inventory,
             )
