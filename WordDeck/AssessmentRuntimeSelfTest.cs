@@ -195,18 +195,18 @@ internal static class AssessmentRuntimeSelfTest
             byte[] backupBeforeFutureReject = File.ReadAllBytes(store.BackupPath);
             bool futureRejected = false;
             try { _ = store.Load(); }
-            catch (UnsupportedAssessmentRuntimeSchemaException ex)
+            catch (InvalidDataException ex) when (ex.InnerException is UnsupportedAssessmentRuntimeSchemaException schema)
             {
-                futureRejected = ex.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1 &&
-                                 ex.IsNewerThanSupported;
+                futureRejected = schema.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1 &&
+                                 schema.IsNewerThanSupported;
             }
             Require(futureRejected, "newer primary schema silently downgraded to an older backup");
 
             bool futureSaveRejected = false;
             try { store.Save(new AssessmentRuntimeState()); }
-            catch (UnsupportedAssessmentRuntimeSchemaException ex)
+            catch (InvalidDataException ex) when (ex.InnerException is UnsupportedAssessmentRuntimeSchemaException schema)
             {
-                futureSaveRejected = ex.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
+                futureSaveRejected = schema.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
             }
             Require(futureSaveRejected, "normal save overwrote a newer unsupported assessment state");
 
