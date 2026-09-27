@@ -495,6 +495,30 @@ class BookProgressStore:
         except OSError:
             pass
 
+    def _require_lock_descriptor_current(self, descriptor: int) -> None:
+        """Require the locked descriptor to still be the configured lock pathname."""
+        try:
+            metadata = os.fstat(descriptor)
+            current_path = os.lstat(self._lock_path)
+        except OSError as exc:
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from exc
+        self._require_regular_metadata(
+            metadata,
+            message="book progress storage lock is not a regular file",
+        )
+        self._require_regular_metadata(
+            current_path,
+            message="book progress storage lock is not a regular file",
+        )
+        if not self._same_file_identity(metadata, current_path):
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
     def _open_lock_descriptor(self) -> int:
         try:
             existing = os.lstat(self._lock_path)
@@ -607,6 +631,7 @@ class BookProgressStore:
             try:
                 self._lock_file_descriptor(descriptor)
                 acquired = True
+                self._require_lock_descriptor_current(descriptor)
                 self._cleanup_stale_temps_unlocked()
                 yield
             finally:
