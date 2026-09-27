@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+import acs.version2_upgrade_base as upgrade_base_module
 from acs.version2_upgrade import (
     UPGRADE_JOURNAL_SCHEMA_VERSION,
     UpgradeLimits,
@@ -179,7 +180,7 @@ class Version2UpgradeTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2UpgradeError, "explicit D07 migration"
             ):
-                Version2UpgradeCoordinator(UserDataLayout(root)).run()
+                upgrade_base_module.Version2UpgradeCoordinator(UserDataLayout(root)).run()
 
             conn = sqlite3.connect(library)
             try:
