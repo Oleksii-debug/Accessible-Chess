@@ -27,7 +27,7 @@ def _candidate_bytes(
     *,
     tamper: str | None = None,
     nvda_verified: bool = False,
-    human_tested: bool | None = None,
+    human_tested: bool = False,
 ) -> bytes:
     payload = {
         "AccessibleChess/AccessibleChess.exe": b"exe",
@@ -40,10 +40,9 @@ def _candidate_bytes(
     }
     manifest_payload: dict[str, object] = {
         "integration_sha": SHA,
+        "human_tested": human_tested,
         "nvda_verified": nvda_verified,
     }
-    if human_tested is not None:
-        manifest_payload["human_tested"] = human_tested
     manifest = json.dumps(manifest_payload).encode()
     checksummed = dict(payload)
     checksummed["RELEASE_MANIFEST.json"] = manifest
@@ -416,12 +415,15 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         manifest = json.loads(files["RELEASE_MANIFEST.json"])
         del manifest["human_tested"]
         files["RELEASE_MANIFEST.json"] = json.dumps(manifest).encode()
-        checksums = {
-            name: hashlib.sha256(payload).hexdigest()
+        checksummed = {
+            name: payload
             for name, payload in files.items()
             if name != "SHA256SUMS.txt"
         }
-        files["SHA256SUMS.txt"] = _checksums(checksums)
+        files["SHA256SUMS.txt"] = "".join(
+            f"{hashlib.sha256(payload).hexdigest()}  {name}\n"
+            for name, payload in sorted(checksummed.items())
+        ).encode()
         self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
         with self.assertRaisesRegex(CandidateArtifactError, "human_tested"):
             verify(self.path, SHA)
@@ -433,12 +435,15 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         manifest = json.loads(files["RELEASE_MANIFEST.json"])
         manifest["nvda_verified"] = "no"
         files["RELEASE_MANIFEST.json"] = json.dumps(manifest).encode()
-        checksums = {
-            name: hashlib.sha256(payload).hexdigest()
+        checksummed = {
+            name: payload
             for name, payload in files.items()
             if name != "SHA256SUMS.txt"
         }
-        files["SHA256SUMS.txt"] = _checksums(checksums)
+        files["SHA256SUMS.txt"] = "".join(
+            f"{hashlib.sha256(payload).hexdigest()}  {name}\n"
+            for name, payload in sorted(checksummed.items())
+        ).encode()
         self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
         with self.assertRaisesRegex(CandidateArtifactError, "nvda_verified"):
             verify(self.path, SHA)
