@@ -317,6 +317,8 @@ def _strict_uia_evidence(product_sha: str = SHA, **overrides: object) -> dict[st
         "board_focus_continuity": True,
         "black_e5_fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
         "raw_exception_noise": False,
+        "human_tested": False,
+        "nvda_verified": False,
     }
     value.update(overrides)
     return value
@@ -671,6 +673,35 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             self.path.write_bytes(_outer_bytes(uia_overrides=overrides))
             with self.assertRaises(CandidateArtifactError):
                 verify(self.path, SHA)
+
+    def test_strict_uia_evidence_requires_explicit_machine_only_false_flags(self) -> None:
+        for key in ("human_tested", "nvda_verified"):
+            with self.subTest(key=key):
+                value = _strict_uia_evidence()
+                del value[key]
+                self.path.write_bytes(
+                    _zip_bytes(
+                        {
+                            "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": _candidate_bytes(),
+                            "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(
+                                _copy_evidence()
+                            ).encode(),
+                            "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
+                                _p0g_evidence()
+                            ).encode(),
+                            "p0-evidence/packaged-uia-strict-summary.json": json.dumps(value).encode(),
+                            "p0-evidence/w4-run-metadata.json": json.dumps(
+                                _run_metadata()
+                            ).encode(),
+                        }
+                    )
+                )
+                with self.assertRaisesRegex(CandidateArtifactError, key):
+                    verify(
+                        self.path,
+                        SHA,
+                        expected_workflow_sha=WORKFLOW_SHA,
+                    )
 
     def test_strict_uia_evidence_rejects_human_or_nvda_overclaims(self) -> None:
         for key, value in (
