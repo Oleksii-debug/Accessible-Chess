@@ -613,6 +613,18 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             with self.assertRaises(CandidateArtifactError):
                 verify(self.path, SHA)
 
+    def test_strict_uia_evidence_rejects_human_or_nvda_overclaims(self) -> None:
+        for key, value in (
+            ("human_tested", True),
+            ("nvda_verified", True),
+            ("human_tested", "yes"),
+            ("nvda_verified", 1),
+        ):
+            with self.subTest(key=key, value=value):
+                self.path.write_bytes(_outer_bytes(uia_overrides={key: value}))
+                with self.assertRaisesRegex(CandidateArtifactError, key):
+                    verify(self.path, SHA)
+
     def test_copy_evidence_requires_exact_textpattern_target_selection(self) -> None:
         self.path.write_bytes(
             _outer_bytes(copy_overrides={"textpattern_target_selected": False})
