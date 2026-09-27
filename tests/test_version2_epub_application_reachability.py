@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.acsdb import AcsDatabase
@@ -122,7 +123,7 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         chapter = f'''<html><body>
 <h1>Board flow</h1>
 <p>Before.</p>
-<img id="position" alt="Початкова позиція" data-acs-fen="${Board.START}"/>
+<img id="position" alt="Початкова позиція" data-acs-fen="{Board.START}"/>
 <p>After.</p>
 </body></html>'''.encode("utf-8")
         source = self._write_epub("board-flow.epub", chapter)
@@ -151,6 +152,41 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
             self.progress.restore(self.app.book_key, self.app.reader.document).location(),
             origin,
         )
+
+    def test_uppercase_epub_extension_uses_same_canonical_ingress(self) -> None:
+        source = self._write_epub(
+            "UPPER.EPUB",
+            b"<html><body><h1>Uppercase EPUB</h1><p>Readable.</p></body></html>",
+        )
+
+        warning_count = self.app.open_book(source)
+
+        self.assertEqual(warning_count, 0)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.document.headings()[0].text, "Uppercase EPUB")
+        self.assertTrue(self.app.book_key.startswith("epub-sha256:"))
+
+    def test_oversize_epub_fails_before_import_and_preserves_current_book(self) -> None:
+        stable = self._write_epub(
+            "stable-before-oversize.epub",
+            b"<html><body><h1>Stable</h1><p>Keep me.</p></body></html>",
+        )
+        self.app.open_book(stable)
+        reader_before = self.app.reader
+        key_before = self.app.book_key
+        route_before = self.app.shell.current_route.route_id
+        snapshot_before = reader_before.snapshot()
+
+        oversize = self.root / "oversize.epub"
+        oversize.write_bytes(b"x" * 17)
+        with patch("acs.version2_application.MAX_EPUB_SOURCE_BYTES", 16):
+            with self.assertRaisesRegex(ValueError, "book source exceeds the supported limit"):
+                self.app.open_book(oversize)
+
+        self.assertIs(self.app.reader, reader_before)
+        self.assertEqual(self.app.book_key, key_before)
+        self.assertEqual(self.app.shell.current_route.route_id, route_before)
+        self.assertEqual(self.app.reader.snapshot(), snapshot_before)
 
     def test_malformed_explicit_epub_chess_content_never_replaces_current_book(self) -> None:
         valid = self._write_epub(
