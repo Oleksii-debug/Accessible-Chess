@@ -17,6 +17,17 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         cls.stage1_release = (ROOT / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
         cls.release_ui = (ROOT / "acs" / "version2_release_ui.py").read_text(encoding="utf-8")
         cls.final_release = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
+        cls.shipping_surfaces = [
+            (ROOT / "web" / name).read_text(encoding="utf-8")
+            for name in (
+                "full_product_pgn.js",
+                "full_product_library.js",
+                "full_product_books_training.js",
+                "full_product_teacher.js",
+                "full_product_classroom.js",
+                "full_product_education.js",
+            )
+        ]
 
     def test_both_shipping_windows_enable_native_document_text_selection(self) -> None:
         for source in (self.stage1_release, self.release_ui):
@@ -56,6 +67,19 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("#v2-navigation", self.v2_bootstrap)
         self.assertIn("#v2-navigation button", self.v2_bootstrap)
         self.assertNotRegex(self.v2_bootstrap, r"(?i)user-select\s*:\s*none")
+
+    def test_shipping_semantic_surfaces_do_not_hide_or_disable_ordinary_text(self) -> None:
+        hidden_or_uncopyable = re.compile(
+            r"(?i)(?:-webkit-)?user-select\s*:\s*none|"
+            r"visibility\s*:\s*hidden|"
+            r"color\s*:\s*transparent|"
+            r"clip-path\s*:|"
+            r"text-indent\s*:\s*-\d|"
+            r"left\s*:\s*-\d"
+        )
+        for source in self.shipping_surfaces:
+            self.assertIn("element.textContent = String(text)", source)
+            self.assertNotRegex(source, hidden_or_uncopyable)
 
     def test_v2_navigation_selection_is_inside_the_same_retention_authority(self) -> None:
         self.assertIn('const navigation = documentRef.getElementById("v2-navigation");', self.p0_runtime)
