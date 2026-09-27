@@ -80,6 +80,16 @@ internal static class SentencePackStoreSelfTest
             Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
                 "Corrupt current manifest did not recover previous committed generation.");
 
+            File.Delete(manifestPath);
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
+                "Missing current manifest did not recover the previous committed generation from the durable backup.");
+
+            string preparedManifestBackup = manifestBackup + ".tmp";
+            File.Move(manifestBackup, preparedManifestBackup, true);
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
+                "Missing current manifest did not recover the previous committed generation from the prepared backup pointer.");
+            File.Move(preparedManifestBackup, manifestBackup, true);
+
             TestSafePackIds();
             TestCaseInsensitiveCollision(root, pack.PackId);
             TestMixedLicenseRejected(root);
