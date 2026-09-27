@@ -488,6 +488,10 @@ class Version2Application:
                 if type(command) is not str or not (command.startswith("screen.") or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}):
                     raise ValueError("unsupported shell command")
                 if command == "screen.training":
+                    # Route changes are modal-blocked by the shell. Apply the same
+                    # fence before Training preflight can move or wrap the reader.
+                    if self.shell.active_dialog_id is not None:
+                        raise ValueError("close the active dialog before opening Training")
                     if not self._start_training_from_current_book():
                         raise ValueError("Training exercise is unavailable")
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)

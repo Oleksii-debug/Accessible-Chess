@@ -286,6 +286,8 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 # replace the canonical reader or publish a new Books route.
                 if self.shell.current_route.route_id != "books":
                     raise ValueError("starter material requires the visible Books route")
+                if self.shell.active_dialog_id is not None:
+                    raise ValueError("close the active dialog before replacing the starter material")
                 if not isinstance(payload, Mapping) or set(payload) != {"material_id"}:
                     raise ValueError("starter material request is invalid")
                 return self._open_starter_material(payload["material_id"])

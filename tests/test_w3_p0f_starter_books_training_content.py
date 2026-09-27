@@ -376,5 +376,65 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_modal_dialog_blocks_hidden_starter_and_training_preflight_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-modal-fence-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    booklet = next(
+                        item
+                        for item in catalogue["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    )
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    before_reader = app.reader.snapshot()
+                    before_material = catalogue["current_id"]
+
+                    opened_dialog = app.adapter.open_dialog(
+                        "test-modal",
+                        opener_focus_id="book-reader",
+                        initial_focus_id="test-modal-confirm",
+                    )
+                    self.assertEqual("dialog-open", opened_dialog.kind)
+                    self.assertEqual("test-modal", app.shell.active_dialog_id)
+
+                    rejected_material = app.browser_command(
+                        "books",
+                        "book.open_starter_material",
+                        {"material_id": booklet["material_id"]},
+                    )
+                    rejected_training = app.browser_command("shell", "screen.training")
+
+                    self.assertEqual("error", rejected_material["kind"])
+                    self.assertEqual("error", rejected_training["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    self.assertEqual("test-modal", app.shell.active_dialog_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+                    self.assertEqual(before_reader, app.reader.snapshot())
+                    self.assertEqual(
+                        before_material,
+                        app.snapshot()["books"]["starter_materials"]["current_id"],
+                    )
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
