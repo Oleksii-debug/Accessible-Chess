@@ -99,6 +99,32 @@ internal static class SentenceListeningAudioSelfTest
             "WordDeck",
             "SentenceAudioPacks")));
 
+        var unsafePack = new SentencePack
+        {
+            PackId = "..",
+            Provenance = "synthetic-test-fixture-only",
+            License = "CC0-1.0-test-fixture",
+            SourceLanguage = "en",
+            TargetLanguage = "uk",
+            Sentences = new List<SentenceRecord>
+            {
+                new()
+                {
+                    Id = "../outside",
+                    English = "We learn.",
+                    Ukrainian = "Ми вчимося.",
+                    Source = "synthetic-test-fixture-only",
+                    License = "CC0-1.0-test-fixture",
+                    Tokens = new List<string> { "we", "learn" },
+                    Lemmas = new List<string> { "we", "learn" },
+                    TargetEntryIds = new List<string> { "word-a" },
+                    EntryLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["word-a"] = "A1" },
+                    DifficultyLevel = "A1"
+                }
+            }
+        };
+        unsafePack.Validate();
+
         IReadOnlyList<string> traversal = SentenceAudioPackLayout.CandidatePaths("..", "../outside");
         Require(IsContained(traversal[0], portableRoot) && IsContained(traversal[1], localRoot),
             "Traversal-like sentence audio IDs escaped a SentenceAudioPacks root.");
