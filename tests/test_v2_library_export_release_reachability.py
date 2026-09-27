@@ -13,7 +13,11 @@ from acs.pgn_service import open_pgn
 from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
 from acs.version2_release_app import _build_version2_windows_file_runtime
-from acs.version2_windows_library_export import LibraryExportHostEvent, LibraryExportHostEventKind
+from acs.version2_windows_library_export import (
+    LibraryExportHostEvent,
+    LibraryExportHostEventKind,
+    build_version2_windows_library_file_runtime,
+)
 
 
 class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
@@ -364,6 +368,104 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             board_dispatch.assert_not_called()
             self.assertNotIn(str(destination), repr(event))
             application._file_event.assert_called_once_with(event)
+        finally:
+            database.close()
+
+
+    def test_canonical_builder_uses_exact_owner_for_library_save_dialog(self) -> None:
+        pgn = """[Event "Owner-bound export"]
+[White "Олексій"]
+[Black "Test"]
+[Result "*"]
+
+1. e4 e5 *
+"""
+
+        class DialogResult:
+            OK = "ok"
+
+        class OpenDialog:
+            def __init__(self) -> None:
+                self.FileName = ""
+
+            def ShowDialog(self, owner):  # noqa: N802
+                return DialogResult.OK
+
+            def Dispose(self):  # noqa: N802
+                return None
+
+        class SaveDialog:
+            destination: Path | None = None
+            owners: list[object] = []
+
+            def __init__(self) -> None:
+                self.FileName = ""
+
+            def ShowDialog(self, owner):  # noqa: N802
+                type(self).owners.append(owner)
+                if type(self).destination is not None:
+                    self.FileName = str(type(self).destination)
+                return DialogResult.OK
+
+            def Dispose(self):  # noqa: N802
+                return None
+
+        def forms_loader():
+            return DialogResult, OpenDialog, SaveDialog
+
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("synchronous export must not post UI work")
+
+        database = AcsDatabase()
+        try:
+            report = database.import_pgn_text(pgn, source_name="owner-bound-export.pgn")
+            game_id = report.game_ids[0]
+            owner = Owner()
+            events: list[object] = []
+            fallbacks: list[object] = []
+
+            with tempfile.TemporaryDirectory() as temp:
+                destination = Path(temp) / "експорт ♞.pgn"
+                SaveDialog.destination = destination
+                SaveDialog.owners.clear()
+                runtime = build_version2_windows_library_file_runtime(
+                    owner_control=owner,
+                    library_service=LibraryExportService(database),
+                    library_export_event_sink=events.append,
+                    get_pgn_session=lambda: None,
+                    set_pgn_session=lambda _session: None,
+                    import_services_factory=lambda: None,
+                    export_selected=lambda _request, _destination: None,
+                    import_ui_ready=lambda _mailbox: None,
+                    pgn_export_event_sink=lambda _event: None,
+                    next_delegate=lambda action_id, payload: fallbacks.append(
+                        (action_id, dict(payload))
+                    ),
+                    current_focus_provider=lambda: "library-results",
+                    ui_delegate_factory=lambda callback: callback,
+                    file_forms_loader=forms_loader,
+                    export_forms_loader=forms_loader,
+                )
+                try:
+                    event = runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([game_id]).browser_payload(),
+                    )
+                    reopened = open_pgn(destination)
+                finally:
+                    self.assertTrue(runtime.shutdown())
+
+            self.assertEqual(event.kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events, [event])
+            self.assertEqual(fallbacks, [])
+            self.assertEqual(SaveDialog.owners, [owner])
+            self.assertEqual(reopened.games[0].tags["Event"], "Owner-bound export")
+            self.assertNotIn(str(destination), repr(event))
         finally:
             database.close()
 
