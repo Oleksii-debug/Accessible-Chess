@@ -470,5 +470,85 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             database.close()
 
 
+    def test_application_selected_export_reaches_bound_native_runtime(self) -> None:
+        pgn = """[Event "Application route"]
+[Site "Bratislava"]
+[Date "2026.09.27"]
+[Round "1"]
+[White "Route"]
+[Black "Runtime"]
+[Result "*"]
+
+1. Nf3 Nf6 *
+"""
+
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("synchronous export must not post UI work")
+
+        class Dialogs:
+            def __init__(self, destination: Path) -> None:
+                self.destination = destination
+                self.calls: list[str] = []
+
+            def export_selection(self, suggested_filename: str = "selection.pgn") -> Path:
+                self.calls.append(suggested_filename)
+                return self.destination
+
+        database = AcsDatabase()
+        runtime = None
+        try:
+            report = database.import_pgn_text(pgn, source_name="application-route.pgn")
+            game_id = report.game_ids[0]
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                destination = root / "маршрут експорту.pgn"
+                application = Version2Application(
+                    database,
+                    progress_store=SimpleNamespace(path=root / "book-progress.json"),
+                    engine_assistance=object(),
+                    board_dispatch=Mock(),
+                    copy_text=lambda _value: None,
+                    language=UILanguage.UA,
+                )
+                application.library.projection.toggle_export_selection(game_id)
+                dialogs = Dialogs(destination)
+                with patch(
+                    "acs.version2_windows_library_export.Version2OwnedWindowsPgnExportDialogs",
+                    return_value=dialogs,
+                ):
+                    runtime = _build_version2_windows_file_runtime(
+                        application=application,
+                        api=SimpleNamespace(v2_board_dispatch=Mock()),
+                        database_path=root / "library.acsdb",
+                        owner_control=Owner(),
+                        dialog_language_provider=lambda: application.shell.language,
+                    )
+                application.bind_files(runtime)
+
+                delegated = application._delegate("library.export", {})
+                reopened = open_pgn(destination)
+                events = application.drain_events()
+
+            self.assertEqual(delegated.kind, "delegated")
+            self.assertEqual(delegated.payload["action"], "library.export")
+            self.assertEqual(delegated.payload["scope"], "selected")
+            self.assertEqual(dialogs.calls, ["library-export.pgn"])
+            self.assertEqual(len(reopened.games), 1)
+            self.assertEqual(reopened.games[0].tags["Event"], "Application route")
+            self.assertIn(
+                {"kind": "status", "payload": {"announcement": "Експорт завершено."}},
+                events,
+            )
+        finally:
+            if runtime is not None:
+                self.assertTrue(runtime.shutdown())
+            database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
