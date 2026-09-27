@@ -57,15 +57,26 @@ internal static class DictionaryLoader
         var info = new FileInfo(fullPath);
         if (!info.Exists)
             throw new FileNotFoundException("Dictionary file was not found.", fullPath);
-        if (info.Length <= 0)
-            throw new InvalidDataException("Dictionary file is empty.");
-        if (info.Length > MaxImportedFileBytes)
-            throw new InvalidDataException($"Dictionary file exceeds the {MaxImportedFileBytes / (1024 * 1024)} MiB import limit.");
 
         string text;
         try
         {
-            text = File.ReadAllText(fullPath, StrictUtf8);
+            using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (stream.Length <= 0)
+                throw new InvalidDataException("Dictionary file is empty.");
+            if (stream.Length > MaxImportedFileBytes)
+                throw new InvalidDataException($"Dictionary file exceeds the {MaxImportedFileBytes / (1024 * 1024)} MiB import limit.");
+
+            // Keep one stable read handle from boundary check through decode. Disabling
+            // encoding auto-detection still allows the expected UTF-8 preamble to be
+            // consumed, but prevents a UTF-16 BOM from silently changing the import format.
+            using var reader = new StreamReader(
+                stream,
+                StrictUtf8,
+                detectEncodingFromByteOrderMarks: false,
+                bufferSize: 4096,
+                leaveOpen: false);
+            text = reader.ReadToEnd();
         }
         catch (DecoderFallbackException ex)
         {
