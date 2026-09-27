@@ -7,6 +7,7 @@ on:
       - 'acs/classroom_webview_projection.py'
       - 'acs/teacher_webview_bridge.py'
       - 'acs/teacher_webview_projection.py'
+      - 'acs/version2_final_release.py'
       - 'tests/js/teacher_surface_dom_test.js'
       - 'tests/test_d09_teacher_canonical_webview_composition.py'
       - 'tests/test_dev1_classroom_web_asset.py'
