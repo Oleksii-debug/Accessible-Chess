@@ -98,7 +98,7 @@ internal sealed class PronunciationAudio : IDisposable
 
     private static bool IsSafeFileSegment(string value)
     {
-        if (value.Length == 0 || value is "." or ".." || value.EndsWith('.', StringComparison.Ordinal))
+        if (value.Length == 0 || value is "." or ".." || value.EndsWith(".", StringComparison.Ordinal))
             return false;
         if (!Regex.IsMatch(value, "^[A-Za-z0-9][A-Za-z0-9._-]*$"))
             return false;
