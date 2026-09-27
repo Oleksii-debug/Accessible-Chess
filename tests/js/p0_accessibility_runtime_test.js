@@ -11,6 +11,7 @@ const source = fs.readFileSync(
 );
 
 const nonEmptyLiveWrites = [];
+const nonEmptyLiveWriteTimes = [];
 let liveText = "";
 const live = {
   hidden: false,
@@ -19,7 +20,10 @@ const live = {
   get textContent() { return liveText; },
   set textContent(value) {
     liveText = String(value);
-    if (liveText) nonEmptyLiveWrites.push(liveText);
+    if (liveText) {
+      nonEmptyLiveWrites.push(liveText);
+      nonEmptyLiveWriteTimes.push(Date.now());
+    }
   }
 };
 const main = {
@@ -179,6 +183,8 @@ async function run() {
     "distinct explicit event identities must preserve repeated result text"
   );
 
+  const surfaceWriteStartIndex = nonEmptyLiveWrites.length;
+  const surfaceBatchStartedAt = Date.now();
   let staleCallbackCalls = 0;
   const staleCallback = function () { staleCallbackCalls += 1; };
   const repeatPgnResult = async function () {
@@ -249,12 +255,18 @@ async function run() {
   const teacherSecond = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
   teacherSurfaceAnnounce(teacherSecond.payload.announcement);
 
-  // Nine accepted surface announcements can be queued back-to-back here. The
-  // production pump intentionally spaces each write by 30 ms + 35 ms, so 520 ms
-  // can observe the penultimate write and falsely report the final Teacher event
-  // as lost. Keep the oracle bounded while allowing the full deterministic queue
-  // to drain on hosted Windows/Linux runners.
-  await new Promise(resolve => setTimeout(resolve, 750));
+  // Wait beyond the acceptance window only to avoid a test-scheduler race: the
+  // nested runtime timers are created after this batch starts, so a single
+  // pre-scheduled 520 ms test timer can run first on a loaded Windows runner.
+  // Product latency is still measured from actual write timestamps and must
+  // remain within the existing frozen 520 ms bound below.
+  await new Promise(resolve => setTimeout(resolve, 900));
+  const surfaceWriteTimes = nonEmptyLiveWriteTimes.slice(surfaceWriteStartIndex);
+  assert.ok(surfaceWriteTimes.length >= 9, "all explicit surface results must reach the live region");
+  assert.ok(
+    Math.max.apply(Math, surfaceWriteTimes) - surfaceBatchStartedAt <= 520,
+  "explicit surface result batch must remain inside the frozen 520 ms delivery window"
+  );
   assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,
