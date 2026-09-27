@@ -173,6 +173,25 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 with self.assertRaisesRegex(CandidateArtifactError, "outer artifact size"):
                     verify(oversized, SHA)
 
+    def test_outer_uncompressed_size_bound_fails_before_member_reads(self) -> None:
+        with patch("scripts.verify_w4_candidate_artifact.MAX_OUTER_UNCOMPRESSED_BYTES", 8):
+            with patch.object(zipfile.ZipFile, "read", side_effect=AssertionError("must not decompress")):
+                with self.assertRaisesRegex(CandidateArtifactError, "outer artifact uncompressed size"):
+                    verify(self.path, SHA)
+
+    def test_evidence_size_bound_fails_before_evidence_read(self) -> None:
+        original_read = zipfile.ZipFile.read
+
+        def guarded_read(archive, name, *args, **kwargs):
+            if str(name).endswith(".json"):
+                raise AssertionError("oversized evidence must not be decompressed")
+            return original_read(archive, name, *args, **kwargs)
+
+        with patch("scripts.verify_w4_candidate_artifact.MAX_EVIDENCE_BYTES", 8):
+            with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+                with self.assertRaisesRegex(CandidateArtifactError, "outer evidence JSON size"):
+                    verify(self.path, SHA)
+
     def test_inner_zip_size_bound_fails_before_decompression(self) -> None:
         original_read = zipfile.ZipFile.read
 

@@ -13,6 +13,8 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTER_BYTES = 300 * 1024 * 1024
 MAX_INNER_BYTES = 250 * 1024 * 1024
+MAX_OUTER_UNCOMPRESSED_BYTES = 280 * 1024 * 1024
+MAX_EVIDENCE_BYTES = 1024 * 1024
 MAX_CANDIDATE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
 HASH_CHUNK_BYTES = 1024 * 1024
 
@@ -253,6 +255,16 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         raise CandidateArtifactError("outer artifact is not a valid ZIP") from exc
     with outer:
         outer_members = _safe_members(outer, "outer artifact")
+        outer_uncompressed_size = sum(
+            info.file_size for info in outer_members.values() if not info.is_dir()
+        )
+        if (
+            outer_uncompressed_size <= 0
+            or outer_uncompressed_size > MAX_OUTER_UNCOMPRESSED_BYTES
+        ):
+            raise CandidateArtifactError(
+                "outer artifact uncompressed size is outside accepted bounds"
+            )
         files = [name for name, info in outer_members.items() if not info.is_dir()]
         candidate_names = [name for name in files if name.endswith("-NVDA-test-candidate.zip")]
         copy_names = [name for name in files if name.endswith("packaged-v2-document-copy-summary.json")]
@@ -278,6 +290,12 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
             unexpected = sorted(set(files) - expected_outer_files)
             raise CandidateArtifactError(f"outer artifact contains unexpected files: {unexpected}")
 
+        for evidence_name in (copy_names[0], p0g_names[0], uia_names[0]):
+            evidence_size = outer_members[evidence_name].file_size
+            if evidence_size <= 0 or evidence_size > MAX_EVIDENCE_BYTES:
+                raise CandidateArtifactError(
+                    f"outer evidence JSON size is outside accepted bounds: {evidence_name}"
+                )
         copy_evidence = _load_json(outer.read(copy_names[0]), "copy evidence")
         p0g_evidence = _load_json(outer.read(p0g_names[0]), "P0-G evidence")
         uia_evidence = _load_json(outer.read(uia_names[0]), "strict UIA evidence")
