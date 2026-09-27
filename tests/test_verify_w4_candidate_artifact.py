@@ -680,7 +680,21 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 value = _strict_uia_evidence()
                 del value[key]
                 self.path.write_bytes(
-                    _outer_bytes(uia_payload=value)
+                    _zip_bytes(
+                        {
+                            "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": _candidate_bytes(),
+                            "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(
+                                _copy_evidence()
+                            ).encode(),
+                            "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
+                                _p0g_evidence()
+                            ).encode(),
+                            "p0-evidence/packaged-uia-strict-summary.json": json.dumps(value).encode(),
+                            "p0-evidence/w4-run-metadata.json": json.dumps(
+                                _run_metadata()
+                            ).encode(),
+                        }
+                    )
                 )
                 with self.assertRaisesRegex(CandidateArtifactError, key):
                     verify(
