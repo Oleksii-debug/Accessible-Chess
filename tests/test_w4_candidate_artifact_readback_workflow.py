@@ -68,7 +68,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
     def test_verifier_dependency_graph_is_bound_to_completed_workflow_authority(self) -> None:
         self.assertNotIn("W4_VERIFIER_COMMIT:", self.text)
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 01922a47d6fe54b2944f2ae54933eac5d9cdb050",
+            "W4_VERIFIER_BLOB_SHA: c90599ebeaa37b5fe4a5ab931318ee20b98ba1ef",
             self.text,
         )
         self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
