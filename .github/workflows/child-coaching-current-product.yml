@@ -40,6 +40,39 @@ jobs:
     steps:
       - name: Checkout exact head
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove current Product ancestry and exact child-coaching scope
+        shell: bash
+        env:
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$PRODUCT_BRANCH"
+          product_ref="origin/$PRODUCT_BRANCH"
+          git merge-base --is-ancestor "$product_ref" HEAD || {
+            echo "Child-coaching head is stale relative to current Full Product." >&2
+            exit 1
+          }
+          changed="$(git diff --name-only "$product_ref...HEAD" | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/child-coaching-current-product.yml' \
+            'acs/child_coaching.py' \
+            'acs/child_coaching_application.py' \
+            'acs/child_coaching_prepared_positions.py' \
+            'acs/child_coaching_projection.py' \
+            'acs/child_coaching_rotation.py' \
+            'acs/child_coaching_rotation_store.py' \
+            'acs/child_coaching_store.py' \
+            'tests/test_child_coaching.py' \
+            'tests/test_child_coaching_application.py' \
+            'tests/test_child_coaching_prepared_positions.py' \
+            'tests/test_child_coaching_projection.py' \
+            'tests/test_child_coaching_rotation.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected child-coaching scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
