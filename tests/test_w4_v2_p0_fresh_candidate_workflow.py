@@ -188,16 +188,21 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(self.text.index("HUMAN_TESTED=NO"), upload)
         self.assertLess(self.text.index("NVDA_VERIFIED=NO"), upload)
 
-    def test_successful_run_rechecks_freshness_after_artifact_upload(self) -> None:
+    def test_successful_run_does_not_rebind_freshness_after_artifact_upload(self) -> None:
         upload = self.text.index(UPLOAD_ARTIFACT_V462)
-        post = self.text.index("Recheck workflow and Full Product freshness after artifact upload")
-        passed = self.text.index("W4_POST_UPLOAD_FRESHNESS=PASS")
-        self.assertLess(upload, post)
-        self.assertLess(post, passed)
-        self.assertIn("STALE_W4_WORKFLOW_AFTER_UPLOAD", self.text)
-        self.assertIn("STALE_W4_CANDIDATE_AFTER_UPLOAD", self.text)
-        self.assertIn("W4_POST_UPLOAD_WORKFLOW_FRESHNESS=PASS", self.text)
-        self.assertIn("W4_POST_UPLOAD_PRODUCT_FRESHNESS=PASS", self.text)
+        metadata = self.text.index("W4_RUN_METADATA=PASS")
+        self.assertLess(metadata, upload)
+        for forbidden in (
+            "Recheck workflow and Full Product freshness after artifact upload",
+            "STALE_W4_WORKFLOW_AFTER_UPLOAD",
+            "STALE_W4_CANDIDATE_AFTER_UPLOAD",
+            "W4_POST_UPLOAD_WORKFLOW_FRESHNESS=PASS",
+            "W4_POST_UPLOAD_PRODUCT_FRESHNESS=PASS",
+            "W4_POST_UPLOAD_FRESHNESS=PASS",
+        ):
+            self.assertNotIn(forbidden, self.text)
+        self.assertIn("pre_upload_product_freshness", self.text)
+        self.assertIn("pre_upload_workflow_freshness", self.text)
 
     def test_candidate_artifact_publication_is_exactly_pinned_and_contains_evidence(self) -> None:
         self.assertIn(UPLOAD_ARTIFACT_V462, self.text)
