@@ -15,12 +15,18 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .sound_events import SoundEvent
 from .sound_pack_store import FilesystemSoundPackStore
 from .sound_profile_file_store import JsonSoundProfileStorage
 from .sound_profile_store import SoundProfileManager
 from .sound_profiles import SoundProfile
 from .sound_profile_windows import ProfiledWindowsSoundPlaybackAdapter
-from .sound_runtime import GameSoundRuntime, ProfiledSoundRuntime, SoundAssetPlaybackPort
+from .sound_runtime import (
+    GameSoundRuntime,
+    ProfiledSoundRuntime,
+    SoundAssetPlaybackPort,
+    SoundAssetRequest,
+)
 from .sound_settings_application import SoundSettingsApplication
 from .sound_windows import PackagedSoundAssetResolver
 
@@ -33,6 +39,56 @@ class LocalSoundComposition:
     game_runtime: GameSoundRuntime
     settings: SoundSettingsApplication
 
+
+class _InjectedClassicPlaybackBridge:
+    """Adapt the retained Stage-1 injection seam to profile asset requests.
+
+    Production never uses this bridge; the default path owns the profiled Windows
+    adapter. This trusted diagnostic/test boundary permits classic semantic events
+    only, so it cannot become a second custom-pack playback authority.
+    """
+
+    def __init__(self, playback: Any) -> None:
+        play = getattr(playback, "play", None)
+        if not callable(play):
+            raise TypeError("injected sound playback must expose play_sound() or play()")
+        self._playback = playback
+
+    def play_sound(self, request: SoundAssetRequest) -> None:
+        if not isinstance(request, SoundAssetRequest):
+            raise TypeError("request must be SoundAssetRequest")
+        if request.pack_id != "classic":
+            raise ValueError("legacy injected playback supports only the classic pack")
+        if request.event_id == "low_time":
+            if not request.preview:
+                raise ValueError("classic low-time is preview-only")
+            event = SoundEvent.TICK
+        else:
+            try:
+                event = SoundEvent(request.event_id)
+            except ValueError as exc:
+                raise ValueError("unknown classic sound event") from exc
+            if request.sound_id != request.event_id:
+                raise ValueError("legacy injected playback cannot remap classic sound ids")
+        self._playback.play(event, volume=request.volume)
+
+
+def _asset_playback(
+    playback: SoundAssetPlaybackPort | Any | None,
+    *,
+    application_dir: Path,
+    pack_store: FilesystemSoundPackStore,
+    cache_root: Path,
+) -> SoundAssetPlaybackPort:
+    if playback is None:
+        return ProfiledWindowsSoundPlaybackAdapter(
+            PackagedSoundAssetResolver(application_dir),
+            pack_store,
+            cache_dir=cache_root,
+        )
+    if callable(getattr(playback, "play_sound", None)):
+        return playback
+    return _InjectedClassicPlaybackBridge(playback)
 
 def _local_pack_resolver(store: FilesystemSoundPackStore):
     def resolve(pack_id: str) -> str:
@@ -96,13 +152,12 @@ def create_local_sound_composition(
         if migrated is not None:
             profile_manager.save(migrated)
 
-    playback = asset_playback
-    if playback is None:
-        playback = ProfiledWindowsSoundPlaybackAdapter(
-            PackagedSoundAssetResolver(app_dir),
-            pack_store,
-            cache_dir=cache_root,
-        )
+    playback = _asset_playback(
+        asset_playback,
+        application_dir=app_dir,
+        pack_store=pack_store,
+        cache_root=cache_root,
+    )
     profiled = ProfiledSoundRuntime(playback, profile_manager.profile_provider)
     game = GameSoundRuntime(profiled)
     settings = SoundSettingsApplication(profile_manager, profiled)
