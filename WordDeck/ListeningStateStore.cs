@@ -143,6 +143,8 @@ internal sealed class ListeningStateStore
 
     internal static ListeningCoachState Normalize(ListeningCoachState state)
     {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new InvalidDataException($"Listening progress uses newer schema {state.SchemaVersion}; this build supports {CurrentSchemaVersion}. Existing state must not be downgraded.");
         state.SchemaVersion = CurrentSchemaVersion;
         if (!StudyScopeIds.Ordered.Contains(state.ActiveScopeId, StringComparer.OrdinalIgnoreCase))
             state.ActiveScopeId = StudyScopeIds.All;
