@@ -43,14 +43,43 @@ internal sealed class SentenceCoachStateStore
         _backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
     }
 
-    public SentenceCoachState Load() => Normalize(TryLoad(_path) ?? TryLoad(_backupPath) ?? new SentenceCoachState());
+    public SentenceCoachState Load()
+    {
+        bool primaryExists = File.Exists(_path);
+        bool backupExists = File.Exists(_backupPath);
+
+        SentenceCoachState? primary = TryLoad(_path);
+        if (primary is not null)
+            return Normalize(primary);
+
+        SentenceCoachState? backup = TryLoad(_backupPath);
+        if (backup is not null)
+            return Normalize(backup);
+
+        if (!primaryExists && !backupExists)
+            return Normalize(new SentenceCoachState());
+
+        throw new InvalidDataException(
+            "Sentence Spelling state exists but neither the primary file nor its recovery backup is readable. WordDeck stopped before creating fresh state so existing progress is not silently replaced.");
+    }
 
     public void Save(SentenceCoachState state)
     {
         Normalize(state);
+
+        bool primaryExists = File.Exists(_path);
+        bool backupExists = File.Exists(_backupPath);
+        SentenceCoachState? validPrimary = TryLoad(_path);
+        SentenceCoachState? validBackup = TryLoad(_backupPath);
+
+        if ((primaryExists || backupExists) && validPrimary is null && validBackup is null)
+            throw new InvalidDataException(
+                "Sentence Spelling state could not be verified before saving. WordDeck refused to overwrite unreadable progress without a valid recovery copy.");
+
         string temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
-        if (TryLoad(_path) is not null) File.Copy(_path, _backupPath, true);
+        if (validPrimary is not null)
+            File.Copy(_path, _backupPath, true);
         File.Move(temp, _path, true);
     }
 
