@@ -365,14 +365,18 @@ def bind_pair_play_batch(
     expected_revision: int,
 ) -> RotationState:
     item = current_round(plan, state)
-    _expected_revision(state, expected_revision)
     if state.phase is not RotationPhase.ACTIVE:
         raise ChildCoachingRotationError("rotation must be active")
     if item.activity is not RotationActivity.PAIR_PLAY:
         raise ChildCoachingRotationError("pair-play batch can only bind during pair-play rotation")
     ref = _identifier(batch_ref, "pair-play batch reference")
-    if state.pair_play_batch_ref == ref:
+    if (
+        state.pair_play_batch_ref == ref
+        and type(expected_revision) is int
+        and expected_revision in {state.revision, state.revision - 1}
+    ):
         return state
+    _expected_revision(state, expected_revision)
     if state.pair_play_batch_ref is not None:
         raise ChildCoachingRotationError("pair-play batch is already bound")
     return replace(
@@ -390,6 +394,8 @@ def advance_rotation(
 ) -> RotationState:
     item = current_round(plan, state)
     _expected_revision(state, expected_revision)
+    if state.phase is not RotationPhase.ACTIVE:
+        raise ChildCoachingRotationError("rotation must be active")
     if item.activity is RotationActivity.PAIR_PLAY and state.pair_play_batch_ref is None:
         raise ChildCoachingRotationError(
             "pair-play round cannot advance before external pair-play batch is bound"
