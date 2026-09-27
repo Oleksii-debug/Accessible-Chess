@@ -332,6 +332,7 @@ def _verify_starter_database(
     info: zipfile.ZipInfo,
     expected: dict[str, int],
     selected_games: list[dict[str, object]],
+    starter_sha256: str,
 ) -> None:
     if info.file_size <= 0 or info.file_size > MAX_CANDIDATE_METADATA_BYTES:
         raise CandidateArtifactError("starter ACSDB size is outside accepted semantic bound")
@@ -390,6 +391,9 @@ def _verify_starter_database(
             database_game_metadata = connection.execute(
                 "SELECT event, white, black, result FROM games ORDER BY id"
             ).fetchall()
+            source_rows = connection.execute(
+                "SELECT source_name, source_format, sha256 FROM sources ORDER BY id"
+            ).fetchall()
         except CandidateArtifactError:
             raise
         except (sqlite3.Error, RuntimeError) as exc:
@@ -422,6 +426,12 @@ def _verify_starter_database(
         if database_game_metadata != expected_game_metadata:
             raise CandidateArtifactError(
                 "starter ACSDB game metadata does not match curated starter evidence"
+            )
+        if source_rows != [
+            ("accessible-chess-starter-uk.pgn", "pgn", starter_sha256)
+        ]:
+            raise CandidateArtifactError(
+                "starter ACSDB source provenance does not bind packaged starter PGN"
             )
     finally:
         if temporary_name is not None:
@@ -556,6 +566,7 @@ def _verify_starter_bundle(
         members[f"{STARTER_ROOT}/sample_library.acsdb"],
         expected_sample,
         selected_games,
+        str(starter_metadata["sha256"]).lower(),
     )
 
 
