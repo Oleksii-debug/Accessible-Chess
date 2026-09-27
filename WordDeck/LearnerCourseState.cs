@@ -206,25 +206,37 @@ internal sealed class LearnerCourseStateStore
         RequireCurrentSchemaForWrite(state, "save");
         EnsureNoNewerPersistedState();
 
+        bool primaryExists = File.Exists(_statePath);
+        bool backupExists = File.Exists(_backupPath);
+        bool primaryRecoverable = TryReadRecoverable(_statePath, out _);
+        bool backupRecoverable = TryReadRecoverable(_backupPath, out _);
+
+        if ((primaryExists || backupExists) && !primaryRecoverable && !backupRecoverable)
+            throw new InvalidDataException(
+                "Course-state save was refused because persisted learning state exists but no verified recovery copy can be loaded. Existing files were left untouched.");
+
         LearnerCourseState snapshot = Clone(state);
         Validate(snapshot);
 
         string temp = _statePath + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(snapshot, JsonOptions));
-        if (!TryReadRecoverable(temp, out LearnerCourseState? verified) || verified is null)
+        try
+        {
+            File.WriteAllText(temp, JsonSerializer.Serialize(snapshot, JsonOptions));
+            if (!TryReadRecoverable(temp, out LearnerCourseState? verified) || verified is null)
+                throw new InvalidDataException("Course-state write verification failed; existing state was not replaced.");
+
+            // Rotate only a verified primary. If the primary is corrupt but a
+            // verified backup exists, preserve that backup while replacing primary.
+            if (primaryRecoverable)
+                File.Copy(_statePath, _backupPath, true);
+
+            File.Move(temp, _statePath, true);
+            ReplaceInMemory(state, snapshot);
+        }
+        finally
         {
             TryDelete(temp);
-            throw new InvalidDataException("Course-state write verification failed; existing state was not replaced.");
         }
-
-        // A fixed recovery copy must itself satisfy the supported schema and
-        // semantic invariants. Merely parseable corrupt JSON must never replace
-        // the last known-good recovery copy.
-        if (TryReadRecoverable(_statePath, out LearnerCourseState? existing) && existing is not null)
-            File.Copy(_statePath, _backupPath, true);
-
-        File.Move(temp, _statePath, true);
-        ReplaceInMemory(state, snapshot);
     }
 
     public string CreateTimestampedBackup(string reason)
@@ -449,29 +461,55 @@ internal sealed class LearnerCourseStateStore
 
     private static void ThrowIfPersistedNewerSchema(string path)
     {
-        if (TryReadSchemaVersion(path, out int schemaVersion) && schemaVersion > CurrentSchemaVersion)
-            throw new InvalidDataException($"WordDeck course state '{Path.GetFileName(path)}' uses newer schema {schemaVersion}; this build supports up to {CurrentSchemaVersion}. No personal state was changed.");
-    }
+        if (!File.Exists(path)) return;
 
-    private static bool TryReadSchemaVersion(string path, out int schemaVersion)
-    {
-        schemaVersion = 0;
+        JsonDocument document;
         try
         {
-            if (!File.Exists(path)) return false;
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            document = JsonDocument.Parse(File.ReadAllText(path));
+        }
+        catch
+        {
+            // Ordinary corrupt JSON remains eligible for verified-backup recovery.
+            // Schema-envelope ambiguity is handled separately below because it can
+            // otherwise masquerade as an older compatible state.
+            return;
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return;
+
+            int schemaPropertyCount = 0;
+            JsonElement schemaValue = default;
             foreach (JsonProperty property in document.RootElement.EnumerateObject())
             {
                 if (!property.Name.Equals(nameof(LearnerCourseState.SchemaVersion), StringComparison.OrdinalIgnoreCase))
                     continue;
-                return property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out schemaVersion);
+
+                schemaPropertyCount++;
+                if (schemaPropertyCount > 1)
+                    throw new InvalidDataException(
+                        $"WordDeck course state '{Path.GetFileName(path)}' contains duplicate SchemaVersion metadata. " +
+                        "WordDeck will not guess which schema is authoritative or fall back to older state. No personal state was changed.");
+
+                schemaValue = property.Value;
             }
-            return false;
-        }
-        catch
-        {
-            return false;
+
+            if (schemaPropertyCount == 0)
+                throw new InvalidDataException(
+                    $"WordDeck course state '{Path.GetFileName(path)}' has no SchemaVersion metadata. " +
+                    "WordDeck will not treat model defaults as persisted schema authority. No personal state was changed.");
+
+            if (schemaValue.ValueKind != JsonValueKind.Number || !schemaValue.TryGetInt32(out int schemaVersion))
+                throw new InvalidDataException(
+                    $"WordDeck course state '{Path.GetFileName(path)}' has invalid SchemaVersion metadata. " +
+                    "WordDeck will not guess the persisted schema. No personal state was changed.");
+
+            if (schemaVersion > CurrentSchemaVersion)
+                throw new InvalidDataException(
+                    $"WordDeck course state '{Path.GetFileName(path)}' uses newer schema {schemaVersion}; " +
+                    $"this build supports up to {CurrentSchemaVersion}. No personal state was changed.");
         }
     }
 

@@ -246,7 +246,134 @@ internal static class LearnerCourseStateSelfTest
             Require(extensionDoc.RootElement.TryGetProperty("FutureOpaqueField", out JsonElement opaque) && opaque.GetProperty("keep").GetBoolean(),
                 "Unknown future course-state data was lost during load/save.");
 
-            Console.WriteLine("WordDeck learner course-state acceptance passed: exposure/practice/mastery/assessment separation, Fast Track/Deep Practice routing, independent course positions/skill estimates, LocalAppData sidecar continuity, backups, import/export, fail-closed newer schema, non-destructive migration and unknown-field preservation verified.");
+            // Duplicate schema metadata is ambiguous authority, not ordinary corruption.
+            // A supported value followed by a newer value must not bypass the early
+            // schema gate and silently fall back to an older verified backup.
+            string duplicateSchemaRoot = Path.Combine(root, "duplicate schema fixture");
+            Directory.CreateDirectory(duplicateSchemaRoot);
+            var duplicateSchemaStore = new LearnerCourseStateStore(duplicateSchemaRoot);
+            LearnerCourseState duplicateSeed = LearnerCourseStateStore.NewEmpty();
+            duplicateSchemaStore.Save(duplicateSeed);
+            duplicateSeed.OrphanedStableIds.Add("backup-marker");
+            duplicateSchemaStore.Save(duplicateSeed);
+
+            string duplicatePrimaryPath = Path.Combine(duplicateSchemaRoot, LearnerCourseStateStore.FileName);
+            string duplicateBackupPath = Path.Combine(duplicateSchemaRoot, LearnerCourseStateStore.BackupFileName);
+            string duplicatePrimary =
+                "{\"SchemaVersion\":1,\"SchemaVersion\":999,\"CoursePositionsByPathId\":{},\"EvidenceHistory\":[],\"MasteryByObjectiveId\":{},\"AdaptiveRouteByPathId\":{},\"SkillLevelsBySkillId\":{},\"OrphanedStableIds\":[]}";
+            File.WriteAllText(duplicatePrimaryPath, duplicatePrimary);
+            string backupBeforeDuplicateReject = File.ReadAllText(duplicateBackupPath);
+
+            bool duplicateLoadRejected = false;
+            try { _ = duplicateSchemaStore.Load(); }
+            catch (InvalidDataException) { duplicateLoadRejected = true; }
+            Require(duplicateLoadRejected,
+                "Duplicate course-state SchemaVersion metadata silently fell back to an older backup.");
+
+            bool duplicateSaveRejected = false;
+            try { duplicateSchemaStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { duplicateSaveRejected = true; }
+            Require(duplicateSaveRejected,
+                "Save overwrote course state with ambiguous duplicate SchemaVersion metadata.");
+            Require(File.ReadAllText(duplicatePrimaryPath) == duplicatePrimary,
+                "Rejected duplicate-schema course state mutated the primary file.");
+            Require(File.ReadAllText(duplicateBackupPath) == backupBeforeDuplicateReject,
+                "Rejected duplicate-schema course state mutated the verified backup.");
+
+            // Parseable state without explicit schema metadata must not inherit the
+            // model's current-version initializer and masquerade as current data.
+            string missingSchemaRoot = Path.Combine(root, "missing schema fixture");
+            Directory.CreateDirectory(missingSchemaRoot);
+            string missingSchemaPrimary = Path.Combine(missingSchemaRoot, LearnerCourseStateStore.FileName);
+            string missingSchemaBackup = Path.Combine(missingSchemaRoot, LearnerCourseStateStore.BackupFileName);
+            string missingSchemaJson =
+                "{\"CoursePositionsByPathId\":{},\"EvidenceHistory\":[],\"MasteryByObjectiveId\":{},\"AdaptiveRouteByPathId\":{},\"SkillLevelsBySkillId\":{},\"OrphanedStableIds\":[]}";
+            File.WriteAllText(missingSchemaPrimary, missingSchemaJson);
+            var missingSchemaStore = new LearnerCourseStateStore(missingSchemaRoot);
+
+            bool missingSchemaLoadRejected = false;
+            try { _ = missingSchemaStore.Load(); }
+            catch (InvalidDataException) { missingSchemaLoadRejected = true; }
+            Require(missingSchemaLoadRejected,
+                "Course state without SchemaVersion metadata inherited the model default and was accepted.");
+
+            bool missingSchemaSaveRejected = false;
+            try { missingSchemaStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { missingSchemaSaveRejected = true; }
+            Require(missingSchemaSaveRejected,
+                "Save overwrote course state that had no explicit SchemaVersion metadata.");
+            Require(File.ReadAllText(missingSchemaPrimary) == missingSchemaJson,
+                "Rejected missing-schema course state mutated the primary file.");
+            Require(!File.Exists(missingSchemaBackup),
+                "Rejected missing-schema course state fabricated a backup.");
+
+            string missingSchemaImport = Path.Combine(root, "course-state-missing-schema-import.json");
+            File.WriteAllText(missingSchemaImport, missingSchemaJson);
+            string beforeMissingSchemaImport = File.ReadAllText(Path.Combine(root, LearnerCourseStateStore.FileName));
+            bool missingSchemaImportRejected = false;
+            try { _ = courseStore.ImportSnapshot(missingSchemaImport); }
+            catch (InvalidDataException) { missingSchemaImportRejected = true; }
+            Require(missingSchemaImportRejected,
+                "Import accepted a course-state snapshot without SchemaVersion metadata.");
+            Require(File.ReadAllText(Path.Combine(root, LearnerCourseStateStore.FileName)) == beforeMissingSchemaImport,
+                "Rejected missing-schema import mutated existing learner-course state.");
+
+            // Save must never destroy the only unreadable persisted bytes merely
+            // because the caller still has a plausible in-memory state.
+            string corruptOnlyRoot = Path.Combine(root, "corrupt only fixture");
+            Directory.CreateDirectory(corruptOnlyRoot);
+            string corruptOnlyPrimary = Path.Combine(corruptOnlyRoot, LearnerCourseStateStore.FileName);
+            File.WriteAllText(corruptOnlyPrimary, "{broken-json");
+            string corruptOnlyBefore = File.ReadAllText(corruptOnlyPrimary);
+            var corruptOnlyStore = new LearnerCourseStateStore(corruptOnlyRoot);
+            bool corruptOnlySaveRejected = false;
+            try { corruptOnlyStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { corruptOnlySaveRejected = true; }
+            Require(corruptOnlySaveRejected,
+                "Save overwrote an unreadable sole course-state primary without a verified recovery copy.");
+            Require(File.ReadAllText(corruptOnlyPrimary) == corruptOnlyBefore,
+                "Rejected save mutated the unreadable sole course-state primary.");
+            Require(!File.Exists(Path.Combine(corruptOnlyRoot, LearnerCourseStateStore.BackupFileName)),
+                "Rejected save fabricated a recovery backup from unreadable state.");
+
+            string corruptBackupOnlyRoot = Path.Combine(root, "corrupt backup only fixture");
+            Directory.CreateDirectory(corruptBackupOnlyRoot);
+            string corruptBackupOnly = Path.Combine(corruptBackupOnlyRoot, LearnerCourseStateStore.BackupFileName);
+            File.WriteAllText(corruptBackupOnly, "{broken-backup");
+            string corruptBackupOnlyBefore = File.ReadAllText(corruptBackupOnly);
+            var corruptBackupOnlyStore = new LearnerCourseStateStore(corruptBackupOnlyRoot);
+            bool corruptBackupOnlySaveRejected = false;
+            try { corruptBackupOnlyStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { corruptBackupOnlySaveRejected = true; }
+            Require(corruptBackupOnlySaveRejected,
+                "Save fabricated fresh primary state while the only persisted backup was unreadable.");
+            Require(!File.Exists(Path.Combine(corruptBackupOnlyRoot, LearnerCourseStateStore.FileName)),
+                "Rejected backup-only save created a fresh primary.");
+            Require(File.ReadAllText(corruptBackupOnly) == corruptBackupOnlyBefore,
+                "Rejected backup-only save mutated unreadable recovery bytes.");
+
+            // A corrupt primary is replaceable only when a verified backup exists,
+            // and that backup must remain the last-known-good copy.
+            string recoverableCorruptRoot = Path.Combine(root, "recoverable corrupt primary fixture");
+            Directory.CreateDirectory(recoverableCorruptRoot);
+            var recoverableCorruptStore = new LearnerCourseStateStore(recoverableCorruptRoot);
+            LearnerCourseState recoverableSeed = LearnerCourseStateStore.NewEmpty();
+            recoverableCorruptStore.Save(recoverableSeed);
+            recoverableSeed.OrphanedStableIds.Add("verified-backup-marker");
+            recoverableCorruptStore.Save(recoverableSeed);
+            string recoverablePrimary = Path.Combine(recoverableCorruptRoot, LearnerCourseStateStore.FileName);
+            string recoverableBackup = Path.Combine(recoverableCorruptRoot, LearnerCourseStateStore.BackupFileName);
+            string verifiedBackupBefore = File.ReadAllText(recoverableBackup);
+            File.WriteAllText(recoverablePrimary, "{corrupt-primary");
+            LearnerCourseState replacement = LearnerCourseStateStore.NewEmpty();
+            replacement.OrphanedStableIds.Add("replacement-marker");
+            recoverableCorruptStore.Save(replacement);
+            Require(File.ReadAllText(recoverableBackup) == verifiedBackupBefore,
+                "Recovery save replaced the last-known-good backup with corrupt primary bytes.");
+            Require(recoverableCorruptStore.Load().OrphanedStableIds.Contains("replacement-marker"),
+                "Recovery save did not replace corrupt primary with the verified new snapshot.");
+
+            Console.WriteLine("WordDeck learner course-state acceptance passed: exposure/practice/mastery/assessment separation, Fast Track/Deep Practice routing, independent course positions/skill estimates, LocalAppData sidecar continuity, backups, import/export, fail-closed newer/ambiguous schema, unrecoverable-state overwrite refusal, non-destructive migration and unknown-field preservation verified.");
         }
         finally
         {
