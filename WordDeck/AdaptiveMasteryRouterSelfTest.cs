@@ -19,6 +19,7 @@ internal static class AdaptiveMasteryRouterSelfTest
         PolicySeamConstrainsModesWithoutCompletionRules();
         SentenceEvidenceFailsClosedOnUnknownStableId();
         LearningEvidenceModeMappingFailsClosed();
+        SpeakingAndPronunciationEvidenceMapDistinctly();
         LearningEvidenceDictionaryMismatchFailsClosed();
         FullOxfordScalePlanIsCompleteAndUnique();
     }
@@ -33,6 +34,8 @@ internal static class AdaptiveMasteryRouterSelfTest
             (AdaptiveEvidenceChannel.SentenceForm, AdaptivePracticeMode.Sentence),
             (AdaptiveEvidenceChannel.Grammar, AdaptivePracticeMode.Grammar),
             (AdaptiveEvidenceChannel.Listening, AdaptivePracticeMode.Listening),
+            (AdaptiveEvidenceChannel.Speaking, AdaptivePracticeMode.Speaking),
+            (AdaptiveEvidenceChannel.Pronunciation, AdaptivePracticeMode.Pronunciation),
             (AdaptiveEvidenceChannel.ReadingContext, AdaptivePracticeMode.Reading),
             (AdaptiveEvidenceChannel.NarrativeContext, AdaptivePracticeMode.Story)
         };
@@ -293,6 +296,36 @@ internal static class AdaptiveMasteryRouterSelfTest
             failed = true;
         }
         Require(failed, "Unknown evidence modes must not be silently assigned to a mastery channel.");
+    }
+
+    private static void SpeakingAndPronunciationEvidenceMapDistinctly()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-28T00:00:00Z");
+        var source = new FakeEvidenceSource(
+            new LearningEvidenceRecord("oxford", "speak-word", "speaking", 4, 1, 3, 0, 0, now.AddHours(-6)),
+            new LearningEvidenceRecord("oxford", "pron-word", "pronunciation", 4, 2, 2, 1, 1, now.AddHours(-4)));
+
+        IReadOnlyList<AdaptiveMasteryObservation> evidence = AdaptiveEvidenceAdapters.FromLearningEvidence(source, "oxford");
+        Require(evidence.Count == 2, "Speaking and pronunciation evidence must both remain available to the adaptive router.");
+        Require(evidence.Single(item => item.TargetId == "speak-word").Channel == AdaptiveEvidenceChannel.Speaking,
+            "Speaking evidence must not be collapsed into Listening or another channel.");
+        Require(evidence.Single(item => item.TargetId == "pron-word").Channel == AdaptiveEvidenceChannel.Pronunciation,
+            "Pronunciation evidence must remain distinct from general Speaking evidence.");
+
+        AdaptiveMasteryRouter router = new();
+        AdaptiveRoutingDecision speaking = router.RouteNext(
+            new[] { Lexical("oxford", "speak-word", AdaptivePracticeMode.Speaking) },
+            evidence.Where(item => item.TargetId == "speak-word"),
+            now) ?? throw new InvalidOperationException("Speaking evidence did not produce an adaptive decision.");
+        AdaptiveRoutingDecision pronunciation = router.RouteNext(
+            new[] { Lexical("oxford", "pron-word", AdaptivePracticeMode.Pronunciation) },
+            evidence.Where(item => item.TargetId == "pron-word"),
+            now) ?? throw new InvalidOperationException("Pronunciation evidence did not produce an adaptive decision.");
+
+        Require(speaking.NextMode == AdaptivePracticeMode.Speaking && speaking.HasDirectNeed,
+            "Weak scored Speaking evidence must route back to Speaking as a direct need.");
+        Require(pronunciation.NextMode == AdaptivePracticeMode.Pronunciation && pronunciation.HasDirectNeed,
+            "Weak scored Pronunciation evidence must route back to Pronunciation as a direct need.");
     }
 
     private static void LearningEvidenceDictionaryMismatchFailsClosed()
