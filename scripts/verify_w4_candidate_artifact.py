@@ -674,6 +674,11 @@ def _bounded_evidence_text(value: dict[str, object], key: str, label: str, maxim
 
 def _verify_copy_payload(value: dict[str, object]) -> None:
     _bounded_evidence_text(value, "static_document_text", "copy evidence")
+    if (
+        value.get("textpattern_selection_equality")
+        != "UIA exact range endpoints and case-sensitive text equality"
+    ):
+        raise CandidateArtifactError("copy evidence TextPattern selection equality contract is not exact")
     if value.get("clipboard_equality") != "case-sensitive exact string equality":
         raise CandidateArtifactError("copy evidence clipboard equality contract is not exact")
 
@@ -705,11 +710,13 @@ def _verify_p0g_payload(value: dict[str, object]) -> None:
 
 COPY_REQUIRED_TRUE = (
     "static_document_outside_edit",
+    "static_text_visible_rectangle",
     "native_copy_focus_verified",
     "foreground_product_verified",
     "manifest_product_sha_verified",
     "executable_checksum_verified",
     "textpattern_selection_supported",
+    "textpattern_target_selected",
     "ctrl_c_exact_clipboard",
     "move_input_focus_verified",
     "move_input_native_ctrl_a_ctrl_c",
@@ -737,6 +744,11 @@ def _verify_strict_uia_evidence(value: dict[str, object], expected_sha: str) -> 
     _require_true(value, "invalid_e9_fen_unchanged", "strict UIA evidence")
     _require_true(value, "board_focus_continuity", "strict UIA evidence")
     _require_false(value, "raw_exception_noise", "strict UIA evidence")
+    for key in ("human_tested", "nvda_verified"):
+        if key in value and value.get(key) is not False:
+            raise CandidateArtifactError(
+                f"strict UIA evidence must not claim or malformed-declare {key}"
+            )
     if value.get("semantic_square_count") != 64:
         raise CandidateArtifactError("strict UIA evidence must prove exactly 64 semantic squares")
     if value.get("clipboard") != "e9":

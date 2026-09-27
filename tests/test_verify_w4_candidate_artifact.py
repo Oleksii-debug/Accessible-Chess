@@ -283,11 +283,14 @@ def _copy_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obj
     value: dict[str, object] = {
         "product_sha": product_sha,
         "static_document_outside_edit": True,
+        "static_text_visible_rectangle": True,
         "native_copy_focus_verified": True,
         "foreground_product_verified": True,
         "manifest_product_sha_verified": True,
         "executable_checksum_verified": True,
         "textpattern_selection_supported": True,
+        "textpattern_target_selected": True,
+        "textpattern_selection_equality": "UIA exact range endpoints and case-sensitive text equality",
         "ctrl_c_exact_clipboard": True,
         "move_input_focus_verified": True,
         "move_input_native_ctrl_a_ctrl_c": True,
@@ -611,6 +614,39 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             with self.assertRaises(CandidateArtifactError):
                 verify(self.path, SHA)
 
+    def test_strict_uia_evidence_rejects_human_or_nvda_overclaims(self) -> None:
+        for key, value in (
+            ("human_tested", True),
+            ("nvda_verified", True),
+            ("human_tested", "yes"),
+            ("nvda_verified", 1),
+        ):
+            with self.subTest(key=key, value=value):
+                self.path.write_bytes(_outer_bytes(uia_overrides={key: value}))
+                with self.assertRaisesRegex(CandidateArtifactError, key):
+                    verify(self.path, SHA)
+
+    def test_copy_evidence_requires_visible_static_text_range(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"static_text_visible_rectangle": False})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "static_text_visible_rectangle"):
+            verify(self.path, SHA)
+
+    def test_copy_evidence_requires_exact_textpattern_target_selection(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"textpattern_target_selected": False})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "textpattern_target_selected"):
+            verify(self.path, SHA)
+
+    def test_copy_evidence_requires_exact_textpattern_selection_equality(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"textpattern_selection_equality": "text only"})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "TextPattern selection equality"):
+            verify(self.path, SHA)
+
     def test_copy_evidence_requires_exact_clipboard_payload(self) -> None:
         self.path.write_bytes(
             _outer_bytes(copy_overrides={"clipboard_equality": "normalized equality"})
@@ -851,7 +887,7 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
 
     def test_manifest_human_overclaim_fails(self) -> None:
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(human_tested=True)))
-        with self.assertRaisesRegex(CandidateArtifactError, "human/NVDA acceptance claim"):
+        with self.assertRaisesRegex(CandidateArtifactError, "human_tested"):
             verify(self.path, SHA)
 
     def test_evidence_human_overclaim_fails(self) -> None:
