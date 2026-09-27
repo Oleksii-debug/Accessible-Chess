@@ -736,7 +736,7 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     # config loader reads the file as bytes and does honor that declaration.
     # Reject contradictory declarations here so preflight cannot approve UTF-8
     # bytes that claim to be UTF-16 (or another encoding) at runtime.
-    declaration = re.match(r"\\A<\\?xml\\s+[^?]*\\?>", text, flags=re.IGNORECASE)
+    declaration = re.match(r"\A<\?xml\s+[^?]*\?>", text, flags=re.IGNORECASE)
     if declaration is not None:
         declared_encoding = re.search(
             r"\\bencoding\\s*=\\s*(['\"])([^'\"]+)\\1",
