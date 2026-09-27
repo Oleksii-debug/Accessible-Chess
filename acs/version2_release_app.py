@@ -50,6 +50,21 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         finally:
             dialog.Dispose()
 
+    def confirm_recover_book_progress(self) -> bool:
+        """Confirm rollback to the previous valid Book-progress snapshot."""
+
+        owner = self._dialog_owner.resolve()
+        DialogResult, _, _ = self._forms_loader()
+        MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
+        result = MessageBox.Show(
+            owner,
+            self.dialog_text("book_progress_recovery_message"),
+            self.dialog_text("book_progress_recovery_title"),
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
     def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
         """Confirm destructive application close on the exact native owner Form."""
 
@@ -492,6 +507,7 @@ def create_version2_release_application(
         # reuse the exact owner-bound confirmation source used by native PGN Open.
         # Bind only after the native close guard succeeds so a failed startup
         # cannot leave application state pointing at a retired file runtime.
+        application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
         return file_runtime
 
