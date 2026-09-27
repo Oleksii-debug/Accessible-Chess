@@ -294,6 +294,29 @@ try {
   }
   $target.Select()
   Start-Sleep -Milliseconds 100
+  $activeSelections=@($textPattern.GetSelection())
+  if($activeSelections.Count -ne 1){
+    throw "Static TextPattern selection cardinality mismatch after Select(): $($activeSelections.Count)"
+  }
+  $activeSelection=$activeSelections[0]
+  $activeSelectedText=[string]$activeSelection.GetText(-1)
+  $targetText=[string]$target.GetText(-1)
+  if($activeSelectedText -cne $targetText){
+    throw "Static TextPattern active selection text differs from target range"
+  }
+  $startDelta=$activeSelection.CompareEndpoints(
+    [System.Windows.Automation.TextPatternRangeEndpoint]::Start,
+    $target,
+    [System.Windows.Automation.TextPatternRangeEndpoint]::Start
+  )
+  $endDelta=$activeSelection.CompareEndpoints(
+    [System.Windows.Automation.TextPatternRangeEndpoint]::End,
+    $target,
+    [System.Windows.Automation.TextPatternRangeEndpoint]::End
+  )
+  if($startDelta -ne 0 -or $endDelta -ne 0){
+    throw "Static TextPattern active selection endpoints differ from target range"
+  }
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
   Start-Sleep -Milliseconds 150
   $null=AssertProviderFocus $roots 'static document copy dispatch'
@@ -337,6 +360,8 @@ try {
     manifest_product_sha_verified=$true
     executable_checksum_verified=$true
     textpattern_selection_supported=$true
+    textpattern_target_selected=$true
+    textpattern_selection_equality='UIA exact range endpoints and case-sensitive text equality'
     clipboard_equality='case-sensitive exact string equality'
     ctrl_c_exact_clipboard=$true
     move_input_focus_verified=$true

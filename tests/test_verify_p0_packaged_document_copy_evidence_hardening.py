@@ -37,10 +37,14 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
             '"manifest_product_sha_verified":true,'
             '"executable_checksum_verified":true,'
             '"textpattern_selection_supported":true,'
+            '"textpattern_target_selected":true,'
+            '"textpattern_selection_equality":"UIA exact range endpoints and case-sensitive text equality",'
             '"clipboard_equality":"case-sensitive exact string equality",'
             '"ctrl_c_exact_clipboard":true,'
             '"move_input_focus_verified":true,'
-            '"move_input_native_ctrl_a_ctrl_c":true'
+            '"move_input_native_ctrl_a_ctrl_c":true,'
+            '"human_tested":false,'
+            '"nvda_verified":false'
             "}",
             encoding="utf-8",
         )

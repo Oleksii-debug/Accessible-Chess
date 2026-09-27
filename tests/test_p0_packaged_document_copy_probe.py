@@ -66,6 +66,23 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
     def test_probe_retains_real_textpattern_selection_and_native_copy(self) -> None:
         self.assertIn("TextPattern]::Pattern", self.text)
         self.assertIn("$target.Select()", self.text)
+        self.assertIn("$textPattern.GetSelection()", self.text)
+        self.assertIn("$activeSelection.CompareEndpoints(", self.text)
+        self.assertIn("TextPatternRangeEndpoint]::Start", self.text)
+        self.assertIn("TextPatternRangeEndpoint]::End", self.text)
+        self.assertIn("textpattern_target_selected=$true", self.text)
+        self.assertIn(
+            "textpattern_selection_equality='UIA exact range endpoints and case-sensitive text equality'",
+            self.text,
+        )
+        self.assertLess(
+            self.text.index("$target.Select()"),
+            self.text.index("$textPattern.GetSelection()"),
+        )
+        self.assertLess(
+            self.text.index("$textPattern.GetSelection()"),
+            self.text.index("Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'"),
+        )
         self.assertIn("AccessibleChessCopyKeys]::Ctrl([byte]0x43)", self.text)
         self.assertIn("WaitClipboard $selected", self.text)
         self.assertIn("move-input", self.text)
