@@ -313,5 +313,56 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
 
 
 
+    def test_active_board_blocks_every_book_progress_command_before_surface_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                opened = app.browser_command("books", "book.open_position")
+                self.assertEqual(opened["kind"], "delegated")
+                self.assertTrue(app.book_workflow.active)
+                before_reader = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+
+                payloads = {
+                    "book.bookmark.save": {"name": "hidden-save"},
+                    "book.bookmark.restore": {"name": "default"},
+                }
+                for command in sorted(app._BOOK_PROGRESS_COMMANDS):
+                    with self.subTest(command=command):
+                        with patch.object(
+                            app.books,
+                            "dispatch",
+                            side_effect=AssertionError(
+                                "active Board review must intercept Book progress commands"
+                            ),
+                        ) as dispatch, patch.object(
+                            progress,
+                            "save",
+                            side_effect=AssertionError(
+                                "active Board review must not persist hidden Book progress"
+                            ),
+                        ) as save:
+                            result = app.browser_command(
+                                "books",
+                                command,
+                                payloads.get(command),
+                            )
+
+                        self.assertEqual(result["kind"], "error")
+                        dispatch.assert_not_called()
+                        save.assert_not_called()
+                        self.assertEqual(app.reader.snapshot(), before_reader)
+                        self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+                        self.assertTrue(app.book_workflow.active)
+
+                returned = app.browser_command("books", "book.return_from_board")
+                self.assertEqual(returned["kind"], "render")
+                self.assertFalse(app.book_workflow.active)
+
+
+
 if __name__ == "__main__":
     unittest.main()
