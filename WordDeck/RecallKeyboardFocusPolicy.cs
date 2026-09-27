@@ -11,6 +11,15 @@ internal static class RecallKeyboardFocusPolicy
                englishWordSurfaceFocused;
     }
 
+    public static bool IsLegacyCtrlCardArrow(Keys keyData, bool englishWordSurfaceFocused)
+    {
+        Keys code = keyData & Keys.KeyCode;
+        Keys modifiers = keyData & Keys.Modifiers;
+        return englishWordSurfaceFocused &&
+               modifiers == Keys.Control &&
+               (code == Keys.Left || code == Keys.Right);
+    }
+
     public static bool ShouldFocusCardAfterSelectorChange(bool selectorContainsFocus) =>
         !selectorContainsFocus;
 }
