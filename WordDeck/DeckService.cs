@@ -100,27 +100,69 @@ internal sealed class DeckService
         if (deck.IsCore)
             throw new InvalidOperationException("The five default decks are permanent and cannot be deleted.");
 
-        int assignedCount = CountEverywhere(deckId);
-        if (assignedCount > 0)
-        {
-            if (string.IsNullOrWhiteSpace(destinationDeckId))
-                throw new InvalidOperationException("A destination deck is required before deleting a non-empty deck.");
-            if (string.Equals(destinationDeckId, deckId, StringComparison.OrdinalIgnoreCase) || Find(destinationDeckId) is null)
-                throw new InvalidOperationException("The destination deck is invalid.");
+        int legacyAssignedCount = CountEverywhere(deckId);
+        int scopeAssignedCount = CountRecallScopeAssignments(deckId);
+        bool hasAssignments = legacyAssignedCount > 0 || scopeAssignedCount > 0;
 
+        string? destination = string.IsNullOrWhiteSpace(destinationDeckId) ? null : destinationDeckId;
+        if (destination is not null &&
+            (string.Equals(destination, deckId, StringComparison.OrdinalIgnoreCase) || Find(destination) is null))
+            throw new InvalidOperationException("The destination deck is invalid.");
+        if (hasAssignments && destination is null)
+            throw new InvalidOperationException("A destination deck is required before deleting a non-empty deck.");
+
+        // A deck may be empty yet still be active in one or more Recall study
+        // scopes. Always choose a real surviving deck before removing the shared
+        // definition so no scope can retain a dangling ActiveDeckId.
+        string survivingDeckId = destination ?? FirstRemainingDeckId(deckId);
+
+        if (destination is not null)
+        {
             foreach (Dictionary<string, string> map in _state.DeckIdsByDictionary.Values)
             {
                 foreach (string entryId in map.Where(pair => string.Equals(pair.Value, deckId, StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Key).ToList())
-                    map[entryId] = destinationDeckId;
+                    map[entryId] = destination;
             }
         }
+
+        ReplaceRecallScopeDeckReferences(deckId, destination, survivingDeckId);
 
         _state.Decks.Remove(deck);
         _state.Shortcuts.Remove(ActionIds.SwitchDeck(deckId));
         _state.Shortcuts.Remove(ActionIds.MoveToDeck(deckId));
         if (string.Equals(_state.ActiveDeckId, deckId, StringComparison.OrdinalIgnoreCase))
-            _state.ActiveDeckId = destinationDeckId ?? FirstRemainingDeckId(deckId);
+            _state.ActiveDeckId = survivingDeckId;
         NormalizeOrder();
+    }
+
+    private int CountRecallScopeAssignments(string deckId) =>
+        _state.RecallStudyScopesByDictionary.Values
+            .Where(dictionary => dictionary?.Scopes is not null)
+            .SelectMany(dictionary => dictionary.Scopes.Values)
+            .Where(scope => scope?.DeckIds is not null)
+            .Sum(scope => scope.DeckIds.Values.Count(value =>
+                string.Equals(value, deckId, StringComparison.OrdinalIgnoreCase)));
+
+    private void ReplaceRecallScopeDeckReferences(string fromDeckId, string? assignmentDestinationDeckId, string activeDestinationDeckId)
+    {
+        foreach (RecallStudyScopeDictionaryState dictionary in _state.RecallStudyScopesByDictionary.Values)
+        {
+            if (dictionary?.Scopes is null) continue;
+            foreach (RecallStudyScopeState scope in dictionary.Scopes.Values)
+            {
+                if (scope is null) continue;
+                scope.DeckIds ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (assignmentDestinationDeckId is not null)
+                {
+                    foreach (string entryId in scope.DeckIds.Keys.ToList())
+                        if (string.Equals(scope.DeckIds[entryId], fromDeckId, StringComparison.OrdinalIgnoreCase))
+                            scope.DeckIds[entryId] = assignmentDestinationDeckId;
+                }
+
+                if (string.Equals(scope.ActiveDeckId, fromDeckId, StringComparison.OrdinalIgnoreCase))
+                    scope.ActiveDeckId = activeDestinationDeckId;
+            }
+        }
     }
 
     private string FirstRemainingDeckId(string deletingDeckId) =>
