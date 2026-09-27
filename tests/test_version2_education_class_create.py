@@ -16,6 +16,7 @@ from acs.version2_education_mutation_application import (
     MutableEducationWebViewProjection,
     Version2EducationMutationApplication,
 )
+from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
 from acs.version2_starter_content_application import Version2StarterContentApplication
 
 
@@ -127,11 +128,30 @@ class EducationClassProjectionTests(unittest.TestCase):
 
 
 class EducationMutationReleaseBindingTests(unittest.TestCase):
+    @staticmethod
+    def _snapshot_release_globals():
+        from acs import version2_release_app, version2_release_ui
+
+        api_type = version2_release_ui.Version2ReleaseAccessibleChessAPI
+        return (
+            version2_release_app.Version2Application,
+            version2_release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS,
+            version2_release_ui.Version2NativeMenuController,
+            api_type.__dict__["_sync_version2_language"],
+            version2_release_ui._resource_sources,
+        )
+
     def _assert_current_application_owner(self, observed: list[object]) -> None:
-        self.assertEqual(observed, [Version2StarterContentApplication])
+        self.assertEqual(observed, [Version2PackagedStarterApplication])
         self.assertTrue(
             issubclass(
+                Version2PackagedStarterApplication,
                 Version2StarterContentApplication,
+            )
+        )
+        self.assertTrue(
+            issubclass(
+                Version2PackagedStarterApplication,
                 Version2EducationMutationApplication,
             )
         )
@@ -205,6 +225,96 @@ class EducationMutationReleaseBindingTests(unittest.TestCase):
         )
         self._assert_current_application_owner(observed)
         self.assertIs(version2_release_app.Version2Application, previous_owner)
+
+    def test_eager_factory_failure_restores_all_shipping_release_seams(self) -> None:
+        from acs import version2_education_mutation_release as mutation_release
+
+        before = self._snapshot_release_globals()
+        observed: list[tuple[object, object, object, object]] = []
+
+        def fail_factory(*args: object, **kwargs: object):
+            current = self._snapshot_release_globals()
+            observed.append((current[0], current[1], current[2], current[4]))
+            raise RuntimeError("shipping composition failed")
+
+        with mock.patch.object(
+            mutation_release._release_app,
+            "create_version2_release_application",
+            side_effect=fail_factory,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "shipping composition failed"):
+                mutation_release.create_version2_release_application()
+
+        self.assertEqual(len(observed), 1)
+        application, action_ids, controller, resources = observed[0]
+        self.assertIs(application, Version2PackagedStarterApplication)
+        self.assertEqual(action_ids, mutation_release.FINAL_PRODUCT_ACTION_IDS)
+        self.assertIs(controller, mutation_release.FinalProductNativeMenuController)
+        self.assertIs(resources, mutation_release.final_product_resource_sources)
+        self.assertEqual(self._snapshot_release_globals(), before)
+
+    def test_deferred_factory_failure_restores_all_shipping_release_seams(self) -> None:
+        from acs import version2_education_mutation_release as mutation_release
+
+        before = self._snapshot_release_globals()
+        observed: list[tuple[object, object, object, object]] = []
+        api = SimpleNamespace()
+
+        def fake_factory(*args: object, **kwargs: object):
+            self.assertTrue(kwargs.get("defer_ui"))
+
+            def fail_application():
+                current = self._snapshot_release_globals()
+                observed.append((current[0], current[1], current[2], current[4]))
+                raise RuntimeError("shipping deferred composition failed")
+
+            return (api, fail_application, "runtime", "native")
+
+        with mock.patch.object(
+            mutation_release._release_app,
+            "create_version2_release_application",
+            side_effect=fake_factory,
+        ):
+            _, application_factory, _, _ = mutation_release.create_version2_release_application(
+                defer_ui=True
+            )
+            self.assertEqual(self._snapshot_release_globals(), before)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "shipping deferred composition failed",
+            ):
+                application_factory()
+
+        self.assertEqual(len(observed), 1)
+        application, action_ids, controller, resources = observed[0]
+        self.assertIs(application, Version2PackagedStarterApplication)
+        self.assertEqual(action_ids, mutation_release.FINAL_PRODUCT_ACTION_IDS)
+        self.assertIs(controller, mutation_release.FinalProductNativeMenuController)
+        self.assertIs(resources, mutation_release.final_product_resource_sources)
+        self.assertEqual(self._snapshot_release_globals(), before)
+
+    def test_main_failure_restores_all_shipping_release_seams(self) -> None:
+        from acs import version2_education_mutation_release as mutation_release
+
+        before = self._snapshot_release_globals()
+        observed: list[tuple[object, object, object, object]] = []
+
+        def fail_main() -> None:
+            current = self._snapshot_release_globals()
+            observed.append((current[0], current[1], current[2], current[4]))
+            raise RuntimeError("shipping main failed")
+
+        with mock.patch.object(mutation_release._release_app, "main", side_effect=fail_main):
+            with self.assertRaisesRegex(RuntimeError, "shipping main failed"):
+                mutation_release.main()
+
+        self.assertEqual(len(observed), 1)
+        application, action_ids, controller, resources = observed[0]
+        self.assertIs(application, Version2PackagedStarterApplication)
+        self.assertEqual(action_ids, mutation_release.FINAL_PRODUCT_ACTION_IDS)
+        self.assertIs(controller, mutation_release.FinalProductNativeMenuController)
+        self.assertIs(resources, mutation_release.final_product_resource_sources)
+        self.assertEqual(self._snapshot_release_globals(), before)
 
 
 if __name__ == "__main__":

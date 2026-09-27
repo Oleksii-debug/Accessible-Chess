@@ -71,6 +71,9 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         web = product / "web"
         web.mkdir(parents=True)
         (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
+        (product / "AccessibleChess.exe.config").write_text(
+            "<configuration><runtime /></configuration>\n", encoding="utf-8"
+        )
         (product / "runtime.dll").write_bytes(b"runtime")
         for name in _REQUIRED_WEB:
             (web / name).write_text(f"// canonical fixture {name}\n", encoding="utf-8")
@@ -142,6 +145,9 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(assembled.package_root, output)
             self.assertEqual(assembled.tree_report.integration_sha, _SHA)
             self.assertTrue((output / "AccessibleChess" / "AccessibleChess.exe").is_file())
+            self.assertTrue(
+                (output / "AccessibleChess" / "AccessibleChess.exe.config").is_file()
+            )
             self.assertTrue(
                 (output / "THIRD_PARTY_NOTICES" / "Stockfish-18-source.zip").is_file()
             )
@@ -345,6 +351,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(names, sorted(names, key=str.casefold))
             self.assertEqual(timestamps, {(1980, 1, 1, 0, 0, 0)})
             self.assertIn("AccessibleChess/AccessibleChess.exe", names)
+            self.assertIn("AccessibleChess/AccessibleChess.exe.config", names)
             self.assertIn(MANIFEST_NAME, names)
             self.assertIn(CHECKSUMS_NAME, names)
 

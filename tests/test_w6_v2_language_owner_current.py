@@ -14,6 +14,7 @@ from acs.full_product_ui_shell import UILanguage
 from acs.pgn_document import PgnDocumentSession
 from acs.settings import Settings
 from acs.version2_application import Version2Application
+from acs.version2_profile import Version2NativeMenuController
 import acs.version2_release_app as release_app
 from acs.version2_release_ui import (
     Version2ReleaseAccessibleChessAPI,
@@ -293,12 +294,19 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             webview = _WebView()
             installs = []
 
-            run_version2_release_window(
-                api,
-                application,
-                webview_module=webview,
-                menu_installer=lambda window, controller: installs.append((window, controller)) or True,
-            )
+            # This is the narrow V2 owner contract. Full-product composition
+            # deliberately late-binds the process-global controller, so isolate
+            # that seam and make unittest ordering irrelevant here.
+            with mock.patch(
+                "acs.version2_release_ui.Version2NativeMenuController",
+                Version2NativeMenuController,
+            ):
+                run_version2_release_window(
+                    api,
+                    application,
+                    webview_module=webview,
+                    menu_installer=lambda window, controller: installs.append((window, controller)) or True,
+                )
 
             self.assertEqual(len(installs), 1)
             controller = installs[0][1]

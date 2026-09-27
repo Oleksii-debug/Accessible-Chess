@@ -79,6 +79,9 @@ def _make_tree(root: Path) -> None:
     product = root / "AccessibleChess"
     product.mkdir(parents=True)
     (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
+    (product / "AccessibleChess.exe.config").write_text(
+        "<configuration><runtime /></configuration>\n", encoding="utf-8"
+    )
 
     web = product / "web"
     web.mkdir()
@@ -197,6 +200,19 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.inventory, tree.inventory)
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
+
+    def test_winforms_accessibility_app_config_is_required(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            (root / "AccessibleChess" / "AccessibleChess.exe.config").unlink()
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "WinForms accessibility app-config is missing",
+            ):
+                _validate_tree(root)
 
     def test_final_product_runtime_web_resources_are_required(self):
         required = (
