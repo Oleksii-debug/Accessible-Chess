@@ -40,18 +40,35 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("expected exactly one non-expired candidate artifact", self.text)
         self.assertIn("candidate artifact API digest missing", self.text)
 
-    def test_raw_outer_archive_is_downloaded_by_exact_artifact_id(self) -> None:
+    def test_raw_outer_archive_is_downloaded_by_exact_artifact_id_and_bounded(self) -> None:
         self.assertIn("ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}", self.text)
         self.assertIn("/actions/artifacts/{artifact}/zip", self.text)
         self.assertIn("candidate-artifact.zip", self.text)
+        self.assertIn("maximum=300 * 1024 * 1024", self.text)
+        self.assertIn("total > maximum", self.text)
+        self.assertIn("exceeds 300 MiB readback bound", self.text)
         self.assertIn("W4_RAW_ARTIFACT_DOWNLOAD=PASS", self.text)
 
-    def test_manifest_sha_filename_and_completed_run_sha_must_agree(self) -> None:
-        self.assertIn("candidate filename Product prefix mismatches manifest", self.text)
-        self.assertIn("PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}", self.text)
+    def test_expected_product_sha_comes_only_from_completed_run_authority(self) -> None:
+        self.assertIn(
+            "Bind expected Product SHA to completed canonical workflow authority",
+            self.text,
+        )
         self.assertIn("WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
-        self.assertIn('test "$PRODUCT_SHA" = "$WORKFLOW_SHA"', self.text)
+        self.assertIn('[[ "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]]', self.text)
+        self.assertIn('product_sha="${WORKFLOW_SHA,,}"', self.text)
+        self.assertIn('echo "product_sha=$product_sha" >> "$GITHUB_OUTPUT"', self.text)
         self.assertIn("W4_READBACK_EXACT_PRODUCT_WORKFLOW_BINDING=PASS", self.text)
+
+    def test_no_candidate_zip_is_parsed_before_independent_verifier(self) -> None:
+        verifier_step = self.text.index(
+            "- name: Independently verify outer artifact, inner package, checksums, P0-F and P0 evidence"
+        )
+        before_verifier = self.text[:verifier_step]
+        self.assertNotIn("zipfile.ZipFile", before_verifier)
+        self.assertNotIn("outer.read(", before_verifier)
+        self.assertNotIn("RELEASE_MANIFEST.json", before_verifier)
+        self.assertNotIn("candidate filename Product prefix mismatches manifest", before_verifier)
 
     def test_long_build_staleness_is_rejected_after_artifact_publication(self) -> None:
         self.assertIn("Recheck live Full Product freshness after build and upload", self.text)
