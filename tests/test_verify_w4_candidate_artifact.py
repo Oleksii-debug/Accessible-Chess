@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+from unittest.mock import patch
 import tempfile
 import unittest
 import zipfile
@@ -141,6 +142,27 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
     def test_prefixed_outer_digest_passes(self) -> None:
         digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
         verify(self.path, SHA, f"sha256:{digest}")
+
+    def test_outer_size_bound_fails_before_reading_bytes(self) -> None:
+        oversized = Path(self.temp.name) / "oversized.zip"
+        oversized.write_bytes(b"x" * 16)
+        with patch("scripts.verify_w4_candidate_artifact.MAX_OUTER_BYTES", 8):
+            with patch.object(Path, "read_bytes", side_effect=AssertionError("must not read")):
+                with self.assertRaisesRegex(CandidateArtifactError, "outer artifact size"):
+                    verify(oversized, SHA)
+
+    def test_inner_zip_size_bound_fails_before_decompression(self) -> None:
+        original_read = zipfile.ZipFile.read
+
+        def guarded_read(archive, name, *args, **kwargs):
+            if str(name).endswith("-NVDA-test-candidate.zip"):
+                raise AssertionError("oversized candidate must not be decompressed")
+            return original_read(archive, name, *args, **kwargs)
+
+        with patch("scripts.verify_w4_candidate_artifact.MAX_INNER_BYTES", 8):
+            with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+                with self.assertRaisesRegex(CandidateArtifactError, "candidate ZIP size"):
+                    verify(self.path, SHA)
 
     def test_wrong_outer_digest_fails(self) -> None:
         with self.assertRaises(CandidateArtifactError):
