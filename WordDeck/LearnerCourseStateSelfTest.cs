@@ -280,7 +280,62 @@ internal static class LearnerCourseStateSelfTest
             Require(File.ReadAllText(duplicateBackupPath) == backupBeforeDuplicateReject,
                 "Rejected duplicate-schema course state mutated the verified backup.");
 
-            Console.WriteLine("WordDeck learner course-state acceptance passed: exposure/practice/mastery/assessment separation, Fast Track/Deep Practice routing, independent course positions/skill estimates, LocalAppData sidecar continuity, backups, import/export, fail-closed newer/ambiguous schema, non-destructive migration and unknown-field preservation verified.");
+            // Save must never destroy the only unreadable persisted bytes merely
+            // because the caller still has a plausible in-memory state.
+            string corruptOnlyRoot = Path.Combine(root, "corrupt only fixture");
+            Directory.CreateDirectory(corruptOnlyRoot);
+            string corruptOnlyPrimary = Path.Combine(corruptOnlyRoot, LearnerCourseStateStore.FileName);
+            File.WriteAllText(corruptOnlyPrimary, "{broken-json");
+            string corruptOnlyBefore = File.ReadAllText(corruptOnlyPrimary);
+            var corruptOnlyStore = new LearnerCourseStateStore(corruptOnlyRoot);
+            bool corruptOnlySaveRejected = false;
+            try { corruptOnlyStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { corruptOnlySaveRejected = true; }
+            Require(corruptOnlySaveRejected,
+                "Save overwrote an unreadable sole course-state primary without a verified recovery copy.");
+            Require(File.ReadAllText(corruptOnlyPrimary) == corruptOnlyBefore,
+                "Rejected save mutated the unreadable sole course-state primary.");
+            Require(!File.Exists(Path.Combine(corruptOnlyRoot, LearnerCourseStateStore.BackupFileName)),
+                "Rejected save fabricated a recovery backup from unreadable state.");
+
+            string corruptBackupOnlyRoot = Path.Combine(root, "corrupt backup only fixture");
+            Directory.CreateDirectory(corruptBackupOnlyRoot);
+            string corruptBackupOnly = Path.Combine(corruptBackupOnlyRoot, LearnerCourseStateStore.BackupFileName);
+            File.WriteAllText(corruptBackupOnly, "{broken-backup");
+            string corruptBackupOnlyBefore = File.ReadAllText(corruptBackupOnly);
+            var corruptBackupOnlyStore = new LearnerCourseStateStore(corruptBackupOnlyRoot);
+            bool corruptBackupOnlySaveRejected = false;
+            try { corruptBackupOnlyStore.Save(LearnerCourseStateStore.NewEmpty()); }
+            catch (InvalidDataException) { corruptBackupOnlySaveRejected = true; }
+            Require(corruptBackupOnlySaveRejected,
+                "Save fabricated fresh primary state while the only persisted backup was unreadable.");
+            Require(!File.Exists(Path.Combine(corruptBackupOnlyRoot, LearnerCourseStateStore.FileName)),
+                "Rejected backup-only save created a fresh primary.");
+            Require(File.ReadAllText(corruptBackupOnly) == corruptBackupOnlyBefore,
+                "Rejected backup-only save mutated unreadable recovery bytes.");
+
+            // A corrupt primary is replaceable only when a verified backup exists,
+            // and that backup must remain the last-known-good copy.
+            string recoverableCorruptRoot = Path.Combine(root, "recoverable corrupt primary fixture");
+            Directory.CreateDirectory(recoverableCorruptRoot);
+            var recoverableCorruptStore = new LearnerCourseStateStore(recoverableCorruptRoot);
+            LearnerCourseState recoverableSeed = LearnerCourseStateStore.NewEmpty();
+            recoverableCorruptStore.Save(recoverableSeed);
+            recoverableSeed.OrphanedStableIds.Add("verified-backup-marker");
+            recoverableCorruptStore.Save(recoverableSeed);
+            string recoverablePrimary = Path.Combine(recoverableCorruptRoot, LearnerCourseStateStore.FileName);
+            string recoverableBackup = Path.Combine(recoverableCorruptRoot, LearnerCourseStateStore.BackupFileName);
+            string verifiedBackupBefore = File.ReadAllText(recoverableBackup);
+            File.WriteAllText(recoverablePrimary, "{corrupt-primary");
+            LearnerCourseState replacement = LearnerCourseStateStore.NewEmpty();
+            replacement.OrphanedStableIds.Add("replacement-marker");
+            recoverableCorruptStore.Save(replacement);
+            Require(File.ReadAllText(recoverableBackup) == verifiedBackupBefore,
+                "Recovery save replaced the last-known-good backup with corrupt primary bytes.");
+            Require(recoverableCorruptStore.Load().OrphanedStableIds.Contains("replacement-marker"),
+                "Recovery save did not replace corrupt primary with the verified new snapshot.");
+
+            Console.WriteLine("WordDeck learner course-state acceptance passed: exposure/practice/mastery/assessment separation, Fast Track/Deep Practice routing, independent course positions/skill estimates, LocalAppData sidecar continuity, backups, import/export, fail-closed newer/ambiguous schema, unrecoverable-state overwrite refusal, non-destructive migration and unknown-field preservation verified.");
         }
         finally
         {
