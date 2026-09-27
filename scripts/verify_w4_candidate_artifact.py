@@ -11,6 +11,8 @@ import sqlite3
 import tempfile
 import zipfile
 
+from acs.acsdb import AcsDatabase, ACSDB_SCHEMA_VERSION
+
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -38,7 +40,7 @@ STARTER_CORPUS_LICENSE_URL = "https://creativecommons.org/publicdomain/zero/1.0/
 STARTER_CORPUS_PUBLISHED_GAMES = 121_332
 STARTER_CURATION_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
 STARTER_PROJECT_LICENSE_ID = "LicenseRef-Accessible-Chess-Starter-Content-1.0"
-STARTER_ACSDB_SCHEMA_VERSION = 6
+STARTER_ACSDB_SCHEMA_VERSION = ACSDB_SCHEMA_VERSION
 STARTER_EXPECTED_FILES = {
     "starter_uk.pgn": STARTER_CORPUS_LICENSE_ID,
     "stress_uk.pgn": STARTER_PROJECT_LICENSE_ID,
@@ -366,15 +368,12 @@ def _verify_starter_database(
         except sqlite3.Error as exc:
             raise CandidateArtifactError("starter ACSDB cannot be opened read-only") from exc
         try:
-            integrity = connection.execute("PRAGMA integrity_check").fetchone()
-            if integrity != ("ok",):
-                raise CandidateArtifactError("starter ACSDB integrity_check failed")
+            version = AcsDatabase._check_sqlite_integrity(connection)
+            if version != STARTER_ACSDB_SCHEMA_VERSION:
+                raise CandidateArtifactError("starter ACSDB schema version mismatch")
             foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
             if foreign_keys:
                 raise CandidateArtifactError("starter ACSDB foreign_key_check failed")
-            version_row = connection.execute("PRAGMA user_version").fetchone()
-            if version_row != (STARTER_ACSDB_SCHEMA_VERSION,):
-                raise CandidateArtifactError("starter ACSDB schema version mismatch")
             row = connection.execute(
                 "SELECT COUNT(*), COUNT(DISTINCT pgn_text), "
                 "COUNT(DISTINCT white || char(0) || black), "
