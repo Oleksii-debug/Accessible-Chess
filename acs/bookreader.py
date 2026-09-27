@@ -44,8 +44,9 @@ class BookReader:
 
     A reader is bound to the exact ``BookDocument.blocks`` snapshot used to build
     its immutable ``BookIndex``. Authoring/import code may mutate ``BookDocument``
-    in place, but durable progress operations then fail closed instead of resolving
-    through stale index entries. Persist progress before editing and restore it
+    in place, but navigation and durable progress operations then fail closed
+    instead of resolving through stale index entries. Persist progress before
+    editing and restore it
     into a fresh ``BookReader`` for the new document revision.
     """
 
@@ -94,7 +95,7 @@ class BookReader:
         return hashlib.sha256(payload).hexdigest()
 
     def _require_indexed_revision(self) -> None:
-        """Reject durable target work after the indexed document changed in place."""
+        """Reject semantic reader work after the indexed document changed in place."""
         if self._document_revision_digest() != self._indexed_revision_digest:
             raise RuntimeError(
                 "BookDocument changed after BookReader creation; create a fresh reader for this revision"
@@ -144,6 +145,7 @@ class BookReader:
         return tuple(item for item in levels if item is not None)
 
     def location(self) -> ReadingLocation:
+        self._require_indexed_revision()
         self._require_content()
         block = self.document.blocks[self._index]
         fen = None
@@ -167,6 +169,7 @@ class BookReader:
         )
 
     def go_to(self, index: int) -> ReadingLocation:
+        self._require_indexed_revision()
         self._require_content()
         if type(index) is not int:
             raise TypeError("Book reading index must be an integer")
@@ -176,18 +179,21 @@ class BookReader:
         return self.location()
 
     def next_block(self) -> ReadingLocation:
+        self._require_indexed_revision()
         self._require_content()
         if self._index >= len(self.document.blocks) - 1:
             raise LookupError("End of book")
         return self.go_to(self._index + 1)
 
     def previous_block(self) -> ReadingLocation:
+        self._require_indexed_revision()
         self._require_content()
         if self._index <= 0:
             raise LookupError("Beginning of book")
         return self.go_to(self._index - 1)
 
     def _next_matching(self, predicate, *, direction: int) -> ReadingLocation:
+        self._require_indexed_revision()
         self._require_content()
         cursor = self._index + direction
         while 0 <= cursor < len(self.document.blocks):
