@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -85,8 +86,33 @@ internal sealed class PronunciationAudio : IDisposable
         };
     }
 
-    private static string SafeName(string value) =>
-        Regex.Replace(value.Trim(), "[^A-Za-z0-9._-]+", "_");
+    private static string SafeName(string value)
+    {
+        string trimmed = (value ?? string.Empty).Trim();
+        if (IsSafeFileSegment(trimmed))
+            return trimmed;
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(trimmed));
+        return $"id-{Convert.ToHexString(hash)[..24].ToLowerInvariant()}";
+    }
+
+    private static bool IsSafeFileSegment(string value)
+    {
+        if (value.Length == 0 || value is "." or ".." || value.EndsWith('.', StringComparison.Ordinal))
+            return false;
+        if (!Regex.IsMatch(value, "^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            return false;
+
+        string deviceStem = value.Split('.')[0];
+        return !ReservedWindowsDeviceNames.Contains(deviceStem);
+    }
+
+    private static readonly HashSet<string> ReservedWindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
 
     private static string DescribeError(string prefix, int code)
     {
