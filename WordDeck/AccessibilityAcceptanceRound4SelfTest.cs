@@ -62,10 +62,13 @@ internal static class AccessibilityAcceptanceRound4SelfTest
             "Recall-only registry exposed Spelling commands before authoritative Spelling topology was loaded.");
         AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach),
             "Recall-only registry exposed Sentence commands before authoritative Spelling topology was loaded.");
+        AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening),
+            "Recall-only registry exposed Listening commands before authoritative training topology was loaded.");
 
         mainRegistry.RefreshDeckDefinitions(spelling.Decks);
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Synchronized Main/F1 registry omitted Open Sentence Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening), "Synchronized Main/F1 registry omitted Open Listening.");
         string spellingCore1 = ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(1));
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == spellingCore1), "Synchronized Main/F1 registry omitted live Spelling deck actions.");
         AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K became unavailable after training definitions were synchronized.");
