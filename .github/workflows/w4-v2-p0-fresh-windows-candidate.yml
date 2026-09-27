@@ -408,16 +408,24 @@ jobs:
           }
           Write-Host 'FRESH_PACKAGED_POST_ACCEPTANCE_RELAUNCH=PASS'
 
-      - name: Recheck live Full Product freshness before artifact publication
+      - name: Recheck workflow and Full Product freshness before artifact publication
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
+          git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"
+          workflow_live="$(git rev-parse "origin/$WORKFLOW_REGISTRATION_BRANCH")"
+          workflow_sha="$(git rev-parse HEAD)"
+          test "$workflow_sha" = "$workflow_live" || {
+            printf 'STALE_W4_WORKFLOW checkout=%s live=%s\n' "$workflow_sha" "$workflow_live" >&2
+            exit 1
+          }
           live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
           test "$PRODUCT_SHA" = "$live" || {
             printf 'STALE_W4_CANDIDATE requested=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
             exit 1
           }
+          echo 'W4_PRE_UPLOAD_WORKFLOW_FRESHNESS=PASS'
+          echo 'W4_PRE_UPLOAD_PRODUCT_FRESHNESS=PASS'
           echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
 
       - name: Candidate checkpoint
