@@ -324,6 +324,7 @@ def _verify_starter_database(
     archive: zipfile.ZipFile,
     info: zipfile.ZipInfo,
     expected: dict[str, int],
+    selected_games: list[dict[str, object]],
 ) -> None:
     if info.file_size <= 0 or info.file_size > MAX_CANDIDATE_METADATA_BYTES:
         raise CandidateArtifactError("starter ACSDB size is outside accepted semantic bound")
@@ -379,6 +380,9 @@ def _verify_starter_database(
                 "COUNT(DISTINCT white || char(0) || black), "
                 "COUNT(DISTINCT event) FROM games"
             ).fetchone()
+            database_game_metadata = connection.execute(
+                "SELECT event, white, black, result FROM games ORDER BY id"
+            ).fetchall()
         except CandidateArtifactError:
             raise
         except sqlite3.Error as exc:
@@ -396,6 +400,19 @@ def _verify_starter_database(
         if actual != expected:
             raise CandidateArtifactError(
                 f"starter ACSDB semantic evidence mismatch: actual={actual} expected={expected}"
+            )
+        expected_game_metadata = [
+            (
+                item["event"],
+                item["white"],
+                item["black"],
+                item["result"],
+            )
+            for item in selected_games
+        ]
+        if database_game_metadata != expected_game_metadata:
+            raise CandidateArtifactError(
+                "starter ACSDB game metadata does not match curated starter evidence"
             )
     finally:
         if temporary_name is not None:
@@ -520,10 +537,16 @@ def _verify_starter_bundle(
         or expected_sample["distinct_events"] < 1
     ):
         raise CandidateArtifactError("starter sample_library manifest evidence is insufficient")
+    selected_games = source["curation"]["selected_games"]
+    if not isinstance(selected_games, list) or any(
+        not isinstance(item, dict) for item in selected_games
+    ):
+        raise CandidateArtifactError("starter curation selected_games is unavailable for ACSDB binding")
     _verify_starter_database(
         archive,
         members[f"{STARTER_ROOT}/sample_library.acsdb"],
         expected_sample,
+        selected_games,
     )
 
 
