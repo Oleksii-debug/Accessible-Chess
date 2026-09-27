@@ -290,8 +290,11 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 self.assertIs(native_runtime_factory(owner), native_runtime)
                 self.assertEqual(len(owner.FormClosing.handlers), 1)
 
+            open_book = application.open_book_dialog
+            self.assertIsInstance(open_book.__self__, release_app._Version2OwnedBookDialogs)
             recovery_confirmation = application.confirm_book_progress_recovery
             self.assertIsInstance(recovery_confirmation.__self__, release_app._Version2OwnedBookDialogs)
+            self.assertIs(open_book.__self__, recovery_confirmation.__self__)
             provider = runtime_class.call_args.kwargs["dialog_language_provider"]
             self.assertEqual(provider(), UILanguage.UA)
             application.shell.language = UILanguage.EN
@@ -314,6 +317,8 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
             application = mock.MagicMock()
             application.shell.language = UILanguage.UA
             application._native_unsaved_close_guard = None
+            original_open_book = object()
+            application.open_book_dialog = original_open_book
             original_recovery = object()
             application.confirm_book_progress_recovery = original_recovery
             database = mock.MagicMock()
@@ -353,6 +358,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "close guard unavailable"):
                     native_runtime_factory(_Owner())
 
+            self.assertIs(application.open_book_dialog, original_open_book)
             self.assertIs(application.confirm_book_progress_recovery, original_recovery)
 
     def test_language_projection_fails_safe_without_exposing_provider_exception(self) -> None:
