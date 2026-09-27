@@ -213,16 +213,16 @@ internal static class ProtectedAssessmentRuntimeSelfTest
             byte[] futureRuntimeBackup = File.ReadAllBytes(store.BackupPath);
             bool futureRuntimeLoadRejected = false;
             try { _ = store.Load(); }
-            catch (UnsupportedAssessmentRuntimeSchemaException ex)
+            catch (InvalidDataException ex) when (ex.InnerException is UnsupportedAssessmentRuntimeSchemaException schema)
             {
-                futureRuntimeLoadRejected = ex.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
+                futureRuntimeLoadRejected = schema.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
             }
             Require(futureRuntimeLoadRejected, "newer nested assessment runtime silently downgraded in protected state");
             bool futureRuntimeSaveRejected = false;
             try { store.Save(new ProtectedAssessmentRuntimeSnapshot()); }
-            catch (UnsupportedAssessmentRuntimeSchemaException ex)
+            catch (InvalidDataException ex) when (ex.InnerException is UnsupportedAssessmentRuntimeSchemaException schema)
             {
-                futureRuntimeSaveRejected = ex.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
+                futureRuntimeSaveRejected = schema.SchemaVersion == AssessmentRuntimeState.CurrentSchemaVersion + 1;
             }
             Require(futureRuntimeSaveRejected, "protected save overwrote newer nested assessment runtime");
             Require(File.ReadAllBytes(store.StatePath).SequenceEqual(futureRuntimePrimary) &&
@@ -272,17 +272,17 @@ internal static class ProtectedAssessmentRuntimeSelfTest
 
         bool loadRejected = false;
         try { _ = store.Load(); }
-        catch (UnsupportedProtectedAssessmentSchemaException ex)
+        catch (InvalidDataException ex) when (ex.InnerException is UnsupportedProtectedAssessmentSchemaException schema)
         {
-            loadRejected = ex.Component == expectedComponent && ex.IsNewerThanSupported;
+            loadRejected = schema.Component == expectedComponent && schema.IsNewerThanSupported;
         }
         Require(loadRejected, $"newer protected {expectedComponent} schema silently downgraded to backup");
 
         bool saveRejected = false;
         try { store.Save(new ProtectedAssessmentRuntimeSnapshot()); }
-        catch (UnsupportedProtectedAssessmentSchemaException ex)
+        catch (InvalidDataException ex) when (ex.InnerException is UnsupportedProtectedAssessmentSchemaException schema)
         {
-            saveRejected = ex.Component == expectedComponent && ex.IsNewerThanSupported;
+            saveRejected = schema.Component == expectedComponent && schema.IsNewerThanSupported;
         }
         Require(saveRejected, $"normal save overwrote newer protected {expectedComponent} schema");
         Require(File.ReadAllBytes(store.StatePath).SequenceEqual(primaryBefore) &&
