@@ -36,6 +36,7 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
             '"product_sha":"' + SHA + '",'
             '"static_document_text":"Game information",'
             '"static_document_outside_edit":true,'
+            '"static_text_visible_rectangle":true,'
             '"native_copy_focus_verified":true,'
             '"foreground_product_verified":true,'
             '"manifest_product_sha_verified":true,'

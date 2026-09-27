@@ -36,6 +36,7 @@ class VerifyP0PackagedDocumentCopyCliTests(unittest.TestCase):
                     "product_sha": SHA,
                     "static_document_text": "Game information",
                     "static_document_outside_edit": True,
+                    "static_text_visible_rectangle": True,
                     "native_copy_focus_verified": True,
                     "foreground_product_verified": True,
                     "manifest_product_sha_verified": True,

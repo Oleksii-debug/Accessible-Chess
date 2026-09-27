@@ -17,6 +17,7 @@ def _base_evidence() -> dict[str, object]:
         "product_sha": SHA,
         "static_document_text": "Game information",
         "static_document_outside_edit": True,
+        "static_text_visible_rectangle": True,
         "native_copy_focus_verified": True,
         "foreground_product_verified": True,
         "manifest_product_sha_verified": True,
@@ -91,6 +92,13 @@ class VerifyP0PackagedDocumentCopyEvidenceTests(unittest.TestCase):
         value["textpattern_selection_supported"] = False
         self._write_evidence(value)
         with self.assertRaises(EvidenceError):
+            verify(self.evidence, self.product, SHA)
+
+    def test_false_visible_text_range_proof_fails(self) -> None:
+        value = _base_evidence()
+        value["static_text_visible_rectangle"] = False
+        self._write_evidence(value)
+        with self.assertRaisesRegex(EvidenceError, "static_text_visible_rectangle"):
             verify(self.evidence, self.product, SHA)
 
     def test_false_target_selection_proof_fails(self) -> None:

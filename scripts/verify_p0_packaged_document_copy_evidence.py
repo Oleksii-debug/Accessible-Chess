@@ -139,6 +139,7 @@ def _verify_evidence(evidence: dict[str, Any], expected_sha: str) -> None:
 
     for key in (
         "static_document_outside_edit",
+        "static_text_visible_rectangle",
         "native_copy_focus_verified",
         "foreground_product_verified",
         "manifest_product_sha_verified",
