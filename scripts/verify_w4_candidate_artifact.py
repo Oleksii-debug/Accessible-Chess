@@ -527,7 +527,8 @@ def _verify_starter_database(
                 "COUNT(DISTINCT event) FROM games"
             ).fetchone()
             database_game_metadata = connection.execute(
-                "SELECT event, white, black, result, pgn_text FROM games ORDER BY id"
+                "SELECT source_index, event, white, black, result, pgn_text "
+                "FROM games ORDER BY id"
             ).fetchall()
             source_rows = connection.execute(
                 "SELECT source_name, source_format, sha256 FROM sources ORDER BY id"
@@ -556,6 +557,7 @@ def _verify_starter_database(
             raise CandidateArtifactError("starter ACSDB canonical PGN evidence count mismatch")
         expected_game_metadata = [
             (
+                index,
                 item["event"],
                 item["white"],
                 item["black"],
