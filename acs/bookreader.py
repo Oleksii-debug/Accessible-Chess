@@ -12,8 +12,8 @@ import hashlib
 import json
 from typing import Mapping
 
-from .book_index import BookEntryKind, BookIndex
-from .bookdocument import BookDocument
+from .book_index import BookIndex
+from .bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Position, VariationTree
 
 
 BOOK_READER_SNAPSHOT_SCHEMA_VERSION = 2
@@ -44,15 +44,15 @@ class BookReader:
 
     A reader is bound to the exact ``BookDocument.blocks`` snapshot used to build
     its immutable ``BookIndex``. Authoring/import code may mutate ``BookDocument``
-    in place, but navigation and durable progress operations then fail closed
-    instead of resolving through stale index entries. Persist progress before
-    editing and restore it into a fresh ``BookReader`` for the new document revision.
+    in place, but durable progress operations then fail closed instead of resolving
+    through stale index entries. Persist progress before editing and restore it
+    into a fresh ``BookReader`` for the new document revision.
     """
 
     def __init__(self, document: BookDocument):
         self.document = document
+        self._index = 0 if document.blocks else -1
         self._book_index = BookIndex(document)
-        self._index = 0 if self._book_index.entries else -1
         self._return_points: dict[str, str] = {}
         self._indexed_revision_digest = self._document_revision_digest()
 
@@ -61,7 +61,7 @@ class BookReader:
         return self._index
 
     def _require_content(self) -> None:
-        if not self._book_index.entries:
+        if not self.document.blocks:
             raise LookupError("BookDocument has no readable blocks")
 
     @staticmethod
@@ -94,7 +94,7 @@ class BookReader:
         return hashlib.sha256(payload).hexdigest()
 
     def _require_indexed_revision(self) -> None:
-        """Reject semantic reader work after the indexed document changed in place."""
+        """Reject durable target work after the indexed document changed in place."""
         if self._document_revision_digest() != self._indexed_revision_digest:
             raise RuntimeError(
                 "BookDocument changed after BookReader creation; create a fresh reader for this revision"
@@ -128,107 +128,97 @@ class BookReader:
 
     def _go_to_target(self, key: str) -> ReadingLocation:
         self._require_indexed_revision()
-        self._require_content()
         if type(key) is not str:
             raise TypeError("Book target key must be a string")
         entry = self._book_index.resolve(key)
-        return self._go_to_snapshot_index(entry.target.index)
+        return self.go_to(entry.target.index)
 
-    def _snapshot_location(self) -> ReadingLocation:
-        """Return the already-validated indexed location without rehashing the source."""
-        entry = self._book_index.entries[self._index]
-        return ReadingLocation(
-            index=self._index,
-            kind=entry.block_kind,
-            block_id=entry.target.block_id,
-            source_anchor=entry.target.source_anchor,
-            heading_path=entry.heading_path,
-            position_fen=entry.position_fen,
-            side_to_move=entry.side_to_move,
-        )
-
-    def _go_to_snapshot_index(self, index: int) -> ReadingLocation:
-        """Move inside the immutable index after the caller validated the revision."""
-        if type(index) is not int:
-            raise TypeError("Book reading index must be an integer")
-        if not 0 <= index < len(self._book_index.entries):
-            raise IndexError("Book reading index is outside the document")
-        self._index = index
-        return self._snapshot_location()
+    def _heading_path(self, index: int) -> tuple[str, ...]:
+        levels: list[str | None] = [None] * 6
+        for block in self.document.blocks[: index + 1]:
+            if isinstance(block, Heading):
+                level = block.level - 1
+                levels[level] = block.text
+                for deeper in range(level + 1, 6):
+                    levels[deeper] = None
+        return tuple(item for item in levels if item is not None)
 
     def location(self) -> ReadingLocation:
-        self._require_indexed_revision()
         self._require_content()
-        return self._snapshot_location()
+        block = self.document.blocks[self._index]
+        fen = None
+        if isinstance(block, (Position, Diagram, Exercise)):
+            fen = block.fen
+        elif isinstance(block, VariationTree):
+            fen = block.root_fen
+        side = None
+        if fen:
+            fields = fen.split()
+            if len(fields) >= 2 and fields[1] in {"w", "b"}:
+                side = "white" if fields[1] == "w" else "black"
+        return ReadingLocation(
+            index=self._index,
+            kind=block.kind,
+            block_id=block.block_id,
+            source_anchor=block.source_anchor,
+            heading_path=self._heading_path(self._index),
+            position_fen=fen,
+            side_to_move=side,
+        )
 
     def go_to(self, index: int) -> ReadingLocation:
-        self._require_indexed_revision()
         self._require_content()
-        return self._go_to_snapshot_index(index)
+        if type(index) is not int:
+            raise TypeError("Book reading index must be an integer")
+        if not 0 <= index < len(self.document.blocks):
+            raise IndexError("Book reading index is outside the document")
+        self._index = index
+        return self.location()
 
     def next_block(self) -> ReadingLocation:
-        self._require_indexed_revision()
         self._require_content()
-        if self._index >= len(self._book_index.entries) - 1:
+        if self._index >= len(self.document.blocks) - 1:
             raise LookupError("End of book")
-        return self._go_to_snapshot_index(self._index + 1)
+        return self.go_to(self._index + 1)
 
     def previous_block(self) -> ReadingLocation:
-        self._require_indexed_revision()
         self._require_content()
         if self._index <= 0:
             raise LookupError("Beginning of book")
-        return self._go_to_snapshot_index(self._index - 1)
+        return self.go_to(self._index - 1)
 
-    def _next_matching(
-        self,
-        kinds: frozenset[BookEntryKind],
-        *,
-        direction: int,
-    ) -> ReadingLocation:
-        self._require_indexed_revision()
+    def _next_matching(self, predicate, *, direction: int) -> ReadingLocation:
         self._require_content()
         cursor = self._index + direction
-        entries = self._book_index.entries
-        while 0 <= cursor < len(entries):
-            if entries[cursor].kind in kinds:
-                return self._go_to_snapshot_index(cursor)
+        while 0 <= cursor < len(self.document.blocks):
+            if predicate(self.document.blocks[cursor]):
+                return self.go_to(cursor)
             cursor += direction
         raise LookupError("No matching semantic block in that direction")
 
     def next_heading(self) -> ReadingLocation:
-        return self._next_matching(frozenset({BookEntryKind.HEADING}), direction=1)
+        return self._next_matching(lambda block: isinstance(block, Heading), direction=1)
 
     def previous_heading(self) -> ReadingLocation:
-        return self._next_matching(frozenset({BookEntryKind.HEADING}), direction=-1)
+        return self._next_matching(lambda block: isinstance(block, Heading), direction=-1)
 
     def next_position(self) -> ReadingLocation:
         return self._next_matching(
-            frozenset(
-                {
-                    BookEntryKind.POSITION,
-                    BookEntryKind.EXERCISE,
-                    BookEntryKind.VARIATION,
-                }
-            ),
-            direction=1,
+            lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=1
         )
 
     def next_game(self) -> ReadingLocation:
-        return self._next_matching(frozenset({BookEntryKind.GAME}), direction=1)
+        return self._next_matching(lambda block: isinstance(block, Game), direction=1)
 
     def save_return_point(self, name: str = "default") -> ReadingLocation:
-        validated_name = self._return_point_name(name)
-        self._require_indexed_revision()
         self._require_content()
-        key = self._book_index.entries[self._index].target.key
-        self._book_index.resolve(key)
+        validated_name = self._return_point_name(name)
+        key = self._durable_target_key()
         self._return_points[validated_name] = key
-        return self._snapshot_location()
+        return self.location()
 
     def restore_return_point(self, name: str = "default") -> ReadingLocation:
         validated_name = self._return_point_name(name)
-        self._require_indexed_revision()
         if validated_name not in self._return_points:
             raise LookupError(f"Unknown return point: {validated_name}")
         return self._go_to_target(self._return_points[validated_name])
