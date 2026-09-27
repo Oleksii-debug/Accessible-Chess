@@ -89,6 +89,16 @@ internal static class PronunciationAudioPathSelfTest
         Require(IsContained(longPath[0], portableRoot) && IsContained(longPath[1], localRoot),
             "Long pronunciation IDs must remain inside both AudioPacks roots.");
 
+        using (var firstAudio = new PronunciationAudio())
+        using (var secondAudio = new PronunciationAudio())
+        {
+            Require(!string.Equals(firstAudio.AliasForTest, secondAudio.AliasForTest, StringComparison.Ordinal),
+                "Concurrent pronunciation players reused the same Windows MCI alias.");
+            Require(firstAudio.AliasForTest.StartsWith("worddeck_pronunciation_", StringComparison.Ordinal) &&
+                    secondAudio.AliasForTest.StartsWith("worddeck_pronunciation_", StringComparison.Ordinal),
+                "Pronunciation player aliases left the safe MCI identifier namespace.");
+        }
+
         Console.WriteLine("Pronunciation audio path self-test passed: root containment, collision resistance and existing safe IDs verified.");
     }
 
