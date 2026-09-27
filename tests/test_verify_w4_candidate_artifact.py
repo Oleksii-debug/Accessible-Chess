@@ -12,6 +12,8 @@ import unittest
 import zipfile
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+from acs.gametree import serialize_game
+from acs.pgn_roundtrip import parse_pgn_text
 from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
 
 
@@ -39,12 +41,52 @@ def _pe_fixture(marker: bytes) -> bytes:
     return bytes(payload)
 
 
+_OPENING_PREFIXES = (
+    ("e4", "e5", "Nf3", "Nc6"),
+    ("d4", "d5", "c4", "e6"),
+    ("c4", "e5", "Nc3", "Nf6"),
+    ("Nf3", "d5", "g3", "c5"),
+    ("b3", "e5", "Bb2", "Nc6"),
+    ("g3", "d5", "Bg2", "e5"),
+    ("f4", "d5", "Nf3", "Nf6"),
+    ("a3", "e5", "b4", "d5"),
+    ("h3", "d5", "g4", "e5"),
+    ("e3", "d5", "b3", "e5"),
+    ("d3", "e5", "Nd2", "Nf6"),
+    ("c3", "d5", "Qc2", "e5"),
+)
+
+
+def _result_for_index(index: int) -> str:
+    return "0-1" if index < 20 else ("1/2-1/2" if index < 28 else "1-0")
+
+
+def _plies_for_index(index: int) -> int:
+    return 40 if index < 20 else (80 if index < 40 else 120)
+
+
+def _opening_for_index(index: int) -> tuple[str, ...]:
+    return _OPENING_PREFIXES[index % len(_OPENING_PREFIXES)]
+
+
 def _pgn_record(prefix: str, index: int) -> str:
+    result = _result_for_index(index)
+    plies = _plies_for_index(index)
+    moves = list(_opening_for_index(index))
+    filler = ("a3", "a6", "h3", "h6")
+    while len(moves) < plies:
+        moves.append(filler[(len(moves) - 4) % len(filler)])
+    movetext: list[str] = []
+    for ply in range(0, len(moves), 2):
+        move_number = (ply // 2) + 1
+        movetext.append(f"{move_number}. {moves[ply]} {moves[ply + 1]}")
     return (
         f'[Event "{prefix} {index}"]\n'
         f'[White "White {index}"]\n'
         f'[Black "Black {index}"]\n'
-        '[Result "1-0"]\n\n1. e4 e5 1-0'
+        f'[Result "{result}"]\n\n'
+        + " ".join(movetext)
+        + f" {result}"
     )
 
 
@@ -59,6 +101,7 @@ def _database_fixture_bytes(
     *,
     schema_version: int = ACSDB_SCHEMA_VERSION,
     first_white: str | None = None,
+    first_pgn_text: str | None = None,
     source_sha256: str = "0" * 64,
 ) -> bytes:
     with tempfile.TemporaryDirectory() as directory:
@@ -88,7 +131,7 @@ def _database_fixture_bytes(
                             index + 1,
                             "full",
                             "[]",
-                            f"Event {index}",
+                            f"Starter {index}",
                             None,
                             None,
                             None,
@@ -98,11 +141,17 @@ def _database_fixture_bytes(
                                 else f"White {index}"
                             ),
                             f"Black {index}",
-                            "0-1" if index < 20 else ("1/2-1/2" if index < 28 else "1-0"),
+                            _result_for_index(index),
                             None,
                             None,
                             None,
-                            f"fixture-pgn-{index}",
+                            (
+                                first_pgn_text
+                                if index == 0 and first_pgn_text is not None
+                                else serialize_game(
+                                    parse_pgn_text(_pgn_record("Starter", index), strict=True)[0]
+                                )
+                            ),
                         ),
                     )
             database.verify_integrity()
@@ -118,18 +167,17 @@ def _database_fixture_bytes(
 
 
 def _selected_game_fixture(index: int) -> dict[str, object]:
-    result = "0-1" if index < 20 else ("1/2-1/2" if index < 28 else "1-0")
-    plies = 40 if index < 20 else (80 if index < 40 else 120)
-    opening_id = index if index < 12 else 0
+    result = _result_for_index(index)
+    plies = _plies_for_index(index)
     return {
         "source_index": index + 1,
-        "event": f"Event {index}",
+        "event": f"Starter {index}",
         "white": f"White {index}",
         "black": f"Black {index}",
         "result": result,
         "plies": plies,
         "length_band": "20-59" if plies < 60 else ("60-99" if plies < 100 else "100+"),
-        "opening_prefix": [f"M{opening_id}a", f"M{opening_id}b", f"M{opening_id}c", f"M{opening_id}d"],
+        "opening_prefix": list(_opening_for_index(index)),
         "record_sha256": hashlib.sha256(
             _pgn_record("Starter", index).encode("utf-8")
         ).hexdigest(),
@@ -141,6 +189,7 @@ def _starter_bundle_files(
     database_games: int = STARTER_GAMES,
     database_schema: int = 6,
     database_first_white: str | None = None,
+    database_first_pgn_text: str | None = None,
     database_source_sha256: str | None = None,
 ) -> dict[str, bytes]:
     starter = _pgn_fixture("Starter", STARTER_GAMES)
@@ -150,6 +199,7 @@ def _starter_bundle_files(
         database_games,
         schema_version=database_schema,
         first_white=database_first_white,
+        first_pgn_text=database_first_pgn_text,
         source_sha256=database_source_sha256 or starter_sha256,
     )
     selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
@@ -583,6 +633,29 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "complete-record count mismatch"):
             verify(self.path, SHA)
+
+    def test_lawful_starter_manifest_semantics_bind_to_strict_packaged_pgn(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        selected = manifest["starter_source"]["curation"]["selected_games"][0]
+        selected["event"] = "Self-consistent but not packaged PGN"
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "semantic evidence mismatch at packaged game 1",
+        ):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_lawful_starter_database_pgn_text_binds_to_packaged_pgn(self) -> None:
+        starter = _starter_bundle_files(database_first_pgn_text="1. a3 a6 1-0")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "ACSDB game metadata does not match curated starter evidence",
+        ):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_lawful_starter_database_claim_is_verified_against_sqlite(self) -> None:
         starter = _starter_bundle_files(database_games=STARTER_GAMES - 1)
