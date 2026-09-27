@@ -45,7 +45,7 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
 
-      - name: Materialize immutable verifier dependency graph from completed workflow authority
+      - name: Materialize immutable verifier bytes from completed workflow authority
         shell: bash
         run: |
           set -euo pipefail
@@ -59,12 +59,9 @@ jobs:
             exit 1
           }
           test -s .w4-readback-source/scripts/verify_w4_candidate_artifact.py
-          test -s .w4-readback-source/acs/acsdb.py
-          test -s .w4-readback-source/acs/gametree.py
-          test -s .w4-readback-source/acs/pgn_roundtrip.py
           echo "W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha"
           echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
-          echo 'W4_READBACK_PINNED_DEPENDENCY_GRAPH=PASS'
+          echo 'W4_READBACK_VERIFIER_AUTHORITY=PASS'
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -233,11 +230,38 @@ jobs:
           print("W4_READBACK_RUN_IDENTITY=PASS")
           PY
 
+      - name: Materialize exact Product semantic dependencies with workflow-authority verifier
+        shell: bash
+        env:
+          PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$PRODUCT_SHA"
+          rm -rf .w4-product-source
+          git worktree add --detach .w4-product-source "$PRODUCT_SHA"
+          test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"
+          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py; do
+            test -s ".w4-product-source/$dependency" || {
+              printf 'Exact Product semantic dependency missing: %s\n' "$dependency" >&2
+              exit 1
+            }
+          done
+          mkdir -p .w4-product-source/scripts
+          cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py .w4-product-source/scripts/verify_w4_candidate_artifact.py
+          copied_blob="$(git hash-object .w4-product-source/scripts/verify_w4_candidate_artifact.py)"
+          test "$copied_blob" = "$W4_VERIFIER_BLOB_SHA" || {
+            printf 'Copied W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$copied_blob" >&2
+            exit 1
+          }
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_SHA=$PRODUCT_SHA"
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_VERIFIER_BLOB=$copied_blob"
+          echo 'W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS'
+
       - name: Independently verify outer artifact, inner package, checksums, P0-F and P0 evidence
         shell: bash
         run: |
           set -euo pipefail
-          python .w4-readback-source/scripts/verify_w4_candidate_artifact.py \
+          python .w4-product-source/scripts/verify_w4_candidate_artifact.py \
             --artifact candidate-artifact.zip \
             --product-sha '${{ steps.product.outputs.product_sha }}' \
             --workflow-sha '${{ github.event.workflow_run.head_sha }}' \
