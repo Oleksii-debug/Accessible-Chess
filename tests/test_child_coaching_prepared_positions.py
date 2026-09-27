@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -113,10 +114,13 @@ class ChildCoachingPreparedPositionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             holder, _, navigator = self.make_context(temp)
             navigator.select("prep-fen")
-            holder["workspace"] = ew.delete_prepared_position(
+            holder["workspace"] = replace(
                 holder["workspace"],
-                position_id="prep-fen",
-                expected_position_revision=1,
+                prepared_positions=tuple(
+                    item
+                    for item in holder["workspace"].prepared_positions
+                    if item.position_id != "prep-fen"
+                ),
             )
 
             snapshot = navigator.snapshot()
