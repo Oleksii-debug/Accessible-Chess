@@ -449,29 +449,48 @@ internal sealed class LearnerCourseStateStore
 
     private static void ThrowIfPersistedNewerSchema(string path)
     {
-        if (TryReadSchemaVersion(path, out int schemaVersion) && schemaVersion > CurrentSchemaVersion)
-            throw new InvalidDataException($"WordDeck course state '{Path.GetFileName(path)}' uses newer schema {schemaVersion}; this build supports up to {CurrentSchemaVersion}. No personal state was changed.");
-    }
+        if (!File.Exists(path)) return;
 
-    private static bool TryReadSchemaVersion(string path, out int schemaVersion)
-    {
-        schemaVersion = 0;
+        JsonDocument document;
         try
         {
-            if (!File.Exists(path)) return false;
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            document = JsonDocument.Parse(File.ReadAllText(path));
+        }
+        catch
+        {
+            // Ordinary corrupt JSON remains eligible for verified-backup recovery.
+            // Schema-envelope ambiguity is handled separately below because it can
+            // otherwise masquerade as an older compatible state.
+            return;
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return;
+
+            JsonProperty? schemaProperty = null;
             foreach (JsonProperty property in document.RootElement.EnumerateObject())
             {
                 if (!property.Name.Equals(nameof(LearnerCourseState.SchemaVersion), StringComparison.OrdinalIgnoreCase))
                     continue;
-                return property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out schemaVersion);
+
+                if (schemaProperty is not null)
+                    throw new InvalidDataException(
+                        $"WordDeck course state '{Path.GetFileName(path)}' contains duplicate SchemaVersion metadata. " +
+                        "WordDeck will not guess which schema is authoritative or fall back to older state. No personal state was changed.");
+
+                schemaProperty = property;
             }
-            return false;
-        }
-        catch
-        {
-            return false;
+
+            if (schemaProperty is null) return;
+            JsonElement value = schemaProperty.Value.Value;
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out int schemaVersion))
+                return;
+
+            if (schemaVersion > CurrentSchemaVersion)
+                throw new InvalidDataException(
+                    $"WordDeck course state '{Path.GetFileName(path)}' uses newer schema {schemaVersion}; " +
+                    $"this build supports up to {CurrentSchemaVersion}. No personal state was changed.");
         }
     }
 
