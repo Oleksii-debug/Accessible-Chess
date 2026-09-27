@@ -21,6 +21,9 @@ jobs:
       github.event.workflow_run.head_branch == 'work/full-product-teacher-education-reachability-20260911'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
+    env:
+      W4_VERIFIER_COMMIT: a355f46b08a04e24f6c1d5d352e9ecf47e9db2d3
+      W4_VERIFIER_BLOB_SHA: ab24bb319dbdd1152541466e20a967b8787648d6
     steps:
       - name: Checkout exact canonical workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -38,8 +41,24 @@ jobs:
           test "$EXPECTED_BRANCH" = 'work/full-product-teacher-education-reachability-20260911'
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$EXPECTED_SHA"
-          test -f scripts/verify_w4_candidate_artifact.py
-          echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
+          echo "W4_READBACK_PRODUCT_AUTHORITY=$actual"
+
+      - name: Materialize immutable W4 artifact verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$W4_VERIFIER_COMMIT"
+          git cat-file -e "${W4_VERIFIER_COMMIT}^{commit}"
+          actual_blob="$(git rev-parse "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py")"
+          test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA" || {
+            printf 'Pinned W4 verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
+            exit 1
+          }
+          mkdir -p .w4-readback
+          git show "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py" > .w4-readback/verify_w4_candidate_artifact.py
+          test -s .w4-readback/verify_w4_candidate_artifact.py
+          echo "W4_READBACK_VERIFIER_COMMIT=$W4_VERIFIER_COMMIT"
+          echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -177,7 +196,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/verify_w4_candidate_artifact.py \
+          python .w4-readback/verify_w4_candidate_artifact.py \
             --artifact candidate-artifact.zip \
             --product-sha '${{ steps.product.outputs.product_sha }}' \
             --outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'
