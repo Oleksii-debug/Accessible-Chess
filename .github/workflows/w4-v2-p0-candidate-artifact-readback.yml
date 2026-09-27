@@ -237,7 +237,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python .w4-readback/verify_w4_candidate_artifact.py \
+          python .w4-readback-source/scripts/verify_w4_candidate_artifact.py \
             --artifact candidate-artifact.zip \
             --product-sha '${{ steps.product.outputs.product_sha }}' \
             --workflow-sha '${{ github.event.workflow_run.head_sha }}' \
