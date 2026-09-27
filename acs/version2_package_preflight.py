@@ -725,11 +725,15 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
     if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
         _fail("WinForms accessibility app-config size is invalid")
-    upper = payload.upper()
-    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeError as exc:
+        _fail(f"WinForms accessibility app-config must be UTF-8: {type(exc).__name__}")
+    upper = text.upper()
+    if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
         _fail("WinForms accessibility app-config must not contain DTD or entities")
     try:
-        root = ET.fromstring(payload)
+        root = ET.fromstring(text)
     except ET.ParseError as exc:
         _fail(f"WinForms accessibility app-config is invalid XML: {type(exc).__name__}")
     if root.tag != "configuration":
