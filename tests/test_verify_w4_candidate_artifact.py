@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import zipfile
 
+from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
 
 
@@ -45,35 +46,63 @@ def _pgn_fixture(prefix: str, count: int) -> bytes:
 def _database_fixture_bytes(
     game_count: int = STARTER_GAMES,
     *,
-    schema_version: int = 6,
+    schema_version: int = ACSDB_SCHEMA_VERSION,
     first_white: str | None = None,
 ) -> bytes:
-    connection = sqlite3.connect(":memory:")
-    try:
-        connection.execute(
-            "CREATE TABLE games ("
-            "id INTEGER PRIMARY KEY, pgn_text TEXT NOT NULL, "
-            "white TEXT NOT NULL, black TEXT NOT NULL, event TEXT NOT NULL, "
-            "result TEXT NOT NULL)"
-        )
-        connection.executemany(
-            "INSERT INTO games(pgn_text, white, black, event, result) VALUES (?, ?, ?, ?, ?)",
-            [
-                (
-                    f"fixture-pgn-{i}",
-                    first_white if i == 0 and first_white is not None else f"White {i}",
-                    f"Black {i}",
-                    f"Event {i}",
-                    "0-1" if i < 20 else ("1/2-1/2" if i < 28 else "1-0"),
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "starter-fixture.acsdb"
+        with AcsDatabase(path) as database:
+            with database.conn:
+                source = database.conn.execute(
+                    "INSERT INTO sources(source_name, source_format, sha256, imported_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        "accessible-chess-starter-uk.pgn",
+                        "pgn",
+                        "0" * 64,
+                        "2026-09-11T00:00:00+00:00",
+                    ),
                 )
-                for i in range(game_count)
-            ],
-        )
-        connection.execute(f"PRAGMA user_version = {schema_version}")
-        connection.commit()
-        return connection.serialize()
-    finally:
-        connection.close()
+                source_id = int(source.lastrowid)
+                for index in range(game_count):
+                    database.conn.execute(
+                        "INSERT INTO games("
+                        "source_id, source_index, import_status, warnings_json, "
+                        "event, site, game_date, round, white, black, result, "
+                        "eco, opening, start_fen, pgn_text"
+                        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            source_id,
+                            index + 1,
+                            "full",
+                            "[]",
+                            f"Event {index}",
+                            None,
+                            None,
+                            None,
+                            (
+                                first_white
+                                if index == 0 and first_white is not None
+                                else f"White {index}"
+                            ),
+                            f"Black {index}",
+                            "0-1" if index < 20 else ("1/2-1/2" if index < 28 else "1-0"),
+                            None,
+                            None,
+                            None,
+                            f"fixture-pgn-{index}",
+                        ),
+                    )
+            database.verify_integrity()
+
+        if schema_version != ACSDB_SCHEMA_VERSION:
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(f"PRAGMA user_version = {schema_version}")
+                connection.commit()
+            finally:
+                connection.close()
+        return path.read_bytes()
 
 
 def _selected_game_fixture(index: int) -> dict[str, object]:
