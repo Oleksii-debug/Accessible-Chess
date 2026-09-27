@@ -185,6 +185,54 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(store.path.read_bytes(), corrupt_primary)
         self.assertEqual(store.backup_path.read_bytes(), backup_before)
 
+    def test_book_open_future_progress_schema_never_offers_backup_rollback(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        future_primary = b'{"schema_version":999,"entries":{}}'
+        store.path.write_bytes(future_primary)
+
+        restarted = self._restarted_application(store)
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA)
+        self.assertEqual(confirmations, [])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertEqual(store.path.read_bytes(), future_primary)
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+
+    def test_book_open_recovery_confirmation_failure_preserves_all_progress_bytes(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+
+        restarted = self._restarted_application(store)
+
+        def broken_confirmation():
+            raise RuntimeError("private dialog failure")
+
+        restarted.confirm_book_progress_recovery = broken_confirmation
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+        self.assertNotIn("private dialog failure", str(caught.exception))
+
     def test_book_open_fails_closed_when_release_board_rejects_position(self):
         _book, origin = self._open_book_game()
         self.app._board_position_projector = lambda _fen: {"ok": False}
