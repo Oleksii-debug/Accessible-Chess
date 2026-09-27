@@ -21,6 +21,7 @@ internal static class AdaptiveMasteryRouterSelfTest
         LearningEvidenceModeMappingFailsClosed();
         SpeakingAndPronunciationEvidenceMapDistinctly();
         MalformedLearningEvidenceFailsClosed();
+        LearningEvidenceModeIdentityIsCaseStable();
         LearningEvidenceDictionaryMismatchFailsClosed();
         FullOxfordScalePlanIsCompleteAndUnique();
     }
@@ -356,6 +357,35 @@ internal static class AdaptiveMasteryRouterSelfTest
             }
             Require(failed, "Malformed learning evidence must fail closed instead of being normalized into plausible mastery data.");
         }
+    }
+
+    private static void LearningEvidenceModeIdentityIsCaseStable()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-28T00:00:00Z");
+        var source = new FakeEvidenceSource(
+            new LearningEvidenceRecord("oxford", "word", "Listening", 2, 1, 1, 0, 0, now.AddHours(-2)),
+            new LearningEvidenceRecord("oxford", "word", "listening", 2, 1, 1, 0, 0, now.AddHours(-1)));
+
+        IReadOnlyList<AdaptiveMasteryObservation> evidence =
+            AdaptiveEvidenceAdapters.FromLearningEvidence(source, "oxford");
+        Require(evidence.Count == 2 &&
+                evidence.All(item => item.SourceId == "listening"),
+            "Case-only mode spelling must normalize to one stable adaptive source identity.");
+
+        bool failed = false;
+        try
+        {
+            _ = new AdaptiveMasteryRouter().RouteNext(
+                new[] { Lexical("oxford", "word", AdaptivePracticeMode.Listening) },
+                evidence,
+                now);
+        }
+        catch (InvalidDataException)
+        {
+            failed = true;
+        }
+        Require(failed,
+            "Case-only duplicate aggregate snapshots must fail closed instead of double-counting mastery evidence.");
     }
 
     private static void LearningEvidenceDictionaryMismatchFailsClosed()
