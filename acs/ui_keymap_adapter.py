@@ -92,7 +92,7 @@ _UK_LABELS = {
 }
 
 _EN_LABELS: dict[str, str] = {
-    "history.commit_go_to_move": "Go to typed move",
+    "history.commit_go_to_move": "Confirm typed history move",
     "move.submit": "Submit move",
     "board.cursor_left": "Move board cursor left",
     "board.cursor_right": "Move board cursor right",
