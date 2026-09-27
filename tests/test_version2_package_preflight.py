@@ -214,6 +214,76 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_winforms_accessibility_app_config_semantics_fail_closed(self):
+        valid = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<configuration><runtime><AppContextSwitchOverrides value="'
+            'Switch.UseLegacyAccessibilityFeatures=false;'
+            'Switch.UseLegacyAccessibilityFeatures.2=false;'
+            'Switch.UseLegacyAccessibilityFeatures.3=false;'
+            'Switch.UseLegacyAccessibilityFeatures.4=false;'
+            'Switch.UseLegacyAccessibilityFeatures.5=false'
+            '" /></runtime></configuration>\n'
+        )
+        cases = (
+            ("<configuration><runtime /></configuration>\n", "missing required accessibility switches"),
+            (
+                valid.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.3=false",
+                    "Switch.UseLegacyAccessibilityFeatures.3=true",
+                ),
+                "disable all legacy accessibility switches",
+            ),
+            (
+                valid.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.5=false",
+                    "Switch.UseLegacyAccessibilityFeatures.4=false",
+                ),
+                "switch names must be unique",
+            ),
+            (
+                "<!DOCTYPE configuration [<!ENTITY x 'false'>]>"
+                "<configuration><runtime /></configuration>",
+                "must not contain DTD or entities",
+            ),
+        )
+        for config_text, expected in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "package"
+                root.mkdir()
+                _make_tree(root)
+                config = root / "AccessibleChess" / "AccessibleChess.exe.config"
+                config.write_text(config_text, encoding="utf-8")
+                _write_checksums(root)
+                with self.assertRaisesRegex(Version2PackagePreflightError, expected):
+                    _validate_tree(root)
+
+    def test_zip_readback_rejects_semantically_invalid_winforms_app_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            config = root / "AccessibleChess" / "AccessibleChess.exe.config"
+            config.write_text(
+                '<?xml version="1.0" encoding="utf-8"?>\n'
+                '<configuration><runtime><AppContextSwitchOverrides value="'
+                'Switch.UseLegacyAccessibilityFeatures=false;'
+                'Switch.UseLegacyAccessibilityFeatures.2=false;'
+                'Switch.UseLegacyAccessibilityFeatures.3=false;'
+                'Switch.UseLegacyAccessibilityFeatures.4=false'
+                '" /></runtime></configuration>\n',
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            archive = base / "candidate.zip"
+            _zip_tree(root, archive)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "missing required accessibility switches",
+            ):
+                _validate_zip(archive)
+
     def test_final_product_runtime_web_resources_are_required(self):
         required = (
             "full_product_teacher.js",
