@@ -24,6 +24,7 @@ internal static class ListeningCoachSelfTest
             TestLastKnownGoodRecovery(root);
             TestUnfinishedItemResume(root);
             TestSchedulingAndSeparateMastery();
+            TestStatisticsTruthBoundary();
             TestBlankSubmissionIsNonLearning();
             TestAnswerHiddenPresentation();
             TestSentenceReadyContract();
@@ -148,6 +149,30 @@ internal static class ListeningCoachSelfTest
         ListeningCheckResult correct = engine.Check("bravo");
         Require(correct.IsCorrect && correct.Completed, "Correct listening answer did not complete review.");
         Require(state.StatsByDictionary[package.Id]["word:b"].CompletedReviews == 4, "Listening completion was not recorded independently.");
+    }
+
+    private static void TestStatisticsTruthBoundary()
+    {
+        var stats = new ListeningStatistics(
+            AvailableItems: 1,
+            ReviewedItems: 1,
+            CompletedReviews: 1,
+            CorrectReviews: 1,
+            WrongAttempts: 0,
+            ReplayCount: 0,
+            ShowAnswerUses: 0,
+            SkipCount: 0,
+            HistoryEntries: 1,
+            Accuracy: 1d,
+            AverageMastery: 1d);
+
+        string message = ListeningStatisticsPresentation.Build("A1", stats);
+        Require(!message.Contains("Average mastery:", StringComparison.OrdinalIgnoreCase),
+            "Listening statistics still exposes ordinary practice results as mastery.");
+        Require(message.Contains("Practice success indicator:", StringComparison.Ordinal),
+            "Listening statistics lost the bounded practice-success label.");
+        Require(message.Contains("practice evidence only, not a mastery claim", StringComparison.OrdinalIgnoreCase),
+            "A perfect practice sample was not explicitly separated from mastery.");
     }
 
     private static void TestBlankSubmissionIsNonLearning()
