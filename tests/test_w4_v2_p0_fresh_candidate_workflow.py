@@ -23,6 +23,13 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", self.text)
         self.assertNotIn("schedule:", self.text)
 
+    def test_dispatch_ref_and_workflow_commit_must_be_exact_live_product(self) -> None:
+        self.assertIn('test "$GITHUB_REF_TYPE" = "branch"', self.text)
+        self.assertIn('test "$GITHUB_REF_NAME" = "$FULL_PRODUCT_BRANCH"', self.text)
+        self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
+        self.assertIn('test "$workflow_sha" = "$requested"', self.text)
+        self.assertIn("W4_WORKFLOW_PRODUCT_IDENTITY=PASS", self.text)
+
     def test_requested_sha_must_equal_live_canonical_full_product_head(self) -> None:
         self.assertIn("FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911", self.text)
         self.assertIn('git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"', self.text)
