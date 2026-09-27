@@ -956,47 +956,34 @@ def verify(
                 "outer artifact uncompressed size is outside accepted bounds"
             )
         files = [name for name, info in outer_members.items() if not info.is_dir()]
-        candidate_names = [name for name in files if name.endswith("-NVDA-test-candidate.zip")]
-        copy_names = [name for name in files if name.endswith("packaged-v2-document-copy-summary.json")]
-        p0g_names = [name for name in files if name.endswith("packaged-p0g-hotkey-result-summary.json")]
-        uia_names = [name for name in files if name.endswith("packaged-uia-strict-summary.json")]
-        run_metadata_names = [name for name in files if name == RUN_METADATA_PATH]
-        if len(candidate_names) != 1:
-            raise CandidateArtifactError("outer artifact must contain exactly one candidate ZIP")
-        candidate_name = PurePosixPath(candidate_names[0]).name
         expected_name = f"Accessible-Chess-V2-{expected_sha[:7]}-NVDA-test-candidate.zip"
-        if candidate_name.lower() != expected_name.lower():
-            raise CandidateArtifactError("candidate ZIP filename Product prefix mismatch")
-        if (
-            len(copy_names) != 1
-            or len(p0g_names) != 1
-            or len(uia_names) != 1
-            or len(run_metadata_names) != 1
-        ):
-            raise CandidateArtifactError(
-                "outer artifact must contain exact run metadata, strict UIA, copy and P0-G evidence JSON files"
-            )
+        copy_name = "p0-evidence/packaged-v2-document-copy-summary.json"
+        p0g_name = "p0-evidence/packaged-p0g-hotkey-result-summary.json"
+        uia_name = "p0-evidence/packaged-uia-strict-summary.json"
         expected_outer_files = {
-            candidate_names[0],
-            copy_names[0],
-            p0g_names[0],
-            uia_names[0],
-            run_metadata_names[0],
+            expected_name,
+            copy_name,
+            p0g_name,
+            uia_name,
+            RUN_METADATA_PATH,
         }
         if set(files) != expected_outer_files:
+            missing = sorted(expected_outer_files - set(files))
             unexpected = sorted(set(files) - expected_outer_files)
-            raise CandidateArtifactError(f"outer artifact contains unexpected files: {unexpected}")
+            raise CandidateArtifactError(
+                f"outer artifact layout mismatch; missing={missing} unexpected={unexpected}"
+            )
 
-        for evidence_name in (copy_names[0], p0g_names[0], uia_names[0], run_metadata_names[0]):
+        for evidence_name in (copy_name, p0g_name, uia_name, RUN_METADATA_PATH):
             evidence_size = outer_members[evidence_name].file_size
             if evidence_size <= 0 or evidence_size > MAX_EVIDENCE_BYTES:
                 raise CandidateArtifactError(
                     f"outer evidence JSON size is outside accepted bounds: {evidence_name}"
                 )
-        copy_evidence = _load_json(outer.read(copy_names[0]), "copy evidence")
-        p0g_evidence = _load_json(outer.read(p0g_names[0]), "P0-G evidence")
-        uia_evidence = _load_json(outer.read(uia_names[0]), "strict UIA evidence")
-        run_metadata = _load_json(outer.read(run_metadata_names[0]), "run metadata")
+        copy_evidence = _load_json(outer.read(copy_name), "copy evidence")
+        p0g_evidence = _load_json(outer.read(p0g_name), "P0-G evidence")
+        uia_evidence = _load_json(outer.read(uia_name), "strict UIA evidence")
+        run_metadata = _load_json(outer.read(RUN_METADATA_PATH), "run metadata")
         _verify_run_metadata(run_metadata, expected_sha, expected_workflow_sha)
         _verify_strict_uia_evidence(uia_evidence, expected_sha)
         _verify_p0_evidence(
@@ -1020,10 +1007,10 @@ def verify(
         _verify_copy_payload(copy_evidence)
         _verify_p0g_payload(p0g_evidence)
 
-        candidate_info = outer_members[candidate_names[0]]
+        candidate_info = outer_members[expected_name]
         if candidate_info.file_size <= 0 or candidate_info.file_size > MAX_INNER_BYTES:
             raise CandidateArtifactError("candidate ZIP size is outside accepted bounds")
-        candidate_bytes = outer.read(candidate_names[0])
+        candidate_bytes = outer.read(expected_name)
         if len(candidate_bytes) != candidate_info.file_size:
             raise CandidateArtifactError("candidate ZIP changed while being read")
 
