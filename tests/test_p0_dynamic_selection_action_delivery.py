@@ -67,10 +67,16 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
         completed = subprocess.run(
             [node, str(ROOT / "tests" / "js" / "p0_accessibility_runtime_test.js")],
             cwd=ROOT,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
+        if completed.returncode != 0:
+            self.fail(
+                "P0 accessibility runtime oracle failed.\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
         self.assertIn("P0_ACCESSIBILITY_RUNTIME_ACTION_DELIVERY=PASS", completed.stdout)
 
         dynamic = subprocess.run(
