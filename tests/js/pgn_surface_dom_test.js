@@ -49,7 +49,7 @@ const pgnBindings = {
   ArrowLeft: "pgn.parent_variation"
 };
 window.accessibleChessKeymapAction = function (event, context) {
-  if (context !== "document") return "";
+  if (context !== "pgn_tree") return "";
   return pgnBindings[event.key] || "";
 };
 
