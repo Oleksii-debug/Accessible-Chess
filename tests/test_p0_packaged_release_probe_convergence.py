@@ -22,9 +22,27 @@ REQUIRED_RELEASE_PROBE_PATHS = (
 class P0PackagedReleaseProbeConvergenceTests(unittest.TestCase):
     def test_current_release_convergence_base_is_explicitly_admitted(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
+        expected_allowlist = (
+            "codex/v2-runtime-completion-20260907"
+            "|qa/p0g-packaged-hotkey-result-20260926"
+            "|fix/p0f-packaged-starter-diagnostic-20260926"
+            "|work/full-product-teacher-education-reachability-20260911"
+            "|converge/p0-release-critical-to-full-product-20260926"
+        )
+        expected_case = (
+            'case "$base" in\n'
+            f"            {expected_allowlist})\n"
+            "              ;;\n"
+            "            *)\n"
+            '              echo "unexpected packaged-probe convergence base: $base" >&2\n'
+            "              exit 1\n"
+            "              ;;\n"
+            "          esac"
+        )
         self.assertIn(CURRENT_CONVERGENCE_BASE, workflow)
         self.assertIn(CANONICAL_FULL_PRODUCT_BASE, workflow)
-        self.assertIn('echo "unexpected packaged-probe convergence base: $base"', workflow)
+        self.assertIn(expected_case, workflow)
+        self.assertEqual(workflow.count(expected_allowlist), 1)
         self.assertNotIn("base='*'", workflow)
         self.assertNotIn("|*)", workflow)
 
