@@ -158,12 +158,12 @@ jobs:
           LOCKS
 
           # The shared semantic document may be the pre-P0-G Product blob,
-          # either reviewed event-aware P0-G predecessor, or the exact current
-          # convergence blob with event-aware queue/dedupe semantics. Every
-          # other identity remains fail-closed.
+          # either reviewed event-aware P0-G predecessor, the exact current
+          # convergence blob, or the reviewed P0 document-copy polling repair.
+          # Every other identity remains fail-closed.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142)
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd)
               ;;
             *)
               printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2

@@ -7,6 +7,7 @@ on:
       - 'acs/education_webview_projection.py'
       - 'acs/version2_education_mutation_application.py'
       - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_final_release.py'
       - 'acs/version2_final_product_profile.py'
       - 'tests/js/education_surface_dom_test.js'
       - 'tests/test_education_webview_bridge.py'

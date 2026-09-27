@@ -29,6 +29,7 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
         self.evidence = self.root / "evidence.json"
         self.evidence.write_text(
             "{"
+            '"product_sha":"' + SHA + '",'
             '"static_document_text":"Game information",'
             '"static_document_outside_edit":true,'
             '"native_copy_focus_verified":true,'
@@ -37,13 +38,35 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
             '"executable_checksum_verified":true,'
             '"textpattern_selection_supported":true,'
             '"clipboard_equality":"case-sensitive exact string equality",'
-            '"ctrl_c_exact_clipboard":true'
+            '"ctrl_c_exact_clipboard":true,'
+            '"move_input_focus_verified":true,'
+            '"move_input_native_ctrl_a_ctrl_c":true'
             "}",
             encoding="utf-8",
         )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
+
+    def test_complete_bound_evidence_passes(self) -> None:
+        verify(self.evidence, self.product, SHA)
+
+    def test_evidence_product_sha_mismatch_fails(self) -> None:
+        text = self.evidence.read_text(encoding="utf-8").replace(
+            SHA, "b" * 40, 1
+        )
+        self.evidence.write_text(text, encoding="utf-8")
+        with self.assertRaisesRegex(EvidenceError, "evidence product_sha"):
+            verify(self.evidence, self.product, SHA)
+
+    def test_move_input_native_copy_proof_is_required(self) -> None:
+        text = self.evidence.read_text(encoding="utf-8").replace(
+            '"move_input_native_ctrl_a_ctrl_c":true',
+            '"move_input_native_ctrl_a_ctrl_c":false',
+        )
+        self.evidence.write_text(text, encoding="utf-8")
+        with self.assertRaisesRegex(EvidenceError, "move_input_native_ctrl_a_ctrl_c"):
+            verify(self.evidence, self.product, SHA)
 
     def test_duplicate_manifest_integration_sha_fails(self) -> None:
         (self.root / "RELEASE_MANIFEST.json").write_text(

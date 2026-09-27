@@ -117,7 +117,11 @@ def _verify_package_binding(product_root: Path, expected_sha: str) -> None:
         raise EvidenceError("AccessibleChess.exe does not match canonical checksum inventory")
 
 
-def _verify_evidence(evidence: dict[str, Any]) -> None:
+def _verify_evidence(evidence: dict[str, Any], expected_sha: str) -> None:
+    evidence_sha = evidence.get("product_sha")
+    if not isinstance(evidence_sha, str) or evidence_sha.lower() != expected_sha:
+        raise EvidenceError("evidence product_sha does not match expected product SHA")
+
     for key in (
         "static_document_outside_edit",
         "native_copy_focus_verified",
@@ -126,6 +130,8 @@ def _verify_evidence(evidence: dict[str, Any]) -> None:
         "executable_checksum_verified",
         "textpattern_selection_supported",
         "ctrl_c_exact_clipboard",
+        "move_input_focus_verified",
+        "move_input_native_ctrl_a_ctrl_c",
     ):
         _require_true(evidence, key)
 
@@ -146,7 +152,7 @@ def verify(evidence_path: Path, product_root: Path, product_sha: str) -> None:
     expected_sha = _canonical_expected_sha(product_sha)
     _verify_package_binding(product_root, expected_sha)
     evidence = _read_json(evidence_path)
-    _verify_evidence(evidence)
+    _verify_evidence(evidence, expected_sha)
 
 
 def main() -> int:

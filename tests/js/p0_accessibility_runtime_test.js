@@ -11,7 +11,34 @@ const source = fs.readFileSync(
 );
 
 const nonEmptyLiveWrites = [];
+const liveWriteWaiters = [];
+const runtimeTimerDelays = [];
 let liveText = "";
+
+function notifyLiveWriteWaiters() {
+  for (let index = liveWriteWaiters.length - 1; index >= 0; index -= 1) {
+    const waiter = liveWriteWaiters[index];
+    if (nonEmptyLiveWrites.length < waiter.target) continue;
+    liveWriteWaiters.splice(index, 1);
+    clearTimeout(waiter.timer);
+    waiter.resolve();
+  }
+}
+
+function waitForTotalWrites(target, timeoutMs = 2000) {
+  if (nonEmptyLiveWrites.length >= target) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const waiter = { target, resolve, timer: null };
+    waiter.timer = setTimeout(() => {
+      const index = liveWriteWaiters.indexOf(waiter);
+      if (index >= 0) liveWriteWaiters.splice(index, 1);
+      reject(new Error(
+        `Timed out waiting for live-region writes: target=${target} actual=${nonEmptyLiveWrites.length}`
+      ));
+    }, timeoutMs);
+    liveWriteWaiters.push(waiter);
+  });
+}
 const live = {
   hidden: false,
   attributes: new Map(),
@@ -19,7 +46,10 @@ const live = {
   get textContent() { return liveText; },
   set textContent(value) {
     liveText = String(value);
-    if (liveText) nonEmptyLiveWrites.push(liveText);
+    if (liveText) {
+      nonEmptyLiveWrites.push(liveText);
+      notifyLiveWriteWaiters();
+    }
   }
 };
 const main = {
@@ -48,9 +78,14 @@ let librarySurfaceAnnounce = null;
 let teacherSurfaceInvoke = null;
 let teacherSurfaceAnnounce = null;
 
+function trackedRuntimeSetTimeout(callback, delay) {
+  runtimeTimerDelays.push(Number(delay) || 0);
+  return setTimeout(callback, delay);
+}
+
 const fakeWindow = {
   document: documentRef,
-  setTimeout,
+  setTimeout: trackedRuntimeSetTimeout,
   clearTimeout,
   getSelection() { return { isCollapsed: true, rangeCount: 0 }; },
   pywebview: {
@@ -106,18 +141,21 @@ assert.strictEqual(
 );
 
 async function run() {
+  let expectedWrites = nonEmptyLiveWrites.length;
   await fakeWindow.apiAction("repeat_result");
   await fakeWindow.apiAction("repeat_result");
-  await new Promise(resolve => setTimeout(resolve, 170));
+  expectedWrites += 2;
+  await waitForTotalWrites(expectedWrites);
   assert.deepStrictEqual(
     nonEmptyLiveWrites.slice(0, 2),
     ["Same explicit result", "Same explicit result"],
     "two distinct explicit actions with identical text must expose two live-region results"
   );
 
+  expectedWrites = nonEmptyLiveWrites.length + 1;
   fakeWindow.announce("Background duplicate");
   fakeWindow.announce("Background duplicate");
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await waitForTotalWrites(expectedWrites);
   const backgroundWrites = nonEmptyLiveWrites.filter(value => value === "Background duplicate");
   assert.strictEqual(
     backgroundWrites.length,
@@ -125,10 +163,11 @@ async function run() {
     "same background dispatch duplicate should remain coalesced"
   );
 
+  expectedWrites = nonEmptyLiveWrites.length + 2;
   fakeWindow.announce("Passive A");
   fakeWindow.announce("Passive B");
   fakeWindow.announce("Passive A");
-  await new Promise(resolve => setTimeout(resolve, 180));
+  await waitForTotalWrites(expectedWrites);
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Passive A").length,
     1,
@@ -140,10 +179,11 @@ async function run() {
     "interleaved distinct passive status must still be exposed"
   );
 
+  expectedWrites = nonEmptyLiveWrites.length + 2;
   fakeWindow.announce("First explicit event", "event-1");
   fakeWindow.announce("Interleaved explicit event", "event-2");
   fakeWindow.announce("First explicit event", "event-1");
-  await new Promise(resolve => setTimeout(resolve, 180));
+  await waitForTotalWrites(expectedWrites);
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "First explicit event").length,
     1,
@@ -155,10 +195,11 @@ async function run() {
     "the interleaved distinct event must still be exposed"
   );
 
+  expectedWrites = nonEmptyLiveWrites.length + 2;
   fakeWindow.announce("Same-event first message", "event-multi");
   fakeWindow.announce("Same-event second message", "event-multi");
   fakeWindow.announce("Same-event first message", "event-multi");
-  await new Promise(resolve => setTimeout(resolve, 220));
+  await waitForTotalWrites(expectedWrites);
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same-event first message").length,
     1,
@@ -170,15 +211,18 @@ async function run() {
     "a distinct accessible result from the same event must not be dropped"
   );
 
+  expectedWrites = nonEmptyLiveWrites.length + 2;
   fakeWindow.announce("Repeated explicit text", "event-3");
   fakeWindow.announce("Repeated explicit text", "event-4");
-  await new Promise(resolve => setTimeout(resolve, 180));
+  await waitForTotalWrites(expectedWrites);
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Repeated explicit text").length,
     2,
     "distinct explicit event identities must preserve repeated result text"
   );
 
+  const surfaceWriteStartIndex = nonEmptyLiveWrites.length;
+  const surfaceTimerStartIndex = runtimeTimerDelays.length;
   let staleCallbackCalls = 0;
   const staleCallback = function () { staleCallbackCalls += 1; };
   const repeatPgnResult = async function () {
@@ -249,12 +293,26 @@ async function run() {
   const teacherSecond = await teacherSurfaceInvoke("teacher.pointer_input", { coordinate: "f3" });
   teacherSurfaceAnnounce(teacherSecond.payload.announcement);
 
-  // Nine accepted surface announcements can be queued back-to-back here. The
-  // production pump intentionally spaces each write by 30 ms + 35 ms, so 520 ms
-  // can observe the penultimate write and falsely report the final Teacher event
-  // as lost. Keep the oracle bounded while allowing the full deterministic queue
-  // to drain on hosted Windows/Linux runners.
-  await new Promise(resolve => setTimeout(resolve, 750));
+  // Wait for actual delivery, while measuring the product's requested timer
+  // budget rather than host scheduler delay. A loaded Windows runner can defer
+  // otherwise-correct timers; that is not a product queue-latency regression.
+  await waitForTotalWrites(surfaceWriteStartIndex + 9);
+  assert.ok(
+    nonEmptyLiveWrites.slice(surfaceWriteStartIndex).length >= 9,
+    "all explicit surface results must reach the live region"
+  );
+  const surfaceTimerDelays = runtimeTimerDelays.slice(surfaceTimerStartIndex);
+  const expectedSurfaceTimerDelays = [];
+  for (let index = 0; index < 9; index += 1) expectedSurfaceTimerDelays.push(30, 20);
+  assert.deepStrictEqual(
+    surfaceTimerDelays,
+    expectedSurfaceTimerDelays,
+    "surface queue must preserve the 30 ms clear-to-text and 20 ms post-write cadence"
+  );
+  assert.ok(
+    surfaceTimerDelays.reduce((total, delay) => total + delay, 0) <= 520,
+    "configured explicit surface queue budget must remain inside the frozen 520 ms acceptance window"
+  );
   assert.strictEqual(staleCallbackCalls, 0, "explicit surface actions must use the P0 event-aware queue");
   assert.strictEqual(
     nonEmptyLiveWrites.filter(value => value === "Same product-surface result").length,

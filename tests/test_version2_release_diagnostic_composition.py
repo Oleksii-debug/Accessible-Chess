@@ -40,6 +40,8 @@ class Version2ReleaseDiagnosticCompositionTests(unittest.TestCase):
         self.assertIn("v2_snapshot(", diagnostic)
         self.assertIn('v2_state.get("library", {})', diagnostic)
         self.assertIn("packaged_w2_library_ready(library_state)", diagnostic)
+        self.assertIn("isinstance(v2_state, dict)", diagnostic)
+        self.assertIn("not isinstance(library_state, dict)", diagnostic)
 
     def test_cleanup_is_confirmed_in_application_analysis_runtime_order(self) -> None:
         diagnostic = self._diagnostic_source()
