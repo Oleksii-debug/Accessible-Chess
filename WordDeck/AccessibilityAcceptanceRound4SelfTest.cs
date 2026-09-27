@@ -22,7 +22,8 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         TestUnsafeAndNativeKeysFailClosed();
         TestRecallArrowSurfaceContract();
         TestSelectorNavigationContract();
-        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, authoritative training-topology F1/settings synchronization, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
+        TestCurrentHelpTruthfulness();
+        Console.WriteLine("WordDeck R4 accessibility acceptance passed: shortcut context isolation, authoritative training-topology F1/settings synchronization, current-mode truthful F1 content, protected unknown Spelling binding preservation without live-key poisoning, live cross-mode conflict rejection, unsafe/native keys, Recall arrow surface and selector navigation contracts verified.");
     }
 
     private static void TestShortcutContextIsolation()
@@ -61,10 +62,21 @@ internal static class AccessibilityAcceptanceRound4SelfTest
             "Recall-only registry exposed Spelling commands before authoritative Spelling topology was loaded.");
         AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach),
             "Recall-only registry exposed Sentence commands before authoritative Spelling topology was loaded.");
+        AssertFalse(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening),
+            "Recall-only registry exposed Listening commands before authoritative training topology was loaded.");
 
         mainRegistry.RefreshDeckDefinitions(spelling.Decks);
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "Synchronized Main/F1 registry omitted Open Spelling.");
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "Synchronized Main/F1 registry omitted Open Sentence Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening), "Synchronized Main/F1 registry omitted Open Listening.");
+
+        // ShowCurrentWordDeckHelp refreshes the already-synchronized registry without
+        // resupplying Spelling topology. That refresh must preserve the live training surface.
+        mainRegistry.RefreshDeckDefinitions();
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSpelling), "F1 refresh dropped synchronized Open Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenSentenceCoach), "F1 refresh dropped synchronized Open Sentence Spelling.");
+        AssertTrue(mainRegistry.Definitions.Any(def => def.Id == ActionIds.OpenListening), "F1 refresh dropped synchronized Open Listening.");
+
         string spellingCore1 = ActionIds.SpellingSwitchDeck(SpellingDeckIds.Core(1));
         AssertTrue(mainRegistry.Definitions.Any(def => def.Id == spellingCore1), "Synchronized Main/F1 registry omitted live Spelling deck actions.");
         AssertEqual(ActionIds.ShortcutSettings, mainRegistry.FindAction(Keys.Control | Keys.K), "Ctrl+K became unavailable after training definitions were synchronized.");
@@ -147,6 +159,37 @@ internal static class AccessibilityAcceptanceRound4SelfTest
         AssertTrue(KeyboardSelectorFocusGuard.IsNativeSelectionNavigation(Keys.Home), "Selector Home must be recognized as native selection navigation.");
         AssertFalse(KeyboardSelectorFocusGuard.IsNativeSelectionNavigation(Keys.Control | Keys.Down), "Modified Down must not be mistaken for native selector navigation.");
         AssertFalse(KeyboardSelectorFocusGuard.IsNativeSelectionNavigation(Keys.Tab), "Tab is focus traversal, not selector selection navigation.");
+    }
+
+    private static void TestCurrentHelpTruthfulness()
+    {
+        string help = MainForm.BuildCurrentWordDeckHelpText("TEST SHORTCUTS", "enabled");
+
+        AssertTrue(help.Contains("LISTENING AND DEEP LISTENING", StringComparison.Ordinal),
+            "F1 help omitted the current Listening/Deep Listening learner mode.");
+        AssertTrue(help.Contains("STORY / COURSE", StringComparison.Ordinal),
+            "F1 help omitted the current Story/Course learner mode.");
+        AssertTrue(help.Contains("DEEP GRAMMAR", StringComparison.Ordinal),
+            "F1 help omitted the current governed Deep Grammar learner mode.");
+        AssertTrue(help.Contains("READING / PRIVATE LOCAL BOOKS", StringComparison.Ordinal),
+            "F1 help omitted the current private Reading learner mode.");
+        AssertTrue(help.Contains("typed fallback does not create Speaking or Pronunciation evidence", StringComparison.Ordinal),
+            "F1 help overstated current Course Speaking evidence.");
+        AssertTrue(help.Contains("unified learner-state families for Recall, Spelling, Sentence, Listening and Course/Story", StringComparison.Ordinal),
+            "F1 help understated the current unified-profile state coverage.");
+        AssertTrue(help.Contains("Separate per-course Story/Course runtime progress files", StringComparison.Ordinal) &&
+                   help.Contains("outside that JSON export", StringComparison.Ordinal),
+            "F1 help overstated unified-profile coverage of separate Story/Course runtime progress.");
+        AssertTrue(help.Contains("Tools > Export complete personal profile", StringComparison.Ordinal) &&
+                   !help.Contains("File > Export personal progress profile", StringComparison.Ordinal),
+            "F1 help did not match the current complete-profile menu route.");
+        AssertTrue(help.Contains("%LOCALAPPDATA%\\WordDeck\\Reading", StringComparison.Ordinal) &&
+                   help.Contains("not claimed as part of the unified profile export", StringComparison.Ordinal),
+            "F1 help did not preserve the private Reading/profile boundary.");
+        AssertTrue(help.Contains("Automatic pronunciation on card change is currently enabled", StringComparison.Ordinal),
+            "F1 help lost the live pronunciation-mode statement.");
+        AssertTrue(help.Contains("TEST SHORTCUTS", StringComparison.Ordinal),
+            "F1 help lost the live shortcut registry text.");
     }
 
     private static void AssertTrue(bool value, string message)

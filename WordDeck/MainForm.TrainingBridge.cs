@@ -51,15 +51,12 @@ internal sealed partial class MainForm
 
     internal Keys CurrentHelpShortcut => _shortcuts.Get(ActionIds.Help);
 
-    internal void ShowCurrentWordDeckHelp()
+    internal static string BuildCurrentWordDeckHelpText(string shortcutLines, string audioMode)
     {
-        _shortcuts.RefreshDeckDefinitions();
-        string shortcutLines = string.Join(
-            Environment.NewLine,
-            _shortcuts.Definitions.Select(def => $"{def.Description}: {ShortcutFormatter.Format(_shortcuts.Get(def.Id))}"));
-        string audioMode = _state.AutoPlayPronunciationOnCardChange ? "enabled" : "disabled";
+        shortcutLines ??= string.Empty;
+        string safeAudioMode = string.IsNullOrWhiteSpace(audioMode) ? "unknown" : audioMode.Trim();
 
-        string help =
+        return
             "WORDDECK HELP\r\n\r\n" +
             "RECALL STUDY SCOPES\r\n" +
             "Recall has six independent study workspaces: All Oxford 5000, A1, A2, B1, B2 and C1. There is no Oxford C2 workspace because the Oxford 5000 list does not define a C2 subset. Each scope keeps its own Recall deck assignments, active deck, current card and shuffle progress.\r\n\r\n" +
@@ -69,14 +66,33 @@ internal sealed partial class MainForm
             "Open Spelling with its configured shortcut or Tools menu entry. Type the English spelling and press Enter. An empty or whitespace-only Enter is ignored before learning statistics are changed, including a rapid second Enter after a completed answer. Close the Spelling window with Alt+F4; normal close saves through the existing state lifecycle. Alt+F4 remains a standard Windows close command and is not assignable as a WordDeck shortcut.\r\n\r\n" +
             "SENTENCE SPELLING\r\n" +
             "Open Sentence Spelling with its configured shortcut or Tools menu entry. It uses a validated installed offline SentencePack and never invents a production corpus when none is installed. Choose a spelling-deck scope, a 30/100/200/full target pool, and one, two or three natural targets. Ambiguous same-written-form Oxford identities are excluded before pool selection unless independent sense identity exists. WordDeck shows the Ukrainian sentence and the English sentence with only the current target blank. Type only that exact target word or phrase and press Enter; multi-target sentences advance one target at a time. Show answer reveals only the current target. Empty or whitespace-only Enter is a non-learning event. Current sentence, target position and current wrong/hint flags are saved for restart continuity.\r\n\r\n" +
+            "LISTENING AND DEEP LISTENING\r\n" +
+            "Open Listening and Dictation from Tools or with its configured shortcut. It uses installed offline British word audio. Type the English answer; the written answer stays hidden until you check it or use Show answer. Listening keeps its own durable progress, history and unfinished item. Deep Listening groups eligible word-audio work into deterministic five-review journeys reconstructed from Listening history; completing a journey does not by itself create CEFR or mastery evidence.\r\n\r\n" +
+            "STORY / COURSE\r\n" +
+            "Tools > Open course opens validated installed local WordDeck course manifests. The current learner UI can present course reading, dialogues/stories, comprehension and productive practice. Writing responses can be stored as practice. Speaking or mixed productive tasks currently use a typed fallback in this Course UI because no microphone/capture provider is bound there; typed fallback does not create Speaking or Pronunciation evidence or mastery.\r\n\r\n" +
+            "DEEP GRAMMAR\r\n" +
+            "Tools > Open Deep Grammar A1 opens the currently governed A1 Present Continuous practice journey. It records ordinary practice and deterministic recommended remediation in learner-course state. Practice, reveal, completion and recommended next work do not by themselves mean mastery, a CEFR level or Fast Track completion.\r\n\r\n" +
+            "READING / PRIVATE LOCAL BOOKS\r\n" +
+            "Tools > Open Reading / book study opens the keyboard-first private local reader. It accepts local TXT, HTML and EPUB files plus explicitly PDF-derived text; WordDeck does not silently parse a PDF as if extraction were reliable. Imported source bytes and reading data stay under %LOCALAPPDATA%\\WordDeck\\Reading and are not silently uploaded. Known/Learning/New familiarity comes from the selected Recall decks, and ambiguous dictionary forms require an explicit entry choice before capture to a Learning deck.\r\n\r\n" +
             "PERSONAL PROGRESS AND UPDATE SAFETY\r\n" +
-            "Personal progress is stored outside the program ZIP under %LOCALAPPDATA%\\WordDeck, so replacing the program ZIP does not intentionally erase progress. File > Export personal progress profile and its configured shortcut export one complete personal profile containing Recall, Spelling and Sentence learning state; the canonical dictionary and audio are not copied into that profile. Import validates the profile, creates recovery material before replacement and applies it through the unified profile service.\r\n\r\n" +
-            "Deck > Hide current word removes a word only from normal Recall study. It does not delete the canonical dictionary, audio or saved deck assignments. Hidden words can be restored individually or all at once. File > Reset Recall learning data resets Recall learning overlays only and creates recovery material first; it is not described as a global Spelling/Sentence reset.\r\n\r\n" +
+            "Personal progress is stored outside the program ZIP under %LOCALAPPDATA%\\WordDeck, so replacing the program ZIP does not intentionally erase progress. Tools > Export complete personal profile exports the unified learner-state families for Recall, Spelling, Sentence, Listening and Course/Story; the canonical dictionary, audio, course content and SentencePack content are not copied into that profile. Separate per-course Story/Course runtime progress files, private Reading book files and Reading positions remain local data outside that JSON export and are not claimed as part of the unified profile. Import validates the profile, creates recovery material before replacement and applies it through the unified profile service.\r\n\r\n" +
+            "Deck > Hide current word removes a word only from normal Recall study. It does not delete the canonical dictionary, audio or saved deck assignments. Hidden words can be restored individually or all at once. File > Reset Recall learning data resets Recall learning overlays only and creates recovery material first; it is not described as a global reset of Spelling, Sentence, Listening, Course/Story or Reading.\r\n\r\n" +
             "OFFLINE PRONUNCIATION\r\n" +
             "Generated British pronunciation is an optional offline audio layer keyed by stable dictionary and entry IDs. " +
-            $"Automatic pronunciation on card change is currently {audioMode}. If generated audio is unavailable, WordDeck reports a readable status and the normal screen-reader announcement remains the fallback.\r\n\r\n" +
+            $"Automatic pronunciation on card change is currently {safeAudioMode}. If generated audio is unavailable, WordDeck reports a readable status and the normal screen-reader announcement remains the fallback.\r\n\r\n" +
             "KEYBOARD SHORTCUTS\r\n" + shortcutLines + "\r\n\r\n" +
-            "Use Tools > Keyboard shortcuts to assign or reassign shortcuts. Standard Windows navigation and reserved keys remain protected. Training-window shortcuts are listed here from the same live shortcut registry used by the application.";
+            "Use Tools > Training keyboard shortcuts to assign or reassign the supported Recall, Spelling, Sentence and Listening shortcuts. Standard Windows navigation and reserved keys remain protected. Training-window shortcuts are listed here from the same live shortcut registry used by the application.";
+    }
+
+    internal void ShowCurrentWordDeckHelp()
+    {
+        _shortcuts.RefreshDeckDefinitions();
+        string shortcutLines = string.Join(
+            Environment.NewLine,
+            _shortcuts.Definitions.Select(def => $"{def.Description}: {ShortcutFormatter.Format(_shortcuts.Get(def.Id))}"));
+        string audioMode = _state.AutoPlayPronunciationOnCardChange ? "enabled" : "disabled";
+
+        string help = BuildCurrentWordDeckHelpText(shortcutLines, audioMode);
 
         using var form = new Form
         {
