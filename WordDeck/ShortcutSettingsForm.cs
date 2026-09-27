@@ -1,5 +1,17 @@
 namespace WordDeck;
 
+internal static class ShortcutCaptureKeyboardPolicy
+{
+    internal static bool IsNativeDialogChord(Keys keyData)
+    {
+        Keys keyCode = keyData & Keys.KeyCode;
+        Keys modifiers = keyData & Keys.Modifiers;
+        if (keyData is (Keys.Alt | Keys.F4) or (Keys.Alt | Keys.Tab) or (Keys.Control | Keys.Escape) or (Keys.Alt | Keys.Space))
+            return true;
+        return keyCode == Keys.Tab && modifiers is Keys.None or Keys.Shift;
+    }
+}
+
 internal sealed class ShortcutSettingsForm : Form
 {
     private readonly ShortcutManager _manager;
@@ -198,6 +210,9 @@ internal sealed class ShortcutCaptureForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (ShortcutCaptureKeyboardPolicy.IsNativeDialogChord(keyData))
+            return base.ProcessCmdKey(ref msg, keyData);
+
         Keys keyCode = keyData & Keys.KeyCode;
         if (keyCode is Keys.ControlKey or Keys.ShiftKey or Keys.Menu) return true;
         if (keyCode == Keys.Escape)
