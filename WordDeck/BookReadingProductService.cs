@@ -233,9 +233,12 @@ internal sealed class BookReadingProductService
 
             try
             {
-                allAssignments.Clear();
+                // AppStateStore.Normalize may replace the DeckIds dictionary object
+                // before a persistence failure is thrown. Restore through the live
+                // scope property rather than the pre-save dictionary reference.
+                allScope.DeckIds.Clear();
                 foreach (KeyValuePair<string, string> pair in allAssignmentSnapshot)
-                    allAssignments[pair.Key] = pair.Value;
+                    allScope.DeckIds[pair.Key] = pair.Value;
                 allScope.RemainingShuffleEntryIds.Clear();
                 allScope.RemainingShuffleEntryIds.AddRange(allShuffleSnapshot);
                 allScope.ActiveDeckId = allActiveDeckSnapshot;
