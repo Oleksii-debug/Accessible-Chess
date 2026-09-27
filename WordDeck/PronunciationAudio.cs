@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -10,8 +11,11 @@ namespace WordDeck;
 /// </summary>
 internal sealed class PronunciationAudio : IDisposable
 {
-    private const string Alias = "worddeck_pronunciation";
+    private static long _nextAliasId;
+    private readonly string _alias = $"worddeck_pronunciation_{Interlocked.Increment(ref _nextAliasId)}";
     private bool _opened;
+
+    internal string AliasForTest => _alias;
 
     [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
     private static extern int mciSendString(string command, StringBuilder? returnValue, int returnLength, IntPtr callback);
@@ -36,7 +40,7 @@ internal sealed class PronunciationAudio : IDisposable
         }
 
         Stop();
-        int result = mciSendString($"open \"{path}\" type mpegvideo alias {Alias}", null, 0, IntPtr.Zero);
+        int result = mciSendString($"open \"{path}\" type mpegvideo alias {_alias}", null, 0, IntPtr.Zero);
         if (result != 0)
         {
             error = DescribeError("Could not open pronunciation audio", result);
@@ -44,7 +48,7 @@ internal sealed class PronunciationAudio : IDisposable
         }
 
         _opened = true;
-        result = mciSendString($"play {Alias} from 0", null, 0, IntPtr.Zero);
+        result = mciSendString($"play {_alias} from 0", null, 0, IntPtr.Zero);
         if (result != 0)
         {
             error = DescribeError("Could not play pronunciation audio", result);
@@ -61,8 +65,8 @@ internal sealed class PronunciationAudio : IDisposable
         if (!OperatingSystem.IsWindows() || !_opened)
             return;
 
-        mciSendString($"stop {Alias}", null, 0, IntPtr.Zero);
-        mciSendString($"close {Alias}", null, 0, IntPtr.Zero);
+        mciSendString($"stop {_alias}", null, 0, IntPtr.Zero);
+        mciSendString($"close {_alias}", null, 0, IntPtr.Zero);
         _opened = false;
     }
 
@@ -80,13 +84,53 @@ internal sealed class PronunciationAudio : IDisposable
 
         return new[]
         {
-            Path.Combine(portableRoot, dictionaryFolder, fileName),
-            Path.Combine(localRoot, dictionaryFolder, fileName)
+            CombineContained(portableRoot, dictionaryFolder, fileName),
+            CombineContained(localRoot, dictionaryFolder, fileName)
         };
     }
 
-    private static string SafeName(string value) =>
-        Regex.Replace(value.Trim(), "[^A-Za-z0-9._-]+", "_");
+    private static string CombineContained(string root, string folder, string fileName)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        string fullCandidate = Path.GetFullPath(Path.Combine(fullRoot, folder, fileName));
+        string rootPrefix = fullRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? fullRoot
+            : fullRoot + Path.DirectorySeparatorChar;
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!fullCandidate.StartsWith(rootPrefix, comparison))
+            throw new InvalidDataException("Pronunciation audio path escaped its configured AudioPacks root.");
+        return fullCandidate;
+    }
+
+    private static string SafeName(string value)
+    {
+        string trimmed = (value ?? string.Empty).Trim();
+        if (IsSafeFileSegment(trimmed))
+            return trimmed;
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(trimmed));
+        return $"id-{Convert.ToHexString(hash)[..24].ToLowerInvariant()}";
+    }
+
+    private static bool IsSafeFileSegment(string value)
+    {
+        if (value.Length == 0 || value.Length > 120 || value is "." or ".." || value.EndsWith(".", StringComparison.Ordinal))
+            return false;
+        if (!Regex.IsMatch(value, "^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            return false;
+
+        string deviceStem = value.Split('.')[0];
+        return !ReservedWindowsDeviceNames.Contains(deviceStem);
+    }
+
+    private static readonly HashSet<string> ReservedWindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
 
     private static string DescribeError(string prefix, int code)
     {
