@@ -133,6 +133,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             self.assertLess(position, build)
         self.assertIn("SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS", self.text)
         self.assertIn("SOURCE_EPUB_APPLICATION_REACHABILITY=PASS", self.text)
+        self.assertIn("SOURCE_EPUB_APPLICATION_REACHABILITY_FAILURE", self.text)
 
     def test_post_acceptance_relaunch_reproves_packaged_starter_before_publication(self) -> None:
         acceptance = self.text.index("FRESH_PACKAGED_P0_ACCEPTANCE=PASS")

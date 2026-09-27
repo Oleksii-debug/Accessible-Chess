@@ -159,11 +159,14 @@ jobs:
           $ErrorActionPreference='Stop'
           python run_accessible_chess_v2.py --diagnostic
           if($LASTEXITCODE -ne 0){throw 'SOURCE_V2_DIAGNOSTIC_FAILURE'}
-          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume tests.test_v2_book_epub_import tests.test_version2_epub_application_reachability
+          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
           if($LASTEXITCODE -ne 0){throw 'SOURCE_RELEASE_CRITICAL_P0_CONTRACT_FAILURE'}
           Write-Host 'SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS'
-          Write-Host 'SOURCE_EPUB_APPLICATION_REACHABILITY=PASS'
           Write-Host 'SOURCE_RELEASE_CRITICAL_P0_CONTRACTS=PASS'
+
+          python -m unittest -v tests.test_v2_book_epub_import tests.test_version2_epub_application_reachability
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_EPUB_APPLICATION_REACHABILITY_FAILURE'}
+          Write-Host 'SOURCE_EPUB_APPLICATION_REACHABILITY=PASS'
 
       - name: Build standalone AccessibleChess.exe
         shell: pwsh
