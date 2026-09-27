@@ -165,6 +165,8 @@ class BookIndex:
         )
 
     def of_kind(self, kind: BookEntryKind) -> tuple[BookIndexEntry, ...]:
+        if not isinstance(kind, BookEntryKind):
+            raise TypeError("Book entry kind must be a BookEntryKind")
         return tuple(entry for entry in self._entries if entry.kind is kind)
 
     def resolve(self, target: BookTarget | str) -> BookIndexEntry:
@@ -174,6 +176,8 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
+        if not isinstance(target, (BookTarget, str)):
+            raise TypeError("Book target must be a BookTarget or string")
         key = target.key if isinstance(target, BookTarget) else target
         matches = self._by_key.get(key, ())
         if not matches:
