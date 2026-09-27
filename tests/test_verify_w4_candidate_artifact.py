@@ -573,7 +573,7 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         manifest["starter_source"]["subset_sha256"] = digest
         starter[manifest_path] = json.dumps(manifest).encode("utf-8")
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
-        with self.assertRaisesRegex(CandidateArtifactError, "complete-record count mismatch"):
+        with self.assertRaisesRegex(CandidateArtifactError, "not exactly one game"):
             verify(self.path, SHA)
 
     def test_lawful_starter_manifest_semantics_bind_to_strict_packaged_pgn(self) -> None:
@@ -817,7 +817,7 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             }
         )
         self.path.write_bytes(outer)
-        with self.assertRaisesRegex(CandidateArtifactError, "strict UIA"):
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
             verify(self.path, SHA)
 
     def test_unexpected_outer_file_fails(self) -> None:
@@ -837,7 +837,7 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             }
         )
         self.path.write_bytes(outer)
-        with self.assertRaisesRegex(CandidateArtifactError, "unexpected files"):
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
             verify(self.path, SHA)
 
     def test_candidate_payload_tamper_fails(self) -> None:
