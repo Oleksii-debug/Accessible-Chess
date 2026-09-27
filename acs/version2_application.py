@@ -220,13 +220,18 @@ class Version2Application:
         # the rejected post-mutation state.
         self.training_workspace = self.training = None
         if restore_training and training_was_active:
-            workspace = Version2BookTrainingWorkspace(
-                restored_reader,
-                progress_root=self.training_progress_root,
-                language=self.shell.language,
-            )
-            self.training = workspace.start_current()
-            self.training_workspace = workspace
+            try:
+                workspace = Version2BookTrainingWorkspace(
+                    restored_reader,
+                    progress_root=self.training_progress_root,
+                    language=self.shell.language,
+                )
+                self.training = workspace.start_current()
+                self.training_workspace = workspace
+            except Exception:
+                # Secondary Training-state recovery failure must not mask the
+                # primary transaction failure or leave a dead Training route.
+                self.training_workspace = self.training = None
         # If that invalidated Training model cannot be restored, do not leave a
         # dead Training route published. Recover through canonical Books instead.
         if (

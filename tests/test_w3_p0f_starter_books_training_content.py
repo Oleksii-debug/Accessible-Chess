@@ -701,5 +701,59 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_continue_secondary_restore_failure_recovers_to_books(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-secondary-restore-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    reader_before = app.reader.snapshot()
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated Book progress failure"),
+                    ), patch(
+                        "acs.version2_application.Version2BookTrainingWorkspace.start_current",
+                        side_effect=ValueError("simulated Training restore failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    events = app.drain_events()
+                    self.assertTrue(
+                        any(
+                            item["kind"] == "route"
+                            and item["payload"].get("route_id") == "books"
+                            for item in events
+                        )
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
