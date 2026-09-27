@@ -927,7 +927,12 @@ internal sealed partial class MainForm : Form
 
     private void SaveProgressNow()
     {
-        SaveState();
+        if (!RecallClosePersistence.TrySave(() => SaveState(), out string? error))
+        {
+            AnnounceStatus($"Recall progress was not saved. WordDeck remains open with the current in-memory session; resolve the storage problem and try again. {error}");
+            return;
+        }
+
         AnnounceStatus($"Progress saved locally for {StudyScopeIds.DisplayName(ActiveScopeId)}. Scope assignments, active deck, current card and shuffle progress are stored.");
     }
 
