@@ -19,6 +19,7 @@ internal static class SpellingClosePersistenceSelfTest
     {
         TestSuccessfulSaveAllowsClose();
         TestFailedSaveBlocksCloseWithoutEscaping();
+        TestPronunciationHintEvidenceTruth();
         Console.WriteLine("WordDeck Spelling close-persistence self-test passed: successful saves allow close and failed saves are surfaced without escaping the close boundary.");
     }
 
@@ -44,6 +45,14 @@ internal static class SpellingClosePersistenceSelfTest
         Require(calls == 1, "Failed Spelling close persistence did not invoke the save action exactly once.");
         Require(error is not null && error.Contains("simulated spelling close write failure", StringComparison.Ordinal),
             "Failed Spelling close persistence did not return the storage failure reason.");
+    }
+
+    private static void TestPronunciationHintEvidenceTruth()
+    {
+        Require(SpellingHintEvidence.ShouldRecordPronunciationHint(playbackSucceeded: true),
+            "Successful pronunciation playback was not eligible for hint evidence.");
+        Require(!SpellingHintEvidence.ShouldRecordPronunciationHint(playbackSucceeded: false),
+            "Failed pronunciation playback was incorrectly eligible for hint evidence.");
     }
 
     private static void Require(bool condition, string message)
