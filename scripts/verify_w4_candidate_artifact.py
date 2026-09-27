@@ -841,10 +841,7 @@ def _verify_strict_uia_evidence(value: dict[str, object], expected_sha: str) -> 
     _require_true(value, "board_focus_continuity", "strict UIA evidence")
     _require_false(value, "raw_exception_noise", "strict UIA evidence")
     for key in ("human_tested", "nvda_verified"):
-        if key in value and value.get(key) is not False:
-            raise CandidateArtifactError(
-                f"strict UIA evidence must not claim or malformed-declare {key}"
-            )
+        _require_false(value, key, "strict UIA evidence")
     if value.get("semantic_square_count") != 64:
         raise CandidateArtifactError("strict UIA evidence must prove exactly 64 semantic squares")
     if value.get("clipboard") != "e9":
