@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/keybindings.py'
       - 'acs/ui_keymap_adapter.py'
+      - 'acs/ui_keymap_editor.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
       - 'web/index.html'
@@ -15,6 +16,12 @@ on:
       - 'web/full_product_library.js'
       - 'web/full_product_education.js'
       - 'tests/test_keybindings.py'
+      - 'tests/test_ui_keymap_editor.py'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_dev1_library_webview_projection.py'
+      - 'tests/test_dev1_release_ui_regressions.py'
+      - 'tests/test_issue22_release_contract.py'
+      - 'tests/test_stage1_packaged_focus_origin_contract.py'
       - 'tests/test_stage1_board_action_integration.py'
       - 'tests/test_webview_keymap_bridge_contract.py'
       - 'tests/test_full_product_native_menu.py'
@@ -25,6 +32,7 @@ on:
       - 'tests/js/remappable_input_submit_keys_test.js'
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/library_surface_dom_test.js'
+      - 'tests/js/version2_library_open_route_refresh_dom_test.js'
       - 'tests/js/education_surface_dom_test.js'
       - '.github/workflows/d01-education-management-webview.yml'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
@@ -84,8 +92,10 @@ jobs:
             'acs/full_product_native_menu.py' \
             'acs/keybindings.py' \
             'acs/ui_keymap_adapter.py' \
+            'acs/ui_keymap_editor.py' \
             'tests/js/education_surface_dom_test.js' \
             'tests/js/library_surface_dom_test.js' \
+            'tests/js/version2_library_open_route_refresh_dom_test.js' \
             'tests/js/pgn_surface_dom_test.js' \
             'tests/js/remappable_board_grid_controls_test.js' \
             'tests/js/remappable_input_submit_keys_test.js' \
@@ -94,6 +104,12 @@ jobs:
             'tests/test_full_product_native_menu.py' \
             'tests/test_full_product_pgn_keybindings.py' \
             'tests/test_keybindings.py' \
+            'tests/test_ui_keymap_editor.py' \
+            'tests/test_accessible_webui.py' \
+            'tests/test_dev1_library_webview_projection.py' \
+            'tests/test_dev1_release_ui_regressions.py' \
+            'tests/test_issue22_release_contract.py' \
+            'tests/test_stage1_packaged_focus_origin_contract.py' \
             'tests/test_stage1_board_action_integration.py' \
             'tests/test_webview_keymap_bridge_contract.py' \
             'web/full_product_education.js' \
@@ -119,6 +135,12 @@ jobs:
           acs/full_product_actions.py
           acs/full_product_native_menu.py
           tests/test_keybindings.py
+          tests/test_ui_keymap_editor.py
+          tests/test_accessible_webui.py
+          tests/test_dev1_library_webview_projection.py
+          tests/test_dev1_release_ui_regressions.py
+          tests/test_issue22_release_contract.py
+          tests/test_stage1_packaged_focus_origin_contract.py
           tests/test_stage1_board_action_integration.py
           tests/test_webview_keymap_bridge_contract.py
           tests/test_full_product_native_menu.py
@@ -135,12 +157,19 @@ jobs:
           node --check tests/js/remappable_input_submit_keys_test.js
           node --check tests/js/pgn_surface_dom_test.js
           node --check tests/js/library_surface_dom_test.js
+          node --check tests/js/version2_library_open_route_refresh_dom_test.js
           node --check tests/js/education_surface_dom_test.js
 
       - name: Run terminal Python keybinding contracts
         run: >-
           python -m unittest -v
           tests.test_keybindings
+          tests.test_ui_keymap_editor
+          tests.test_accessible_webui
+          tests.test_dev1_library_webview_projection
+          tests.test_dev1_release_ui_regressions
+          tests.test_issue22_release_contract
+          tests.test_stage1_packaged_focus_origin_contract
           tests.test_stage1_board_action_integration
           tests.test_webview_keymap_bridge_contract
           tests.test_full_product_native_menu
@@ -154,6 +183,7 @@ jobs:
           node tests/js/remappable_input_submit_keys_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/library_surface_dom_test.js
+          node tests/js/version2_library_open_route_refresh_dom_test.js
           node tests/js/education_surface_dom_test.js
 
       - name: Full repository unittest on Ubuntu
