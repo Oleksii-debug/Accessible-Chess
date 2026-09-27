@@ -29,6 +29,15 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+def _pe_fixture(marker: bytes) -> bytes:
+    payload = bytearray(128 + len(marker))
+    payload[:2] = b"MZ"
+    payload[60:64] = (64).to_bytes(4, "little")
+    payload[64:68] = b"PE\x00\x00"
+    payload[68:68 + len(marker)] = marker
+    return bytes(payload)
+
+
 def _pgn_record(prefix: str, index: int) -> str:
     return (
         f'[Event "{prefix} {index}"]\n'
@@ -237,12 +246,16 @@ def _candidate_bytes(
     nvda_verified: bool = False,
     human_tested: bool = False,
     starter_files: dict[str, bytes] | None = None,
-    app_executable: bytes = b"MZ-app",
-    stockfish_executable: bytes = b"MZ-stockfish",
+    app_executable: bytes | None = None,
+    stockfish_executable: bytes | None = None,
 ) -> bytes:
     payload = {
-        "AccessibleChess/AccessibleChess.exe": app_executable,
-        "AccessibleChess/engines/stockfish/stockfish.exe": stockfish_executable,
+        "AccessibleChess/AccessibleChess.exe": (
+            _pe_fixture(b"app") if app_executable is None else app_executable
+        ),
+        "AccessibleChess/engines/stockfish/stockfish.exe": (
+            _pe_fixture(b"stockfish") if stockfish_executable is None else stockfish_executable
+        ),
         **(starter_files or _starter_bundle_files()),
         "AccessibleChess/web/index.html": b"<!doctype html>",
     }
@@ -703,16 +716,34 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
 
     def test_application_executable_requires_windows_mz_signature(self) -> None:
         self.path.write_bytes(
-            _outer_bytes(candidate=_candidate_bytes(app_executable=b"not-a-pe"))
+            _outer_bytes(candidate=_candidate_bytes(app_executable=b"XX" + b"\x00" * 78))
         )
         with self.assertRaisesRegex(CandidateArtifactError, "application executable.*MZ"):
             verify(self.path, SHA)
 
     def test_stockfish_executable_requires_windows_mz_signature(self) -> None:
         self.path.write_bytes(
-            _outer_bytes(candidate=_candidate_bytes(stockfish_executable=b"not-a-pe"))
+            _outer_bytes(candidate=_candidate_bytes(stockfish_executable=b"XX" + b"\x00" * 78))
         )
         with self.assertRaisesRegex(CandidateArtifactError, "Stockfish executable.*MZ"):
+            verify(self.path, SHA)
+
+    def test_application_executable_requires_pe_signature(self) -> None:
+        malformed = bytearray(_pe_fixture(b"app"))
+        malformed[64:68] = b"NOPE"
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(app_executable=bytes(malformed)))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "application executable.*PE"):
+            verify(self.path, SHA)
+
+    def test_stockfish_executable_rejects_out_of_bounds_pe_offset(self) -> None:
+        malformed = bytearray(_pe_fixture(b"stockfish"))
+        malformed[60:64] = (32 * 1024 * 1024).to_bytes(4, "little")
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(stockfish_executable=bytes(malformed)))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "Stockfish executable.*PE header offset"):
             verify(self.path, SHA)
 
     def test_symbolic_link_zip_entry_fails_closed(self) -> None:
