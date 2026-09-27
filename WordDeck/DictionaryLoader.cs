@@ -8,6 +8,11 @@ namespace WordDeck;
 internal static class DictionaryLoader
 {
     private const string BuiltInOxfordId = "oxford-3000-en-uk";
+    internal const long MaxImportedFileBytes = 16L * 1024 * 1024;
+    internal const int MaxDictionaryTextChars = 16 * 1024 * 1024;
+    internal const int MaxEntries = 100_000;
+    internal const int MaxLineChars = 32_768;
+    internal const int MaxFieldChars = 16_384;
 
     public static DictionaryPackage LoadEmbeddedOxford()
     {
@@ -44,10 +49,25 @@ internal static class DictionaryLoader
 
     public static DictionaryPackage LoadFromFile(string path)
     {
-        string text = File.ReadAllText(path, Encoding.UTF8);
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Dictionary path is required.", nameof(path));
+
+        string fullPath = Path.GetFullPath(path);
+        var info = new FileInfo(fullPath);
+        if (!info.Exists)
+            throw new FileNotFoundException("Dictionary file was not found.", fullPath);
+        if (info.Length <= 0)
+            throw new InvalidDataException("Dictionary file is empty.");
+        if (info.Length > MaxImportedFileBytes)
+            throw new InvalidDataException($"Dictionary file exceeds the {MaxImportedFileBytes / (1024 * 1024)} MiB import limit.");
+
+        string text = File.ReadAllText(fullPath, Encoding.UTF8);
+        if (text.Length > MaxDictionaryTextChars)
+            throw new InvalidDataException($"Dictionary text exceeds the {MaxDictionaryTextChars:N0}-character import limit.");
+
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
         string fallbackId = $"imported-{Convert.ToHexString(hash)[..12].ToLowerInvariant()}";
-        string fallbackName = Path.GetFileNameWithoutExtension(path);
+        string fallbackName = Path.GetFileNameWithoutExtension(fullPath);
         DictionaryPackage package = Parse(text, fallbackId, fallbackName);
 
         if (package.Id.Equals(BuiltInOxfordId, StringComparison.OrdinalIgnoreCase))
@@ -65,6 +85,9 @@ internal static class DictionaryLoader
         var entries = new List<DictionaryEntry>();
         var entryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        if (text.Length > MaxDictionaryTextChars)
+            throw new InvalidDataException($"Dictionary text exceeds the {MaxDictionaryTextChars:N0}-character import limit.");
+
         using var reader = new StringReader(text);
         string? line;
         bool firstDataLineSeen = false;
@@ -72,6 +95,8 @@ internal static class DictionaryLoader
         while ((line = reader.ReadLine()) is not null)
         {
             sourceLine++;
+            if (line.Length > MaxLineChars)
+                throw new InvalidDataException($"Dictionary row {sourceLine} exceeds the {MaxLineChars:N0}-character import limit.");
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
@@ -99,6 +124,11 @@ internal static class DictionaryLoader
             string source = parts[2].Trim();
             string target = string.Join("\t", parts.Skip(3)).Trim();
 
+            RequireFieldLength(entryId, sourceLine, "entry ID");
+            RequireFieldLength(level, sourceLine, "level");
+            RequireFieldLength(source, sourceLine, "source word");
+            RequireFieldLength(target, sourceLine, "translation");
+
             if (source.Length == 0)
                 throw new InvalidDataException($"Dictionary row {sourceLine} has an empty source word.");
             if (target.Length == 0)
@@ -111,6 +141,8 @@ internal static class DictionaryLoader
                 throw new InvalidDataException($"Dictionary contains duplicate entry ID '{entryId}' at source line {sourceLine}.");
 
             entries.Add(new DictionaryEntry(entryId, level, source, target));
+            if (entries.Count > MaxEntries)
+                throw new InvalidDataException($"Dictionary contains more than the supported {MaxEntries:N0} entries.");
         }
 
         if (entries.Count == 0)
@@ -126,6 +158,11 @@ internal static class DictionaryLoader
         if (sourceLanguage.Length == 0) sourceLanguage = "en";
         if (targetLanguage.Length == 0) targetLanguage = "uk";
 
+        RequireMetadataLength(id, "dictionary ID");
+        RequireMetadataLength(name, "dictionary name");
+        RequireMetadataLength(sourceLanguage, "source language");
+        RequireMetadataLength(targetLanguage, "target language");
+
         return new DictionaryPackage
         {
             Id = id,
@@ -134,5 +171,17 @@ internal static class DictionaryLoader
             TargetLanguage = targetLanguage,
             Entries = entries
         };
+    }
+
+    private static void RequireFieldLength(string value, int sourceLine, string description)
+    {
+        if (value.Length > MaxFieldChars)
+            throw new InvalidDataException($"Dictionary row {sourceLine} {description} exceeds the supported {MaxFieldChars:N0}-character limit.");
+    }
+
+    private static void RequireMetadataLength(string value, string description)
+    {
+        if (value.Length > MaxFieldChars)
+            throw new InvalidDataException($"{description} exceeds the supported {MaxFieldChars:N0}-character limit.");
     }
 }
