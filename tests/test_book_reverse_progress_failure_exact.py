@@ -205,5 +205,39 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
 
 
 
+    def test_unreachable_reverse_boundary_never_writes_progress_or_changes_ui_state(self) -> None:
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                language_result = app.browser_command(
+                    "books",
+                    "book.language",
+                    {"language": UILanguage.EN.value},
+                )
+                self.assertEqual(language_result["kind"], "render")
+                before_reader = app.reader.snapshot()
+                before_durable = self._durable_snapshot(app, progress)
+                before_language = app.books.projection.language
+                before_bookmark_name = app.books.projection.bookmark_name
+
+                for command in ("book.previous_position", "book.previous_game"):
+                    with self.subTest(command=command):
+                        with patch.object(
+                            progress,
+                            "save",
+                            side_effect=AssertionError(
+                                "unreachable reverse navigation must not publish progress"
+                            ),
+                        ) as save:
+                            result = app.browser_command("books", command)
+
+                        self.assertEqual(result["kind"], "error")
+                        save.assert_not_called()
+                        self.assertEqual(app.reader.snapshot(), before_reader)
+                        self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+                        self.assertEqual(app.books.projection.language, before_language)
+                        self.assertEqual(app.books.projection.bookmark_name, before_bookmark_name)
+
+
+
 if __name__ == "__main__":
     unittest.main()
