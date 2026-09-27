@@ -160,6 +160,7 @@ class Version2PackagePreflightReport:
             "total_bytes": self.total_bytes,
             "checksums_verified": self.checksums_verified,
             "archive_sha256": self.archive_sha256,
+            "human_tested": False,
             "nvda_verified": False,
             "result": "PASS",
         }
@@ -834,6 +835,7 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
         "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
         "product": "Accessible Chess",
         "package_profile": V2_PACKAGE_PROFILE,
+        "human_tested": False,
         "nvda_verified": False,
         "upgrade_from_version1": True,
         "upgrade_journal_schema": UPGRADE_JOURNAL_SCHEMA_VERSION,

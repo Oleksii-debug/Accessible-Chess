@@ -14,8 +14,8 @@ permissions:
 env:
   CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
   OWNER_HEAD: fix/p0-packaged-document-provider-root-probe-20260926
-  PROBE_BLOB: 6b6c3c7c37a3089c7bbf2f3ded6ad731998395ca
-  TEST_BLOB: e95a6c9c8df8c147f1b515212f6332a6fa081a3d
+  PROBE_BLOB: 7afbbbdf66f4e2458a453cd40ad7a094e923544c
+  TEST_BLOB: bbd29441d8fcdd2179833338bcd0c80e8299d88b
 
 jobs:
   contract:
