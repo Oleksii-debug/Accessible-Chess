@@ -353,6 +353,53 @@ internal static class GovernedGrammarA106RuntimeUi
         ("Close Deep Grammar practice", 6)
     };
 
+    internal static bool TryRecordExposureForUi(
+        GovernedGrammarA106StudyRuntime runtime,
+        string itemId,
+        out string? failureMessage)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        try
+        {
+            runtime.RecordExposure(itemId);
+            failureMessage = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            failureMessage = PersistenceFailureMessage("Відкриття вправи", ex);
+            return false;
+        }
+    }
+
+    internal static bool TryRecordPracticeForUi(
+        GovernedGrammarA106StudyRuntime runtime,
+        string itemId,
+        bool correct,
+        string resumeItemId,
+        int revealUses,
+        out string? failureMessage)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        try
+        {
+            runtime.RecordPracticeAttempt(itemId, correct, resumeItemId, revealUses);
+            failureMessage = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            failureMessage = PersistenceFailureMessage("Відповідь", ex);
+            return false;
+        }
+    }
+
+    private static string PersistenceFailureMessage(string action, Exception ex)
+    {
+        string detail = string.IsNullOrWhiteSpace(ex.Message) ? "невідома помилка сховища" : ex.Message.Trim();
+        return $"{action} не збережено. WordDeck не зарахував цю дію і залишив вправу відкритою для повторної спроби. {detail}";
+    }
+
     public static void Open(IWin32Window owner)
     {
         var runtime = new GovernedGrammarA106StudyRuntime();
@@ -487,9 +534,16 @@ internal static class GovernedGrammarA106RuntimeUi
 
         void RefreshProgress()
         {
-            GovernedGrammarA106PracticeSummary summary = runtime.GetSummary();
-            progress.Text = $"Збережено практичних спроб: {summary.PracticeAttempts}; правильних: {summary.CorrectPracticeAttempts}. " +
-                $"Точка відновлення: {summary.ResumeItemId}. Mastery/CEFR з цих лічильників не виводяться.";
+            try
+            {
+                GovernedGrammarA106PracticeSummary summary = runtime.GetSummary();
+                progress.Text = $"Збережено практичних спроб: {summary.PracticeAttempts}; правильних: {summary.CorrectPracticeAttempts}. " +
+                    $"Точка відновлення: {summary.ResumeItemId}. Mastery/CEFR з цих лічильників не виводяться.";
+            }
+            catch (Exception ex)
+            {
+                progress.Text = $"Збережений прогрес зараз недоступний. WordDeck не робить висновків про mastery або CEFR з недоступного стану. {ex.Message}";
+            }
         }
 
         void LoadItem(string itemId, bool recordExposure)
@@ -497,15 +551,21 @@ internal static class GovernedGrammarA106RuntimeUi
             GovernedGrammarA106StudyItem item = GovernedGrammarA106StudyCatalog.Get(itemId);
             currentItemId = item.ItemId;
             recommendedItemId = null;
-            if (recordExposure)
-                runtime.RecordExposure(item.ItemId);
+            string? persistenceWarning = null;
+            if (recordExposure &&
+                !TryRecordExposureForUi(runtime, item.ItemId, out persistenceWarning))
+            {
+                next.Enabled = false;
+            }
             prompt.Text = $"{item.ItemId}. {item.Prompt}";
             answer.Clear();
-            feedback.Text = item.IsDeepPractice
+            feedback.Text = persistenceWarning ?? (item.IsDeepPractice
                 ? "Це цільова Deep Practice вправа. Після правильної відповіді WordDeck поверне вас до нового контексту основного завдання."
-                : "Введіть англійське питання. Натисніть Enter або кнопку «Перевірити відповідь».";
+                : "Введіть англійське питання. Натисніть Enter або кнопку «Перевірити відповідь».");
             next.Enabled = false;
             RefreshProgress();
+            if (persistenceWarning is not null)
+                AccessibilityAnnouncer.Announce(feedback, persistenceWarning);
         }
 
         check.Click += (_, _) =>
@@ -520,14 +580,25 @@ internal static class GovernedGrammarA106RuntimeUi
                 return;
             }
 
-            recommendedItemId = evaluation.RecommendedItemId;
-            string resume = recommendedItemId ?? currentItemId;
-            runtime.RecordPracticeAttempt(
-                currentItemId,
-                evaluation.Correct,
-                resume,
-                revealUses: evaluation.Correct ? 0 : 1);
+            string? nextRecommendation = evaluation.RecommendedItemId;
+            string resume = nextRecommendation ?? currentItemId;
+            if (!TryRecordPracticeForUi(
+                    runtime,
+                    currentItemId,
+                    evaluation.Correct,
+                    resume,
+                    revealUses: evaluation.Correct ? 0 : 1,
+                    out string? persistenceFailure))
+            {
+                recommendedItemId = null;
+                next.Enabled = false;
+                feedback.Text = persistenceFailure!;
+                AccessibilityAnnouncer.Announce(feedback, feedback.Text);
+                answer.Focus();
+                return;
+            }
 
+            recommendedItemId = nextRecommendation;
             feedback.Text = evaluation.Correct
                 ? evaluation.Feedback
                 : $"{evaluation.Feedback}\r\nDeficit: {evaluation.DefectCode}." +
@@ -594,8 +665,9 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
         CatalogIsGovernedAndProtectedPoolsStayAbsent();
         DeterministicDeficitRouting();
         PracticeStateSurvivesRestartWithoutMasteryInflation();
+        PersistenceFailureIsContainedAndTruthful();
         AccessibilityContractIsDeterministic();
-        Console.WriteLine("Governed Grammar A1 runtime UI self-test PASS: governed Study content, deficit routing, restart state and accessibility contract verified; protected pools/mastery/CEFR remain excluded.");
+        Console.WriteLine("Governed Grammar A1 runtime UI self-test PASS: governed Study content, deficit routing, restart state, persistence-failure containment and accessibility contract verified; protected pools/mastery/CEFR remain excluded.");
     }
 
     private static void CatalogIsGovernedAndProtectedPoolsStayAbsent()
@@ -679,6 +751,58 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
         finally
         {
             try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    private static void PersistenceFailureIsContainedAndTruthful()
+    {
+        string parent = Path.Combine(Path.GetTempPath(), "WordDeck GA106 UI persistence " + Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(parent, "profile");
+        Directory.CreateDirectory(root);
+        try
+        {
+            int eventNumber = 0;
+            DateTimeOffset now = new(2026, 9, 28, 0, 30, 0, TimeSpan.Zero);
+            var runtime = new GovernedGrammarA106StudyRuntime(
+                new LearnerCourseStateStore(root),
+                () => "ga106.ui.failure." + (++eventNumber).ToString("D4"),
+                () => now.AddSeconds(eventNumber));
+
+            Require(GovernedGrammarA106RuntimeUi.TryRecordExposureForUi(
+                    runtime, GovernedGrammarA106StudyCatalog.PrimaryItemId, out string? firstError) &&
+                    firstError is null,
+                "Healthy Grammar exposure was rejected before the failure fixture.");
+
+            Directory.Delete(root, recursive: true);
+            File.WriteAllText(root, "block-course-state-directory");
+
+            bool practiceSaved = GovernedGrammarA106RuntimeUi.TryRecordPracticeForUi(
+                runtime,
+                GovernedGrammarA106StudyCatalog.PrimaryItemId,
+                correct: true,
+                GovernedGrammarA106StudyCatalog.PrimaryItemId,
+                revealUses: 0,
+                out string? practiceError);
+            Require(!practiceSaved && !string.IsNullOrWhiteSpace(practiceError),
+                "Forced Grammar practice persistence failure was not contained.");
+            Require(practiceError.Contains("не збережено", StringComparison.OrdinalIgnoreCase) &&
+                    practiceError.Contains("не зарахував", StringComparison.OrdinalIgnoreCase),
+                "Grammar persistence failure did not expose truthful learner-facing feedback.");
+            Require(!practiceError.Contains("Correct.", StringComparison.Ordinal),
+                "Failed Grammar persistence surfaced false successful-answer wording.");
+
+            bool exposureSaved = GovernedGrammarA106RuntimeUi.TryRecordExposureForUi(
+                runtime,
+                GovernedGrammarA106StudyCatalog.QuestionRepairItemId,
+                out string? exposureError);
+            Require(!exposureSaved && !string.IsNullOrWhiteSpace(exposureError) &&
+                    exposureError.Contains("не збережено", StringComparison.OrdinalIgnoreCase),
+                "Forced Grammar exposure persistence failure escaped the safe UI boundary.");
+        }
+        finally
+        {
+            try { if (File.Exists(root)) File.Delete(root); } catch { }
+            try { Directory.Delete(parent, recursive: true); } catch { }
         }
     }
 
