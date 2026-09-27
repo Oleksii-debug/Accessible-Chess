@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -152,6 +153,23 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
             self.progress.restore(self.app.book_key, self.app.reader.document).location(),
             origin,
         )
+
+    def test_shell_book_open_reaches_epub_through_dialog_and_hides_local_path(self) -> None:
+        source = self._write_epub(
+            "навчання з пробілом.epub",
+            b"<html><body><h1>Shell EPUB</h1><p>Reachable through dialog.</p></body></html>",
+        )
+        self.app.open_book_dialog = lambda: source
+
+        result = self.app.browser_command("shell", "book.open")
+
+        self.assertEqual(result["kind"], "delegated")
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.document.headings()[0].text, "Shell EPUB")
+        self.assertTrue(self.app.book_key.startswith("epub-sha256:"))
+        self.assertTrue(self.progress.has(self.app.book_key))
+        rendered = json.dumps(self.app.snapshot(), ensure_ascii=False)
+        self.assertNotIn(str(self.root), rendered)
 
     def test_uppercase_epub_extension_uses_same_canonical_ingress(self) -> None:
         source = self._write_epub(
