@@ -29,6 +29,7 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
         BusyDeviceMapsToStableTechnicalReason();
         CancellationReturnsControlAndCleansNativeResources();
         CleanupRetriesStillPlayingUntilOwnershipReturns();
+        QuarantineCircuitBreakerPreventsRepeatedNativeLeaks();
         PersistentQueuedOwnershipIsQuarantinedInsteadOfFreed();
         CloseStillPlayingFailsClosedAfterHeaderRelease();
         TimeoutResetFailureMapsToStableTechnicalFailure();
@@ -178,6 +179,39 @@ internal static class WindowsMicrophoneCaptureProviderSelfTest
             WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore,
             "recoverable STILLPLAYING must not quarantine");
         result.Sample!.Dispose();
+    }
+
+    private static void QuarantineCircuitBreakerPreventsRepeatedNativeLeaks()
+    {
+        int quarantineBefore = WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest;
+        var api = new FakeWaveInApi
+        {
+            CompleteOnStart = true,
+            ResetFailuresRemaining = 3,
+            UnprepareStillPlayingRemaining = 3
+        };
+        var provider = new WindowsMicrophoneCaptureProvider(
+            api,
+            new WindowsMicrophoneCaptureOptions(TimeSpan.FromSeconds(1)),
+            enforceWindowsPlatform: false,
+            enforceQuarantineCircuitBreaker: true);
+
+        SpeechCaptureResult first = Capture(provider);
+        Assert(!first.Success && first.ReasonCode == "MICROPHONE_CLEANUP_FAILED",
+            "first unsafe cleanup must fail closed");
+        Assert(api.OpenCalls == 1, "first unsafe cleanup should have opened the microphone exactly once");
+        Assert(
+            WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore + 1,
+            "first unsafe cleanup must retain exactly one unresolved native quarantine");
+
+        SpeechCaptureResult second = Capture(provider);
+        Assert(!second.Success && second.ReasonCode == "MICROPHONE_RECOVERY_REQUIRED",
+            "later capture after unresolved quarantine must require process recovery");
+        Assert(api.OpenCalls == 1,
+            "quarantine circuit breaker must reject later capture before touching the native microphone");
+        Assert(
+            WindowsMicrophoneCaptureProvider.QuarantinedLeaseCountForSelfTest == quarantineBefore + 1,
+            "quarantine circuit breaker must prevent repeated native quarantine growth");
     }
 
     private static void PersistentQueuedOwnershipIsQuarantinedInsteadOfFreed()

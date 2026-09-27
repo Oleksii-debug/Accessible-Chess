@@ -160,20 +160,27 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
     private readonly IWaveInApi _api;
     private readonly WindowsMicrophoneCaptureOptions _options;
     private readonly bool _enforceWindowsPlatform;
+    private readonly bool _enforceQuarantineCircuitBreaker;
 
     public WindowsMicrophoneCaptureProvider(WindowsMicrophoneCaptureOptions? options = null)
-        : this(new WinMmWaveInApi(), options, enforceWindowsPlatform: true)
+        : this(
+            new WinMmWaveInApi(),
+            options,
+            enforceWindowsPlatform: true,
+            enforceQuarantineCircuitBreaker: true)
     {
     }
 
     internal WindowsMicrophoneCaptureProvider(
         IWaveInApi api,
         WindowsMicrophoneCaptureOptions? options,
-        bool enforceWindowsPlatform)
+        bool enforceWindowsPlatform,
+        bool enforceQuarantineCircuitBreaker = false)
     {
         _api = api ?? throw new ArgumentNullException(nameof(api));
         _options = options ?? new WindowsMicrophoneCaptureOptions();
         _enforceWindowsPlatform = enforceWindowsPlatform;
+        _enforceQuarantineCircuitBreaker = enforceQuarantineCircuitBreaker;
     }
 
     public SpeechProviderQualification Qualification { get; } = new(
@@ -208,6 +215,9 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
             return SpeechCaptureResult.Fail("MICROPHONE_PLATFORM_UNSUPPORTED");
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (_enforceQuarantineCircuitBreaker && HasUnresolvedNativeQuarantine)
+            return SpeechCaptureResult.Fail("MICROPHONE_RECOVERY_REQUIRED");
 
         try
         {
@@ -472,6 +482,15 @@ internal sealed class WindowsMicrophoneCaptureProvider : ISpeechCaptureProvider
 
     internal static byte[] BuildPcmWavePayloadForSelfTest(ReadOnlySpan<byte> pcm) =>
         BuildPcmWavePayload(pcm);
+
+    private static bool HasUnresolvedNativeQuarantine
+    {
+        get
+        {
+            lock (QuarantineSync)
+                return QuarantinedLeases.Count > 0 || QuarantinedHandles.Count > 0;
+        }
+    }
 
     internal static int QuarantinedLeaseCountForSelfTest
     {
