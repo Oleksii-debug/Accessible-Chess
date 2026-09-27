@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Microsoft.Data.Sqlite;
 
 namespace WordDeck;
 
@@ -84,6 +85,63 @@ internal static class GrammarCoachSelfTest
             restarted.ImportMasterySnapshot(new[] { new GrammarSkillMastery("present.simple.core", 4, 3, 0.7, DateTimeOffset.UtcNow) });
             Require(restarted.LoadMastery()["present.simple.core"].Attempts == 4, "Grammar mastery import failed.");
             Require(Directory.GetFiles(temp, "*.backup.sqlite").Length >= 2, "Risky grammar import did not create its own backup.");
+
+            RequireThrowsInvalidData(
+                () => restarted.ImportMasterySnapshot(new[]
+                {
+                    new GrammarSkillMastery("present.simple.core", 1, 1, double.NaN, DateTimeOffset.UtcNow)
+                }),
+                "Grammar mastery import accepted non-finite mastery.");
+
+            using (var raw = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db }.ToString()))
+            {
+                raw.Open();
+
+                ExecuteRaw(raw,
+                    "INSERT INTO grammar_mastery(skill_id,attempts,correct_count,mastery,updated_utc) VALUES('unknown.skill',1,1,0.5,$utc);",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+                RequireThrowsInvalidData(() => _ = restarted.LoadMastery(),
+                    "Persisted unknown grammar skill was accepted as mastery state.");
+                ExecuteRaw(raw, "DELETE FROM grammar_mastery WHERE skill_id='unknown.skill';");
+
+                ExecuteRaw(raw,
+                    "INSERT INTO grammar_attempt(exercise_id,skill_id,correct,error_kind,submitted_answer,expected_answer,attempted_utc) VALUES('grammar.verb.be.present.999','verb.be.present',0,999,'x','expected',$utc);",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+                RequireThrowsInvalidData(() => _ = restarted.LoadRecentAttempts(),
+                    "Persisted undefined grammar error kind was accepted.");
+                ExecuteRaw(raw, "DELETE FROM grammar_attempt WHERE exercise_id='grammar.verb.be.present.999';");
+
+                ExecuteRaw(raw,
+                    "INSERT INTO grammar_attempt(exercise_id,skill_id,correct,error_kind,submitted_answer,expected_answer,attempted_utc) VALUES('grammar.verb.be.present.998','verb.be.present',0,0,'x','expected',$utc);",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+                RequireThrowsInvalidData(() => _ = restarted.LoadRecentAttempts(),
+                    "Persisted incorrect grammar attempt without an error kind was accepted.");
+                ExecuteRaw(raw, "DELETE FROM grammar_attempt WHERE exercise_id='grammar.verb.be.present.998';");
+
+                ExecuteRaw(raw,
+                    "UPDATE grammar_mastery SET updated_utc='not-a-timestamp' WHERE skill_id='present.simple.core';");
+                RequireThrowsInvalidData(() => _ = restarted.LoadMastery(),
+                    "Persisted malformed grammar mastery timestamp was accepted.");
+                GrammarExercise corruptedSkillExercise = GrammarExerciseBank.ForSkill("present.simple.core")[0];
+                GrammarEvaluation corruptedSkillEvaluation = GrammarAnswerEvaluator.Evaluate(
+                    corruptedSkillExercise,
+                    corruptedSkillExercise.AcceptedEnglishAnswers[0]);
+                RequireThrowsInvalidData(
+                    () => _ = restarted.RecordAttempt(
+                        corruptedSkillExercise,
+                        corruptedSkillEvaluation,
+                        corruptedSkillExercise.AcceptedEnglishAnswers[0]),
+                    "RecordAttempt consumed corrupted persisted mastery instead of failing closed.");
+                ExecuteRaw(raw,
+                    "UPDATE grammar_mastery SET updated_utc=$utc WHERE skill_id='present.simple.core';",
+                    ("$utc", DateTimeOffset.UtcNow.ToString("O")));
+            }
+
+            Require(restarted.LoadMastery()["present.simple.core"].Attempts == 4,
+                "Grammar state did not recover after corruption fixtures were removed.");
+            TestPreMigrationBackupOrdering(temp);
+            TestFutureSchemaNoMutation(temp);
+            TestMalformedSchemaNoMutation(temp);
         }
         finally
         {
@@ -95,6 +153,121 @@ internal static class GrammarCoachSelfTest
             new[] { "present.simple.core" }, new[] { "ox:book" }, true);
         privateEvidence.Validate();
         Require(privateEvidence.PrivateLocalOnly, "Private book sentence evidence lost its privacy boundary.");
+    }
+
+    private static void TestPreMigrationBackupOrdering(string root)
+    {
+        string legacyDb = Path.Combine(root, "grammar-legacy.sqlite");
+        using (var legacy = new SqliteConnection(new SqliteConnectionStringBuilder
+               {
+                   DataSource = legacyDb,
+                   Mode = SqliteOpenMode.ReadWriteCreate
+               }.ToString()))
+        {
+            legacy.Open();
+            ExecuteRaw(legacy, "CREATE TABLE legacy_marker(value TEXT NOT NULL); INSERT INTO legacy_marker(value) VALUES('before-migration');");
+        }
+
+        new GrammarCoachStateStore(legacyDb).Initialize();
+
+        string[] backups = Directory.GetFiles(root, "grammar-legacy.sqlite.*.before-migration.backup.sqlite");
+        Require(backups.Length == 1, "Legacy Grammar migration did not create exactly one pre-migration backup.");
+        using (var backup = new SqliteConnection(new SqliteConnectionStringBuilder
+               {
+                   DataSource = backups[0],
+                   Mode = SqliteOpenMode.ReadOnly
+               }.ToString()))
+        {
+            backup.Open();
+            using SqliteCommand metadata = backup.CreateCommand();
+            metadata.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='grammar_metadata';";
+            Require(Convert.ToInt32(metadata.ExecuteScalar()) == 0,
+                "Pre-migration Grammar backup already contained the migration-created metadata table.");
+            using SqliteCommand marker = backup.CreateCommand();
+            marker.CommandText = "SELECT value FROM legacy_marker LIMIT 1;";
+            Require(string.Equals(Convert.ToString(marker.ExecuteScalar()), "before-migration", StringComparison.Ordinal),
+                "Pre-migration Grammar backup lost legacy data.");
+        }
+
+        using var migrated = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = legacyDb,
+            Mode = SqliteOpenMode.ReadOnly
+        }.ToString());
+        migrated.Open();
+        using SqliteCommand version = migrated.CreateCommand();
+        version.CommandText = "SELECT value FROM grammar_metadata WHERE key='schema_version';";
+        Require(string.Equals(Convert.ToString(version.ExecuteScalar()), "1", StringComparison.Ordinal),
+            "Legacy Grammar database did not migrate after its pre-mutation backup.");
+    }
+
+    private static void TestFutureSchemaNoMutation(string root)
+    {
+        string futureDb = Path.Combine(root, "grammar-future.sqlite");
+        using (var future = new SqliteConnection(new SqliteConnectionStringBuilder
+               {
+                   DataSource = futureDb,
+                   Mode = SqliteOpenMode.ReadWriteCreate
+               }.ToString()))
+        {
+            future.Open();
+            ExecuteRaw(future,
+                "CREATE TABLE grammar_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL); " +
+                "INSERT INTO grammar_metadata(key,value) VALUES('schema_version','99'); " +
+                "CREATE TABLE future_marker(value TEXT NOT NULL); INSERT INTO future_marker(value) VALUES('keep');");
+        }
+
+        byte[] before = File.ReadAllBytes(futureDb);
+        RequireThrowsInvalidData(() => new GrammarCoachStateStore(futureDb).Initialize(),
+            "Newer Grammar schema was not rejected.");
+        byte[] after = File.ReadAllBytes(futureDb);
+        Require(before.SequenceEqual(after),
+            "Rejecting a newer Grammar schema mutated the database before the compatibility verdict.");
+        Require(Directory.GetFiles(root, "grammar-future.sqlite.*.before-migration.backup.sqlite").Length == 0,
+            "Newer Grammar schema incorrectly entered the legacy migration/backup path.");
+    }
+
+    private static void TestMalformedSchemaNoMutation(string root)
+    {
+        string malformedDb = Path.Combine(root, "grammar-malformed-schema.sqlite");
+        using (var malformed = new SqliteConnection(new SqliteConnectionStringBuilder
+               {
+                   DataSource = malformedDb,
+                   Mode = SqliteOpenMode.ReadWriteCreate
+               }.ToString()))
+        {
+            malformed.Open();
+            ExecuteRaw(malformed,
+                "CREATE TABLE grammar_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL); " +
+                "INSERT INTO grammar_metadata(key,value) VALUES('schema_version','not-a-number'); " +
+                "CREATE TABLE preserved(value TEXT NOT NULL); INSERT INTO preserved(value) VALUES('keep');");
+        }
+
+        byte[] before = File.ReadAllBytes(malformedDb);
+        RequireThrowsInvalidData(() => new GrammarCoachStateStore(malformedDb).Initialize(),
+            "Malformed Grammar schema metadata was not rejected as invalid data.");
+        byte[] after = File.ReadAllBytes(malformedDb);
+        Require(before.SequenceEqual(after),
+            "Rejecting malformed Grammar schema metadata mutated the database.");
+        Require(Directory.GetFiles(root, "grammar-malformed-schema.sqlite.*.before-migration.backup.sqlite").Length == 0,
+            "Malformed Grammar schema metadata incorrectly entered the migration path.");
+    }
+
+    private static void ExecuteRaw(SqliteConnection connection, string sql, params (string Name, object Value)[] parameters)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach ((string name, object value) in parameters)
+            command.Parameters.AddWithValue(name, value);
+        command.ExecuteNonQuery();
+    }
+
+    private static void RequireThrowsInvalidData(Action action, string message)
+    {
+        bool rejected = false;
+        try { action(); }
+        catch (InvalidDataException) { rejected = true; }
+        Require(rejected, message);
     }
 
     private static void AssertAcyclicGraph()
