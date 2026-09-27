@@ -66,13 +66,14 @@ class BookIndex:
     def __init__(self, document: BookDocument):
         if not isinstance(document, BookDocument):
             raise TypeError("document must be a BookDocument")
-        # BookDocument blocks are authoring-mutable. Validate their exact current
-        # semantic state before taking the immutable index snapshot so a caller
-        # cannot mutate a previously-valid block and then publish stale/corrupt
-        # index semantics.
-        document.as_dict()
+        # BookDocument blocks are authoring-mutable. Materialize one detached
+        # canonical snapshot through BookDocument's own wire authority, then
+        # build every index field from that same validated payload. This closes
+        # the validate-then-reread TOCTOU window without introducing a second
+        # Book parser or chess-rules authority.
+        snapshot = BookDocument.from_dict(document.as_dict())
         self.document = document
-        self._entries = tuple(self._build_entries())
+        self._entries = tuple(self._build_entries(snapshot))
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
@@ -82,8 +83,8 @@ class BookIndex:
     def entries(self) -> tuple[BookIndexEntry, ...]:
         return self._entries
 
-    def _target(self, index: int) -> BookTarget:
-        block = self.document.blocks[index]
+    @staticmethod
+    def _target(index: int, block) -> BookTarget:
         if block.block_id:
             key = f"block:{block.block_id}"
         elif block.source_anchor:
@@ -130,9 +131,9 @@ class BookIndex:
             return BookEntryKind.LIST, block.items[0]
         raise TypeError(f"Unsupported BookDocument block type: {type(block).__name__}")
 
-    def _build_entries(self):
+    def _build_entries(self, snapshot: BookDocument):
         levels: list[str | None] = [None] * 6
-        for index, block in enumerate(self.document.blocks):
+        for index, block in enumerate(snapshot.blocks):
             heading_level = None
             if isinstance(block, Heading):
                 heading_level = block.level
@@ -144,7 +145,7 @@ class BookIndex:
             kind, label = self._kind_and_label(block)
             fen, side = self._position(block)
             yield BookIndexEntry(
-                target=self._target(index),
+                target=self._target(index, block),
                 kind=kind,
                 label=label,
                 heading_path=heading_path,
