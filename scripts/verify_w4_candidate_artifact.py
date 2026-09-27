@@ -32,6 +32,16 @@ MAX_CANDIDATE_METADATA_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
 HASH_CHUNK_BYTES = 1024 * 1024
 MAX_PE_HEADER_OFFSET = 16 * 1024 * 1024
+RUN_METADATA_PATH = "p0-evidence/w4-run-metadata.json"
+RUN_METADATA_KEYS = {
+    "schema_version",
+    "product_sha",
+    "workflow_sha",
+    "pre_upload_product_freshness",
+    "pre_upload_workflow_freshness",
+    "human_tested",
+    "nvda_verified",
+}
 
 STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
 STARTER_REAL_GAME_COUNT = 240
@@ -517,7 +527,8 @@ def _verify_starter_database(
                 "COUNT(DISTINCT event) FROM games"
             ).fetchone()
             database_game_metadata = connection.execute(
-                "SELECT event, white, black, result, pgn_text FROM games ORDER BY id"
+                "SELECT source_index, event, white, black, result, pgn_text "
+                "FROM games ORDER BY id"
             ).fetchall()
             source_rows = connection.execute(
                 "SELECT source_name, source_format, sha256 FROM sources ORDER BY id"
@@ -546,6 +557,7 @@ def _verify_starter_database(
             raise CandidateArtifactError("starter ACSDB canonical PGN evidence count mismatch")
         expected_game_metadata = [
             (
+                index,
                 item["event"],
                 item["white"],
                 item["black"],
@@ -853,10 +865,48 @@ def _verify_strict_uia_evidence(value: dict[str, object], expected_sha: str) -> 
     _bounded_evidence_text(value, "move_runtime_id", "strict UIA evidence", maximum=1024)
 
 
-def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | None = None) -> None:
+def _verify_run_metadata(
+    value: dict[str, object],
+    expected_sha: str,
+    expected_workflow_sha: str | None,
+) -> None:
+    if set(value) != RUN_METADATA_KEYS:
+        missing = sorted(RUN_METADATA_KEYS - set(value))
+        unexpected = sorted(set(value) - RUN_METADATA_KEYS)
+        raise CandidateArtifactError(
+            f"run metadata key mismatch; missing={missing} unexpected={unexpected}"
+        )
+    if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
+        raise CandidateArtifactError("run metadata schema_version must equal 1")
+    product_sha = value.get("product_sha")
+    if not isinstance(product_sha, str) or not HEX40.fullmatch(product_sha):
+        raise CandidateArtifactError("run metadata product_sha must be lowercase exact 40-hex")
+    if product_sha != expected_sha:
+        raise CandidateArtifactError("run metadata product_sha mismatch")
+    workflow_sha = value.get("workflow_sha")
+    if not isinstance(workflow_sha, str) or not HEX40.fullmatch(workflow_sha):
+        raise CandidateArtifactError("run metadata workflow_sha must be lowercase exact 40-hex")
+    if expected_workflow_sha is not None and workflow_sha != expected_workflow_sha:
+        raise CandidateArtifactError("run metadata workflow_sha mismatch")
+    _require_true(value, "pre_upload_product_freshness", "run metadata")
+    _require_true(value, "pre_upload_workflow_freshness", "run metadata")
+    _require_false(value, "human_tested", "run metadata")
+    _require_false(value, "nvda_verified", "run metadata")
+
+
+def verify(
+    outer_path: Path,
+    expected_sha: str,
+    expected_outer_sha256: str | None = None,
+    expected_workflow_sha: str | None = None,
+) -> None:
     expected_sha = expected_sha.strip().lower()
     if not HEX40.fullmatch(expected_sha):
-        raise CandidateArtifactError("expected product SHA must be exact 40-hex")
+        raise CandidateArtifactError("expected product SHA must be exact lowercase 40-hex")
+    if expected_workflow_sha is not None:
+        expected_workflow_sha = expected_workflow_sha.strip().lower()
+        if not HEX40.fullmatch(expected_workflow_sha):
+            raise CandidateArtifactError("expected workflow SHA must be exact 40-hex")
     if not outer_path.is_file() or outer_path.is_symlink():
         raise CandidateArtifactError("outer artifact must be a direct regular file")
     try:
@@ -906,39 +956,35 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
                 "outer artifact uncompressed size is outside accepted bounds"
             )
         files = [name for name, info in outer_members.items() if not info.is_dir()]
-        candidate_names = [name for name in files if name.endswith("-NVDA-test-candidate.zip")]
-        copy_names = [name for name in files if name.endswith("packaged-v2-document-copy-summary.json")]
-        p0g_names = [name for name in files if name.endswith("packaged-p0g-hotkey-result-summary.json")]
-        uia_names = [name for name in files if name.endswith("packaged-uia-strict-summary.json")]
-        if len(candidate_names) != 1:
-            raise CandidateArtifactError("outer artifact must contain exactly one candidate ZIP")
-        candidate_name = PurePosixPath(candidate_names[0]).name
         expected_name = f"Accessible-Chess-V2-{expected_sha[:7]}-NVDA-test-candidate.zip"
-        if candidate_name.lower() != expected_name.lower():
-            raise CandidateArtifactError("candidate ZIP filename Product prefix mismatch")
-        if len(copy_names) != 1 or len(p0g_names) != 1 or len(uia_names) != 1:
-            raise CandidateArtifactError(
-                "outer artifact must contain exact strict UIA, copy and P0-G evidence JSON files"
-            )
+        copy_name = "p0-evidence/packaged-v2-document-copy-summary.json"
+        p0g_name = "p0-evidence/packaged-p0g-hotkey-result-summary.json"
+        uia_name = "p0-evidence/packaged-uia-strict-summary.json"
         expected_outer_files = {
-            candidate_names[0],
-            copy_names[0],
-            p0g_names[0],
-            uia_names[0],
+            expected_name,
+            copy_name,
+            p0g_name,
+            uia_name,
+            RUN_METADATA_PATH,
         }
         if set(files) != expected_outer_files:
+            missing = sorted(expected_outer_files - set(files))
             unexpected = sorted(set(files) - expected_outer_files)
-            raise CandidateArtifactError(f"outer artifact contains unexpected files: {unexpected}")
+            raise CandidateArtifactError(
+                f"outer artifact layout mismatch; missing={missing} unexpected={unexpected}"
+            )
 
-        for evidence_name in (copy_names[0], p0g_names[0], uia_names[0]):
+        for evidence_name in (copy_name, p0g_name, uia_name, RUN_METADATA_PATH):
             evidence_size = outer_members[evidence_name].file_size
             if evidence_size <= 0 or evidence_size > MAX_EVIDENCE_BYTES:
                 raise CandidateArtifactError(
                     f"outer evidence JSON size is outside accepted bounds: {evidence_name}"
                 )
-        copy_evidence = _load_json(outer.read(copy_names[0]), "copy evidence")
-        p0g_evidence = _load_json(outer.read(p0g_names[0]), "P0-G evidence")
-        uia_evidence = _load_json(outer.read(uia_names[0]), "strict UIA evidence")
+        copy_evidence = _load_json(outer.read(copy_name), "copy evidence")
+        p0g_evidence = _load_json(outer.read(p0g_name), "P0-G evidence")
+        uia_evidence = _load_json(outer.read(uia_name), "strict UIA evidence")
+        run_metadata = _load_json(outer.read(RUN_METADATA_PATH), "run metadata")
+        _verify_run_metadata(run_metadata, expected_sha, expected_workflow_sha)
         _verify_strict_uia_evidence(uia_evidence, expected_sha)
         _verify_p0_evidence(
             copy_evidence,
@@ -961,10 +1007,10 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         _verify_copy_payload(copy_evidence)
         _verify_p0g_payload(p0g_evidence)
 
-        candidate_info = outer_members[candidate_names[0]]
+        candidate_info = outer_members[expected_name]
         if candidate_info.file_size <= 0 or candidate_info.file_size > MAX_INNER_BYTES:
             raise CandidateArtifactError("candidate ZIP size is outside accepted bounds")
-        candidate_bytes = outer.read(candidate_names[0])
+        candidate_bytes = outer.read(expected_name)
         if len(candidate_bytes) != candidate_info.file_size:
             raise CandidateArtifactError("candidate ZIP changed while being read")
 
@@ -1057,9 +1103,10 @@ def main() -> int:
     parser.add_argument("--artifact", required=True, type=Path)
     parser.add_argument("--product-sha", required=True)
     parser.add_argument("--outer-sha256")
+    parser.add_argument("--workflow-sha", required=True)
     args = parser.parse_args()
     try:
-        verify(args.artifact, args.product_sha, args.outer_sha256)
+        verify(args.artifact, args.product_sha, args.outer_sha256, args.workflow_sha)
     except CandidateArtifactError as exc:
         print(f"W4 CANDIDATE ARTIFACT READBACK FAIL: {exc}")
         return 1

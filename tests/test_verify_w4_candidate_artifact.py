@@ -18,6 +18,7 @@ from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
 
 
 SHA = "f" * 40
+WORKFLOW_SHA = "a" * 40
 STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
 STARTER_GAMES = 240
 STRESS_GAMES = 1200
@@ -101,6 +102,7 @@ def _database_fixture_bytes(
     schema_version: int = ACSDB_SCHEMA_VERSION,
     first_white: str | None = None,
     first_pgn_text: str | None = None,
+    first_source_index: int | None = None,
     source_sha256: str = "0" * 64,
 ) -> bytes:
     with tempfile.TemporaryDirectory() as directory:
@@ -127,7 +129,11 @@ def _database_fixture_bytes(
                         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             source_id,
-                            index + 1,
+                            (
+                                first_source_index
+                                if index == 0 and first_source_index is not None
+                                else index
+                            ),
                             "full",
                             "[]",
                             f"Starter {index}",
@@ -189,6 +195,7 @@ def _starter_bundle_files(
     database_schema: int = 6,
     database_first_white: str | None = None,
     database_first_pgn_text: str | None = None,
+    database_first_source_index: int | None = None,
     database_source_sha256: str | None = None,
 ) -> dict[str, bytes]:
     starter = _pgn_fixture("Starter", STARTER_GAMES)
@@ -199,6 +206,7 @@ def _starter_bundle_files(
         schema_version=database_schema,
         first_white=database_first_white,
         first_pgn_text=database_first_pgn_text,
+        first_source_index=database_first_source_index,
         source_sha256=database_source_sha256 or starter_sha256,
     )
     selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
@@ -399,6 +407,24 @@ def _p0g_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obje
     return value
 
 
+def _run_metadata(
+    product_sha: str = SHA,
+    workflow_sha: str = WORKFLOW_SHA,
+    **overrides: object,
+) -> dict[str, object]:
+    value: dict[str, object] = {
+        "schema_version": 1,
+        "product_sha": product_sha,
+        "workflow_sha": workflow_sha,
+        "pre_upload_product_freshness": True,
+        "pre_upload_workflow_freshness": True,
+        "human_tested": False,
+        "nvda_verified": False,
+    }
+    value.update(overrides)
+    return value
+
+
 def _outer_bytes(
     *,
     candidate: bytes | None = None,
@@ -409,6 +435,9 @@ def _outer_bytes(
     copy_overrides: dict[str, object] | None = None,
     p0g_overrides: dict[str, object] | None = None,
     uia_overrides: dict[str, object] | None = None,
+    metadata_product_sha: str = SHA,
+    metadata_workflow_sha: str = WORKFLOW_SHA,
+    metadata_overrides: dict[str, object] | None = None,
 ) -> bytes:
     copy = _copy_evidence(copy_sha, **(copy_overrides or {}))
     p0g = _p0g_evidence(p0g_sha, **(p0g_overrides or {}))
@@ -419,6 +448,13 @@ def _outer_bytes(
             "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(copy).encode(),
             "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(p0g).encode(),
             "p0-evidence/packaged-uia-strict-summary.json": json.dumps(uia).encode(),
+            "p0-evidence/w4-run-metadata.json": json.dumps(
+                _run_metadata(
+                    metadata_product_sha,
+                    metadata_workflow_sha,
+                    **(metadata_overrides or {}),
+                )
+            ).encode(),
         }
     )
 
@@ -434,7 +470,36 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
 
     def test_complete_artifact_passes(self) -> None:
         digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
-        verify(self.path, SHA, digest)
+        verify(self.path, SHA, digest, WORKFLOW_SHA)
+
+    def test_run_metadata_product_identity_is_required(self) -> None:
+        self.path.write_bytes(_outer_bytes(metadata_product_sha="b" * 40))
+        with self.assertRaisesRegex(CandidateArtifactError, "run metadata product_sha mismatch"):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_run_metadata_workflow_identity_is_required(self) -> None:
+        self.path.write_bytes(_outer_bytes(metadata_workflow_sha="b" * 40))
+        with self.assertRaisesRegex(CandidateArtifactError, "run metadata workflow_sha mismatch"):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_run_metadata_requires_both_pre_upload_freshness_proofs(self) -> None:
+        for key in ("pre_upload_product_freshness", "pre_upload_workflow_freshness"):
+            with self.subTest(key=key):
+                self.path.write_bytes(_outer_bytes(metadata_overrides={key: False}))
+                with self.assertRaisesRegex(CandidateArtifactError, key):
+                    verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_run_metadata_rejects_acceptance_overclaims(self) -> None:
+        for key in ("human_tested", "nvda_verified"):
+            with self.subTest(key=key):
+                self.path.write_bytes(_outer_bytes(metadata_overrides={key: True}))
+                with self.assertRaisesRegex(CandidateArtifactError, key):
+                    verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_run_metadata_rejects_unknown_fields(self) -> None:
+        self.path.write_bytes(_outer_bytes(metadata_overrides={"unexpected": "value"}))
+        with self.assertRaisesRegex(CandidateArtifactError, "run metadata key mismatch"):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_prefixed_outer_digest_passes(self) -> None:
         digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
@@ -588,7 +653,7 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             CandidateArtifactError,
             "semantic evidence mismatch at packaged game 1",
         ):
-            verify(self.path, SHA)
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_lawful_starter_database_pgn_text_binds_to_packaged_pgn(self) -> None:
         starter = _starter_bundle_files(database_first_pgn_text="1. a3 a6 1-0")
@@ -597,13 +662,22 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             CandidateArtifactError,
             "ACSDB game metadata does not match curated starter evidence",
         ):
-            verify(self.path, SHA)
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_lawful_starter_database_claim_is_verified_against_sqlite(self) -> None:
         starter = _starter_bundle_files(database_games=STARTER_GAMES - 1)
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "ACSDB semantic evidence mismatch"):
             verify(self.path, SHA)
+
+    def test_lawful_starter_database_source_indexes_are_zero_based_and_stable(self) -> None:
+        starter = _starter_bundle_files(database_first_source_index=240)
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "ACSDB game metadata does not match curated starter evidence",
+        ):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_lawful_starter_database_source_provenance_binds_to_starter_pgn(self) -> None:
         starter = _starter_bundle_files(database_source_sha256="0" * 64)
@@ -652,7 +726,23 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         self.path.write_bytes(
             _outer_bytes(candidate_name="Accessible-Chess-V2-1234567-NVDA-test-candidate.zip")
         )
-        with self.assertRaisesRegex(CandidateArtifactError, "filename Product prefix mismatch"):
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
+            verify(self.path, SHA)
+
+    def test_outer_candidate_path_must_be_exact_root_layout(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(
+                candidate_name="nested/Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip"
+            )
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
+            verify(self.path, SHA)
+
+    def test_outer_candidate_filename_is_case_exact(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(candidate_name="accessible-chess-v2-fffffff-NVDA-test-candidate.zip")
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
             verify(self.path, SHA)
 
 
@@ -705,11 +795,18 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                                 _p0g_evidence()
                             ).encode(),
                             "p0-evidence/packaged-uia-strict-summary.json": json.dumps(value).encode(),
+                            "p0-evidence/w4-run-metadata.json": json.dumps(
+                                _run_metadata()
+                            ).encode(),
                         }
                     )
                 )
                 with self.assertRaisesRegex(CandidateArtifactError, key):
-                    verify(self.path, SHA)
+                    verify(
+                        self.path,
+                        SHA,
+                        expected_workflow_sha=WORKFLOW_SHA,
+                    )
 
     def test_strict_uia_evidence_rejects_human_or_nvda_overclaims(self) -> None:
         for key, value in (
@@ -814,6 +911,9 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
                     _p0g_evidence()
                 ).encode(),
+                "p0-evidence/w4-run-metadata.json": json.dumps(
+                    _run_metadata()
+                ).encode(),
             }
         )
         self.path.write_bytes(outer)
@@ -832,6 +932,9 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 ).encode(),
                 "p0-evidence/packaged-uia-strict-summary.json": json.dumps(
                     _strict_uia_evidence()
+                ).encode(),
+                "p0-evidence/w4-run-metadata.json": json.dumps(
+                    _run_metadata()
                 ).encode(),
                 "unexpected.bin": b"not part of canonical candidate artifact",
             }
@@ -999,6 +1102,9 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 ).encode(),
                 "p0-evidence/packaged-uia-strict-summary.json": json.dumps(
                     _strict_uia_evidence()
+                ).encode(),
+                "p0-evidence/w4-run-metadata.json": json.dumps(
+                    _run_metadata()
                 ).encode(),
             }
         )
