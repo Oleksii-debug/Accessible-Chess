@@ -153,7 +153,7 @@ internal sealed class ProtectedAssessmentBindingState
         ArgumentNullException.ThrowIfNull(runtimeState);
         runtimeState.Validate();
         if (SchemaVersion != CurrentSchemaVersion)
-            throw new InvalidDataException($"Unsupported protected assessment binding schema {SchemaVersion}; expected {CurrentSchemaVersion}.");
+            throw new UnsupportedProtectedAssessmentSchemaException("binding", SchemaVersion, CurrentSchemaVersion);
 
         var runtimeSessions = runtimeState.Sessions.ToDictionary(x => x.SessionId, StringComparer.OrdinalIgnoreCase);
         var sessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -202,11 +202,27 @@ internal sealed class ProtectedAssessmentRuntimeSnapshot
     public void Validate()
     {
         if (SchemaVersion != CurrentSchemaVersion)
-            throw new InvalidDataException($"Unsupported protected assessment snapshot schema {SchemaVersion}; expected {CurrentSchemaVersion}.");
+            throw new UnsupportedProtectedAssessmentSchemaException("snapshot", SchemaVersion, CurrentSchemaVersion);
         ArgumentNullException.ThrowIfNull(RuntimeState);
         ArgumentNullException.ThrowIfNull(BindingState);
         BindingState.Validate(RuntimeState);
     }
+}
+
+internal sealed class UnsupportedProtectedAssessmentSchemaException : InvalidDataException
+{
+    public UnsupportedProtectedAssessmentSchemaException(string component, int schemaVersion, int supportedSchemaVersion)
+        : base($"Unsupported protected assessment {component} schema {schemaVersion}; expected {supportedSchemaVersion}.")
+    {
+        Component = component;
+        SchemaVersion = schemaVersion;
+        SupportedSchemaVersion = supportedSchemaVersion;
+    }
+
+    public string Component { get; }
+    public int SchemaVersion { get; }
+    public int SupportedSchemaVersion { get; }
+    public bool IsNewerThanSupported => SchemaVersion > SupportedSchemaVersion;
 }
 
 internal sealed class ProtectedAssessmentRuntime
@@ -479,8 +495,25 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
 
     public ProtectedAssessmentRuntimeSnapshot Load()
     {
-        if (!File.Exists(_path)) return new ProtectedAssessmentRuntimeSnapshot();
+        if (!File.Exists(_path))
+        {
+            if (!File.Exists(BackupPath)) return new ProtectedAssessmentRuntimeSnapshot();
+            try { return ReadValidated(BackupPath); }
+            catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
+            {
+                throw new InvalidDataException("Protected assessment state is missing and its backup is invalid.", backup);
+            }
+        }
+
         try { return ReadValidated(_path); }
+        catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw;
+        }
+        catch (UnsupportedProtectedAssessmentSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw;
+        }
         catch (Exception primary) when (primary is JsonException or InvalidDataException or IOException)
         {
             if (!File.Exists(BackupPath))
@@ -497,18 +530,55 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         snapshot.Validate();
+
+        bool refreshBackupFromPrimary = ShouldRefreshBackupFromPrimary();
         string? directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         string temp = _path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
             File.WriteAllText(temp, JsonSerializer.Serialize(snapshot, JsonOptions), new System.Text.UTF8Encoding(false));
-            if (File.Exists(_path)) File.Copy(_path, BackupPath, true);
+            if (refreshBackupFromPrimary) File.Copy(_path, BackupPath, true);
             File.Move(temp, _path, true);
         }
         finally
         {
             if (File.Exists(temp)) File.Delete(temp);
+        }
+    }
+
+    private bool ShouldRefreshBackupFromPrimary()
+    {
+        if (!File.Exists(_path)) return false;
+
+        try
+        {
+            _ = ReadValidated(_path);
+            return true;
+        }
+        catch (UnsupportedAssessmentRuntimeSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw;
+        }
+        catch (UnsupportedProtectedAssessmentSchemaException schema) when (schema.IsNewerThanSupported)
+        {
+            throw;
+        }
+        catch (Exception primary) when (primary is JsonException or InvalidDataException)
+        {
+            if (!File.Exists(BackupPath))
+                throw new InvalidDataException("Existing protected assessment state is invalid and no valid backup is available; refusing to overwrite it.", primary);
+            try
+            {
+                _ = ReadValidated(BackupPath);
+                return false;
+            }
+            catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
+            {
+                throw new InvalidDataException(
+                    "Existing protected assessment state is invalid and its backup is not recoverable; refusing to overwrite either copy.",
+                    new AggregateException(primary, backup));
+            }
         }
     }
 
