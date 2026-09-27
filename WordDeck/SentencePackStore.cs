@@ -182,11 +182,19 @@ internal sealed class SentencePackStore
         var result = new List<InstalledSentencePack>();
         var representedPackIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string manifestPath in Directory.EnumerateFiles(DirectoryPath, "*.installed.json", SearchOption.TopDirectoryOnly)
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        IEnumerable<string> manifestSafeIds = Directory
+            .EnumerateFiles(DirectoryPath, "*.installed.json", SearchOption.TopDirectoryOnly)
+            .Select(path => ManifestSafeIdFromPointer(path, ".installed.json"))
+            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json", SearchOption.TopDirectoryOnly)
+                .Select(path => ManifestSafeIdFromPointer(path, ".installed.backup.json")))
+            .Concat(Directory.EnumerateFiles(DirectoryPath, "*.installed.backup.json.tmp", SearchOption.TopDirectoryOnly)
+                .Select(path => ManifestSafeIdFromPointer(path, ".installed.backup.json.tmp")))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string safeId in manifestSafeIds)
         {
-            string safeId = Path.GetFileName(manifestPath)[..^".installed.json".Length];
-            InstalledSentencePack? installed = TryLoadGeneration(ReadManifestOrNull(manifestPath))
+            InstalledSentencePack? installed = TryLoadGeneration(ReadManifestOrNull(ManifestPath(safeId)))
                 ?? TryLoadGeneration(ReadManifestOrNull(ManifestBackupTempPath(safeId)))
                 ?? TryLoadGeneration(ReadManifestOrNull(ManifestBackupPath(safeId)));
             if (installed is not null && representedPackIds.Add(installed.PackId)) result.Add(installed);
@@ -338,6 +346,14 @@ internal sealed class SentencePackStore
     private string ManifestPath(string safeId) => ControlledPath(safeId + ".installed.json");
     private string ManifestBackupPath(string safeId) => ControlledPath(safeId + ".installed.backup.json");
     private string ManifestBackupTempPath(string safeId) => ManifestBackupPath(safeId) + ".tmp";
+
+    private static string ManifestSafeIdFromPointer(string path, string suffix)
+    {
+        string name = Path.GetFileName(path);
+        if (!name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) || name.Length <= suffix.Length)
+            throw new InvalidDataException("SentencePack activation pointer has an invalid file name.");
+        return name[..^suffix.Length];
+    }
     private static bool TryReadManifest(string path, out SentencePackInstallManifest? manifest)
     {
         manifest = ReadManifestOrNull(path);
