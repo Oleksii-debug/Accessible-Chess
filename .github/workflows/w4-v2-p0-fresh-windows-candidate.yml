@@ -497,3 +497,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Recheck workflow and Full Product freshness after artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"
+          workflow_live="$(git rev-parse "origin/$WORKFLOW_REGISTRATION_BRANCH")"
+          workflow_sha="$(git rev-parse HEAD)"
+          test "$workflow_sha" = "$workflow_live" || {
+            printf 'STALE_W4_WORKFLOW_AFTER_UPLOAD checkout=%s live=%s\n' "$workflow_sha" "$workflow_live" >&2
+            exit 1
+          }
+          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          test "$PRODUCT_SHA" = "$live" || {
+            printf 'STALE_W4_CANDIDATE_AFTER_UPLOAD requested=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo 'W4_POST_UPLOAD_WORKFLOW_FRESHNESS=PASS'
+          echo 'W4_POST_UPLOAD_PRODUCT_FRESHNESS=PASS'
+          echo 'W4_POST_UPLOAD_FRESHNESS=PASS'
