@@ -42,17 +42,30 @@ def _pgn_fixture(prefix: str, count: int) -> bytes:
     )
 
 
-def _database_fixture_bytes(game_count: int = STARTER_GAMES, *, schema_version: int = 6) -> bytes:
+def _database_fixture_bytes(
+    game_count: int = STARTER_GAMES,
+    *,
+    schema_version: int = 6,
+    first_white: str | None = None,
+) -> bytes:
     connection = sqlite3.connect(":memory:")
     try:
         connection.execute(
-            "CREATE TABLE games (pgn_text TEXT NOT NULL, white TEXT NOT NULL, "
-            "black TEXT NOT NULL, event TEXT NOT NULL)"
+            "CREATE TABLE games ("
+            "id INTEGER PRIMARY KEY, pgn_text TEXT NOT NULL, "
+            "white TEXT NOT NULL, black TEXT NOT NULL, event TEXT NOT NULL, "
+            "result TEXT NOT NULL)"
         )
         connection.executemany(
-            "INSERT INTO games(pgn_text, white, black, event) VALUES (?, ?, ?, ?)",
+            "INSERT INTO games(pgn_text, white, black, event, result) VALUES (?, ?, ?, ?, ?)",
             [
-                (f"fixture-pgn-{i}", f"White {i}", f"Black {i}", f"Event {i % 5}")
+                (
+                    f"fixture-pgn-{i}",
+                    first_white if i == 0 and first_white is not None else f"White {i}",
+                    f"Black {i}",
+                    f"Event {i}",
+                    "0-1" if i < 20 else ("1/2-1/2" if i < 28 else "1-0"),
+                )
                 for i in range(game_count)
             ],
         )
@@ -86,10 +99,15 @@ def _starter_bundle_files(
     *,
     database_games: int = STARTER_GAMES,
     database_schema: int = 6,
+    database_first_white: str | None = None,
 ) -> dict[str, bytes]:
     starter = _pgn_fixture("Starter", STARTER_GAMES)
     stress = _pgn_fixture("Stress", STRESS_GAMES)
-    database = _database_fixture_bytes(database_games, schema_version=database_schema)
+    database = _database_fixture_bytes(
+        database_games,
+        schema_version=database_schema,
+        first_white=database_first_white,
+    )
     selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
     result_counts: dict[str, int] = {}
     length_counts: dict[str, int] = {}
@@ -163,7 +181,7 @@ def _starter_bundle_files(
             "games": STARTER_GAMES,
             "distinct_games": STARTER_GAMES,
             "distinct_player_pairs": STARTER_GAMES,
-            "distinct_events": 5,
+            "distinct_events": STARTER_GAMES if database_games == STARTER_GAMES else database_games,
         },
         "files": {
             name: {
@@ -453,6 +471,15 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         starter = _starter_bundle_files(database_games=STARTER_GAMES - 1)
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "ACSDB semantic evidence mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_database_rows_bind_to_curated_game_metadata(self) -> None:
+        starter = _starter_bundle_files(database_first_white="Unexpected White")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "ACSDB game metadata does not match curated starter evidence",
+        ):
             verify(self.path, SHA)
 
     def test_lawful_starter_database_schema_is_verified(self) -> None:
