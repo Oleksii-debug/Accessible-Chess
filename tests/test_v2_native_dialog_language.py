@@ -290,7 +290,8 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 self.assertIs(native_runtime_factory(owner), native_runtime)
                 self.assertEqual(len(owner.FormClosing.handlers), 1)
 
-            self.assertTrue(callable(application.confirm_book_progress_recovery))
+            recovery_confirmation = application.confirm_book_progress_recovery
+            self.assertIsInstance(recovery_confirmation.__self__, release_app._Version2OwnedBookDialogs)
             provider = runtime_class.call_args.kwargs["dialog_language_provider"]
             self.assertEqual(provider(), UILanguage.UA)
             application.shell.language = UILanguage.EN
