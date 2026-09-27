@@ -38,20 +38,24 @@ jobs:
           python-version: '3.12.10'
 
       - name: Prove exact bounded scope
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
-          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
-          git cat-file -e "${base}^{commit}"
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          # Event payload base SHAs can become stale after history-preserving
+          # Product reconvergence. Bind scope to the fetched canonical Product
+          # branch for every trigger mode and fail closed if Product advanced.
+          base="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
           git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
+          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/teaching-pointer-actions-current.yml' \
             'acs/teaching_pointer_actions.py' \
-            'tests/test_teaching_pointer_actions.py' | sort)"
+            'tests/test_teaching_pointer_actions.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected teaching-pointer scope:\n%s\n' "$changed" >&2
             exit 1
