@@ -31,6 +31,7 @@
 
   const root = documentRef.createElement("fieldset");
   root.id = "sound-profile-settings";
+  root.setAttribute("aria-busy", "false");
   const legend = documentRef.createElement("legend");
   legend.id = "sound-profile-settings-heading";
   root.appendChild(legend);
