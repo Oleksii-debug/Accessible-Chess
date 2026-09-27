@@ -847,6 +847,12 @@ internal sealed class SpellingForm : Form
     private void Submit()
     {
         if (_current is null) return;
+        if (BlankLearningSubmissionGuard.ShouldSuppressBlankEnter(Keys.Enter, _answer.Text))
+        {
+            Announce("Type an answer before pressing Enter. No learning statistics were changed.");
+            _answer.Focus();
+            return;
+        }
         SpellingEntryStats stats = GetStats(_current.Id);
         if (!SpellingAnswerComparer.IsCorrect(_answer.Text, _current.Source))
         {
