@@ -111,6 +111,11 @@ internal static class StoryCourseRuntimeUi
     }
 }
 
+internal static class StoryCourseClosePolicy
+{
+    public static bool ShouldCancel(bool persistenceSucceeded) => !persistenceSucceeded;
+}
+
 internal sealed class StoryCourseRuntimeForm : Form
 {
     private sealed record UnitChoice(
@@ -385,7 +390,11 @@ internal sealed class StoryCourseRuntimeForm : Form
         _submitProductive.Click += (_, _) => SubmitProductivePractice();
         _nextUnit.Click += (_, _) => MoveNextUnit();
         _close.Click += (_, _) => Close();
-        FormClosing += (_, _) => { _ = PersistSafely(out _); };
+        FormClosing += (_, e) =>
+        {
+            bool persisted = PersistSafely(out _);
+            e.Cancel = StoryCourseClosePolicy.ShouldCancel(persisted);
+        };
         Shown += (_, _) =>
         {
             PopulateUnits();
