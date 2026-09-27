@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
-      W4_VERIFIER_COMMIT: 73cdcf707ec405b3876ea98bbfd54217366059f6
-      W4_VERIFIER_BLOB_SHA: 5f7b3223b0bc405426be645ac09b68f9060bca76
+      W4_VERIFIER_COMMIT: b3ccc6d478b03168b9aaac0481eb667364ed52e5
+      W4_VERIFIER_BLOB_SHA: 95825ebe76d3225eaa79b491f3fb6d0a52adfd0f
     steps:
       - name: Checkout exact canonical workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
