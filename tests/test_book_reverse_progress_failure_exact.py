@@ -431,12 +431,17 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                     app.books,
                     "dispatch",
                     side_effect=AssertionError(
-                        "off-route native Book open must not enter Book surface"
+                        "off-route Book open must not enter Book surface"
                     ),
                 ) as dispatch:
-                    result = app.adapter.activate_action("book.open_position")
+                    browser_result = app.browser_command(
+                        "books",
+                        "book.open_position",
+                    )
+                    native_result = app.adapter.activate_action("book.open_position")
 
-                self.assertEqual(result.kind, "error")
+                self.assertEqual(browser_result["kind"], "error")
+                self.assertEqual(native_result.kind, "error")
                 dispatch.assert_not_called()
                 self.assertFalse(app.book_workflow.active)
                 self.assertEqual(app.shell.current_route.route_id, "library")
