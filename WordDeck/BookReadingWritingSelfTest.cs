@@ -38,6 +38,22 @@ internal static class BookReadingWritingSelfTest
                 DeckIds.Core(5),
                 DeckIds.Core(2));
 
+            Require(vocabulary.KnownEntryIds.Contains("rw:alpha") && vocabulary.LearningEntryIds.Contains("rw:beta"),
+                "Reading vocabulary snapshot did not initialize from the authoritative All Oxford 5000 workspace.");
+
+            RecallStudyScopeState allScope = state.RecallStudyScopesByDictionary[dictionary.Id].Scopes[StudyScopeIds.All];
+            state.DeckIdsByDictionary[dictionary.Id]["rw:alpha"] = DeckIds.Core(2);
+            state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] = DeckIds.Core(5);
+            BookDeckVocabularySnapshot staleLegacyProbe = BookReadingProductService.BuildVocabularySnapshot(
+                state,
+                dictionary,
+                DeckIds.Core(5),
+                DeckIds.Core(2));
+            Require(staleLegacyProbe.KnownEntryIds.Contains("rw:alpha") &&
+                    staleLegacyProbe.LearningEntryIds.Contains("rw:beta") &&
+                    !staleLegacyProbe.KnownEntryIds.Contains("rw:beta"),
+                "Reading vocabulary snapshot trusted the stale legacy deck mirror instead of authoritative All Oxford 5000.");
+
             string source = Path.Combine(root, "private source.txt");
             File.WriteAllText(source, "Alpha beta. Beta alpha.", new UTF8Encoding(false));
             string privateRoot = Path.Combine(root, "private reading");
@@ -84,10 +100,12 @@ internal static class BookReadingWritingSelfTest
             Require(new BookReadingWritingStore(service.DatabasePath).Load(imported.Document.BookId, sentence.SentenceId)?.ResponseText == revisedResponse,
                 "Writing response was lost after the Reading product service restarted.");
 
-            // Regression: Learning capture spans AppState and the private Reading SQLite store.
-            // If caller persistence fails, both state families must return to the exact pre-call values.
+            // Regression: Learning capture spans authoritative Recall All state, its legacy mirror,
+            // caller AppState persistence and the private Reading SQLite store.
             var readingState = new BookReadingStateStore(service.DatabasePath);
 
+            // Establish a prior private Reading capture while keeping the authoritative
+            // All workspace baseline at Known. The failed transaction must restore both.
             service.CaptureMappedOccurrenceToLearningDeck(
                 imported.Document,
                 sentence,
@@ -97,7 +115,10 @@ internal static class BookReadingWritingSelfTest
                 DeckIds.Core(2));
             BookUnknownWord priorAlphaCapture = readingState.LoadUnknowns(imported.Document.BookId)
                 .Single(item => item.StableEntryId.Equals("rw:alpha", StringComparison.OrdinalIgnoreCase));
-            state.DeckIdsByDictionary[dictionary.Id]["rw:alpha"] = DeckIds.Core(5);
+            allScope.DeckIds["rw:alpha"] = DeckIds.Core(5);
+            allScope.RemainingShuffleEntryIds.RemoveAll(id => id.Equals("rw:alpha", StringComparison.OrdinalIgnoreCase));
+            allScope.RemainingShuffleEntryIds.Add("rw:alpha");
+            state.DeckIdsByDictionary[dictionary.Id] = new Dictionary<string, string>(allScope.DeckIds, StringComparer.OrdinalIgnoreCase);
 
             int failedPersistCalls = 0;
             ExpectFailure<IOException>(
@@ -115,8 +136,12 @@ internal static class BookReadingWritingSelfTest
                     }),
                 "Failed AppState persistence did not fail the cross-store Reading vocabulary capture.");
             Require(failedPersistCalls == 1, "Cross-store capture did not invoke caller persistence exactly once.");
+            Require(allScope.DeckIds["rw:alpha"] == DeckIds.Core(5),
+                "Failed persistence left the authoritative All Oxford 5000 assignment mutated.");
+            Require(allScope.RemainingShuffleEntryIds.Contains("rw:alpha", StringComparer.OrdinalIgnoreCase),
+                "Failed persistence did not restore the authoritative All Oxford 5000 shuffle state.");
             Require(state.DeckIdsByDictionary[dictionary.Id]["rw:alpha"] == DeckIds.Core(5),
-                "Failed AppState persistence left the in-memory deck assignment mutated.");
+                "Failed persistence did not restore the legacy All-scope mirror.");
             BookUnknownWord restoredAlphaCapture = readingState.LoadUnknowns(imported.Document.BookId)
                 .Single(item => item.StableEntryId.Equals("rw:alpha", StringComparison.OrdinalIgnoreCase));
             Require(restoredAlphaCapture.SourceSentenceId == priorAlphaCapture.SourceSentenceId &&
@@ -126,6 +151,11 @@ internal static class BookReadingWritingSelfTest
             Require(!readingState.LoadUnknowns(imported.Document.BookId)
                     .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
                 "Failure-path setup unexpectedly contained a prior beta Reading capture.");
+            allScope.DeckIds["rw:beta"] = DeckIds.Core(2);
+            allScope.RemainingShuffleEntryIds.RemoveAll(id => id.Equals("rw:beta", StringComparison.OrdinalIgnoreCase));
+            allScope.RemainingShuffleEntryIds.Add("rw:beta");
+            state.DeckIdsByDictionary[dictionary.Id] = new Dictionary<string, string>(allScope.DeckIds, StringComparer.OrdinalIgnoreCase);
+
             ExpectFailure<IOException>(
                 () => service.CaptureMappedOccurrenceToLearningDeckAndPersist(
                     imported.Document,
@@ -136,8 +166,12 @@ internal static class BookReadingWritingSelfTest
                     DeckIds.Core(5),
                     () => throw new IOException("simulated first-capture persistence failure")),
                 "Failed first capture did not surface the caller persistence error.");
+            Require(allScope.DeckIds["rw:beta"] == DeckIds.Core(2),
+                "Failed first capture did not restore the authoritative All Oxford 5000 assignment.");
+            Require(allScope.RemainingShuffleEntryIds.Contains("rw:beta", StringComparer.OrdinalIgnoreCase),
+                "Failed first capture did not restore the removed All Oxford 5000 shuffle entry.");
             Require(state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(2),
-                "Failed first capture did not restore the prior Learning deck assignment.");
+                "Failed first capture did not restore the legacy All-scope mirror.");
             Require(!readingState.LoadUnknowns(imported.Document.BookId)
                     .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
                 "Failed first capture left a durable private Reading row behind.");
@@ -152,10 +186,19 @@ internal static class BookReadingWritingSelfTest
                 DeckIds.Core(5),
                 () => successfulPersistCalls++);
             Require(successfulPersistCalls == 1 &&
+                    allScope.DeckIds["rw:beta"] == DeckIds.Core(5) &&
                     state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(5) &&
+                    !allScope.RemainingShuffleEntryIds.Contains("rw:beta", StringComparer.OrdinalIgnoreCase) &&
                     readingState.LoadUnknowns(imported.Document.BookId)
                         .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
-                "Successful cross-store capture did not commit both Learning assignment and Reading evidence.");
+                "Successful cross-store capture did not commit authoritative All, legacy mirror and Reading evidence.");
+
+            // Reconstructing the canonical scope service would overwrite a legacy-only
+            // capture. The successful assignment must therefore survive this resync.
+            var reopenedRecall = new RecallStudyScopeService(state, dictionary.Id, dictionary.Entries);
+            Require(reopenedRecall.Assignments(StudyScopeIds.All)["rw:beta"] == DeckIds.Core(5) &&
+                    state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(5),
+                "Successful Reading capture did not survive authoritative Recall All resynchronization.");
 
             Require(BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", "BOOK-A"),
                 "Active-book guard rejected the same stable book identity with case-only differences.");
@@ -175,7 +218,7 @@ internal static class BookReadingWritingSelfTest
             try { Directory.Delete(root, recursive: true); } catch { }
         }
 
-        Console.WriteLine("BookReading writing self-test PASS: sentence grounding, deterministic non-mastery feedback, bounded input, local SQLite persistence, revision upsert, restart continuity, cross-store Learning-capture rollback/commit and active-book identity guarding verified.");
+        Console.WriteLine("BookReading writing self-test PASS: sentence grounding, deterministic non-mastery feedback, bounded input, local SQLite persistence, revision upsert, restart continuity, authoritative All-scope vocabulary/capture, cross-store rollback/commit and active-book identity guarding verified.");
     }
 
     private static DictionaryPackage BuildDictionary() => new()
