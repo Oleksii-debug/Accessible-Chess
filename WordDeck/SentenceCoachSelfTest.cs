@@ -13,6 +13,7 @@ internal static class SentenceCoachSelfTest
         TestGeneratorFallbackContract();
         TestGeneratorFallbackValidation();
         TestSentenceCoachStatePersistence();
+        TestClosePersistenceBoundary();
     }
 
     private static SentencePack BuildPack()
@@ -217,6 +218,27 @@ internal static class SentenceCoachSelfTest
             Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
+    }
+
+    private static void TestClosePersistenceBoundary()
+    {
+        int successCalls = 0;
+        bool saved = SentenceClosePersistence.TrySave(() => successCalls++, out string? successError);
+        Require(saved && successCalls == 1 && successError is null,
+            "Successful Sentence close persistence did not complete exactly once.");
+
+        int failureCalls = 0;
+        bool failedSave = SentenceClosePersistence.TrySave(() =>
+        {
+            failureCalls++;
+            throw new IOException("simulated sentence close write failure");
+        }, out string? failureError);
+
+        Require(!failedSave && failureCalls == 1,
+            "Failed Sentence close persistence was not contained exactly once.");
+        Require(failureError is not null &&
+                failureError.Contains("simulated sentence close write failure", StringComparison.Ordinal),
+            "Failed Sentence close persistence did not preserve the storage failure reason.");
     }
 
     private sealed class StubGenerator : IControlledSentenceGenerator
