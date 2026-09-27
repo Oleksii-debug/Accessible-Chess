@@ -131,6 +131,9 @@ internal sealed class ListeningItemStats
     public int ConsecutiveCorrect { get; set; }
     public DateTimeOffset? LastReviewedUtc { get; set; }
 
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
     public double Mastery => CompletedReviews <= 0
         ? 0d
         : Math.Clamp((double)CorrectReviews / CompletedReviews - Math.Min(0.35d, ShowAnswerUses * 0.03d), 0d, 1d);
@@ -147,6 +150,9 @@ internal sealed class ListeningHistoryRecord
     public bool Skipped { get; set; }
     public int WrongAttempts { get; set; }
     public int Replays { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed class ListeningCoachState
