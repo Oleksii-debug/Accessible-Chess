@@ -364,6 +364,10 @@ jobs:
             if([string]$summary.clipboard -ne 'e9'){throw 'Fresh candidate Move Input Ctrl+A/Ctrl+C proof did not pass'}
             if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Fresh candidate invalid-input atomicity proof did not pass'}
             if(-not [bool]$summary.board_focus_continuity){throw 'Fresh candidate board focus continuity proof did not pass'}
+            $evidenceDir='candidate-output\p0-evidence'
+            New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
+            Copy-Item -LiteralPath 'packaged-uia-strict-summary.json' -Destination (Join-Path $evidenceDir 'packaged-uia-strict-summary.json')
+            Write-Host 'FRESH_PACKAGED_UIA_EVIDENCE_RETAINED=PASS'
             Write-Host 'FRESH_PACKAGED_UIA_BASELINE=PASS'
           }
           finally {
