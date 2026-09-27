@@ -133,6 +133,11 @@ class Version2Application:
     def set_document(self, session):
         self._assert_thread()
         if not isinstance(session, PgnDocumentSession): raise TypeError("invalid PGN document")
+        # Library/native domain actions can reach this seam without a shell route
+        # action. Reject before publishing a new PGN session while modal focus is
+        # owned elsewhere, matching AccessibleShellState.open_route().
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before replacing the PGN document")
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before replacing the PGN document")
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
