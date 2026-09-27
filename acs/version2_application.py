@@ -387,8 +387,16 @@ class Version2Application:
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
-                before_view = self.book_delegate.view() if self.book_workflow.active else None
                 opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
+                if opening_board:
+                    # Native menus bypass the Book WebView bridge and enter this
+                    # delegate directly. Apply the same visible-reader/ownership
+                    # fences here before the canonical workflow can mutate.
+                    if self.shell.current_route.route_id != "books":
+                        raise ValueError("book board open requires the visible Book reader")
+                    if self.book_workflow is not None and self.book_workflow.active:
+                        raise ValueError("book board review is already active")
+                before_view = self.book_delegate.view() if self.book_workflow.active else None
                 before_reader = self.reader.snapshot() if opening_board else None
                 before_language = self.books.projection.language if opening_board else None
                 before_bookmark = self.books.projection.bookmark_name if opening_board else None
