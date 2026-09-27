@@ -80,6 +80,8 @@ class BookReaderTests(unittest.TestCase):
             reader.previous_heading,
             reader.next_position,
             reader.next_game,
+            lambda: reader.save_return_point("stale"),
+            lambda: reader.restore_return_point("missing"),
         )
         for action in actions:
             with self.subTest(action=action):
