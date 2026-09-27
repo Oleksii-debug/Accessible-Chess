@@ -90,6 +90,12 @@ internal static class SentencePackStoreSelfTest
                 "Missing current manifest did not recover the previous committed generation from the prepared backup pointer.");
             File.Move(preparedManifestBackup, manifestBackup, true);
 
+            string malformedPointer = Path.Combine(store.DirectoryPath, ".installed.json");
+            File.WriteAllText(malformedPointer, "{}");
+            Require(store.Find(pack.PackId)?.Corpus.LookupByEntryId("ox-learn").Single().Id == "sentence-1",
+                "Malformed orphan activation pointer blocked recovery of a valid backup-only SentencePack.");
+            File.Delete(malformedPointer);
+
             TestSafePackIds();
             TestCaseInsensitiveCollision(root, pack.PackId);
             TestMixedLicenseRejected(root);
