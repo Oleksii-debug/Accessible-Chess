@@ -53,7 +53,7 @@ internal sealed class ListeningCoachForm : Form
         var statistics = new ToolStripMenuItem("&Statistics...")
         {
             AccessibleName = "Listening statistics",
-            AccessibleDescription = "Show Listening accuracy, mastery, attempts, replays, answer reveals and skips for the current study scope."
+            AccessibleDescription = ListeningStatisticsPresentation.AccessibleDescription
         };
         statistics.Click += (_, _) => ShowStatistics();
         var export = new ToolStripMenuItem("&Export Listening progress...") { AccessibleName = "Export Listening progress" };
@@ -401,6 +401,9 @@ internal sealed class ListeningCoachForm : Form
 
 internal static class ListeningStatisticsPresentation
 {
+    public const string AccessibleDescription =
+        "Show Listening accuracy, practice success indicators, attempts, replays, answer reveals and skips for the current study scope.";
+
     public static string Build(string scope, ListeningStatistics stats)
     {
         ArgumentNullException.ThrowIfNull(stats);
