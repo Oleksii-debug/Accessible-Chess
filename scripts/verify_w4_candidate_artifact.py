@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import io
 import json
 from pathlib import Path, PurePosixPath
 import re
+import sqlite3
+import tempfile
 import zipfile
 
 
@@ -18,6 +21,39 @@ MAX_EVIDENCE_BYTES = 1024 * 1024
 MAX_CANDIDATE_METADATA_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
 HASH_CHUNK_BYTES = 1024 * 1024
+
+STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
+STARTER_REAL_GAME_COUNT = 240
+STARTER_STRESS_GAME_COUNT = 1200
+STARTER_CORPUS_NAME = "lichess-standard-rated-2013-01"
+STARTER_CORPUS_URL = (
+    "https://database.lichess.org/standard/"
+    "lichess_db_standard_rated_2013-01.pgn.zst"
+)
+STARTER_CORPUS_SHA256 = (
+    "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635"
+)
+STARTER_CORPUS_LICENSE_ID = "CC0-1.0"
+STARTER_CORPUS_LICENSE_URL = "https://creativecommons.org/publicdomain/zero/1.0/"
+STARTER_CORPUS_PUBLISHED_GAMES = 121_332
+STARTER_CURATION_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
+STARTER_PROJECT_LICENSE_ID = "LicenseRef-Accessible-Chess-Starter-Content-1.0"
+STARTER_ACSDB_SCHEMA_VERSION = 6
+STARTER_EXPECTED_FILES = {
+    "starter_uk.pgn": STARTER_CORPUS_LICENSE_ID,
+    "stress_uk.pgn": STARTER_PROJECT_LICENSE_ID,
+    "sample_library.acsdb": STARTER_CORPUS_LICENSE_ID,
+}
+STARTER_EXPECTED_CRITERIA = {
+    "minimum_plies": 20,
+    "valid_results": ["0-1", "1-0", "1/2-1/2"],
+    "required_metadata": ["Event", "White", "Black"],
+    "result_minimums": {"1-0": 20, "0-1": 20, "1/2-1/2": 8},
+    "length_band_minimums": {"20-59": 20, "60-99": 20, "100+": 8},
+    "minimum_distinct_opening_prefixes": 12,
+    "opening_prefix_plies": 4,
+    "maximum_scanned_games": 5000,
+}
 
 
 class CandidateArtifactError(RuntimeError):
@@ -93,6 +129,318 @@ def _safe_members(archive: zipfile.ZipFile, label: str) -> dict[str, zipfile.Zip
         casefold.add(folded)
         members[canonical] = info
     return members
+
+
+
+def _dict_field(value: dict[str, object], key: str, label: str) -> dict[str, object]:
+    nested = value.get(key)
+    if not isinstance(nested, dict):
+        raise CandidateArtifactError(f"{label} required object is missing: {key}")
+    return nested
+
+
+def _exact_int(value: object, expected: int, label: str) -> None:
+    if type(value) is not int or value != expected:
+        raise CandidateArtifactError(f"{label} must equal {expected}")
+
+
+def _positive_int(value: object, label: str, maximum: int | None = None) -> int:
+    if type(value) is not int or value < 1:
+        raise CandidateArtifactError(f"{label} must be a positive integer")
+    if maximum is not None and value > maximum:
+        raise CandidateArtifactError(f"{label} exceeds accepted bound")
+    return value
+
+
+def _starter_length_band(plies: int) -> str:
+    if plies < 60:
+        return "20-59"
+    if plies < 100:
+        return "60-99"
+    return "100+"
+
+
+def _verify_starter_curation(source: dict[str, object]) -> None:
+    curation = source.get("curation")
+    if not isinstance(curation, dict):
+        raise CandidateArtifactError("starter curation evidence is missing")
+    if (
+        curation.get("policy_id") != STARTER_CURATION_POLICY_ID
+        or curation.get("parser") != "acs.pgn_roundtrip.parse_pgn_text(strict=True)"
+    ):
+        raise CandidateArtifactError("starter curation authority mismatch")
+    if curation.get("criteria") != STARTER_EXPECTED_CRITERIA:
+        raise CandidateArtifactError("starter curation criteria mismatch")
+
+    scanned = _positive_int(
+        curation.get("scanned_records"),
+        "starter curation scanned_records",
+        maximum=5000,
+    )
+    eligible = _positive_int(curation.get("eligible_records"), "starter curation eligible_records")
+    if eligible < STARTER_REAL_GAME_COUNT or eligible > scanned:
+        raise CandidateArtifactError("starter curation eligible_records is inconsistent")
+    rejected = curation.get("rejected_records")
+    if not isinstance(rejected, dict):
+        raise CandidateArtifactError("starter curation rejected_records is missing")
+    rejected_total = 0
+    for reason, count in rejected.items():
+        if not isinstance(reason, str) or not reason or type(count) is not int or count < 0:
+            raise CandidateArtifactError("starter curation rejected_records is malformed")
+        rejected_total += count
+    if eligible + rejected_total != scanned:
+        raise CandidateArtifactError("starter curation scan accounting mismatch")
+
+    selected = curation.get("selected_games")
+    if not isinstance(selected, list) or len(selected) != STARTER_REAL_GAME_COUNT:
+        raise CandidateArtifactError("starter curation selected_games count mismatch")
+
+    source_indices: list[int] = []
+    result_counts: Counter[str] = Counter()
+    length_counts: Counter[str] = Counter()
+    openings: set[tuple[str, ...]] = set()
+    for item in selected:
+        if not isinstance(item, dict):
+            raise CandidateArtifactError("starter curation selected game evidence is malformed")
+        source_index = item.get("source_index")
+        if type(source_index) is not int or source_index < 1 or source_index > scanned:
+            raise CandidateArtifactError("starter curation source_index is invalid")
+        source_indices.append(source_index)
+        for field in ("event", "white", "black"):
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise CandidateArtifactError(f"starter curation {field} evidence is invalid")
+        result = item.get("result")
+        if result not in {"1-0", "0-1", "1/2-1/2"}:
+            raise CandidateArtifactError("starter curation result evidence is invalid")
+        plies = item.get("plies")
+        if type(plies) is not int or plies < 20:
+            raise CandidateArtifactError("starter curation plies evidence is invalid")
+        band = item.get("length_band")
+        if band != _starter_length_band(plies):
+            raise CandidateArtifactError("starter curation length-band evidence is invalid")
+        opening = item.get("opening_prefix")
+        if (
+            not isinstance(opening, list)
+            or len(opening) != 4
+            or any(not isinstance(move, str) or not move for move in opening)
+        ):
+            raise CandidateArtifactError("starter curation opening-prefix evidence is invalid")
+        record_sha = item.get("record_sha256")
+        if not isinstance(record_sha, str) or not HEX64.fullmatch(record_sha.lower()):
+            raise CandidateArtifactError("starter curation record SHA-256 is invalid")
+        result_counts[str(result)] += 1
+        length_counts[str(band)] += 1
+        openings.add(tuple(opening))
+
+    if source_indices != sorted(source_indices) or len(set(source_indices)) != len(source_indices):
+        raise CandidateArtifactError("starter curation source indices are not strictly ordered")
+    for result, minimum in STARTER_EXPECTED_CRITERIA["result_minimums"].items():
+        if result_counts[result] < minimum:
+            raise CandidateArtifactError("starter curation result representation floor is not met")
+    for band, minimum in STARTER_EXPECTED_CRITERIA["length_band_minimums"].items():
+        if length_counts[band] < minimum:
+            raise CandidateArtifactError("starter curation length representation floor is not met")
+    if len(openings) < STARTER_EXPECTED_CRITERIA["minimum_distinct_opening_prefixes"]:
+        raise CandidateArtifactError("starter curation opening diversity floor is not met")
+
+    expected_results = dict(sorted(result_counts.items()))
+    expected_lengths = dict(sorted(length_counts.items()))
+    if curation.get("selected_result_counts") != expected_results:
+        raise CandidateArtifactError("starter curation selected_result_counts mismatch")
+    if curation.get("selected_length_band_counts") != expected_lengths:
+        raise CandidateArtifactError("starter curation selected_length_band_counts mismatch")
+    if curation.get("distinct_opening_prefixes") != len(openings):
+        raise CandidateArtifactError("starter curation opening-prefix aggregate mismatch")
+
+
+def _verify_starter_database(
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    expected: dict[str, int],
+) -> None:
+    if info.file_size <= 0 or info.file_size > MAX_CANDIDATE_METADATA_BYTES:
+        raise CandidateArtifactError("starter ACSDB size is outside accepted semantic bound")
+
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="accessible-chess-w4-starter-",
+            suffix=".acsdb",
+            delete=False,
+        ) as output:
+            temporary_name = output.name
+            total = 0
+            try:
+                with archive.open(info, "r") as source:
+                    while True:
+                        block = source.read(HASH_CHUNK_BYTES)
+                        if not block:
+                            break
+                        total += len(block)
+                        if total > info.file_size or total > MAX_CANDIDATE_METADATA_BYTES:
+                            raise CandidateArtifactError(
+                                "starter ACSDB expanded beyond declared semantic bound"
+                            )
+                        output.write(block)
+            except CandidateArtifactError:
+                raise
+            except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                raise CandidateArtifactError("starter ACSDB readback failed") from exc
+        if total != info.file_size:
+            raise CandidateArtifactError("starter ACSDB readback size mismatch")
+
+        try:
+            connection = sqlite3.connect(
+                f"file:{Path(temporary_name).as_posix()}?mode=ro",
+                uri=True,
+                timeout=5.0,
+            )
+        except sqlite3.Error as exc:
+            raise CandidateArtifactError("starter ACSDB cannot be opened read-only") from exc
+        try:
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()
+            if integrity != ("ok",):
+                raise CandidateArtifactError("starter ACSDB integrity_check failed")
+            foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+            if foreign_keys:
+                raise CandidateArtifactError("starter ACSDB foreign_key_check failed")
+            version_row = connection.execute("PRAGMA user_version").fetchone()
+            if version_row != (STARTER_ACSDB_SCHEMA_VERSION,):
+                raise CandidateArtifactError("starter ACSDB schema version mismatch")
+            row = connection.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT pgn_text), "
+                "COUNT(DISTINCT white || char(0) || black), "
+                "COUNT(DISTINCT event) FROM games"
+            ).fetchone()
+        except CandidateArtifactError:
+            raise
+        except sqlite3.Error as exc:
+            raise CandidateArtifactError("starter ACSDB schema/readback query failed") from exc
+        finally:
+            connection.close()
+        if not isinstance(row, tuple) or len(row) != 4:
+            raise CandidateArtifactError("starter ACSDB evidence row is malformed")
+        actual = {
+            "games": int(row[0]),
+            "distinct_games": int(row[1]),
+            "distinct_player_pairs": int(row[2]),
+            "distinct_events": int(row[3]),
+        }
+        if actual != expected:
+            raise CandidateArtifactError(
+                f"starter ACSDB semantic evidence mismatch: actual={actual} expected={expected}"
+            )
+    finally:
+        if temporary_name is not None:
+            try:
+                Path(temporary_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _verify_starter_bundle(
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+) -> None:
+    manifest_name = f"{STARTER_ROOT}/manifest.json"
+    manifest = _load_json(archive.read(manifest_name), "starter manifest")
+    _exact_int(manifest.get("schema_version"), 3, "starter manifest schema_version")
+    if manifest.get("bundle_kind") != "lawful-curated-real-game-starter":
+        raise CandidateArtifactError("starter manifest bundle_kind mismatch")
+    if manifest.get("runtime_network_required") is not False:
+        raise CandidateArtifactError("starter bundle must not require runtime network")
+
+    source = _dict_field(manifest, "starter_source", "starter manifest")
+    expected_source = {
+        "name": STARTER_CORPUS_NAME,
+        "url": STARTER_CORPUS_URL,
+        "license_id": STARTER_CORPUS_LICENSE_ID,
+        "published_games": STARTER_CORPUS_PUBLISHED_GAMES,
+        "compressed_sha256": STARTER_CORPUS_SHA256,
+        "selection": STARTER_CURATION_POLICY_ID,
+        "selected_games": STARTER_REAL_GAME_COUNT,
+    }
+    for key, expected_value in expected_source.items():
+        if source.get(key) != expected_value:
+            raise CandidateArtifactError(f"starter source authority mismatch: {key}")
+    _positive_int(
+        source.get("compressed_bytes"),
+        "starter source compressed_bytes",
+        maximum=32 * 1024 * 1024,
+    )
+    subset_sha = source.get("subset_sha256")
+    if not isinstance(subset_sha, str) or not HEX64.fullmatch(subset_sha.lower()):
+        raise CandidateArtifactError("starter source subset_sha256 is invalid")
+
+    counts = _dict_field(manifest, "counts", "starter manifest")
+    _exact_int(counts.get("starter_games"), STARTER_REAL_GAME_COUNT, "starter_games")
+    _exact_int(counts.get("stress_games"), STARTER_STRESS_GAME_COUNT, "stress_games")
+
+    licenses = _dict_field(manifest, "licenses", "starter manifest")
+    cc0 = licenses.get(STARTER_CORPUS_LICENSE_ID)
+    if not isinstance(cc0, dict) or (
+        cc0.get("type") != "public-domain-dedication"
+        or cc0.get("url") != STARTER_CORPUS_LICENSE_URL
+        or cc0.get("source") != "Lichess standard database publication"
+    ):
+        raise CandidateArtifactError("starter CC0 license authority mismatch")
+    project_license = licenses.get(STARTER_PROJECT_LICENSE_ID)
+    terms = project_license.get("terms_uk") if isinstance(project_license, dict) else None
+    if (
+        not isinstance(project_license, dict)
+        or project_license.get("type") != "project-owned-redistribution-grant"
+        or not isinstance(terms, str)
+        or not terms.strip()
+        or len(terms) > 4096
+    ):
+        raise CandidateArtifactError("starter project license authority mismatch")
+
+    file_manifest = _dict_field(manifest, "files", "starter manifest")
+    if set(file_manifest) != set(STARTER_EXPECTED_FILES):
+        raise CandidateArtifactError("starter manifest file inventory mismatch")
+    for short_name, expected_license in STARTER_EXPECTED_FILES.items():
+        metadata = file_manifest.get(short_name)
+        if not isinstance(metadata, dict):
+            raise CandidateArtifactError(f"starter file metadata missing: {short_name}")
+        member_name = f"{STARTER_ROOT}/{short_name}"
+        info = members[member_name]
+        if type(metadata.get("bytes")) is not int or metadata.get("bytes") != info.file_size:
+            raise CandidateArtifactError(f"starter file byte count mismatch: {short_name}")
+        digest = metadata.get("sha256")
+        if (
+            not isinstance(digest, str)
+            or not HEX64.fullmatch(digest.lower())
+            or digest.lower() != _sha256_member(archive, member_name)
+        ):
+            raise CandidateArtifactError(f"starter file SHA-256 mismatch: {short_name}")
+        if metadata.get("license_id") != expected_license:
+            raise CandidateArtifactError(f"starter file license mismatch: {short_name}")
+
+    starter_metadata = file_manifest["starter_uk.pgn"]
+    if source.get("subset_sha256") != starter_metadata.get("sha256"):
+        raise CandidateArtifactError("starter source subset_sha256 does not bind starter PGN")
+    _verify_starter_curation(source)
+
+    sample = _dict_field(manifest, "sample_library", "starter manifest")
+    expected_sample: dict[str, int] = {}
+    for key in ("games", "distinct_games", "distinct_player_pairs", "distinct_events"):
+        value = sample.get(key)
+        if type(value) is not int or value < 0:
+            raise CandidateArtifactError(f"starter sample_library evidence invalid: {key}")
+        expected_sample[key] = value
+    if (
+        expected_sample["games"] != STARTER_REAL_GAME_COUNT
+        or expected_sample["distinct_games"] != STARTER_REAL_GAME_COUNT
+        or expected_sample["distinct_player_pairs"] < 20
+        or expected_sample["distinct_events"] < 1
+    ):
+        raise CandidateArtifactError("starter sample_library manifest evidence is insufficient")
+    _verify_starter_database(
+        archive,
+        members[f"{STARTER_ROOT}/sample_library.acsdb"],
+        expected_sample,
+    )
 
 
 def _parse_checksums(data: bytes) -> dict[str, str]:
@@ -359,7 +707,11 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         if missing:
             raise CandidateArtifactError("candidate ZIP is missing release-critical files: " + ", ".join(missing))
 
-        for metadata_name in ("RELEASE_MANIFEST.json", "SHA256SUMS.txt"):
+        for metadata_name in (
+            "RELEASE_MANIFEST.json",
+            "SHA256SUMS.txt",
+            f"{STARTER_ROOT}/manifest.json",
+        ):
             metadata_size = members[metadata_name].file_size
             if metadata_size <= 0 or metadata_size > MAX_CANDIDATE_METADATA_BYTES:
                 raise CandidateArtifactError(
@@ -392,6 +744,8 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
             actual = _sha256_member(candidate, name)
             if actual != expected:
                 raise CandidateArtifactError(f"candidate checksum mismatch: {name}")
+
+        _verify_starter_bundle(candidate, members)
 
 
 def main() -> int:
