@@ -106,6 +106,15 @@ internal sealed class SentenceCoachStateStore
 
     private static void ValidateState(SentenceCoachState state)
     {
+        if (state.CurrentTargetEntryIds is null)
+            throw new InvalidDataException("Sentence Coach state contains a null current-target list.");
+        if (state.RecentSentenceIds is null)
+            throw new InvalidDataException("Sentence Coach state contains a null recent-sentence list.");
+        if (state.StatsByDictionary is null)
+            throw new InvalidDataException("Sentence Coach state contains a null statistics map.");
+        if (state.StatsByDictionary.Values.Any(value => value is null))
+            throw new InvalidDataException("Sentence Coach state contains a null per-dictionary statistics map.");
+
         foreach ((string dictionaryId, Dictionary<string, SentenceTargetStats> statsByEntry) in state.StatsByDictionary)
         {
             if (string.IsNullOrWhiteSpace(dictionaryId))
@@ -128,6 +137,7 @@ internal sealed class SentenceCoachStateStore
 
     internal static SentenceCoachState Normalize(SentenceCoachState state)
     {
+        ValidateState(state);
         state.TargetCount = Math.Clamp(state.TargetCount, 1, 3);
         if (state.PoolPreset is not (ContextStudyPoolPreset.Thirty or ContextStudyPoolPreset.Hundred or ContextStudyPoolPreset.TwoHundred or ContextStudyPoolPreset.Full))
             state.PoolPreset = ContextStudyPoolPreset.Full;
