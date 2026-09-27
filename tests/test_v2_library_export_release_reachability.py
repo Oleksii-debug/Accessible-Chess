@@ -550,5 +550,103 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             database.close()
 
 
+    def test_browser_filtered_export_reaches_native_runtime_and_restores_focus(self) -> None:
+        pgn = """[Event "Browser Filter"]
+[Site "Bratislava"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+
+1. e4 e5 *
+
+[Event "Browser Filter"]
+[Site "Košice"]
+[White "Gamma"]
+[Black "Delta"]
+[Result "*"]
+
+1. d4 d5 *
+
+[Event "Other"]
+[Site "Nitra"]
+[White "Epsilon"]
+[Black "Zeta"]
+[Result "*"]
+
+1. c4 c5 *
+"""
+
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("synchronous export must not post UI work")
+
+        class Dialogs:
+            def __init__(self, destination: Path) -> None:
+                self.destination = destination
+
+            def export_selection(self, suggested_filename: str = "selection.pgn") -> Path:
+                return self.destination
+
+        database = AcsDatabase()
+        runtime = None
+        try:
+            database.import_pgn_text(pgn, source_name="browser-filter.pgn")
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                destination = root / "filtered browser export.pgn"
+                application = Version2Application(
+                    database,
+                    progress_store=SimpleNamespace(path=root / "book-progress.json"),
+                    engine_assistance=object(),
+                    board_dispatch=Mock(),
+                    copy_text=lambda _value: None,
+                    language=UILanguage.EN,
+                )
+                application.library.projection.search(GameSearchQuery(event="Browser Filter"))
+                application.record_focus("library-search-event")
+                with patch(
+                    "acs.version2_windows_library_export.Version2OwnedWindowsPgnExportDialogs",
+                    return_value=Dialogs(destination),
+                ):
+                    runtime = _build_version2_windows_file_runtime(
+                        application=application,
+                        api=SimpleNamespace(v2_board_dispatch=Mock()),
+                        database_path=root / "library.acsdb",
+                        owner_control=Owner(),
+                        dialog_language_provider=lambda: application.shell.language,
+                    )
+                application.bind_files(runtime)
+
+                delegated = application.browser_command(
+                    "library",
+                    "library.export_filtered",
+                    {},
+                )
+                reopened = open_pgn(destination)
+                events = application.drain_events()
+
+            self.assertEqual(delegated["kind"], "delegated")
+            self.assertEqual(delegated["payload"]["scope"], "filtered")
+            self.assertEqual(len(reopened.games), 2)
+            self.assertEqual(
+                [game.tags["Event"] for game in reopened.games],
+                ["Browser Filter", "Browser Filter"],
+            )
+            self.assertIn(
+                {"kind": "status", "payload": {"announcement": "Export completed."}},
+                events,
+            )
+            self.assertEqual(application._focus, "library-search-event")
+            self.assertNotIn(str(destination), repr(events))
+        finally:
+            if runtime is not None:
+                self.assertTrue(runtime.shutdown())
+            database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
