@@ -132,7 +132,10 @@ internal static class BookReadingWritingSelfTest
                     () =>
                     {
                         failedPersistCalls++;
+                        Dictionary<string, string> beforeNormalizeMap = allScope.DeckIds;
                         AppStateStore.Normalize(state);
+                        Require(!ReferenceEquals(beforeNormalizeMap, allScope.DeckIds),
+                            "Failure regression did not exercise AppState normalization map replacement.");
                         throw new IOException("simulated AppState persistence failure after normalization");
                     }),
                 "Failed AppState persistence did not fail the cross-store Reading vocabulary capture.");
@@ -177,6 +180,8 @@ internal static class BookReadingWritingSelfTest
                     .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
                 "Failed first capture left a durable private Reading row behind.");
 
+            string stateRoot = Path.Combine(root, "personal state");
+            var appStateStore = new AppStateStore(stateRoot);
             int successfulPersistCalls = 0;
             service.CaptureMappedOccurrenceToLearningDeckAndPersist(
                 imported.Document,
@@ -185,7 +190,11 @@ internal static class BookReadingWritingSelfTest
                 state,
                 dictionary,
                 DeckIds.Core(5),
-                () => successfulPersistCalls++);
+                () =>
+                {
+                    successfulPersistCalls++;
+                    appStateStore.Save(state);
+                });
             Require(successfulPersistCalls == 1 &&
                     allScope.DeckIds["rw:beta"] == DeckIds.Core(5) &&
                     state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(5) &&
@@ -194,12 +203,13 @@ internal static class BookReadingWritingSelfTest
                         .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
                 "Successful cross-store capture did not commit authoritative All, legacy mirror and Reading evidence.");
 
-            // Reconstructing the canonical scope service would overwrite a legacy-only
-            // capture. The successful assignment must therefore survive this resync.
-            var reopenedRecall = new RecallStudyScopeService(state, dictionary.Id, dictionary.Entries);
+            // A disk round-trip plus canonical scope reconstruction would erase a
+            // legacy-only capture. The authoritative assignment must survive both.
+            AppState persistedState = appStateStore.Load();
+            var reopenedRecall = new RecallStudyScopeService(persistedState, dictionary.Id, dictionary.Entries);
             Require(reopenedRecall.Assignments(StudyScopeIds.All)["rw:beta"] == DeckIds.Core(5) &&
-                    state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(5),
-                "Successful Reading capture did not survive authoritative Recall All resynchronization.");
+                    persistedState.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(5),
+                "Successful Reading capture did not survive AppState save/reload and authoritative Recall All resynchronization.");
 
             Require(BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", "BOOK-A"),
                 "Active-book guard rejected the same stable book identity with case-only differences.");
