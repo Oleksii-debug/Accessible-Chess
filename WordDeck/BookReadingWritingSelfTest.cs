@@ -104,6 +104,39 @@ internal static class BookReadingWritingSelfTest
             // caller AppState persistence and the private Reading SQLite store.
             var readingState = new BookReadingStateStore(service.DatabasePath);
 
+            AppState compatibilityState = AppStateStore.Normalize(new AppState
+            {
+                ActiveDictionaryId = dictionary.Id,
+                ActiveDeckId = DeckIds.Core(2)
+            });
+            var compatibilityLegacy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["rw:alpha"] = DeckIds.Core(5),
+                ["rw:beta"] = DeckIds.Core(2)
+            };
+            compatibilityState.DeckIdsByDictionary[dictionary.Id] = compatibilityLegacy;
+            compatibilityState.RecallStudyScopesByDictionary.Remove(dictionary.Id);
+            ExpectFailure<IOException>(
+                () => service.CaptureMappedOccurrenceToLearningDeckAndPersist(
+                    imported.Document,
+                    sentence,
+                    "rw:alpha",
+                    compatibilityState,
+                    dictionary,
+                    DeckIds.Core(2),
+                    () => throw new IOException("simulated compatibility persistence failure")),
+                "Failed compatibility capture did not surface the persistence error.");
+            Require(!compatibilityState.RecallStudyScopesByDictionary.ContainsKey(dictionary.Id),
+                "Failed compatibility capture left behind scope state created by the failed operation.");
+            Require(compatibilityState.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? restoredCompatibilityLegacy) &&
+                    ReferenceEquals(restoredCompatibilityLegacy, compatibilityLegacy) &&
+                    compatibilityLegacy["rw:alpha"] == DeckIds.Core(5) &&
+                    compatibilityLegacy["rw:beta"] == DeckIds.Core(2),
+                "Failed compatibility capture did not restore the exact pre-call legacy assignment map.");
+            Require(!readingState.LoadUnknowns(imported.Document.BookId)
+                    .Any(item => item.StableEntryId.Equals("rw:alpha", StringComparison.OrdinalIgnoreCase)),
+                "Failed compatibility capture left a durable Reading capture behind.");
+
             // Establish a prior private Reading capture while keeping the authoritative
             // All workspace baseline at Known. The failed transaction must restore both.
             service.CaptureMappedOccurrenceToLearningDeck(
