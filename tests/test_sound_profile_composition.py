@@ -18,6 +18,14 @@ class _Playback:
         self.requests.append(request)
 
 
+class _LegacyPlayback:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def play(self, event, *, volume: int) -> None:
+        self.calls.append((event, volume))
+
+
 class LocalSoundCompositionTests(unittest.TestCase):
     def test_first_run_migrates_legacy_sound_toggle_and_volume_once(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-migrate-") as raw:
@@ -84,6 +92,38 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertEqual("capture.soft", request.sound_id)
             self.assertEqual(30, request.volume)
             self.assertTrue(request.preview)
+
+    def test_retained_legacy_injection_is_adapted_without_second_profile_owner(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-legacy-port-") as raw:
+            root = Path(raw)
+            playback = _LegacyPlayback()
+            composition = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=playback,
+            )
+            composition.settings.set_master(volume_percent=55)
+            composition.settings.preview("move", language="en")
+
+            self.assertEqual(1, len(playback.calls))
+            event, volume = playback.calls[0]
+            self.assertEqual("move", event.value)
+            self.assertEqual(55, volume)
+
+    def test_legacy_injection_low_time_is_preview_only_and_maps_to_tick(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-legacy-low-time-") as raw:
+            root = Path(raw)
+            playback = _LegacyPlayback()
+            composition = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=playback,
+            )
+            composition.settings.preview("low_time")
+
+            self.assertEqual(1, len(playback.calls))
+            event, _volume = playback.calls[0]
+            self.assertEqual("tick", event.value)
 
     def test_missing_selected_custom_pack_recovers_to_classic_on_load(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-fallback-") as raw:
