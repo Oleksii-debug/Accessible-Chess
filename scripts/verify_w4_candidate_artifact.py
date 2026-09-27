@@ -8,6 +8,7 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import sqlite3
+import stat
 import sys
 import tempfile
 import zipfile
@@ -130,6 +131,9 @@ def _safe_members(archive: zipfile.ZipFile, label: str) -> dict[str, zipfile.Zip
         if path.is_absolute() or ".." in path.parts or not path.parts:
             raise CandidateArtifactError(f"{label} contains unsafe path: {raw}")
         canonical = path.as_posix()
+        unix_mode = info.external_attr >> 16
+        if stat.S_ISLNK(unix_mode):
+            raise CandidateArtifactError(f"{label} contains symbolic link entry: {canonical}")
         folded = canonical.casefold()
         if folded in casefold:
             raise CandidateArtifactError(f"{label} contains case-insensitive duplicate: {canonical}")
@@ -171,6 +175,24 @@ def _read_semantic_member(
     if len(data) != info.file_size:
         raise CandidateArtifactError(f"{label} changed while being read")
     return data
+
+
+def _require_mz_executable(
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+    name: str,
+    label: str,
+) -> None:
+    info = members[name]
+    if info.is_dir() or info.file_size < 2:
+        raise CandidateArtifactError(f"{label} is not a non-empty executable file")
+    try:
+        with archive.open(info, "r") as source:
+            signature = source.read(2)
+    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+        raise CandidateArtifactError(f"{label} executable signature read failed") from exc
+    if signature != b"MZ":
+        raise CandidateArtifactError(f"{label} is missing Windows MZ executable signature")
 
 
 def _scan_comment_state(line: str, inside_brace: bool) -> bool:
@@ -833,6 +855,19 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         missing = sorted(required - set(members))
         if missing:
             raise CandidateArtifactError("candidate ZIP is missing release-critical files: " + ", ".join(missing))
+
+        _require_mz_executable(
+            candidate,
+            members,
+            "AccessibleChess/AccessibleChess.exe",
+            "application executable",
+        )
+        _require_mz_executable(
+            candidate,
+            members,
+            "AccessibleChess/engines/stockfish/stockfish.exe",
+            "Stockfish executable",
+        )
 
         for metadata_name in (
             "RELEASE_MANIFEST.json",
