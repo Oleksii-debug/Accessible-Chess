@@ -223,6 +223,10 @@ class Version2Application:
 
     def _start_training_from_current_book(self):
         self._assert_thread()
+        # Book Board owns the exact reader origin until explicit Return.
+        # Training must never retarget or wrap that reader behind the active Board.
+        if self.book_workflow is not None and self.book_workflow.active:
+            return False
         if self.reader is None or self.reader.location().kind != "Exercise":
             return False
         workspace = self.training_workspace
@@ -484,7 +488,8 @@ class Version2Application:
                 if type(command) is not str or not (command.startswith("screen.") or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}):
                     raise ValueError("unsupported shell command")
                 if command == "screen.training":
-                    self._start_training_from_current_book()
+                    if not self._start_training_from_current_book():
+                        raise ValueError("Training exercise is unavailable")
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
             if area == "training":
@@ -525,12 +530,36 @@ class Version2Application:
 
     def native_command(self, value):
         self._assert_thread()
-        if getattr(value, "action_id", None) == "screen.training":
+        payload = getattr(value, "payload", {})
+        training_route = (
+            getattr(value, "kind", None) == "route"
+            and hasattr(payload, "get")
+            and payload.get("route_id") == "training"
+        )
+        if training_route:
             try:
-                self._start_training_from_current_book()
+                if not self._start_training_from_current_book():
+                    raise ValueError("Training exercise is unavailable")
             except Exception:
+                # Native-menu/keyboard routing has already changed the shell.
+                # Recover to a coherent canonical owner instead of publishing a
+                # dead Training surface. Active Book Board ownership wins.
+                recovery_route = (
+                    "board"
+                    if self.book_workflow is not None and self.book_workflow.active
+                    else "books"
+                    if self.books is not None
+                    else "board"
+                )
+                if self.shell.current_route.route_id == "training":
+                    self._focus = self.shell.open_route(recovery_route)
+                    self._events.append(
+                        {"kind": "route", "payload": {"route_id": recovery_route}}
+                    )
                 self._events.append(self._error())
+                return False
         self._events.append(asdict(value))
+        return True
 
     def record_focus(self, token):
         self._assert_thread()

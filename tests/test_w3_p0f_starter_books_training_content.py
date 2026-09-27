@@ -295,5 +295,86 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_native_training_route_starts_real_workspace_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-native-training-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    self.assertIsNone(app.training_workspace)
+                    command = app.adapter.activate_action("screen.training")
+                    self.assertEqual("route", command.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+
+                    self.assertTrue(app.native_command(command))
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertIsNotNone(app.training_workspace)
+                    self.assertIsNotNone(app.training)
+                    self.assertEqual("Exercise", app.reader.location().kind)
+                    events = app.drain_events()
+                    self.assertEqual("route", events[-1]["kind"])
+                    self.assertEqual("training", events[-1]["payload"]["route_id"])
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_training_cannot_retarget_reader_while_book_board_owns_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-board-training-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    moved = app.browser_command("books", "book.next_position")
+                    self.assertEqual("render", moved["kind"])
+                    opened = app.browser_command("books", "book.open_position")
+                    self.assertEqual("delegated", opened["kind"])
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                    reader_before = app.reader.snapshot()
+                    board_before = app.book_workflow.view()
+
+                    rejected = app.browser_command("shell", "screen.training")
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(board_before, app.book_workflow.view())
+                    self.assertIsNone(app.training_workspace)
+
+                    command = app.adapter.activate_action("screen.training")
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertFalse(app.native_command(command))
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(board_before, app.book_workflow.view())
+                    self.assertIsNone(app.training_workspace)
+                    events = app.drain_events()
+                    self.assertEqual(["route", "error"], [item["kind"] for item in events])
+                    self.assertEqual("board", events[0]["payload"]["route_id"])
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()

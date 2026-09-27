@@ -253,6 +253,9 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
     def _start_training_from_current_book(self):
         """Make the existing Training route useful without manual block hunting."""
 
+        # Do not move or replace the reader while Book Board owns its origin.
+        if self.book_workflow is not None and self.book_workflow.active:
+            return False
         if self.reader is None or not self.reader.document.exercises():
             self._install_starter_course()
         if self.reader is None:
