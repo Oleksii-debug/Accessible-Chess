@@ -84,6 +84,14 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn('test "$PRODUCT_SHA" = "$live"', self.text)
         self.assertIn("STALE_W4_CANDIDATE", self.text)
 
+
+    def test_candidate_checkpoint_precedes_artifact_publication(self) -> None:
+        checkpoint = self.text.index("CANDIDATE_PRODUCT_SHA=")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(checkpoint, upload)
+        self.assertLess(self.text.index("HUMAN_TESTED=NO"), upload)
+        self.assertLess(self.text.index("NVDA_VERIFIED=NO"), upload)
+
     def test_candidate_artifact_publication_is_exactly_pinned_and_contains_evidence(self) -> None:
         self.assertIn(UPLOAD_ARTIFACT_V462, self.text)
         self.assertNotIn("actions/upload-artifact@v4", self.text)
