@@ -5,12 +5,14 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/book_progress_store.py'
       - 'acs/version2_application.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_v2_native_dialog_language.py'
       - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
 permissions:
@@ -51,6 +53,8 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$product" HEAD | LC_ALL=C sort)
           expected_paths=(
             '.github/workflows/books-progress-backup-recovery.yml'
+            '.github/workflows/v2-book-progress-production-repair.yml'
+            'acs/book_progress_store.py'
             'acs/version2_application.py'
             'acs/version2_release_app.py'
             'acs/version2_windows_native_dialog_ownership.py'
@@ -67,6 +71,7 @@ jobs:
       - name: Compile changed Python
         run: >-
           python -m py_compile
+          acs/book_progress_store.py
           acs/version2_application.py
           acs/version2_release_app.py
           acs/version2_windows_native_dialog_ownership.py
