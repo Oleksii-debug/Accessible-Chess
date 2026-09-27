@@ -122,6 +122,16 @@ internal static class GrammarCoachSelfTest
                     "UPDATE grammar_mastery SET updated_utc='not-a-timestamp' WHERE skill_id='present.simple.core';");
                 RequireThrowsInvalidData(() => _ = restarted.LoadMastery(),
                     "Persisted malformed grammar mastery timestamp was accepted.");
+                GrammarExercise corruptedSkillExercise = GrammarExerciseBank.ForSkill("present.simple.core")[0];
+                GrammarEvaluation corruptedSkillEvaluation = GrammarAnswerEvaluator.Evaluate(
+                    corruptedSkillExercise,
+                    corruptedSkillExercise.AcceptedEnglishAnswers[0]);
+                RequireThrowsInvalidData(
+                    () => _ = restarted.RecordAttempt(
+                        corruptedSkillExercise,
+                        corruptedSkillEvaluation,
+                        corruptedSkillExercise.AcceptedEnglishAnswers[0]),
+                    "RecordAttempt consumed corrupted persisted mastery instead of failing closed.");
                 ExecuteRaw(raw,
                     "UPDATE grammar_mastery SET updated_utc=$utc WHERE skill_id='present.simple.core';",
                     ("$utc", DateTimeOffset.UtcNow.ToString("O")));
