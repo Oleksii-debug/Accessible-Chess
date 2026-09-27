@@ -62,42 +62,26 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertNotIn('product_sha="$(unzip', self.text)
         self.assertNotIn("RELEASE_MANIFEST.json", self.text)
 
-    def test_verifier_is_materialized_from_pinned_authority(self) -> None:
+    def test_verifier_and_semantic_dependencies_share_one_pinned_authority(self) -> None:
         self.assertIn(
-            "W4_VERIFIER_COMMIT: 70fa4fd75910d659161abcc8bcd192e9a88a7905",
+            "W4_VERIFIER_COMMIT: 61ba5980ac9121a5396744c05d6b685731823e82",
             self.text,
         )
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 74282656f5a38e198640c35e390128448935cde1",
+            "W4_VERIFIER_BLOB_SHA: bf924a1ebc6b73080bdce0f58927ebe3c65b04da",
             self.text,
         )
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
+        self.assertIn('git worktree add --detach .w4-readback-source "$W4_VERIFIER_COMMIT"', self.text)
+        self.assertIn('git -C .w4-readback-source rev-parse HEAD', self.text)
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
-        self.assertIn('verifier_root="$RUNNER_TEMP/w4-readback"', self.text)
-        self.assertEqual(
-            self.text.count(
-                'git worktree add --detach "$verifier_root" "$W4_VERIFIER_COMMIT"'
-            ),
-            1,
-        )
-        self.assertIn(
-            'test "$(git -C "$verifier_root" rev-parse HEAD)" = "$W4_VERIFIER_COMMIT"',
-            self.text,
-        )
-        self.assertIn(
-            'test -s "$verifier_root/scripts/verify_w4_candidate_artifact.py"',
-            self.text,
-        )
-        self.assertIn(
-            'echo "W4_READBACK_VERIFIER_ROOT=$verifier_root" >> "$GITHUB_ENV"',
-            self.text,
-        )
-        self.assertIn("W4_READBACK_PINNED_DEPENDENCY_CLOSURE=PASS", self.text)
-        self.assertNotIn(".w4-readback/verify_w4_candidate_artifact.py", self.text)
-        self.assertNotIn(
-            'git show "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py"',
-            self.text,
-        )
+        for dependency in (
+            ".w4-readback-source/acs/acsdb.py",
+            ".w4-readback-source/acs/gametree.py",
+            ".w4-readback-source/acs/pgn_roundtrip.py",
+        ):
+            self.assertIn(dependency, self.text)
+        self.assertIn("W4_READBACK_PINNED_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_artifact_resolution_is_bound_to_exact_completed_run(self) -> None:
         self.assertIn("RUN_ID: ${{ github.event.workflow_run.id }}", self.text)
@@ -124,7 +108,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_POST_BUILD_FRESHNESS=PASS", self.text)
 
     def test_independent_verifier_receives_independently_bound_product_sha(self) -> None:
-        self.assertIn('python "$W4_READBACK_VERIFIER_ROOT/scripts/verify_w4_candidate_artifact.py"', self.text)
+        self.assertIn("python .w4-readback-source/scripts/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
         self.assertIn("--product-sha '${{ steps.product.outputs.product_sha }}'", self.text)
         self.assertIn("W4_EXACT_RUN_ARTIFACT_READBACK=PASS", self.text)
