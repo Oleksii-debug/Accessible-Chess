@@ -58,6 +58,26 @@ jobs:
               git merge-base --is-ancestor "$minimum_recovery_owner" "$upstream"
               mode='CURRENT_FULL_PRODUCT'
               ;;
+            "")
+              # workflow_dispatch has no pull_request.base.ref. Select only an
+              # explicit current authority that is already in this exact head.
+              git fetch --no-tags origin \
+                "+refs/heads/$stacked_branch:refs/remotes/origin/$stacked_branch" \
+                "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+              stacked="$(git rev-parse "refs/remotes/origin/$stacked_branch")"
+              product="$(git rev-parse "refs/remotes/origin/$product_branch")"
+              if git merge-base --is-ancestor "$stacked" HEAD; then
+                upstream="$stacked"
+                mode='STACKED_RECOVERY_PARENT_DISPATCH'
+              elif git merge-base --is-ancestor "$product" HEAD \
+                   && git merge-base --is-ancestor "$minimum_recovery_owner" "$product"; then
+                upstream="$product"
+                mode='CURRENT_FULL_PRODUCT_DISPATCH'
+              else
+                echo "dispatch head is not based on an allowed current EPUB authority" >&2
+                exit 1
+              fi
+              ;;
             *)
               echo "unsupported EPUB reachability base: $base_ref" >&2
               exit 1
