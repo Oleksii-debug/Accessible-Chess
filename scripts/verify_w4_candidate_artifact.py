@@ -138,6 +138,10 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
             raise CandidateArtifactError("candidate ZIP filename Product prefix mismatch")
         if len(copy_names) != 1 or len(p0g_names) != 1:
             raise CandidateArtifactError("outer artifact must contain both exact P0 evidence JSON files")
+        expected_outer_files = {candidate_names[0], copy_names[0], p0g_names[0]}
+        if set(files) != expected_outer_files:
+            unexpected = sorted(set(files) - expected_outer_files)
+            raise CandidateArtifactError(f"outer artifact contains unexpected files: {unexpected}")
 
         copy_evidence = _load_json(outer.read(copy_names[0]), "copy evidence")
         p0g_evidence = _load_json(outer.read(p0g_names[0]), "P0-G evidence")
