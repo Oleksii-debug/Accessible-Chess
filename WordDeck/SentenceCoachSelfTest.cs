@@ -233,6 +233,17 @@ internal static class SentenceCoachSelfTest
                 "Sentence Coach did not recover from a semantically invalid primary using the valid backup.");
             store.Save(semanticRecovery);
 
+            SentenceCoachState invalidInMemory = new SentenceCoachStateStore(root).Load();
+            invalidInMemory.StatsByDictionary["dict"]["ox-improve"].WrongAttempts = -1;
+            byte[] validPrimaryBeforeRejectedSave = File.ReadAllBytes(primaryPath);
+            byte[] validBackupBeforeRejectedSave = File.ReadAllBytes(backupPath);
+            ExpectInvalid(
+                () => store.Save(invalidInMemory),
+                "Sentence Coach accepted negative persisted learning counters.");
+            Require(File.ReadAllBytes(primaryPath).SequenceEqual(validPrimaryBeforeRejectedSave),
+                "Sentence Coach changed the valid primary after rejecting invalid in-memory counters.");
+            Require(File.ReadAllBytes(backupPath).SequenceEqual(validBackupBeforeRejectedSave),
+                "Sentence Coach changed the valid backup after rejecting invalid in-memory counters.");
 
             File.WriteAllText(primaryPath, "{ broken primary");
             File.WriteAllText(backupPath, "{ broken backup");
