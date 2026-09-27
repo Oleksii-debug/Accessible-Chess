@@ -32,12 +32,30 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
-    def test_workflow_accepts_canonical_full_product_pr_base(self) -> None:
+    def test_workflow_accepts_only_the_exact_release_convergence_bases(self) -> None:
         workflow = (ROOT / ".github/workflows/p0-release-critical-triad-convergence.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("codex/v2-runtime-completion-20260907", workflow)
-        self.assertIn('echo "unexpected convergence base: $base"', workflow)
+        expected_allowlist = (
+            "codex/v2-runtime-completion-20260907"
+            "|fix/p0f-packaged-starter-diagnostic-20260926"
+            "|work/full-product-teacher-education-reachability-20260911"
+            "|fix/convergence-full-suite-regressions-20260927"
+            "|converge/p0-release-critical-to-full-product-20260926"
+        )
+        expected_case = (
+            'case "$base" in\n'
+            f"            {expected_allowlist})\n"
+            "              ;;\n"
+            "            *)\n"
+            '              echo "unexpected convergence base: $base" >&2\n'
+            "              exit 1\n"
+            "              ;;\n"
+            "          esac"
+        )
+        self.assertIn(expected_case, workflow)
+        self.assertEqual(workflow.count(expected_allowlist), 1)
+        self.assertNotIn("|*)", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
