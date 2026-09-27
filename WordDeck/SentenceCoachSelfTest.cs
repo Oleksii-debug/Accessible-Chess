@@ -13,6 +13,7 @@ internal static class SentenceCoachSelfTest
         TestGeneratorFallbackContract();
         TestGeneratorFallbackValidation();
         TestSentenceCoachStatePersistence();
+        TestSentenceCoachStateSchemaMigration();
         TestClosePersistenceBoundary();
     }
 
@@ -227,6 +228,42 @@ internal static class SentenceCoachSelfTest
                 "Sentence Coach silently reset progress when both persisted state files were unreadable.");
             Require(File.ReadAllText(primaryPath) == primaryBefore && File.ReadAllText(backupPath) == backupBefore,
                 "Sentence Coach changed unreadable state files while failing closed.");
+        }
+        finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
+    }
+
+    private static void TestSentenceCoachStateSchemaMigration()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-schema-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(root);
+            string primaryPath = Path.Combine(root, "sentence-coach-state.json");
+            string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+
+            File.WriteAllText(primaryPath, "{\"ActivePackId\":\"legacy-pack\",\"TargetCount\":2}");
+            var store = new SentenceCoachStateStore(root);
+            SentenceCoachState migrated = store.Load();
+            Require(migrated.SchemaVersion == SentenceCoachStateStore.CurrentSchemaVersion &&
+                    migrated.ActivePackId == "legacy-pack" && migrated.TargetCount == 2,
+                "Legacy Sentence state was not migrated to the current schema.");
+            Require(Directory.GetFiles(Path.Combine(root, "Backups"), "sentence-coach-state-*-pre-migration.json").Length >= 1,
+                "Sentence schema migration did not create a timestamped pre-migration backup.");
+            SentenceCoachState persisted = JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(primaryPath))
+                ?? throw new InvalidDataException("Migrated Sentence state could not be parsed.");
+            Require(persisted.SchemaVersion == SentenceCoachStateStore.CurrentSchemaVersion,
+                "Sentence schema migration was not persisted.");
+
+            store.Save(migrated);
+            string validBackup = File.ReadAllText(primaryPath);
+            File.WriteAllText(backupPath, validBackup);
+            File.WriteAllText(primaryPath, "{\"SchemaVersion\":999,\"ActivePackId\":\"future-pack\"}");
+            string futureBefore = File.ReadAllText(primaryPath);
+            string backupBefore = File.ReadAllText(backupPath);
+            ExpectInvalid(() => new SentenceCoachStateStore(root).Load(),
+                "Newer Sentence schema incorrectly fell back to an older backup.");
+            Require(File.ReadAllText(primaryPath) == futureBefore && File.ReadAllText(backupPath) == backupBefore,
+                "Newer Sentence schema rejection modified persisted state.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
     }
