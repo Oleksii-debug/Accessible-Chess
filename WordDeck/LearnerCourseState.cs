@@ -480,23 +480,24 @@ internal sealed class LearnerCourseStateStore
         {
             if (document.RootElement.ValueKind != JsonValueKind.Object) return;
 
-            JsonProperty? schemaProperty = null;
+            int schemaPropertyCount = 0;
+            JsonElement schemaValue = default;
             foreach (JsonProperty property in document.RootElement.EnumerateObject())
             {
                 if (!property.Name.Equals(nameof(LearnerCourseState.SchemaVersion), StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (schemaProperty is not null)
+                schemaPropertyCount++;
+                if (schemaPropertyCount > 1)
                     throw new InvalidDataException(
                         $"WordDeck course state '{Path.GetFileName(path)}' contains duplicate SchemaVersion metadata. " +
                         "WordDeck will not guess which schema is authoritative or fall back to older state. No personal state was changed.");
 
-                schemaProperty = property;
+                schemaValue = property.Value;
             }
 
-            if (schemaProperty is null) return;
-            JsonElement value = schemaProperty.Value.Value;
-            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out int schemaVersion))
+            if (schemaPropertyCount == 0) return;
+            if (schemaValue.ValueKind != JsonValueKind.Number || !schemaValue.TryGetInt32(out int schemaVersion))
                 return;
 
             if (schemaVersion > CurrentSchemaVersion)
