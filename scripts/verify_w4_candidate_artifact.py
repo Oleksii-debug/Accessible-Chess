@@ -373,6 +373,9 @@ def _verify_starter_database(
         except sqlite3.Error as exc:
             raise CandidateArtifactError("starter ACSDB cannot be opened read-only") from exc
         try:
+            version_row = connection.execute("PRAGMA user_version").fetchone()
+            if version_row != (STARTER_ACSDB_SCHEMA_VERSION,):
+                raise CandidateArtifactError("starter ACSDB schema version mismatch")
             version = AcsDatabase._check_sqlite_integrity(connection)
             if version != STARTER_ACSDB_SCHEMA_VERSION:
                 raise CandidateArtifactError("starter ACSDB schema version mismatch")
@@ -389,8 +392,10 @@ def _verify_starter_database(
             ).fetchall()
         except CandidateArtifactError:
             raise
-        except sqlite3.Error as exc:
-            raise CandidateArtifactError("starter ACSDB schema/readback query failed") from exc
+        except (sqlite3.Error, RuntimeError) as exc:
+            raise CandidateArtifactError(
+                "starter ACSDB integrity/schema/readback validation failed"
+            ) from exc
         finally:
             connection.close()
         if not isinstance(row, tuple) or len(row) != 4:
