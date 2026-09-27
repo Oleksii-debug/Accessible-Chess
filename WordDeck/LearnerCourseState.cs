@@ -208,8 +208,8 @@ internal sealed class LearnerCourseStateStore
 
         bool primaryExists = File.Exists(_statePath);
         bool backupExists = File.Exists(_backupPath);
-        bool primaryRecoverable = TryReadRecoverable(_statePath, out LearnerCourseState? existingPrimary) && existingPrimary is not null;
-        bool backupRecoverable = TryReadRecoverable(_backupPath, out LearnerCourseState? existingBackup) && existingBackup is not null;
+        bool primaryRecoverable = TryReadRecoverable(_statePath, out _);
+        bool backupRecoverable = TryReadRecoverable(_backupPath, out _);
 
         if ((primaryExists || backupExists) && !primaryRecoverable && !backupRecoverable)
             throw new InvalidDataException(
