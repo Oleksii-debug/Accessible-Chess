@@ -231,7 +231,58 @@ internal static class UnifiedProfileSelfTest
                     JsonSerializer.Serialize(courseStore.Load()) == courseBefore,
                 "Rejected future Course/Story schema mutated existing personal state.");
 
-            Console.WriteLine("WordDeck unified profile acceptance passed: schema-5 Recall+Spelling+Sentence+Listening+Course/Story export/import/recovery, schema-4/3/2 non-destructive compatibility, and fail-closed corpus/future-course-schema behavior verified.");
+            // A later-family write failure must never be reported as an ordinary
+            // import failure when automatic recovery itself is incomplete. The
+            // already-restorable families still need to be rolled back.
+            appBefore = JsonSerializer.Serialize(app);
+            spellingBefore = JsonSerializer.Serialize(spellingStore.Load());
+            sentenceBefore = JsonSerializer.Serialize(sentenceStore.Load());
+            listeningBefore = JsonSerializer.Serialize(listeningStore.Load());
+            courseBefore = JsonSerializer.Serialize(courseStore.Load());
+            string courseTempBlocker = Path.Combine(root, LearnerCourseStateStore.FileName + ".tmp");
+            if (File.Exists(courseTempBlocker)) File.Delete(courseTempBlocker);
+            Directory.CreateDirectory(courseTempBlocker);
+            InvalidDataException? incompleteRollback = null;
+            try
+            {
+                _ = service.Import(profile, app, new[] { knownId }, new[] { dictionaryId });
+            }
+            catch (InvalidDataException ex) when (ex.Message.Contains("automatic recovery was incomplete", StringComparison.OrdinalIgnoreCase))
+            {
+                incompleteRollback = ex;
+            }
+            finally
+            {
+                try { Directory.Delete(courseTempBlocker, true); } catch { }
+            }
+            Require(incompleteRollback?.InnerException is AggregateException aggregate && aggregate.InnerExceptions.Count >= 2,
+                "Incomplete unified-profile rollback was not surfaced with both import and rollback failure evidence.");
+            Require(JsonSerializer.Serialize(app) == appBefore &&
+                    JsonSerializer.Serialize(spellingStore.Load()) == spellingBefore &&
+                    JsonSerializer.Serialize(sentenceStore.Load()) == sentenceBefore &&
+                    JsonSerializer.Serialize(listeningStore.Load()) == listeningBefore &&
+                    JsonSerializer.Serialize(courseStore.Load()) == courseBefore,
+                "A late Course/Story import failure did not restore the other personal-state families before surfacing incomplete rollback.");
+
+            bool sentenceRollbackRan = false;
+            bool courseRollbackRan = false;
+            IReadOnlyList<Exception> isolatedFailures = PersonalStateRollbackExecutor.RestoreAll(new[]
+            {
+                new PersonalStateRollbackStep("Recall and Spelling", () => throw new IOException("forced first-family rollback failure")),
+                new PersonalStateRollbackStep("Sentence", () => sentenceRollbackRan = true),
+                new PersonalStateRollbackStep("Listening", () => throw new UnauthorizedAccessException("forced listening rollback failure")),
+                new PersonalStateRollbackStep("Course/Story", () => courseRollbackRan = true)
+            });
+            Require(sentenceRollbackRan && courseRollbackRan && isolatedFailures.Count == 2,
+                "Rollback executor stopped after an earlier family failed instead of attempting every independent state family.");
+            InvalidDataException explicitFailure = PersonalStateRollbackExecutor.CreateIncompleteImportException(
+                new IOException("forced import failure"), isolatedFailures);
+            Require(explicitFailure.InnerException is AggregateException explicitAggregate &&
+                    explicitAggregate.InnerExceptions.Count == 3 &&
+                    explicitFailure.Message.Contains("recovery was incomplete", StringComparison.OrdinalIgnoreCase),
+                "Incomplete rollback did not preserve the original import failure plus every rollback failure.");
+
+            Console.WriteLine("WordDeck unified profile acceptance passed: schema-5 Recall+Spelling+Sentence+Listening+Course/Story export/import/recovery, schema-4/3/2 non-destructive compatibility, fail-closed corpus/future-course-schema behavior, and explicit all-family rollback failure handling verified.");
         }
         finally
         {
