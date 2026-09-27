@@ -1,5 +1,26 @@
 namespace WordDeck;
 
+internal static class DeckNameDialogValidation
+{
+    internal static bool TryValidate(string? name, out string? error)
+    {
+        string normalized = (name ?? string.Empty).Trim();
+        if (normalized.Length == 0)
+        {
+            error = "Deck name cannot be blank.";
+            return false;
+        }
+        if (normalized.Length > 80)
+        {
+            error = "Deck name cannot be longer than 80 characters.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+}
+
 internal static class DeckDialogs
 {
     public static string? PromptForName(IWin32Window owner, string title, string prompt, string initialValue = "")
@@ -51,11 +72,25 @@ internal static class DeckDialogs
         var ok = new Button
         {
             Text = "OK",
-            DialogResult = DialogResult.OK,
             AutoSize = true,
             AccessibleName = "Confirm deck name",
             TabIndex = 1
         };
+        ok.Click += (_, _) =>
+        {
+            if (!DeckNameDialogValidation.TryValidate(text.Text, out string? error))
+            {
+                MessageBox.Show(form, error ?? "Deck name is not valid.", "Cannot use deck name",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                text.Focus();
+                text.SelectAll();
+                return;
+            }
+
+            form.DialogResult = DialogResult.OK;
+            form.Close();
+        };
+
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(ok);
         form.Controls.Add(text);
