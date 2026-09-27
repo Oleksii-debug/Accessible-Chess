@@ -14,6 +14,7 @@ internal static class StoryCourseRuntimeSelfTest
 
         try
         {
+            TestClosePersistencePolicy();
             DictionaryPackage dictionary = BuildDictionary();
             StoryCourseManifestContract approved = BuildManifest(StoryCourseCurriculumAuthority.ApprovedCurriculum, "course.runtime.approved");
             StoryCourseManifestContract draft = BuildManifest(StoryCourseCurriculumAuthority.PedagogicalDraft, "course.runtime.draft");
@@ -110,6 +111,14 @@ internal static class StoryCourseRuntimeSelfTest
         {
             try { Directory.Delete(root, recursive: true); } catch { }
         }
+    }
+
+    private static void TestClosePersistencePolicy()
+    {
+        Require(!StoryCourseClosePolicy.ShouldCancel(persistenceSucceeded: true),
+            "Story/Course close policy cancelled a successfully persisted close.");
+        Require(StoryCourseClosePolicy.ShouldCancel(persistenceSucceeded: false),
+            "Story/Course close policy allowed closing after a failed progress save.");
     }
 
     private static DictionaryPackage BuildDictionary() => new()
