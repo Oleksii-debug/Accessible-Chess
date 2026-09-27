@@ -10,6 +10,11 @@ on:
       - 'acs/book_webview_projection.py'
       - 'acs/book_webview_bridge.py'
       - 'tests/test_book_bidirectional_semantic_navigation.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_book_reverse_progress_failure_exact.py'
+      - 'tests/test_v2_shared_presentation_path_privacy.py'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/books-bidirectional-semantic-navigation.yml'
   workflow_dispatch:
 
@@ -50,11 +55,16 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$product" HEAD | LC_ALL=C sort)
           expected_paths=(
             '.github/workflows/books-bidirectional-semantic-navigation.yml'
+            '.github/workflows/d01-pgn-workspace-webview.yml'
             'acs/book_webview_bridge.py'
             'acs/book_webview_projection.py'
             'acs/bookreader.py'
+            'acs/full_product_actions.py'
             'acs/full_product_presenters.py'
+            'acs/version2_application.py'
             'tests/test_book_bidirectional_semantic_navigation.py'
+            'tests/test_book_reverse_progress_failure_exact.py'
+            'tests/test_v2_shared_presentation_path_privacy.py'
           )
           mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
           test "${actual[*]}" = "${wanted[*]}"
@@ -67,15 +77,22 @@ jobs:
         run: >-
           python -m py_compile
           acs/bookreader.py
+          acs/full_product_actions.py
           acs/full_product_presenters.py
+          acs/version2_application.py
           acs/book_webview_projection.py
           acs/book_webview_bridge.py
           tests/test_book_bidirectional_semantic_navigation.py
+          tests/test_book_reverse_progress_failure_exact.py
+          tests/test_v2_shared_presentation_path_privacy.py
 
       - name: Run focused and adjacent Book semantics
         run: >-
           python -m unittest -v
           tests.test_book_bidirectional_semantic_navigation
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_v2_shared_presentation_path_privacy
+          tests.test_book_board_progress_failure_exact
           tests.test_bookreader
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_books_training_webview_bridge
