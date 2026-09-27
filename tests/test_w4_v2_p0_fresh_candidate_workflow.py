@@ -72,6 +72,18 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("packaged-p0g-hotkey-result-summary.json", self.text)
         self.assertIn("FRESH_PACKAGED_P0_ACCEPTANCE=PASS", self.text)
 
+
+    def test_live_product_is_rechecked_immediately_before_publication(self) -> None:
+        acceptance = self.text.index("FRESH_PACKAGED_P0_ACCEPTANCE=PASS")
+        freshness = self.text.index("W4_PRE_UPLOAD_FRESHNESS=PASS")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(acceptance, freshness)
+        self.assertLess(freshness, upload)
+        self.assertIn('git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"', self.text)
+        self.assertIn('live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"', self.text)
+        self.assertIn('test "$PRODUCT_SHA" = "$live"', self.text)
+        self.assertIn("STALE_W4_CANDIDATE", self.text)
+
     def test_candidate_artifact_publication_is_exactly_pinned_and_contains_evidence(self) -> None:
         self.assertIn(UPLOAD_ARTIFACT_V462, self.text)
         self.assertNotIn("actions/upload-artifact@v4", self.text)
