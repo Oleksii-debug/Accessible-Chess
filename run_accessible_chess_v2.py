@@ -66,7 +66,7 @@ if "--diagnostic" in sys.argv:
     runtime = _DiagnosticRuntime()
     application = None
     api = None
-    semantic = flow = v2_state = None
+    semantic = flow = v2_state = sound_state = None
     cleanup_order = []
 
     with tempfile.TemporaryDirectory() as temp:
@@ -84,6 +84,7 @@ if "--diagnostic" in sys.argv:
             semantic = api.diagnostic()
             flow = complete_user_flow_diagnostic(api)
             v2_state = api.v2_snapshot()
+            sound_state = api.sound_settings_snapshot()
         finally:
             try:
                 if application is not None:
@@ -126,6 +127,10 @@ if "--diagnostic" in sys.argv:
         or product_status.get("remote_transport") != "not_approved"
         or cleanup_order != ["application", "analysis", "runtime"]
         or not runtime.closed
+        or not isinstance(sound_state, dict)
+        or sound_state.get("ok") is not True
+        or not isinstance(sound_state.get("snapshot"), dict)
+        or "V2 sound settings surface" not in resource_names
         or "V2 final-product bootstrap" not in resource_names
         or "V2 Teacher surface" not in resource_names
         or "V2 Education surface" not in resource_names
@@ -140,6 +145,7 @@ if "--diagnostic" in sys.argv:
                     "semantic": semantic,
                     "userFlow": flow,
                     "v2": v2_state,
+                    "sound": sound_state,
                     "cleanupOrder": cleanup_order,
                     "runtimeClosed": runtime.closed,
                     "resources": resource_names,
