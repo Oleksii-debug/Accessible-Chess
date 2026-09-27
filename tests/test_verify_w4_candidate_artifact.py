@@ -726,7 +726,23 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         self.path.write_bytes(
             _outer_bytes(candidate_name="Accessible-Chess-V2-1234567-NVDA-test-candidate.zip")
         )
-        with self.assertRaisesRegex(CandidateArtifactError, "filename Product prefix mismatch"):
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
+            verify(self.path, SHA)
+
+    def test_outer_candidate_path_must_be_exact_root_layout(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(
+                candidate_name="nested/Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip"
+            )
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
+            verify(self.path, SHA)
+
+    def test_outer_candidate_filename_is_case_exact(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(candidate_name="accessible-chess-v2-fffffff-NVDA-test-candidate.zip")
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "outer artifact layout mismatch"):
             verify(self.path, SHA)
 
 
