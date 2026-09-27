@@ -169,15 +169,23 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $forbidden = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
-            $_.Name -match '^state(\.backup)?\.json$' -or
-            $_.Name -match '^spelling-state(\.backup)?\.json$' -or
-            $_.Name -match '^sentence-coach-state(\.backup)?\.json$' -or
-            $_.Name -like 'WordDeck-profile*.json' -or
-            $_.FullName -match '[\\/]Backups[\\/]' -or
+          $forbiddenFiles = @(Get-ChildItem .\artifacts\release -Recurse -File | Where-Object {
+            $_.Name -match '^state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^spelling-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^sentence-coach-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^listening-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^course-learning-state(\.backup)?\.json(\.tmp)?$' -or
+            $_.Name -match '^assessment-runtime\.json(\.bak|\.tmp-[a-f0-9]+)?$' -or
+            $_.Name -match '^WordDeck-profile.*\.json(\.tmp)?$' -or
+            $_.Name -match '^WordDeck-listening-profile.*\.json(\.tmp)?$' -or
+            $_.Name -match '^profile-(import|rollback)-[a-f0-9]+\.v2\.tmp\.json$' -or
             $_.Name -match '(token|secret|credential|session)'
           })
-          if ($forbidden.Count -ne 0) { throw "Candidate contains forbidden personal/secret-looking files: $($forbidden.FullName -join ', ')" }
+          $forbiddenDirectories = @(Get-ChildItem .\artifacts\release -Recurse -Directory | Where-Object {
+            $_.Name -in @('Backups', 'Reading', 'SentencePacks', 'StoryCourseProgress')
+          })
+          $forbidden = @($forbiddenFiles) + @($forbiddenDirectories)
+          if ($forbidden.Count -ne 0) { throw "Candidate contains forbidden personal/private/secret-looking artifacts: $($forbidden.FullName -join ', ')" }
           foreach ($required in @('WordDeck.exe','README_UK.md','THIRD_PARTY_NOTICES.md','CANDIDATE_STATUS_UK.txt','SOURCE_IDENTITY.txt')) {
             if (-not (Test-Path (Join-Path .\artifacts\release $required))) { throw "Candidate required file missing: $required" }
           }
