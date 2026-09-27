@@ -283,6 +283,7 @@ def _copy_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obj
     value: dict[str, object] = {
         "product_sha": product_sha,
         "static_document_outside_edit": True,
+        "static_text_visible_rectangle": True,
         "native_copy_focus_verified": True,
         "foreground_product_verified": True,
         "manifest_product_sha_verified": True,
@@ -624,6 +625,13 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 self.path.write_bytes(_outer_bytes(uia_overrides={key: value}))
                 with self.assertRaisesRegex(CandidateArtifactError, key):
                     verify(self.path, SHA)
+
+    def test_copy_evidence_requires_visible_static_text_range(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"static_text_visible_rectangle": False})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "static_text_visible_rectangle"):
+            verify(self.path, SHA)
 
     def test_copy_evidence_requires_exact_textpattern_target_selection(self) -> None:
         self.path.write_bytes(

@@ -710,6 +710,7 @@ def _verify_p0g_payload(value: dict[str, object]) -> None:
 
 COPY_REQUIRED_TRUE = (
     "static_document_outside_edit",
+    "static_text_visible_rectangle",
     "native_copy_focus_verified",
     "foreground_product_verified",
     "manifest_product_sha_verified",
