@@ -33,9 +33,12 @@ internal static class PronunciationAudioPathSelfTest
 
         IReadOnlyList<string> builtInSafe = PronunciationAudio.CandidatePaths(
             "oxford-3000-en-uk",
-            "o5000-b2-bold-adj");
+            ReviewedOxford5000Bootstrap.LexicalEntryId("bold", "adjective", "B2"));
         Require(builtInSafe[0].EndsWith(
-                Path.Combine("AudioPacks", "oxford-3000-en-uk", "o5000-b2-bold-adj.mp3"),
+                Path.Combine(
+                    "AudioPacks",
+                    "oxford-3000-en-uk",
+                    ReviewedOxford5000Bootstrap.LexicalEntryId("bold", "adjective", "B2") + ".mp3"),
                 StringComparison.OrdinalIgnoreCase),
             "Safe existing pronunciation IDs must keep their established path names.");
 
