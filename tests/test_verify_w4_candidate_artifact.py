@@ -119,6 +119,24 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         with self.assertRaises(CandidateArtifactError):
             verify(self.path, SHA)
 
+
+    def test_unexpected_outer_file_fails(self) -> None:
+        outer = _zip_bytes(
+            {
+                "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip": _candidate_bytes(),
+                "p0-evidence/packaged-v2-document-copy-summary.json": json.dumps(
+                    {"product_sha": SHA, "human_tested": False, "nvda_verified": False}
+                ).encode(),
+                "p0-evidence/packaged-p0g-hotkey-result-summary.json": json.dumps(
+                    {"product_sha": SHA, "human_tested": False, "nvda_verified": False}
+                ).encode(),
+                "unexpected.bin": b"not part of canonical candidate artifact",
+            }
+        )
+        self.path.write_bytes(outer)
+        with self.assertRaisesRegex(CandidateArtifactError, "unexpected files"):
+            verify(self.path, SHA)
+
     def test_candidate_payload_tamper_fails(self) -> None:
         self.path.write_bytes(
             _outer_bytes(candidate=_candidate_bytes(tamper="AccessibleChess/AccessibleChess.exe"))
