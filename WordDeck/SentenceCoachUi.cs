@@ -66,6 +66,7 @@ internal sealed class SentenceCoachStateStore
     public void Save(SentenceCoachState state)
     {
         Normalize(state);
+        ValidateState(state);
 
         bool primaryExists = File.Exists(_path);
         bool backupExists = File.Exists(_backupPath);
@@ -90,9 +91,35 @@ internal sealed class SentenceCoachStateStore
             if (!File.Exists(path))
                 return null;
             SentenceCoachState? state = JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(path));
-            return state is null ? null : Normalize(state);
+            if (state is null)
+                return null;
+            Normalize(state);
+            ValidateState(state);
+            return state;
         }
         catch { return null; }
+    }
+
+    private static void ValidateState(SentenceCoachState state)
+    {
+        foreach ((string dictionaryId, Dictionary<string, SentenceTargetStats> statsByEntry) in state.StatsByDictionary)
+        {
+            if (string.IsNullOrWhiteSpace(dictionaryId))
+                throw new InvalidDataException("Sentence Coach state contains a blank dictionary identifier.");
+
+            foreach ((string entryId, SentenceTargetStats stats) in statsByEntry)
+            {
+                if (string.IsNullOrWhiteSpace(entryId))
+                    throw new InvalidDataException("Sentence Coach state contains a blank target identifier.");
+                if (stats is null)
+                    throw new InvalidDataException($"Sentence Coach state contains missing statistics for target {entryId}.");
+                if (stats.CompletedReviews < 0 || stats.FirstTrySuccesses < 0 ||
+                    stats.WrongAttempts < 0 || stats.ShowAnswerUses < 0)
+                    throw new InvalidDataException($"Sentence Coach state contains negative counters for target {entryId}.");
+                if (stats.FirstTrySuccesses > stats.CompletedReviews)
+                    throw new InvalidDataException($"Sentence Coach state contains impossible first-try statistics for target {entryId}.");
+            }
+        }
     }
 
     internal static SentenceCoachState Normalize(SentenceCoachState state)
