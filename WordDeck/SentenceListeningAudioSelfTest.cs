@@ -22,6 +22,7 @@ internal static class SentenceListeningAudioSelfTest
         TestLocalFileAloneDoesNotActivate(pack, catalog);
         TestExplicitApprovalAndMissingAudio(pack, catalog);
         TestHiddenTargetFailsClosed(pack, catalog);
+        TestSentenceAudioPathIsolation();
 
         Console.WriteLine("WordDeck Sentence Listening audio self-test passed: explicit pack approval + exact stable sentence ID + local audio required; hidden targets and missing audio remain unavailable.");
     }
@@ -88,6 +89,53 @@ internal static class SentenceListeningAudioSelfTest
         Require(!source.TryPlay(hiddenExercise, out string? error) && !string.IsNullOrWhiteSpace(error),
             "Sentence containing a hidden target remained directly playable.");
     }
+
+
+    private static void TestSentenceAudioPathIsolation()
+    {
+        string portableRoot = WithTrailingSeparator(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "SentenceAudioPacks")));
+        string localRoot = WithTrailingSeparator(Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WordDeck",
+            "SentenceAudioPacks")));
+
+        IReadOnlyList<string> traversal = SentenceAudioPackLayout.CandidatePaths("..", "../outside");
+        Require(IsContained(traversal[0], portableRoot) && IsContained(traversal[1], localRoot),
+            "Traversal-like sentence audio IDs escaped a SentenceAudioPacks root.");
+
+        IReadOnlyList<string> collisionA = SentenceAudioPackLayout.CandidatePaths("pack", "a:b");
+        IReadOnlyList<string> collisionB = SentenceAudioPackLayout.CandidatePaths("pack", "a?b");
+        Require(!string.Equals(collisionA[0], collisionB[0], StringComparison.OrdinalIgnoreCase),
+            "Distinct unsafe sentence IDs aliased to the same audio filename.");
+
+        IReadOnlyList<string> safe = SentenceAudioPackLayout.CandidatePaths("test-pack", "s1");
+        Require(safe[0].EndsWith(Path.Combine("SentenceAudioPacks", "test-pack", "s1.mp3"), StringComparison.OrdinalIgnoreCase),
+            "Existing safe sentence audio IDs changed path identity.");
+
+        IReadOnlyList<string> reserved = SentenceAudioPackLayout.CandidatePaths("CON", "NUL");
+        Require(!reserved[0].Contains(Path.Combine("SentenceAudioPacks", "CON", "NUL.mp3"), StringComparison.OrdinalIgnoreCase),
+            "Reserved Windows device names remained in sentence audio paths.");
+
+        string longId = new('x', 300);
+        IReadOnlyList<string> longPaths = SentenceAudioPackLayout.CandidatePaths(longId, longId);
+        Require(Path.GetFileNameWithoutExtension(longPaths[0]).Length < longId.Length,
+            "Overlong sentence audio IDs were not reduced to bounded safe segments.");
+        Require(IsContained(longPaths[0], portableRoot) && IsContained(longPaths[1], localRoot),
+            "Overlong sentence audio IDs escaped a SentenceAudioPacks root.");
+
+        bool blankRejected = false;
+        try { _ = SentenceAudioPackLayout.CandidatePaths(" ", "s1"); }
+        catch (InvalidDataException) { blankRejected = true; }
+        Require(blankRejected, "Blank sentence audio pack ID stopped failing closed.");
+    }
+
+    private static bool IsContained(string candidate, string root) =>
+        Path.GetFullPath(candidate).StartsWith(
+            root,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private static string WithTrailingSeparator(string path) =>
+        path.EndsWith(Path.DirectorySeparatorChar) ? path : path + Path.DirectorySeparatorChar;
 
     private static SentencePack BuildPack() => new()
     {
