@@ -53,6 +53,7 @@ class BookIndexEntry:
     heading_path: tuple[str, ...]
     position_fen: str | None = None
     side_to_move: str | None = None
+    heading_level: int | None = None
 
 
 class AmbiguousBookTargetError(LookupError):
@@ -60,9 +61,14 @@ class AmbiguousBookTargetError(LookupError):
 
 
 class BookIndex:
-    """Immutable semantic index built from one BookDocument snapshot."""
+    """Immutable semantic index built from one validated BookDocument snapshot."""
 
     def __init__(self, document: BookDocument):
+        # BookDocument blocks are authoring-mutable. Validate their exact current
+        # semantic state before taking the immutable index snapshot so a caller
+        # cannot mutate a previously-valid block and then publish stale/corrupt
+        # index semantics.
+        document.as_dict()
         self.document = document
         self._entries = tuple(self._build_entries())
         by_key: dict[str, list[BookIndexEntry]] = {}
@@ -125,8 +131,10 @@ class BookIndex:
     def _build_entries(self):
         levels: list[str | None] = [None] * 6
         for index, block in enumerate(self.document.blocks):
+            heading_level = None
             if isinstance(block, Heading):
-                level = block.level - 1
+                heading_level = block.level
+                level = heading_level - 1
                 levels[level] = block.text
                 for deeper in range(level + 1, 6):
                     levels[deeper] = None
@@ -140,18 +148,21 @@ class BookIndex:
                 heading_path=heading_path,
                 position_fen=fen,
                 side_to_move=side,
+                heading_level=heading_level,
             )
 
     def contents(self, *, max_heading_level: int = 6) -> tuple[BookIndexEntry, ...]:
+        if type(max_heading_level) is not int:
+            raise TypeError("max_heading_level must be an integer")
         if not 1 <= max_heading_level <= 6:
             raise ValueError("max_heading_level must be between 1 and 6")
-        result = []
-        for entry in self._entries:
-            if entry.kind is BookEntryKind.HEADING:
-                block = self.document.blocks[entry.target.index]
-                if isinstance(block, Heading) and block.level <= max_heading_level:
-                    result.append(entry)
-        return tuple(result)
+        return tuple(
+            entry
+            for entry in self._entries
+            if entry.kind is BookEntryKind.HEADING
+            and entry.heading_level is not None
+            and entry.heading_level <= max_heading_level
+        )
 
     def of_kind(self, kind: BookEntryKind) -> tuple[BookIndexEntry, ...]:
         return tuple(entry for entry in self._entries if entry.kind is kind)
@@ -173,6 +184,8 @@ class BookIndex:
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
         """Case-insensitive semantic label search preserving linear reading order."""
+        if type(text) is not str:
+            raise TypeError("Search text must be a string")
         needle = text.strip().casefold()
         if not needle:
             raise ValueError("Search text must not be empty")
