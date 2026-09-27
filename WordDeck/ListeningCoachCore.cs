@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WordDeck;
 
@@ -129,6 +131,9 @@ internal sealed class ListeningItemStats
     public int ConsecutiveCorrect { get; set; }
     public DateTimeOffset? LastReviewedUtc { get; set; }
 
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
     public double Mastery => CompletedReviews <= 0
         ? 0d
         : Math.Clamp((double)CorrectReviews / CompletedReviews - Math.Min(0.35d, ShowAnswerUses * 0.03d), 0d, 1d);
@@ -145,6 +150,9 @@ internal sealed class ListeningHistoryRecord
     public bool Skipped { get; set; }
     public int WrongAttempts { get; set; }
     public int Replays { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed class ListeningCoachState
@@ -163,6 +171,11 @@ internal sealed class ListeningCoachState
     public long SelectionCounter { get; set; }
     public Dictionary<string, Dictionary<string, ListeningItemStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<ListeningHistoryRecord> History { get; set; } = new();
+
+    // Preserve unrecognized members from a supported schema so a newer optional
+    // field is not silently destroyed by an older compatible build on save.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed record ListeningCheckResult(bool IsCorrect, bool Completed, string Message);

@@ -31,6 +31,10 @@ internal static class ListeningCoachSelfTest
             TestShortcutRegistry();
             TestProfileRoundTrip(root);
             TestMigrationBackup(root);
+            TestUnknownFieldsSurviveRoundTrip(root);
+            TestMalformedRecordsFailClosed(root);
+            TestMalformedPrimaryUsesVerifiedRecovery(root);
+            TestNewerSchemaSaveFailsClosed(root);
         }
         finally
         {
@@ -265,6 +269,184 @@ internal static class ListeningCoachSelfTest
         ListeningCoachState migrated = store.Load();
         Require(migrated.SchemaVersion == ListeningStateStore.CurrentSchemaVersion, "Listening schema migration did not complete.");
         Require(Directory.GetFiles(Path.Combine(migrationRoot, "Backups"), "listening-state-*-pre-migration.json").Length == 1, "Listening migration did not preserve a backup.");
+    }
+
+    private static void TestUnknownFieldsSurviveRoundTrip(string root)
+    {
+        string extensionRoot = Path.Combine(root, "extension-data");
+        Directory.CreateDirectory(extensionRoot);
+        string statePath = Path.Combine(extensionRoot, "listening-state.json");
+        File.WriteAllText(
+            statePath,
+            "{\"SchemaVersion\":1,\"ActiveScopeId\":\"b1\",\"SelectionCounter\":3,\"StatsByDictionary\":{\"test\":{\"word:a\":{\"CompletedReviews\":1,\"CorrectReviews\":1,\"FutureStats\":{\"Confidence\":0.75}}}},\"History\":[{\"AtUtc\":\"2026-09-28T00:00:00+00:00\",\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"Kind\":1,\"Correct\":true,\"ShowedAnswer\":false,\"Skipped\":false,\"WrongAttempts\":0,\"Replays\":0,\"FutureHistory\":\"retained\"}],\"FutureHint\":{\"Mode\":\"adaptive\",\"Weight\":7}}");
+
+        var store = new ListeningStateStore(extensionRoot);
+        ListeningCoachState loaded = store.Load();
+        Require(loaded.ExtensionData is not null && loaded.ExtensionData.ContainsKey("FutureHint"),
+            "Listening state dropped an unknown current-schema field during load.");
+        Require(loaded.StatsByDictionary["test"]["word:a"].ExtensionData is not null &&
+                loaded.StatsByDictionary["test"]["word:a"].ExtensionData!.ContainsKey("FutureStats"),
+            "Listening item statistics dropped an unknown current-schema field during load.");
+        Require(loaded.History.Count == 1 && loaded.History[0].ExtensionData is not null &&
+                loaded.History[0].ExtensionData!.ContainsKey("FutureHistory"),
+            "Listening history dropped an unknown current-schema field during load.");
+
+        ListeningCoachState snapshot = ListeningStateTransaction.Snapshot(loaded);
+        Require(snapshot.ExtensionData is not null && snapshot.ExtensionData.ContainsKey("FutureHint") &&
+                snapshot.StatsByDictionary["test"]["word:a"].ExtensionData is not null &&
+                snapshot.StatsByDictionary["test"]["word:a"].ExtensionData!.ContainsKey("FutureStats") &&
+                snapshot.History[0].ExtensionData is not null &&
+                snapshot.History[0].ExtensionData!.ContainsKey("FutureHistory"),
+            "Listening transaction snapshot dropped unknown current-schema data.");
+
+        string profilePath = Path.Combine(extensionRoot, "profile.json");
+        new ListeningProfileService(store).Export(loaded, profilePath);
+        string profile = File.ReadAllText(profilePath);
+        Require(profile.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
+                profile.Contains("\"FutureStats\"", StringComparison.Ordinal) &&
+                profile.Contains("\"FutureHistory\"", StringComparison.Ordinal),
+            "Listening profile export dropped unknown current-schema state data.");
+
+        string importRoot = Path.Combine(root, "extension-data-profile-import");
+        var importStore = new ListeningStateStore(importRoot);
+        _ = new ListeningProfileService(importStore).Import(profilePath);
+        ListeningCoachState imported = importStore.Load();
+        Require(imported.ExtensionData is not null && imported.ExtensionData.ContainsKey("FutureHint") &&
+                imported.StatsByDictionary["test"]["word:a"].ExtensionData is not null &&
+                imported.StatsByDictionary["test"]["word:a"].ExtensionData!.ContainsKey("FutureStats") &&
+                imported.History[0].ExtensionData is not null &&
+                imported.History[0].ExtensionData!.ContainsKey("FutureHistory"),
+            "Listening profile import dropped unknown current-schema state data.");
+
+        store.Save(loaded);
+        string persisted = File.ReadAllText(statePath);
+        Require(persisted.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"adaptive\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"FutureStats\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"Confidence\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"FutureHistory\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"retained\"", StringComparison.Ordinal),
+            "Listening state dropped unknown current-schema data during Load->Save.");
+    }
+
+    private static void TestMalformedRecordsFailClosed(string root)
+    {
+        string[] malformedStates =
+        {
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"\":{\"word:a\":{}}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":null},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{\" \":{}}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{\"word:a\":null}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"\",\"ExerciseId\":\"word:a\"}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\" \"}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"WrongAttempts\":-1}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[{\"DictionaryId\":\"test\",\"ExerciseId\":\"word:a\",\"Replays\":-1}]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{},\"History\":[null]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{},\"TEST\":{}},\"History\":[]}",
+            "{\"SchemaVersion\":1,\"StatsByDictionary\":{\"test\":{\"word:a\":{},\"WORD:A\":{}}},\"History\":[]}"
+        };
+
+        for (int index = 0; index < malformedStates.Length; index++)
+        {
+            string caseRoot = Path.Combine(root, "malformed-state-" + index);
+            Directory.CreateDirectory(caseRoot);
+            string statePath = Path.Combine(caseRoot, "listening-state.json");
+            File.WriteAllText(statePath, malformedStates[index]);
+            byte[] before = File.ReadAllBytes(statePath);
+
+            bool rejected = false;
+            try { _ = new ListeningStateStore(caseRoot).Load(); }
+            catch (InvalidDataException) { rejected = true; }
+
+            Require(rejected, $"Malformed Listening state case {index} was silently normalized instead of failing closed.");
+            Require(before.SequenceEqual(File.ReadAllBytes(statePath)),
+                $"Malformed Listening state case {index} was rewritten while failing closed.");
+            Require(!File.Exists(Path.Combine(caseRoot, "listening-state.backup.json")),
+                $"Malformed Listening state case {index} fabricated a recovery file.");
+        }
+    }
+
+    private static void TestMalformedPrimaryUsesVerifiedRecovery(string root)
+    {
+        string caseRoot = Path.Combine(root, "malformed-primary-recovery");
+        Directory.CreateDirectory(caseRoot);
+        var store = new ListeningStateStore(caseRoot);
+
+        ListeningCoachState first = store.Load();
+        first.ActiveScopeId = StudyScopeIds.A1;
+        first.StatsByDictionary["test"] = new Dictionary<string, ListeningItemStats>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["word:a"] = new() { CompletedReviews = 1, CorrectReviews = 1 }
+        };
+        store.Save(first);
+
+        ListeningCoachState second = store.Load();
+        second.ActiveScopeId = StudyScopeIds.C1;
+        second.StatsByDictionary["test"]["word:a"].CompletedReviews = 2;
+        second.StatsByDictionary["test"]["word:a"].CorrectReviews = 1;
+        store.Save(second);
+
+        string primary = Path.Combine(caseRoot, "listening-state.json");
+        string recovery = Path.Combine(caseRoot, "listening-state.backup.json");
+        Require(File.Exists(recovery), "Listening semantic-recovery fixture did not create a verified recovery copy.");
+        byte[] recoveryBefore = File.ReadAllBytes(recovery);
+
+        const string malformedPrimary =
+            "{\"SchemaVersion\":1,\"ActiveScopeId\":\"c1\",\"StatsByDictionary\":{\"test\":{\"word:a\":null}},\"History\":[]}";
+        File.WriteAllText(primary, malformedPrimary);
+        byte[] primaryBefore = File.ReadAllBytes(primary);
+
+        ListeningCoachState recovered = store.Load();
+        Require(recovered.ActiveScopeId == StudyScopeIds.A1 &&
+                recovered.StatsByDictionary["test"]["word:a"].CompletedReviews == 1,
+            "Semantically malformed Listening primary did not recover the verified previous state.");
+        Require(primaryBefore.SequenceEqual(File.ReadAllBytes(primary)),
+            "Loading from verified recovery rewrote the malformed primary unexpectedly.");
+        Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
+            "Loading from verified recovery rewrote the recovery copy unexpectedly.");
+
+        recovered.ActiveScopeId = StudyScopeIds.A2;
+        store.Save(recovered);
+        ListeningCoachState afterRecoverySave = store.Load();
+        Require(afterRecoverySave.ActiveScopeId == StudyScopeIds.A2,
+            "Recovered Listening state could not be saved after semantic primary corruption.");
+        Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
+            "Saving recovered Listening state replaced the verified recovery copy with malformed primary data.");
+    }
+
+    private static void TestNewerSchemaSaveFailsClosed(string root)
+    {
+        string caseRoot = Path.Combine(root, "newer-schema-save");
+        Directory.CreateDirectory(caseRoot);
+        var store = new ListeningStateStore(caseRoot);
+
+        ListeningCoachState first = store.Load();
+        first.ActiveScopeId = StudyScopeIds.A1;
+        store.Save(first);
+        ListeningCoachState second = store.Load();
+        second.ActiveScopeId = StudyScopeIds.B1;
+        store.Save(second);
+
+        string primary = Path.Combine(caseRoot, "listening-state.json");
+        string recovery = Path.Combine(caseRoot, "listening-state.backup.json");
+        byte[] primaryBefore = File.ReadAllBytes(primary);
+        byte[] recoveryBefore = File.ReadAllBytes(recovery);
+
+        ListeningCoachState newer = store.Load();
+        newer.SchemaVersion = ListeningStateStore.CurrentSchemaVersion + 1;
+        newer.ActiveScopeId = StudyScopeIds.C1;
+
+        bool rejected = false;
+        try { store.Save(newer); }
+        catch (InvalidDataException) { rejected = true; }
+
+        Require(rejected, "Saving a newer-schema Listening state silently downgraded it.");
+        Require(newer.SchemaVersion == ListeningStateStore.CurrentSchemaVersion + 1,
+            "Rejected newer-schema Listening state was mutated in memory.");
+        Require(primaryBefore.SequenceEqual(File.ReadAllBytes(primary)),
+            "Rejected newer-schema Listening save changed the primary state file.");
+        Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
+            "Rejected newer-schema Listening save changed the recovery state file.");
     }
 
     private static DictionaryPackage Package() => new()

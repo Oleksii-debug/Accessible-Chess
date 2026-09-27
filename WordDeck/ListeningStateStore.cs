@@ -143,6 +143,8 @@ internal sealed class ListeningStateStore
 
     internal static ListeningCoachState Normalize(ListeningCoachState state)
     {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new InvalidDataException($"Listening progress uses newer schema {state.SchemaVersion}; this build supports {CurrentSchemaVersion}. Existing state must not be downgraded.");
         state.SchemaVersion = CurrentSchemaVersion;
         if (!StudyScopeIds.Ordered.Contains(state.ActiveScopeId, StringComparer.OrdinalIgnoreCase))
             state.ActiveScopeId = StudyScopeIds.All;
@@ -162,11 +164,22 @@ internal sealed class ListeningStateStore
         var normalized = new Dictionary<string, Dictionary<string, ListeningItemStats>>(StringComparer.OrdinalIgnoreCase);
         foreach ((string dictionaryId, Dictionary<string, ListeningItemStats>? source) in state.StatsByDictionary)
         {
-            if (string.IsNullOrWhiteSpace(dictionaryId) || source is null) continue;
+            if (string.IsNullOrWhiteSpace(dictionaryId))
+                throw new InvalidDataException("Listening progress contains a blank dictionary identifier.");
+            if (source is null)
+                throw new InvalidDataException($"Listening progress for dictionary '{dictionaryId}' contains no statistics map.");
+            if (normalized.ContainsKey(dictionaryId))
+                throw new InvalidDataException($"Listening progress contains duplicate dictionary identifier '{dictionaryId}' under case-insensitive matching.");
+
             var perDictionary = new Dictionary<string, ListeningItemStats>(StringComparer.OrdinalIgnoreCase);
             foreach ((string exerciseId, ListeningItemStats? stats) in source)
             {
-                if (string.IsNullOrWhiteSpace(exerciseId) || stats is null) continue;
+                if (string.IsNullOrWhiteSpace(exerciseId))
+                    throw new InvalidDataException($"Listening progress for dictionary '{dictionaryId}' contains a blank exercise identifier.");
+                if (stats is null)
+                    throw new InvalidDataException($"Listening progress for exercise '{exerciseId}' contains no statistics.");
+                if (perDictionary.ContainsKey(exerciseId))
+                    throw new InvalidDataException($"Listening progress for dictionary '{dictionaryId}' contains duplicate exercise identifier '{exerciseId}' under case-insensitive matching.");
                 ValidateNonNegative(stats);
                 stats.CorrectReviews = Math.Min(stats.CorrectReviews, stats.CompletedReviews);
                 perDictionary[exerciseId] = stats;
@@ -175,8 +188,18 @@ internal sealed class ListeningStateStore
         }
         state.StatsByDictionary = normalized;
         state.History ??= new List<ListeningHistoryRecord>();
+        foreach (ListeningHistoryRecord? item in state.History)
+        {
+            if (item is null)
+                throw new InvalidDataException("Listening history contains an empty record.");
+            if (string.IsNullOrWhiteSpace(item.DictionaryId))
+                throw new InvalidDataException("Listening history contains a blank dictionary identifier.");
+            if (string.IsNullOrWhiteSpace(item.ExerciseId))
+                throw new InvalidDataException("Listening history contains a blank exercise identifier.");
+            if (item.WrongAttempts < 0 || item.Replays < 0)
+                throw new InvalidDataException("Listening history contains negative attempt or replay evidence.");
+        }
         state.History = state.History
-            .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.DictionaryId) && !string.IsNullOrWhiteSpace(item.ExerciseId))
             .OrderBy(item => item.AtUtc)
             .TakeLast(2000)
             .ToList();
