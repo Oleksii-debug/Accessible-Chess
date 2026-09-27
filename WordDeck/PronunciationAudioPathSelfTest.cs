@@ -26,6 +26,28 @@ internal static class PronunciationAudioPathSelfTest
         Require(IsContained(traversal[1], localRoot),
             "LocalAppData pronunciation candidate escaped the AudioPacks root.");
 
+        string importRoot = Path.Combine(Path.GetTempPath(), $"WordDeck-audio-path-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(importRoot);
+            string importedPath = Path.Combine(importRoot, "unsafe.tsv");
+            File.WriteAllText(importedPath,
+                "#id=..\n#name=Unsafe path fixture\nentryId\tlevel\tsource\ttarget\n../outside\tCUSTOM\ttest\tтест\n");
+            DictionaryPackage imported = DictionaryLoader.LoadFromFile(importedPath);
+            DictionaryEntry importedEntry = imported.Entries.Single();
+            IReadOnlyList<string> importedCandidates = PronunciationAudio.CandidatePaths(imported.Id, importedEntry.Id);
+            Require(IsContained(importedCandidates[0], portableRoot) && IsContained(importedCandidates[1], localRoot),
+                "Imported dictionary/entry IDs must not escape either AudioPacks root.");
+            Require(!Path.GetFullPath(importedCandidates[0]).Contains(
+                    Path.Combine("AudioPacks", ".."),
+                    StringComparison.OrdinalIgnoreCase),
+                "Imported traversal metadata must not survive into the pronunciation path.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(importRoot)) Directory.Delete(importRoot, true); } catch { }
+        }
+
         IReadOnlyList<string> collisionA = PronunciationAudio.CandidatePaths("custom", "a:b");
         IReadOnlyList<string> collisionB = PronunciationAudio.CandidatePaths("custom", "a?b");
         Require(!string.Equals(collisionA[0], collisionB[0], StringComparison.OrdinalIgnoreCase),
