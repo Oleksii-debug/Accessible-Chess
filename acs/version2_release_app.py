@@ -50,6 +50,21 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         finally:
             dialog.Dispose()
 
+    def confirm_recover_book_progress(self) -> bool:
+        """Confirm rollback to the previous valid Book-progress snapshot."""
+
+        owner = self._dialog_owner.resolve()
+        DialogResult, _, _ = self._forms_loader()
+        MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
+        result = MessageBox.Show(
+            owner,
+            self.dialog_text("book_progress_recovery_message"),
+            self.dialog_text("book_progress_recovery_title"),
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
     def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
         """Confirm destructive application close on the exact native owner Form."""
 
@@ -469,6 +484,7 @@ def create_version2_release_application(
             language_provider=dialog_language_provider,
         )
         application.open_book_dialog = book_dialogs.open_book
+        application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
