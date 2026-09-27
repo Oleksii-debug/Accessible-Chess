@@ -279,6 +279,12 @@ internal static class UnifiedProfileSelfTest
                 new IOException("forced import failure"), isolatedFailures);
             Require(explicitFailure is IncompletePersonalStateRecoveryException,
                 "Incomplete personal-state recovery did not expose its dedicated fail-closed exception type.");
+            string exportUiStatus = MainForm.BuildUnifiedProfileExportSuccessStatus("profile.json");
+            Require(exportUiStatus.Contains("Unified personal profile", StringComparison.OrdinalIgnoreCase) &&
+                    exportUiStatus.Contains("separate per-course Story/Course progress", StringComparison.OrdinalIgnoreCase) &&
+                    exportUiStatus.Contains("not included", StringComparison.OrdinalIgnoreCase) &&
+                    !exportUiStatus.Contains("Complete personal profile", StringComparison.OrdinalIgnoreCase),
+                "Unified profile export status still overclaims complete coverage of separate Story/Course runtime progress.");
             string incompleteUiStatus = MainForm.BuildUnifiedProfileImportFailureStatus(explicitFailure);
             Require(incompleteUiStatus.Contains("automatic recovery was incomplete", StringComparison.OrdinalIgnoreCase) &&
                     incompleteUiStatus.Contains("Do not continue learning", StringComparison.OrdinalIgnoreCase) &&
