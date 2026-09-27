@@ -389,6 +389,22 @@ class BookProgressStore:
                     "book progress storage changed while being read",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            try:
+                after_read = os.lstat(path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage changed while being read",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                after_read,
+                message="book progress storage is not a regular file",
+            )
+            if not self._same_file_identity(opened, after_read):
+                raise BookProgressStoreError(
+                    "book progress storage changed while being read",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
             return raw
         finally:
             os.close(descriptor)
