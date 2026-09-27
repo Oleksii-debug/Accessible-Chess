@@ -199,17 +199,31 @@ internal sealed class BookReadingProductService
         if (decks.Find(learningDeckId) is null)
             throw new InvalidDataException("The selected learning deck no longer exists.");
 
-        bool hadAssignments = appState.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? originalAssignments);
-        KeyValuePair<string, string>[] assignmentSnapshot = hadAssignments && originalAssignments is not null
-            ? originalAssignments.ToArray()
+        RecallStudyScopeState allScope = GetAuthoritativeAllScope(appState, dictionary);
+        if (!allScope.DeckIds.ContainsKey(id))
+            throw new InvalidDataException("The selected dictionary entry is not available in the All Oxford 5000 Recall workspace.");
+
+        Dictionary<string, string> allAssignments = allScope.DeckIds;
+        KeyValuePair<string, string>[] allAssignmentSnapshot = allAssignments.ToArray();
+        string[] allShuffleSnapshot = allScope.RemainingShuffleEntryIds.ToArray();
+        string allActiveDeckSnapshot = allScope.ActiveDeckId;
+        string? allCurrentEntrySnapshot = allScope.CurrentEntryId;
+
+        bool hadLegacyAssignments = appState.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? originalLegacyAssignments);
+        KeyValuePair<string, string>[] legacyAssignmentSnapshot = hadLegacyAssignments && originalLegacyAssignments is not null
+            ? originalLegacyAssignments.ToArray()
             : Array.Empty<KeyValuePair<string, string>>();
+        string? legacyActiveDeckSnapshot = appState.ActiveDeckId;
+        bool hadLegacyCurrent = appState.CurrentEntryIdByDictionary.TryGetValue(dictionary.Id, out string? legacyCurrentEntrySnapshot);
+
         BookUnknownWord? priorCapture = _stateStore.LoadUnknowns(document.BookId)
             .FirstOrDefault(item => item.StableEntryId.Equals(id, StringComparison.OrdinalIgnoreCase));
 
         try
         {
-            Dictionary<string, string> assignments = decks.EnsureDictionaryAssignments(dictionary.Id, dictionary.Entries.Select(entry => entry.Id));
-            assignments[id] = learningDeckId;
+            allAssignments[id] = learningDeckId;
+            allScope.RemainingShuffleEntryIds.RemoveAll(entryId => entryId.Equals(id, StringComparison.OrdinalIgnoreCase));
+            SyncLegacyAll(appState, dictionary.Id, allScope);
             _stateStore.CaptureUnknown(document, id, sentence.SentenceId);
             persistAppState?.Invoke();
         }
@@ -219,17 +233,38 @@ internal sealed class BookReadingProductService
 
             try
             {
-                if (!hadAssignments || originalAssignments is null)
+                allAssignments.Clear();
+                foreach (KeyValuePair<string, string> pair in allAssignmentSnapshot)
+                    allAssignments[pair.Key] = pair.Value;
+                allScope.RemainingShuffleEntryIds.Clear();
+                allScope.RemainingShuffleEntryIds.AddRange(allShuffleSnapshot);
+                allScope.ActiveDeckId = allActiveDeckSnapshot;
+                allScope.CurrentEntryId = allCurrentEntrySnapshot;
+            }
+            catch (Exception rollbackFailure)
+            {
+                rollbackFailures.Add(rollbackFailure);
+            }
+
+            try
+            {
+                if (!hadLegacyAssignments || originalLegacyAssignments is null)
                 {
                     appState.DeckIdsByDictionary.Remove(dictionary.Id);
                 }
                 else
                 {
-                    originalAssignments.Clear();
-                    foreach (KeyValuePair<string, string> pair in assignmentSnapshot)
-                        originalAssignments[pair.Key] = pair.Value;
-                    appState.DeckIdsByDictionary[dictionary.Id] = originalAssignments;
+                    originalLegacyAssignments.Clear();
+                    foreach (KeyValuePair<string, string> pair in legacyAssignmentSnapshot)
+                        originalLegacyAssignments[pair.Key] = pair.Value;
+                    appState.DeckIdsByDictionary[dictionary.Id] = originalLegacyAssignments;
                 }
+
+                appState.ActiveDeckId = legacyActiveDeckSnapshot;
+                if (hadLegacyCurrent && legacyCurrentEntrySnapshot is not null)
+                    appState.CurrentEntryIdByDictionary[dictionary.Id] = legacyCurrentEntrySnapshot;
+                else
+                    appState.CurrentEntryIdByDictionary.Remove(dictionary.Id);
             }
             catch (Exception rollbackFailure)
             {
@@ -272,15 +307,13 @@ internal sealed class BookReadingProductService
         if (string.Equals(knownDeckId, learningDeckId, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Known and Learning must use different decks so book familiarity remains meaningful.");
 
+        RecallStudyScopeState allScope = GetAuthoritativeAllScope(state, dictionary);
         var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var learning = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (state.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? assignments))
+        foreach ((string entryId, string deckId) in allScope.DeckIds)
         {
-            foreach ((string entryId, string deckId) in assignments)
-            {
-                if (deckId.Equals(knownDeckId, StringComparison.OrdinalIgnoreCase)) known.Add(entryId);
-                else if (deckId.Equals(learningDeckId, StringComparison.OrdinalIgnoreCase)) learning.Add(entryId);
-            }
+            if (deckId.Equals(knownDeckId, StringComparison.OrdinalIgnoreCase)) known.Add(entryId);
+            else if (deckId.Equals(learningDeckId, StringComparison.OrdinalIgnoreCase)) learning.Add(entryId);
         }
 
         // Exact written-form matching cannot determine POS/sense for homographs.
@@ -300,6 +333,32 @@ internal sealed class BookReadingProductService
         learning.ExceptWith(ambiguousEntryIds);
 
         return new BookDeckVocabularySnapshot(known, learning, knownDeckId, learningDeckId);
+    }
+
+    private static RecallStudyScopeState GetAuthoritativeAllScope(AppState state, DictionaryPackage dictionary)
+    {
+        if (state.RecallStudyScopesByDictionary.TryGetValue(dictionary.Id, out RecallStudyScopeDictionaryState? dictionaryState) &&
+            dictionaryState?.Scopes is not null &&
+            dictionaryState.Scopes.TryGetValue(StudyScopeIds.All, out RecallStudyScopeState? existing) &&
+            existing is not null &&
+            existing.DeckIds is not null &&
+            existing.RemainingShuffleEntryIds is not null)
+            return existing;
+
+        // Initialization-only compatibility path. In the live MainForm the scope
+        // service already exists, so this path does not replace the map held by
+        // the active Recall UI. Legacy profiles without scopes are migrated once.
+        return new RecallStudyScopeService(state, dictionary.Id, dictionary.Entries).Get(StudyScopeIds.All);
+    }
+
+    private static void SyncLegacyAll(AppState state, string dictionaryId, RecallStudyScopeState allScope)
+    {
+        state.DeckIdsByDictionary[dictionaryId] = new Dictionary<string, string>(allScope.DeckIds, StringComparer.OrdinalIgnoreCase);
+        state.ActiveDeckId = allScope.ActiveDeckId;
+        if (allScope.CurrentEntryId is null)
+            state.CurrentEntryIdByDictionary.Remove(dictionaryId);
+        else
+            state.CurrentEntryIdByDictionary[dictionaryId] = allScope.CurrentEntryId;
     }
 
     private BookImportProductResult ImportBytes(
