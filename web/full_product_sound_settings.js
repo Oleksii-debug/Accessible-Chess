@@ -141,7 +141,6 @@
       }
       currentSnapshot = result.snapshot;
       render(currentSnapshot);
-      restoreFocus(restoreFocusId);
       announce(result.message || "", true);
       return true;
     }, function () {
@@ -149,6 +148,7 @@
       return false;
     }).finally(function () {
       setBusy(false);
+      restoreFocus(restoreFocusId);
     });
   }
 
