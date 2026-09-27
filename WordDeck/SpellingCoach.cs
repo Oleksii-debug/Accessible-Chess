@@ -469,6 +469,11 @@ internal sealed class SpellingDeckService
     }
 }
 
+internal static class SpellingHintEvidence
+{
+    public static bool ShouldRecordPronunciationHint(bool playbackSucceeded) => playbackSucceeded;
+}
+
 internal static class SpellingClosePersistence
 {
     public static bool TrySave(Action saveAction, out string? error)
@@ -922,10 +927,15 @@ internal sealed class SpellingForm : Form
     private void PlayPronunciation()
     {
         if (_current is null) return;
+        bool played = _audio.TryPlay(_package, _current, out string? error);
+        if (!SpellingHintEvidence.ShouldRecordPronunciationHint(played))
+        {
+            Announce(error ?? "British pronunciation hint is unavailable. No hint use was recorded.");
+            return;
+        }
         _usedHint = true;
         GetStats(_current.Id).HintUses++;
         Save();
-        if (!_audio.TryPlay(_package, _current, out string? error) && error is not null) Announce(error);
     }
 
     private void ToggleCoach()
