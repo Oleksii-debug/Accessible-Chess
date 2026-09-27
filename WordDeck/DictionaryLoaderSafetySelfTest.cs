@@ -26,10 +26,11 @@ internal static class DictionaryLoaderSafetySelfTest
             Directory.CreateDirectory(root);
             TestNormalUnicodePathAndStableFallbackIdentity(root);
             TestOversizedFileRejectedBeforeRead(root);
+            TestMalformedUtf8Rejected(root);
             TestOversizedRowAndFieldRejected();
             TestEntryCountGuard();
             Console.WriteLine(
-                "WordDeck dictionary import safety self-test passed: Unicode/space paths, stable fallback identity, file/row/field limits and entry-count bounds verified.");
+                "WordDeck dictionary import safety self-test passed: Unicode/space paths, stable fallback identity, strict UTF-8, file/row/field limits and entry-count bounds verified.");
         }
         finally
         {
@@ -76,6 +77,28 @@ internal static class DictionaryLoaderSafetySelfTest
         }
 
         Require(rejected, "Oversized imported dictionary was not rejected by the pre-read file-size boundary.");
+    }
+
+    private static void TestMalformedUtf8Rejected(string root)
+    {
+        string path = Path.Combine(root, "invalid-utf8.tsv");
+        byte[] prefix = Encoding.UTF8.GetBytes("entryId\tlevel\tsource\ttarget\nrow\tA1\t");
+        byte[] suffix = Encoding.UTF8.GetBytes("\tпереклад\n");
+        using (FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.Write(prefix);
+            stream.WriteByte(0xC3);
+            stream.WriteByte(0x28);
+            stream.Write(suffix);
+        }
+
+        bool rejected = false;
+        try { _ = DictionaryLoader.LoadFromFile(path); }
+        catch (InvalidDataException ex)
+        {
+            rejected = ex.Message.Contains("valid UTF-8", StringComparison.OrdinalIgnoreCase);
+        }
+        Require(rejected, "Malformed UTF-8 dictionary bytes were silently replacement-decoded.");
     }
 
     private static void TestOversizedRowAndFieldRejected()
