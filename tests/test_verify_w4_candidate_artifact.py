@@ -61,6 +61,8 @@ def _copy_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obj
         "ctrl_c_exact_clipboard": True,
         "move_input_focus_verified": True,
         "move_input_native_ctrl_a_ctrl_c": True,
+        "static_document_text": "Інформація про гру",
+        "clipboard_equality": "case-sensitive exact string equality",
         "human_tested": False,
         "nvda_verified": False,
     }
@@ -81,6 +83,12 @@ def _p0g_evidence(product_sha: str = SHA, **overrides: object) -> dict[str, obje
         "alt_2_accessible_result_exposed": True,
         "board_application_entered": False,
         "raw_uci_or_debug_exposed": False,
+        "alt_1_precondition_selected_state": "Variant 2 selected",
+        "alt_1_selected_state": "Variant 1 selected",
+        "alt_1_result": "Variant 1 depth 12 eval +0.30",
+        "alt_2_precondition_selected_state": "Variant 1 selected",
+        "alt_2_selected_state": "Variant 2 selected",
+        "alt_2_result": "Variant 2 depth 12 eval +0.10",
         "human_tested": False,
         "nvda_verified": False,
     }
@@ -141,6 +149,27 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(CandidateArtifactError, "filename Product prefix mismatch"):
             verify(self.path, SHA)
 
+
+
+    def test_copy_evidence_requires_exact_clipboard_payload(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(copy_overrides={"clipboard_equality": "normalized equality"})
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "clipboard equality"):
+            verify(self.path, SHA)
+
+    def test_p0g_evidence_requires_distinct_accessible_results(self) -> None:
+        same = "Variant 1 depth 12 eval +0.30"
+        self.path.write_bytes(
+            _outer_bytes(
+                p0g_overrides={
+                    "alt_2_result": same,
+                    "alt_2_selected_state": "Variant 1 selected",
+                }
+            )
+        )
+        with self.assertRaises(CandidateArtifactError):
+            verify(self.path, SHA)
 
     def test_copy_evidence_requires_native_move_input_copy_proof(self) -> None:
         self.path.write_bytes(
