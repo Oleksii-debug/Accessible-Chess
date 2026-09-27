@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WordDeck;
 
@@ -9,6 +10,9 @@ internal sealed class SentenceTargetStats
     public int WrongAttempts { get; set; }
     public int ShowAnswerUses { get; set; }
     public DateTimeOffset? LastReviewedUtc { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed class SentenceCoachState
@@ -26,6 +30,9 @@ internal sealed class SentenceCoachState
     public bool CurrentTargetUsedHint { get; set; }
     public List<string> RecentSentenceIds { get; set; } = new();
     public Dictionary<string, Dictionary<string, SentenceTargetStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed class SentenceCoachStateStore
@@ -43,21 +50,83 @@ internal sealed class SentenceCoachStateStore
         _backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
     }
 
-    public SentenceCoachState Load() => Normalize(TryLoad(_path) ?? TryLoad(_backupPath) ?? new SentenceCoachState());
+    public SentenceCoachState Load()
+    {
+        bool primaryExists = File.Exists(_path);
+        bool backupExists = File.Exists(_backupPath);
+
+        SentenceCoachState? primary = TryLoad(_path);
+        if (primary is not null)
+            return Normalize(primary);
+
+        SentenceCoachState? backup = TryLoad(_backupPath);
+        if (backup is not null)
+            return Normalize(backup);
+
+        if (!primaryExists && !backupExists)
+            return Normalize(new SentenceCoachState());
+
+        throw new InvalidDataException(
+            "Sentence Spelling state exists but neither the primary file nor its recovery backup is readable. WordDeck stopped before creating fresh state so existing progress is not silently replaced.");
+    }
 
     public void Save(SentenceCoachState state)
     {
         Normalize(state);
+        ValidateState(state);
+
+        bool primaryExists = File.Exists(_path);
+        bool backupExists = File.Exists(_backupPath);
+        SentenceCoachState? validPrimary = TryLoad(_path);
+        SentenceCoachState? validBackup = TryLoad(_backupPath);
+
+        if ((primaryExists || backupExists) && validPrimary is null && validBackup is null)
+            throw new InvalidDataException(
+                "Sentence Spelling state could not be verified before saving. WordDeck refused to overwrite unreadable progress without a valid recovery copy.");
+
         string temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
-        if (TryLoad(_path) is not null) File.Copy(_path, _backupPath, true);
+        if (validPrimary is not null)
+            File.Copy(_path, _backupPath, true);
         File.Move(temp, _path, true);
     }
 
     private static SentenceCoachState? TryLoad(string path)
     {
-        try { return File.Exists(path) ? JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(path)) : null; }
+        try
+        {
+            if (!File.Exists(path))
+                return null;
+            SentenceCoachState? state = JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(path));
+            if (state is null)
+                return null;
+            Normalize(state);
+            ValidateState(state);
+            return state;
+        }
         catch { return null; }
+    }
+
+    private static void ValidateState(SentenceCoachState state)
+    {
+        foreach ((string dictionaryId, Dictionary<string, SentenceTargetStats> statsByEntry) in state.StatsByDictionary)
+        {
+            if (string.IsNullOrWhiteSpace(dictionaryId))
+                throw new InvalidDataException("Sentence Coach state contains a blank dictionary identifier.");
+
+            foreach ((string entryId, SentenceTargetStats stats) in statsByEntry)
+            {
+                if (string.IsNullOrWhiteSpace(entryId))
+                    throw new InvalidDataException("Sentence Coach state contains a blank target identifier.");
+                if (stats is null)
+                    throw new InvalidDataException($"Sentence Coach state contains missing statistics for target {entryId}.");
+                if (stats.CompletedReviews < 0 || stats.FirstTrySuccesses < 0 ||
+                    stats.WrongAttempts < 0 || stats.ShowAnswerUses < 0)
+                    throw new InvalidDataException($"Sentence Coach state contains negative counters for target {entryId}.");
+                if (stats.FirstTrySuccesses > stats.CompletedReviews)
+                    throw new InvalidDataException($"Sentence Coach state contains impossible first-try statistics for target {entryId}.");
+            }
+        }
     }
 
     internal static SentenceCoachState Normalize(SentenceCoachState state)
