@@ -35,8 +35,8 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_PRODUCT_AUTHORITY", self.text)
 
     def test_verifier_is_materialized_from_pinned_w4_authority(self) -> None:
-        self.assertIn("W4_VERIFIER_COMMIT: 9e2951360edd409128f77e3c7321839083280b73", self.text)
-        self.assertIn("W4_VERIFIER_BLOB_SHA: fccdaaa6b785f067f0100a01fa16d1addb290742", self.text)
+        self.assertIn("W4_VERIFIER_COMMIT: 0468d2736c9d7d20742bb3d829bf8902e25afab2", self.text)
+        self.assertIn("W4_VERIFIER_BLOB_SHA: 877804819fdcd8b487023dc1174f90b994254427", self.text)
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
         self.assertIn('actual_blob="$(git rev-parse "$W4_VERIFIER_COMMIT:scripts/verify_w4_candidate_artifact.py")"', self.text)
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
