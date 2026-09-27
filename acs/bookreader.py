@@ -207,8 +207,16 @@ class BookReader:
             lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=1
         )
 
+    def previous_position(self) -> ReadingLocation:
+        return self._next_matching(
+            lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=-1
+        )
+
     def next_game(self) -> ReadingLocation:
         return self._next_matching(lambda block: isinstance(block, Game), direction=1)
+
+    def previous_game(self) -> ReadingLocation:
+        return self._next_matching(lambda block: isinstance(block, Game), direction=-1)
 
     def save_return_point(self, name: str = "default") -> ReadingLocation:
         self._require_content()
