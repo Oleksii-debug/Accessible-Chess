@@ -5,7 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.verify_p0_packaged_document_copy_evidence import EvidenceError, verify
+from scripts.verify_p0_packaged_document_copy_evidence import (
+    EvidenceError,
+    MAX_CHECKSUM_BYTES,
+    verify,
+)
 
 
 SHA = "a" * 40
@@ -85,6 +89,35 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
             "xyz  AccessibleChess/AccessibleChess.exe\n", encoding="utf-8"
         )
         with self.assertRaises(EvidenceError):
+            verify(self.evidence, self.product, SHA)
+
+    def test_checksum_inventory_rejects_malformed_unrelated_line(self) -> None:
+        digest = hashlib.sha256(b"fixture").hexdigest()
+        (self.root / "SHA256SUMS.txt").write_text(
+            "malformed-line-without-delimiter\n"
+            f"{digest}  AccessibleChess/AccessibleChess.exe\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(EvidenceError, "malformed line"):
+            verify(self.evidence, self.product, SHA)
+
+    def test_checksum_inventory_rejects_duplicate_unrelated_path(self) -> None:
+        digest = hashlib.sha256(b"fixture").hexdigest()
+        (self.root / "SHA256SUMS.txt").write_text(
+            f"{digest}  AccessibleChess/AccessibleChess.exe\n"
+            f"{digest}  AccessibleChess/web/index.html\n"
+            f"{digest}  AccessibleChess/web/index.html\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(EvidenceError, "duplicate path"):
+            verify(self.evidence, self.product, SHA)
+
+    def test_oversized_checksum_inventory_fails_before_parse(self) -> None:
+        (self.root / "SHA256SUMS.txt").write_text(
+            "x" * (MAX_CHECKSUM_BYTES + 1),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(EvidenceError, "size is outside"):
             verify(self.evidence, self.product, SHA)
 
     def test_missing_manifest_fails(self) -> None:
