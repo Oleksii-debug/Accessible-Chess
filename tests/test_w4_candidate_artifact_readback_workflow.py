@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -87,6 +88,18 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
             self.assertIn(dependency, self.text)
         self.assertIn("W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha", self.text)
         self.assertIn("W4_READBACK_PINNED_DEPENDENCY_GRAPH=PASS", self.text)
+
+    def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:
+        declared = "c90599ebeaa37b5fe4a5ab931318ee20b98ba1ef"
+        actual = subprocess.run(
+            ["git", "rev-parse", "HEAD:scripts/verify_w4_candidate_artifact.py"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual(declared, actual)
+        self.assertIn(f"W4_VERIFIER_BLOB_SHA: {declared}", self.text)
 
     def test_artifact_resolution_is_bound_to_exact_completed_run(self) -> None:
         self.assertIn("RUN_ID: ${{ github.event.workflow_run.id }}", self.text)
