@@ -58,7 +58,7 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             title="Position-like semantics",
             blocks=[
                 Position(fen=Board.START, block_id="position"),
-                Exercise(fen=Board.START, prompt="Find a move", block_id="exercise"),
+                Exercise(fen=Board.START, prompt="Find a move", answer_text="e4", block_id="exercise"),
                 VariationTree(root_fen=Board.START, pgn="1. e4 *", block_id="variation"),
                 Diagram(fen=Board.START, alt_text="Board", block_id="diagram"),
             ],
