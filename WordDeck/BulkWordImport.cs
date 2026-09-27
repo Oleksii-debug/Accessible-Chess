@@ -55,6 +55,27 @@ internal static class BulkWordParser
     }
 }
 
+internal static class BulkWordImportKeyboardPolicy
+{
+    internal static bool IsLiteralTabChord(Keys keyData)
+    {
+        Keys keyCode = keyData & Keys.KeyCode;
+        Keys modifiers = keyData & Keys.Modifiers;
+        return keyCode == Keys.Tab && (modifiers & Keys.Control) == Keys.Control && (modifiers & Keys.Alt) == Keys.None;
+    }
+
+    internal static void InsertLiteralTab(TextBox editor)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        int start = editor.SelectionStart;
+        int length = editor.SelectionLength;
+        string text = editor.Text ?? string.Empty;
+        editor.Text = text.Remove(start, length).Insert(start, "\t");
+        editor.SelectionStart = start + 1;
+        editor.SelectionLength = 0;
+    }
+}
+
 internal sealed class BulkWordImportForm : Form
 {
     private readonly TextBox _editor;
@@ -80,6 +101,7 @@ internal sealed class BulkWordImportForm : Form
             Text =
                 $"Words will be added to: {deckName}.\r\n" +
                 "Use ONE CARD PER LINE. Recommended format: English, then TAB, then Ukrainian.\r\n" +
+                "Plain Tab and Shift+Tab move between controls. Press Ctrl+Tab only when you want to type a TAB character.\r\n" +
                 "Example: apple<TAB>яблуко\r\n" +
                 "Phrases are safe: take care of<TAB>піклуватися про.\r\n" +
                 "Also accepted between English and Ukrainian: |, =, an em dash, or comma+space."
@@ -89,11 +111,20 @@ internal sealed class BulkWordImportForm : Form
         {
             Dock = DockStyle.Fill,
             Multiline = true,
-            AcceptsTab = true,
+            AcceptsTab = false,
             ScrollBars = ScrollBars.Both,
             WordWrap = false,
             AccessibleName = "Paste English and Ukrainian word pairs here",
-            AccessibleDescription = "One card per line. English first, Ukrainian second. Tab is the recommended separator."
+            AccessibleDescription = "One card per line. English first, Ukrainian second. Plain Tab moves to the next control; Ctrl+Tab inserts the recommended separator."
+        };
+
+        _editor.KeyDown += (_, e) =>
+        {
+            if (!BulkWordImportKeyboardPolicy.IsLiteralTabChord(e.KeyData))
+                return;
+            BulkWordImportKeyboardPolicy.InsertLiteralTab(_editor);
+            e.SuppressKeyPress = true;
+            e.Handled = true;
         };
 
         var buttons = new FlowLayoutPanel
