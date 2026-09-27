@@ -88,6 +88,14 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "books")
         self.assertEqual(self.app.reader.document.title, "Application EPUB")
         self.assertEqual(self.app.reader.document.language, "uk")
+        self.assertEqual(self.app.reader.document.source_rights, "Test fixture")
+        readable = [
+            block.text
+            for block in self.app.reader.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertIn("Доступний текст книги.", readable)
+        self.assertIn("Після позиції.", readable)
         self.assertTrue(self.app.book_key.startswith("epub-sha256:"))
         self.assertTrue(self.progress.has(self.app.book_key))
         self.assertEqual(self.app.reader.location().kind, "Heading")
