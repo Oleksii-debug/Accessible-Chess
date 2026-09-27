@@ -248,6 +248,14 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 "switch names must be unique",
             ),
             (
+                _VALID_WINFORMS_CONFIG.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.5=false",
+                    "Switch.UseLegacyAccessibilityFeatures.5=false;"
+                    "Switch.Accessibility.Experimental=true",
+                ),
+                "unexpected accessibility switches",
+            ),
+            (
                 "<!DOCTYPE configuration [<!ENTITY x 'false'>]>"
                 "<configuration><runtime /></configuration>",
                 "must not contain DTD or entities",
