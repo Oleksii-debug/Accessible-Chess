@@ -102,6 +102,25 @@ internal sealed class SentenceCoachStateStore
     }
 }
 
+internal static class SentenceClosePersistence
+{
+    public static bool TrySave(Action saveAction, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(saveAction);
+        try
+        {
+            saveAction();
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+}
+
 internal sealed class SentenceCoachForm : Form
 {
     private sealed record PackChoice(string Name, InstalledSentencePack Installed)
@@ -326,7 +345,14 @@ internal sealed class SentenceCoachForm : Form
         PopulatePacks();
         UpdateModeInfo();
         Shown += (_, _) => BeginInvoke(new Action(RestoreOrNext));
-        FormClosing += (_, _) => Save();
+        FormClosing += (_, e) =>
+        {
+            if (!SentenceClosePersistence.TrySave(Save, out string? error))
+            {
+                e.Cancel = true;
+                Announce($"Closing Sentence Spelling was cancelled because personal progress could not be saved. The trainer remains open; resolve the storage problem and try again. {error}");
+            }
+        };
     }
 
     private MenuStrip BuildMenu()
