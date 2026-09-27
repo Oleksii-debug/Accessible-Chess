@@ -529,9 +529,46 @@ class BookProgressStore:
                 metadata,
                 message="book progress storage lock is not a regular file",
             )
+            if existing is not None and not self._same_file_identity(existing, metadata):
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            try:
+                current_path = os.lstat(self._lock_path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                current_path,
+                message="book progress storage lock is not a regular file",
+            )
+            if not self._same_file_identity(metadata, current_path):
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
             if metadata.st_size == 0:
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
+            try:
+                final_path = os.lstat(self._lock_path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being initialized",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                final_path,
+                message="book progress storage lock is not a regular file",
+            )
+            if not self._same_file_identity(metadata, final_path):
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being initialized",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
             return descriptor
         except BaseException:
             os.close(descriptor)
