@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WordDeck;
 
@@ -163,6 +165,11 @@ internal sealed class ListeningCoachState
     public long SelectionCounter { get; set; }
     public Dictionary<string, Dictionary<string, ListeningItemStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<ListeningHistoryRecord> History { get; set; } = new();
+
+    // Preserve unrecognized members from a supported schema so a newer optional
+    // field is not silently destroyed by an older compatible build on save.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed record ListeningCheckResult(bool IsCorrect, bool Completed, string Message);
