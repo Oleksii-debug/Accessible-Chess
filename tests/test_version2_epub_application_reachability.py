@@ -176,6 +176,29 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, route_before)
         self.assertEqual(self.app.reader.snapshot(), snapshot_before)
 
+    def test_same_path_changed_epub_bytes_do_not_reuse_stale_progress_identity(self) -> None:
+        source = self._write_epub(
+            "same-path.epub",
+            b"<html><body><h1>First</h1><p>One.</p><p>Two.</p></body></html>",
+        )
+        self.app.open_book(source)
+        first_key = self.app.book_key
+        self.app.reader.next_block()
+        first_location = self.app.reader.location()
+        self.app.save_book_progress()
+        self.assertEqual(self.progress.restore(first_key, self.app.reader.document).location(), first_location)
+
+        source.write_bytes(
+            _epub(b"<html><body><h1>Second</h1><p>Replacement content.</p></body></html>")
+        )
+        self.app.open_book(source)
+
+        self.assertNotEqual(self.app.book_key, first_key)
+        self.assertEqual(self.app.reader.location().kind, "Heading")
+        self.assertEqual(self.app.reader.document.headings()[0].text, "Second")
+        self.assertTrue(self.progress.has(first_key))
+        self.assertTrue(self.progress.has(self.app.book_key))
+
     def test_corrupt_epub_container_is_atomic_against_current_book_state(self) -> None:
         valid = self._write_epub(
             "stable.epub",
