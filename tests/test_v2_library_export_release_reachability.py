@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+from unittest.mock import Mock, patch
+
+from acs.version2_release_app import _build_version2_windows_file_runtime
+
+
+class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
+    def test_release_runtime_composes_canonical_library_export_service(self) -> None:
+        library_service = object()
+        file_events = Mock()
+        import_ui_ready = Mock()
+        export_selected = Mock()
+        worker_factory_result = Mock()
+        worker_factory = Mock(return_value=worker_factory_result)
+        board_dispatch = Mock()
+        dialog_language_provider = Mock(return_value="uk")
+        session = object()
+
+        application = SimpleNamespace(
+            library_export=library_service,
+            _file_event=file_events,
+            session=session,
+            worker_factory=worker_factory,
+            pgn_commands=SimpleNamespace(export_selected=export_selected),
+            import_ui_ready=import_ui_ready,
+            _focus="library-results",
+            confirm_document_replace=lambda: False,
+            set_document=Mock(),
+        )
+        api = SimpleNamespace(v2_board_dispatch=board_dispatch)
+        database_path = Path("library.acsdb")
+        owner = object()
+        runtime = object()
+
+        with patch(
+            "acs.version2_release_app.build_version2_windows_library_file_runtime",
+            return_value=runtime,
+        ) as builder:
+            result = _build_version2_windows_file_runtime(
+                application=application,
+                api=api,
+                database_path=database_path,
+                owner_control=owner,
+                dialog_language_provider=dialog_language_provider,
+            )
+
+        self.assertIs(result, runtime)
+        builder.assert_called_once()
+        kwargs = builder.call_args.kwargs
+        self.assertIs(kwargs["owner_control"], owner)
+        self.assertIs(kwargs["library_service"], library_service)
+        self.assertIs(kwargs["library_export_event_sink"], file_events)
+        self.assertIs(kwargs["pgn_export_event_sink"], file_events)
+        self.assertIs(kwargs["export_selected"], export_selected)
+        self.assertIs(kwargs["import_ui_ready"], import_ui_ready)
+        self.assertIs(kwargs["next_delegate"], board_dispatch)
+        self.assertIs(kwargs["dialog_language_provider"], dialog_language_provider)
+        self.assertIs(kwargs["get_pgn_session"](), session)
+        self.assertEqual(kwargs["current_focus_provider"](), "library-results")
+        worker_factory.assert_called_once_with(database_path)
+        self.assertIs(kwargs["import_services_factory"], worker_factory_result)
+
+    def test_release_library_export_sink_stays_path_free_presentation_boundary(self) -> None:
+        file_events = Mock()
+        application = SimpleNamespace(
+            library_export=object(),
+            _file_event=file_events,
+            session=None,
+            worker_factory=Mock(return_value=Mock()),
+            pgn_commands=SimpleNamespace(export_selected=Mock()),
+            import_ui_ready=Mock(),
+            _focus="library-results",
+            confirm_document_replace=lambda: True,
+            set_document=Mock(),
+        )
+        api = SimpleNamespace(v2_board_dispatch=Mock())
+
+        with patch(
+            "acs.version2_release_app.build_version2_windows_library_file_runtime",
+            return_value=object(),
+        ) as builder:
+            _build_version2_windows_file_runtime(
+                application=application,
+                api=api,
+                database_path=Path("library.acsdb"),
+                owner_control=object(),
+                dialog_language_provider=lambda: "en",
+            )
+
+        kwargs = builder.call_args.kwargs
+        self.assertIs(kwargs["library_export_event_sink"], application._file_event)
+        self.assertNotIn("destination", kwargs)
+        self.assertNotIn("path", kwargs)
+
+
+if __name__ == "__main__":
+    unittest.main()
