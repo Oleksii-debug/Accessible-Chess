@@ -212,6 +212,15 @@ internal sealed class BookReadingProductService
         string? legacyActiveDeckSnapshot = appState.ActiveDeckId;
         bool hadLegacyCurrent = appState.CurrentEntryIdByDictionary.TryGetValue(dictionary.Id, out string? legacyCurrentEntrySnapshot);
 
+        bool hadRecallDictionary = appState.RecallStudyScopesByDictionary.TryGetValue(
+            dictionary.Id,
+            out RecallStudyScopeDictionaryState? originalRecallDictionary);
+        string? originalRecallActiveScope = originalRecallDictionary?.ActiveScopeId;
+        Dictionary<string, RecallStudyScopeState>? originalRecallScopes = originalRecallDictionary?.Scopes;
+        bool hadAllScopeBefore = originalRecallScopes is not null &&
+            originalRecallScopes.TryGetValue(StudyScopeIds.All, out RecallStudyScopeState? preExistingAllScope) &&
+            preExistingAllScope is not null;
+
         RecallStudyScopeState allScope = GetAuthoritativeAllScope(appState, dictionary);
         if (!allScope.DeckIds.ContainsKey(id))
             throw new InvalidDataException("The selected dictionary entry is not available in the All Oxford 5000 Recall workspace.");
@@ -236,16 +245,35 @@ internal sealed class BookReadingProductService
 
             try
             {
-                // AppStateStore.Normalize may replace the DeckIds dictionary object
-                // before a persistence failure is thrown. Restore through the live
-                // scope property rather than the pre-save dictionary reference.
-                allScope.DeckIds.Clear();
-                foreach (KeyValuePair<string, string> pair in allAssignmentSnapshot)
-                    allScope.DeckIds[pair.Key] = pair.Value;
-                allScope.RemainingShuffleEntryIds.Clear();
-                allScope.RemainingShuffleEntryIds.AddRange(allShuffleSnapshot);
-                allScope.ActiveDeckId = allActiveDeckSnapshot;
-                allScope.CurrentEntryId = allCurrentEntrySnapshot;
+                if (hadAllScopeBefore)
+                {
+                    // AppStateStore.Normalize may replace the DeckIds dictionary
+                    // object before a persistence failure is thrown. Restore
+                    // through the live scope property, not the pre-save map.
+                    allScope.DeckIds.Clear();
+                    foreach (KeyValuePair<string, string> pair in allAssignmentSnapshot)
+                        allScope.DeckIds[pair.Key] = pair.Value;
+                    allScope.RemainingShuffleEntryIds.Clear();
+                    allScope.RemainingShuffleEntryIds.AddRange(allShuffleSnapshot);
+                    allScope.ActiveDeckId = allActiveDeckSnapshot;
+                    allScope.CurrentEntryId = allCurrentEntrySnapshot;
+                }
+                else if (!hadRecallDictionary || originalRecallDictionary is null)
+                {
+                    // Compatibility initialization was part of this failed call.
+                    // A failed capture must not leave a newly-created scope state.
+                    appState.RecallStudyScopesByDictionary.Remove(dictionary.Id);
+                }
+                else
+                {
+                    // RecallStudyScopeService replaces the Scopes dictionary before
+                    // initializing a missing All scope, so this detached reference
+                    // still contains the exact pre-call compatibility state.
+                    originalRecallDictionary.ActiveScopeId = originalRecallActiveScope ?? StudyScopeIds.All;
+                    originalRecallDictionary.Scopes = originalRecallScopes
+                        ?? new Dictionary<string, RecallStudyScopeState>(StringComparer.OrdinalIgnoreCase);
+                    appState.RecallStudyScopesByDictionary[dictionary.Id] = originalRecallDictionary;
+                }
             }
             catch (Exception rollbackFailure)
             {
