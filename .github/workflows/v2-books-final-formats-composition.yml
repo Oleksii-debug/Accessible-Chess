@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - qa/v2-books-final-formats-composition-20260831
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - '.github/workflows/v2-books-final-formats-composition.yml'
+      - 'scripts/v2_books_final_formats_composition_oracle.py'
   workflow_dispatch:
 
 permissions:
