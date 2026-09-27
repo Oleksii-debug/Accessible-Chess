@@ -10,6 +10,7 @@ from acs.acsdb import AcsDatabase
 from acs.full_product_ui_shell import UILanguage
 from acs.library_export_service import LibraryExportRequest, LibraryExportService
 from acs.pgn_service import open_pgn
+from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
 from acs.version2_release_app import _build_version2_windows_file_runtime
 from acs.version2_windows_library_export import LibraryExportHostEvent, LibraryExportHostEventKind
@@ -263,6 +264,108 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             fake._events,
             [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
         )
+
+
+    def test_production_helper_exports_full_filtered_result_through_same_native_chain(self) -> None:
+        pgn = """[Event "Filtered Cup"]
+[Site "Bratislava"]
+[Date "2026.09.27"]
+[Round "1"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+
+1. e4 e5 *
+
+[Event "Filtered Cup"]
+[Site "Košice"]
+[Date "2026.09.27"]
+[Round "2"]
+[White "Gamma"]
+[Black "Delta"]
+[Result "*"]
+
+1. d4 d5 *
+
+[Event "Other Event"]
+[Site "Nitra"]
+[Date "2026.09.27"]
+[Round "3"]
+[White "Epsilon"]
+[Black "Zeta"]
+[Result "*"]
+
+1. c4 c5 *
+"""
+
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("synchronous export must not post UI work")
+
+        class Dialogs:
+            def __init__(self, destination: Path) -> None:
+                self.destination = destination
+                self.calls: list[str] = []
+
+            def export_selection(self, suggested_filename: str = "selection.pgn") -> Path:
+                self.calls.append(suggested_filename)
+                return self.destination
+
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(pgn, source_name="filtered-release-reachability.pgn")
+            service = LibraryExportService(database)
+            request = LibraryExportRequest.filtered(GameSearchQuery(event="Filtered Cup"))
+            with tempfile.TemporaryDirectory() as temp:
+                destination = Path(temp) / "Відфільтровані партії.pgn"
+                dialogs = Dialogs(destination)
+                application = SimpleNamespace(
+                    library_export=service,
+                    _file_event=Mock(),
+                    session=None,
+                    worker_factory=Mock(return_value=lambda: None),
+                    pgn_commands=SimpleNamespace(export_selected=Mock()),
+                    import_ui_ready=Mock(),
+                    _focus="library-search-player",
+                    confirm_document_replace=lambda: True,
+                    set_document=Mock(),
+                )
+                board_dispatch = Mock()
+                with patch(
+                    "acs.version2_windows_library_export.Version2OwnedWindowsPgnExportDialogs",
+                    return_value=dialogs,
+                ):
+                    runtime = _build_version2_windows_file_runtime(
+                        application=application,
+                        api=SimpleNamespace(v2_board_dispatch=board_dispatch),
+                        database_path=Path("library.acsdb"),
+                        owner_control=Owner(),
+                        dialog_language_provider=lambda: "uk",
+                    )
+                try:
+                    event = runtime("library.export", request.browser_payload())
+                    reopened = open_pgn(destination)
+                finally:
+                    self.assertTrue(runtime.shutdown())
+
+            self.assertEqual(event.kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(event.game_count, 2)
+            self.assertEqual(event.focus_target, "library-search-player")
+            self.assertEqual(dialogs.calls, ["library-export.pgn"])
+            self.assertEqual(len(reopened.games), 2)
+            self.assertEqual(
+                [game.tags["Event"] for game in reopened.games],
+                ["Filtered Cup", "Filtered Cup"],
+            )
+            board_dispatch.assert_not_called()
+            self.assertNotIn(str(destination), repr(event))
+            application._file_event.assert_called_once_with(event)
+        finally:
+            database.close()
 
 
 if __name__ == "__main__":
