@@ -23,6 +23,7 @@ internal static class SentenceListeningAudioSelfTest
         TestExplicitApprovalAndMissingAudio(pack, catalog);
         TestHiddenTargetFailsClosed(pack, catalog);
         TestSentenceAudioPathIsolation();
+        TestPlayerAliasIsolation();
 
         Console.WriteLine("WordDeck Sentence Listening audio self-test passed: explicit pack approval + exact stable sentence ID + local audio required; hidden targets and missing audio remain unavailable.");
     }
@@ -153,6 +154,21 @@ internal static class SentenceListeningAudioSelfTest
         try { _ = SentenceAudioPackLayout.CandidatePaths(" ", "s1"); }
         catch (InvalidDataException) { blankRejected = true; }
         Require(blankRejected, "Blank sentence audio pack ID stopped failing closed.");
+    }
+
+    private static void TestPlayerAliasIsolation()
+    {
+        using var first = new ListeningAudioFilePlayer();
+        using var second = new ListeningAudioFilePlayer();
+        using var third = new ListeningAudioFilePlayer();
+
+        string[] aliases = { first.AliasForTest, second.AliasForTest, third.AliasForTest };
+        Require(aliases.Distinct(StringComparer.Ordinal).Count() == aliases.Length,
+            "Separate Sentence Listening players reused the same Windows MCI alias.");
+        Require(aliases.All(alias => alias.StartsWith("worddeck_listening_sentence_", StringComparison.Ordinal)),
+            "Sentence Listening player alias left the dedicated safe MCI namespace.");
+        Require(aliases.All(alias => alias.All(ch => char.IsAsciiLetterOrDigit(ch) || ch == '_')),
+            "Sentence Listening player alias contains characters outside the safe MCI identifier set.");
     }
 
     private static bool IsContained(string candidate, string root) =>
