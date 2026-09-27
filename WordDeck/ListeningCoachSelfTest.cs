@@ -31,6 +31,7 @@ internal static class ListeningCoachSelfTest
             TestShortcutRegistry();
             TestProfileRoundTrip(root);
             TestMigrationBackup(root);
+            TestUnknownFieldsSurviveRoundTrip(root);
         }
         finally
         {
@@ -265,6 +266,27 @@ internal static class ListeningCoachSelfTest
         ListeningCoachState migrated = store.Load();
         Require(migrated.SchemaVersion == ListeningStateStore.CurrentSchemaVersion, "Listening schema migration did not complete.");
         Require(Directory.GetFiles(Path.Combine(migrationRoot, "Backups"), "listening-state-*-pre-migration.json").Length == 1, "Listening migration did not preserve a backup.");
+    }
+
+    private static void TestUnknownFieldsSurviveRoundTrip(string root)
+    {
+        string extensionRoot = Path.Combine(root, "extension-data");
+        Directory.CreateDirectory(extensionRoot);
+        string statePath = Path.Combine(extensionRoot, "listening-state.json");
+        File.WriteAllText(
+            statePath,
+            "{\"SchemaVersion\":1,\"ActiveScopeId\":\"b1\",\"SelectionCounter\":3,\"StatsByDictionary\":{},\"History\":[],\"FutureHint\":{\"Mode\":\"adaptive\",\"Weight\":7}}");
+
+        var store = new ListeningStateStore(extensionRoot);
+        ListeningCoachState loaded = store.Load();
+        Require(loaded.ExtensionData is not null && loaded.ExtensionData.ContainsKey("FutureHint"),
+            "Listening state dropped an unknown current-schema field during load.");
+
+        store.Save(loaded);
+        string persisted = File.ReadAllText(statePath);
+        Require(persisted.Contains("\"FutureHint\"", StringComparison.Ordinal) &&
+                persisted.Contains("\"adaptive\"", StringComparison.Ordinal),
+            "Listening state dropped unknown current-schema data during Load->Save.");
     }
 
     private static DictionaryPackage Package() => new()
