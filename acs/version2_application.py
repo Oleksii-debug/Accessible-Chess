@@ -235,6 +235,15 @@ class Version2Application:
             # Language is presentation state, not durable reader progress.
             return self.books.dispatch(command, payload)
         if command in self._BOOK_BOARD_OPEN_COMMANDS:
+            # Native menu actions are globally reachable even though Book Board
+            # opening belongs to the visible Book Reader. Never open a hidden
+            # Book position/game from Library, PGN, Settings, or another route.
+            if self.shell.current_route.route_id != "books":
+                return self.books.projection.generic_error()
+            # Once Book Board owns an origin, only its explicit return path may
+            # release that ownership; a second open must not replace it.
+            if self.book_workflow is not None and self.book_workflow.active:
+                return self.books.projection.generic_error()
             # The canonical BookBoard delegate owns board-opening publication.
             return self.books.dispatch(command, payload)
         if command in self._BOOK_PROGRESS_COMMANDS:
