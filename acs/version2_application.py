@@ -177,28 +177,30 @@ class Version2Application:
         except BookProgressStoreError as error:
             if error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                 raise
-            # Before offering destructive rollback, prove the existing backup is
-            # actually usable for this exact Book/document. restore() is a
-            # non-mutating read and already owns backup validation semantics;
-            # absent, corrupt, or semantically stale backup data fails closed.
+            # Validate the exact backup for this Book/document and retain its
+            # byte revision. Confirmation may leave the store unlocked, but
+            # recovery may publish only those same semantically validated bytes.
             try:
-                self.progress_store.restore(book_key, reader.document)
+                backup_revision = self.progress_store.validated_backup_revision(
+                    book_key,
+                    reader.document,
+                )
             except (BookProgressStoreError, LookupError, TypeError, ValueError):
                 raise error
-            # Recovery is destructive with respect to the corrupt primary's
-            # newest generation. Never infer consent from merely having a usable
-            # backup or from a generic Book-open action.
+            # Recovery can lose the newest corrupt-primary generation, so user
+            # consent remains mandatory even after the backup is proven usable.
             try:
                 confirmed = self.confirm_book_progress_recovery()
             except Exception:
                 confirmed = False
             if confirmed is not True:
                 raise
-            if not self.progress_store.recover_from_backup():
+            if not self.progress_store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+            ):
                 raise
             # Re-enter the canonical store write after recovery. This reloads
-            # the recovered generation under its normal interprocess/CAS locks;
-            # stale/unavailable recovery therefore still fails closed.
+            # the recovered generation under normal interprocess/CAS locks.
             return self.progress_store.save(book_key, reader)
 
     def save_book_progress(self):
