@@ -31,6 +31,12 @@ internal static class BulkWordImportAccessibilitySelfTest
         Require(parsed.Count == 1 && parsed[0].Source == "apple" && parsed[0].Target == "яблуко",
             "Keyboard accessibility repair must preserve TAB-separated import parsing.");
 
+        Require(BulkWordImportValidation.TryValidate("apple\tяблуко", out string? validError) && validError is null,
+            "Valid pasted text was rejected before dialog commit.");
+        Require(!BulkWordImportValidation.TryValidate("this line has no separator", out string? invalidError) &&
+                !string.IsNullOrWhiteSpace(invalidError),
+            "Invalid pasted text did not fail before dialog commit.");
+
         Console.WriteLine("WordDeck bulk-import accessibility self-test passed: Tab/Shift+Tab navigation preserved, Ctrl+Tab literal separator retained.");
     }
 
