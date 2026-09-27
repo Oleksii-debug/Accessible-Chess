@@ -11,7 +11,10 @@ from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_application import Version2Application
-from acs.version2_release_app import (\n    _build_version2_windows_file_runtime,\n    create_version2_release_application,\n)
+from acs.version2_release_app import (
+    _build_version2_windows_file_runtime,
+    create_version2_release_application,
+)
 
 
 PGN_TEMPLATE = """[Event \"{event}\"]
