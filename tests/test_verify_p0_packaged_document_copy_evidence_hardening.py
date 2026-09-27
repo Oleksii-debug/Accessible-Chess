@@ -29,6 +29,7 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
         self.evidence = self.root / "evidence.json"
         self.evidence.write_text(
             "{"
+            '"product_sha":"' + SHA + '",'
             '"static_document_text":"Game information",'
             '"static_document_outside_edit":true,'
             '"native_copy_focus_verified":true,'
@@ -37,7 +38,9 @@ class VerifyP0PackagedDocumentCopyEvidenceHardeningTests(unittest.TestCase):
             '"executable_checksum_verified":true,'
             '"textpattern_selection_supported":true,'
             '"clipboard_equality":"case-sensitive exact string equality",'
-            '"ctrl_c_exact_clipboard":true'
+            '"ctrl_c_exact_clipboard":true,'
+            '"move_input_focus_verified":true,'
+            '"move_input_native_ctrl_a_ctrl_c":true'
             "}",
             encoding="utf-8",
         )
