@@ -155,6 +155,7 @@ internal sealed class ShortcutManager
         if (code is Keys.None or Keys.Tab or Keys.Escape or Keys.Enter) return true;
         if (code == Keys.F4 && modifiers == Keys.Alt) return true;
         if (code == Keys.Delete && modifiers == (Keys.Control | Keys.Alt)) return true;
+        if (modifiers == Keys.Control && (code is Keys.Left or Keys.Right)) return true;
         if (modifiers == Keys.None)
         {
             if (code == Keys.Down) return actionId != ActionIds.NextWord;

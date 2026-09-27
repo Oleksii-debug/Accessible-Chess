@@ -945,7 +945,7 @@ internal sealed partial class MainForm : Form
             "Recall has six independent study workspaces: All Oxford 5000, A1, A2, B1, B2 and C1. There is no Oxford C2 workspace because the Oxford 5000 list does not define a C2 subset. " +
             "Choose the scope with the standard Study scope combo box. Each scope keeps its own deck assignments, active deck, current card and shuffle progress. Moving a word in A1 does not move it in All or any other scope. " +
             "The five core deck definitions and their shortcuts are shared, so Ctrl+1 through Ctrl+5 switches decks inside the CURRENT scope and Alt+1 through Alt+5 moves the current word inside the CURRENT scope. Scope-switch actions are rebindable and start unassigned.\r\n\r\n" +
-            "WordDeck shows only the English side of a Recall card by default. Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused: Down moves to the next card and Up returns to the previous actually shown eligible card. In the Ukrainian translation TextBox, Dictionary/Study scope/Deck selectors, menus, dialogs and other standard controls, arrow keys keep their native control behavior and do not switch Recall cards. Changing a selector with Up/Down keeps focus in that selector so its selected value remains available to the screen reader. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys. Reveal the Ukrainian translation only when needed.\r\n\r\n" +
+            "WordDeck shows only the English side of a Recall card by default. Fast Down Arrow/Up Arrow card navigation works only while the Current English word field is focused: Down moves to the next card and Up returns to the previous actually shown eligible card. In the Ukrainian translation TextBox, Dictionary/Study scope/Deck selectors, menus, dialogs and other standard controls, arrow keys keep their native control behavior and do not switch Recall cards. Changing a selector with Up/Down keeps focus in that selector so its selected value remains available to the screen reader. Ctrl+Right and Ctrl+Left remain compatibility next/previous keys only while focus is on the English word; elsewhere they keep standard text navigation. Reveal the Ukrainian translation only when needed.\r\n\r\n" +
             "SPELLING WINDOW\r\n" +
             "Open Spelling with its configured shortcut or Tools menu entry. Close the Spelling window with Alt+F4; normal close saves through the existing state lifecycle. Alt+F4 remains a standard Windows close command and is not assignable as a WordDeck shortcut.\r\n\r\n" +
             "The five default decks are permanent but may be renamed and reordered. User decks are shared definitions; saved Recall assignments remain scope-specific and are migrated safely if a user deck is deleted.\r\n\r\n" +
@@ -969,8 +969,12 @@ internal sealed partial class MainForm : Form
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (ShouldDeferUnmodifiedRecallArrow(keyData)) return base.ProcessCmdKey(ref msg, keyData);
-        if (keyData == (Keys.Control | Keys.Right)) { NextWord(); return true; }
-        if (keyData == (Keys.Control | Keys.Left)) { PreviousWord(); return true; }
+        if (RecallKeyboardFocusPolicy.IsLegacyCtrlCardArrow(keyData, _wordBox.ContainsFocus))
+        {
+            if ((keyData & Keys.KeyCode) == Keys.Right) NextWord();
+            else PreviousWord();
+            return true;
+        }
         string? action = _shortcuts.FindAction(keyData);
         if (action is null) return base.ProcessCmdKey(ref msg, keyData);
 
