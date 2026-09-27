@@ -92,6 +92,7 @@ internal sealed class BulkWordImportForm : Form
             Multiline = true,
             ReadOnly = true,
             TabStop = true,
+            TabIndex = 0,
             AccessibleName = "Word import format instructions",
             Text =
                 $"Words will be added to: {deckName}.\r\n" +
@@ -109,6 +110,7 @@ internal sealed class BulkWordImportForm : Form
             AcceptsTab = false,
             ScrollBars = ScrollBars.Both,
             WordWrap = false,
+            TabIndex = 1,
             AccessibleName = "Paste English and Ukrainian word pairs here",
             AccessibleDescription = "One card per line. English first, Ukrainian second. Plain Tab moves to the next control; Ctrl+Tab inserts the recommended separator."
         };
@@ -118,13 +120,15 @@ internal sealed class BulkWordImportForm : Form
             Dock = DockStyle.Bottom,
             Height = 54,
             Padding = new Padding(8),
-            FlowDirection = FlowDirection.LeftToRight
+            FlowDirection = FlowDirection.LeftToRight,
+            TabIndex = 2
         };
         var add = new Button
         {
             Text = "Add words",
             AutoSize = true,
             DialogResult = DialogResult.OK,
+            TabIndex = 0,
             AccessibleName = "Add pasted words to active deck"
         };
         var cancel = new Button
@@ -132,6 +136,7 @@ internal sealed class BulkWordImportForm : Form
             Text = "Cancel",
             AutoSize = true,
             DialogResult = DialogResult.Cancel,
+            TabIndex = 1,
             AccessibleName = "Cancel adding words"
         };
         buttons.Controls.Add(add);
