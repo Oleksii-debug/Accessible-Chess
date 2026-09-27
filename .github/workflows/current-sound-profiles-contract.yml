@@ -134,6 +134,7 @@ jobs:
               'tests/test_sound_pack_profile.py' \
               'tests/test_sound_pack_store.py' \
               'tests/test_sound_profile_file_store.py' \
+              'tests/test_sound_profile_composition.py' \
               'tests/test_sound_profile_manager_hardening.py' \
               'tests/test_sound_profile_runtime.py' \
               'tests/test_sound_profile_store.py' \
