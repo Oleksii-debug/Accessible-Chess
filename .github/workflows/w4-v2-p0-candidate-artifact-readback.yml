@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
-      W4_VERIFIER_COMMIT: a355f46b08a04e24f6c1d5d352e9ecf47e9db2d3
-      W4_VERIFIER_BLOB_SHA: ab24bb319dbdd1152541466e20a967b8787648d6
+      W4_VERIFIER_COMMIT: 73cdcf707ec405b3876ea98bbfd54217366059f6
+      W4_VERIFIER_BLOB_SHA: 5f7b3223b0bc405426be645ac09b68f9060bca76
     steps:
       - name: Checkout exact canonical workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -125,56 +125,48 @@ jobs:
                   'X-GitHub-Api-Version': '2022-11-28',
               },
           )
+          max_outer_bytes=300 * 1024 * 1024
           opener=urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+          total=0
           with opener.open(req, timeout=60) as response, open('candidate-artifact.zip', 'wb') as output:
+              declared=response.headers.get('Content-Length')
+              if declared is not None:
+                  try:
+                      declared_bytes=int(declared)
+                  except ValueError:
+                      raise SystemExit('candidate artifact Content-Length is invalid')
+                  if declared_bytes > max_outer_bytes:
+                      raise SystemExit('candidate artifact exceeds 300 MiB download bound')
               while True:
                   block=response.read(1024 * 1024)
                   if not block:
                       break
+                  total += len(block)
+                  if total > max_outer_bytes:
+                      raise SystemExit('candidate artifact exceeds 300 MiB download bound')
                   output.write(block)
-          if os.path.getsize('candidate-artifact.zip') <= 0:
-              raise SystemExit('downloaded candidate artifact is empty')
+          if total <= 0 or os.path.getsize('candidate-artifact.zip') != total:
+              raise SystemExit('downloaded candidate artifact is empty or truncated')
+          print(f'W4_RAW_ARTIFACT_DOWNLOAD_BYTES={total}')
           print('W4_RAW_ARTIFACT_DOWNLOAD=PASS')
           PY
 
-      - name: Bind readback to exact integrated Product SHA from candidate filename and manifest
+      - name: Bind expected Product SHA from completed canonical workflow authority
         id: product
         shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import io, json, os, re, zipfile
-          outer=zipfile.ZipFile('candidate-artifact.zip','r')
-          names=[name for name in outer.namelist() if name.endswith('-NVDA-test-candidate.zip')]
-          if len(names) != 1:
-              raise SystemExit(f'expected one candidate ZIP, found {len(names)}')
-          match=re.fullmatch(r'.*Accessible-Chess-V2-([0-9a-fA-F]{7})-NVDA-test-candidate\.zip', names[0])
-          if not match:
-              raise SystemExit('candidate filename lacks seven-hex Product prefix')
-          inner=zipfile.ZipFile(io.BytesIO(outer.read(names[0])),'r')
-          manifest=json.loads(inner.read('RELEASE_MANIFEST.json').decode('utf-8-sig'))
-          sha=str(manifest.get('integration_sha','')).lower()
-          if not re.fullmatch(r'[0-9a-f]{40}', sha):
-              raise SystemExit('manifest integration_sha is not exact 40-hex')
-          if not sha.startswith(match.group(1).lower()):
-              raise SystemExit('candidate filename Product prefix mismatches manifest')
-          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as stream:
-              stream.write(f'product_sha={sha}\n')
-          print(f'W4_READBACK_PRODUCT_SHA={sha}')
-          PY
-
-      - name: Require artifact Product SHA to equal completed canonical workflow authority
-        shell: bash
         env:
-          PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
           WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          test "$PRODUCT_SHA" = "$WORKFLOW_SHA" || {
-            printf 'artifact Product SHA %s differs from completed canonical run head %s\n' "$PRODUCT_SHA" "$WORKFLOW_SHA" >&2
-            exit 1
-          }
-          echo 'W4_READBACK_EXACT_PRODUCT_WORKFLOW_BINDING=PASS'
+          python - <<'PY'
+          import os, re
+          sha=os.environ['WORKFLOW_SHA'].lower()
+          if not re.fullmatch(r'[0-9a-f]{40}', sha):
+              raise SystemExit('completed workflow head_sha is not exact 40-hex')
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as stream:
+              stream.write(f'product_sha={sha}\n')
+          print(f'W4_READBACK_EXPECTED_PRODUCT_SHA={sha}')
+          PY
 
       - name: Recheck live Full Product freshness after build and upload
         shell: bash
