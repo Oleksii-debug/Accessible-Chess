@@ -15,6 +15,7 @@ MAX_OUTER_BYTES = 300 * 1024 * 1024
 MAX_INNER_BYTES = 250 * 1024 * 1024
 MAX_OUTER_UNCOMPRESSED_BYTES = 280 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 1024 * 1024
+MAX_CANDIDATE_METADATA_BYTES = 4 * 1024 * 1024
 MAX_CANDIDATE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
 HASH_CHUNK_BYTES = 1024 * 1024
 
@@ -357,6 +358,13 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
         missing = sorted(required - set(members))
         if missing:
             raise CandidateArtifactError("candidate ZIP is missing release-critical files: " + ", ".join(missing))
+
+        for metadata_name in ("RELEASE_MANIFEST.json", "SHA256SUMS.txt"):
+            metadata_size = members[metadata_name].file_size
+            if metadata_size <= 0 or metadata_size > MAX_CANDIDATE_METADATA_BYTES:
+                raise CandidateArtifactError(
+                    f"candidate metadata size is outside accepted bounds: {metadata_name}"
+                )
 
         manifest = _load_json(candidate.read("RELEASE_MANIFEST.json"), "release manifest")
         integration_sha = manifest.get("integration_sha")

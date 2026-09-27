@@ -205,6 +205,20 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
                 with self.assertRaisesRegex(CandidateArtifactError, "candidate ZIP size"):
                     verify(self.path, SHA)
 
+    def test_candidate_metadata_size_bound_fails_before_metadata_read(self) -> None:
+        original_read = zipfile.ZipFile.read
+
+        def guarded_read(archive, name, *args, **kwargs):
+            normalized = str(name).replace("\\", "/")
+            if normalized in {"RELEASE_MANIFEST.json", "SHA256SUMS.txt"}:
+                raise AssertionError("oversized candidate metadata must not be read")
+            return original_read(archive, name, *args, **kwargs)
+
+        with patch("scripts.verify_w4_candidate_artifact.MAX_CANDIDATE_METADATA_BYTES", 8):
+            with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+                with self.assertRaisesRegex(CandidateArtifactError, "candidate metadata size"):
+                    verify(self.path, SHA)
+
     def test_candidate_uncompressed_size_bound_fails_before_member_reads(self) -> None:
         original_read = zipfile.ZipFile.read
 
