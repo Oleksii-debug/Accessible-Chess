@@ -1,7 +1,17 @@
 import unittest
 
 from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex
-from acs.bookdocument import BookDocument, Exercise, Game, Heading, Note, Paragraph, Position, VariationTree
+from acs.bookdocument import (
+    BookDocument,
+    BookDocumentError,
+    Exercise,
+    Game,
+    Heading,
+    Note,
+    Paragraph,
+    Position,
+    VariationTree,
+)
 
 
 START_FEN = "8/8/8/8/8/8/8/K6k w - - 0 1"
@@ -31,6 +41,9 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual(index.entries[3].position_fen, BLACK_FEN)
         self.assertEqual(index.entries[3].side_to_move, "black")
         self.assertEqual(index.entries[5].side_to_move, "white")
+        self.assertEqual(index.entries[0].heading_level, 1)
+        self.assertEqual(index.entries[2].heading_level, 2)
+        self.assertIsNone(index.entries[3].heading_level)
 
     def test_contents_and_kind_filters_are_semantic_not_ui_specific(self):
         index = BookIndex(self.make_document())
@@ -38,6 +51,28 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in index.contents(max_heading_level=1)], ["Chapter One"])
         self.assertEqual([entry.label for entry in index.of_kind(BookEntryKind.GAME)], ["Model game"])
         self.assertEqual([entry.label for entry in index.of_kind(BookEntryKind.EXERCISE)], ["Find the winning move"])
+
+    def test_contents_uses_immutable_heading_snapshot_after_document_edit(self):
+        document = self.make_document()
+        index = BookIndex(document)
+
+        heading = document.blocks[2]
+        self.assertIsInstance(heading, Heading)
+        heading.level = 1
+        heading.text = "Edited after indexing"
+
+        self.assertEqual(index.entries[2].heading_level, 2)
+        self.assertEqual(index.entries[2].label, "Calculation")
+        self.assertEqual([entry.label for entry in index.contents(max_heading_level=1)], ["Chapter One"])
+        self.assertEqual([entry.label for entry in index.contents(max_heading_level=2)], ["Chapter One", "Calculation"])
+
+    def test_index_construction_revalidates_mutated_document_blocks(self):
+        document = self.make_document()
+        heading = document.blocks[0]
+        self.assertIsInstance(heading, Heading)
+        heading.level = True
+        with self.assertRaises(BookDocumentError):
+            BookIndex(document)
 
     def test_stable_target_prefers_block_id_then_source_anchor(self):
         index = BookIndex(self.make_document())
@@ -67,12 +102,23 @@ class BookIndexTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             index.find("   ")
 
+    def test_find_rejects_non_text_query_deterministically(self):
+        index = BookIndex(self.make_document())
+        for value in (None, 7, True, b"model"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(TypeError, "must be a string"):
+                    index.find(value)  # type: ignore[arg-type]
+
     def test_invalid_contents_depth_is_rejected(self):
         index = BookIndex(self.make_document())
         with self.assertRaises(ValueError):
             index.contents(max_heading_level=0)
         with self.assertRaises(ValueError):
             index.contents(max_heading_level=7)
+        for value in (True, 1.0, "1"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(TypeError, "must be an integer"):
+                    index.contents(max_heading_level=value)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":
