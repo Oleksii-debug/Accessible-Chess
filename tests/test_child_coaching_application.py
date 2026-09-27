@@ -4,13 +4,17 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.child_coaching import LessonBlock, LessonBlockKind, preset_templates
 from acs.child_coaching_application import (
     ChildCoachingApplication,
     ChildCoachingApplicationError,
 )
-from acs.child_coaching_store import ChildCoachingTemplateStore
+from acs.child_coaching_store import (
+    ChildCoachingStoreConflictError,
+    ChildCoachingTemplateStore,
+)
 from acs.teaching_session import PositionSourceKind, TeachingActivity, TeachingPositionSource
 
 
@@ -84,6 +88,40 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             )
             with self.assertRaises(ChildCoachingApplicationError):
                 deleted.summary("teacher-preschool")
+
+    def test_open_catalog_retries_seed_after_concurrent_partial_catalog_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = ChildCoachingTemplateStore(Path(temp) / "child-coaching.json")
+            presets = preset_templates()
+            initial_revision = store.save((presets[0],), expected_revision=None)
+            original_save = store.save
+            injected = {"done": False}
+
+            def conflict_once(templates, *, expected_revision):
+                if not injected["done"]:
+                    injected["done"] = True
+                    self.assertEqual(expected_revision, initial_revision)
+                    original_save((presets[1],), expected_revision=expected_revision)
+                    raise ChildCoachingStoreConflictError("concurrent partial write")
+                return original_save(
+                    templates,
+                    expected_revision=expected_revision,
+                )
+
+            app = ChildCoachingApplication(store)
+            with mock.patch.object(store, "save", side_effect=conflict_once):
+                catalog = app.open_catalog()
+
+            self.assertTrue(injected["done"])
+            self.assertEqual(
+                {item.template_id for item in catalog.templates},
+                {item.template_id for item in presets},
+            )
+            reopened = ChildCoachingApplication(store).open_catalog()
+            self.assertEqual(
+                {item.template_id for item in reopened.templates},
+                {item.template_id for item in presets},
+            )
 
     def test_stale_writer_is_rejected_before_silent_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
