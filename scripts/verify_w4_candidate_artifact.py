@@ -97,12 +97,55 @@ def _parse_checksums(data: bytes) -> dict[str, str]:
     return checksums
 
 
-def _verify_p0_evidence(value: dict[str, object], expected_sha: str, label: str) -> None:
+def _require_true(value: dict[str, object], key: str, label: str) -> None:
+    if value.get(key) is not True:
+        raise CandidateArtifactError(f"{label} required evidence flag is not true: {key}")
+
+
+def _require_false(value: dict[str, object], key: str, label: str) -> None:
+    if value.get(key) is not False:
+        raise CandidateArtifactError(f"{label} required evidence flag is not false: {key}")
+
+
+def _verify_p0_evidence(
+    value: dict[str, object],
+    expected_sha: str,
+    label: str,
+    *,
+    required_true: tuple[str, ...],
+    required_false: tuple[str, ...] = ("human_tested", "nvda_verified"),
+) -> None:
     product_sha = value.get("product_sha")
     if not isinstance(product_sha, str) or product_sha.lower() != expected_sha:
         raise CandidateArtifactError(f"{label} product_sha mismatch")
-    if value.get("human_tested") is True or value.get("nvda_verified") is True:
-        raise CandidateArtifactError(f"{label} makes forbidden human/NVDA claim")
+    for key in required_true:
+        _require_true(value, key, label)
+    for key in required_false:
+        _require_false(value, key, label)
+
+
+COPY_REQUIRED_TRUE = (
+    "static_document_outside_edit",
+    "native_copy_focus_verified",
+    "foreground_product_verified",
+    "manifest_product_sha_verified",
+    "executable_checksum_verified",
+    "textpattern_selection_supported",
+    "ctrl_c_exact_clipboard",
+    "move_input_focus_verified",
+    "move_input_native_ctrl_a_ctrl_c",
+)
+
+P0G_REQUIRED_TRUE = (
+    "native_keyboard_dispatch",
+    "foreground_product_verified",
+    "manifest_product_sha_verified",
+    "executable_checksum_verified",
+    "alt_1_action_occurred",
+    "alt_1_accessible_result_exposed",
+    "alt_2_action_occurred",
+    "alt_2_accessible_result_exposed",
+)
 
 
 def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | None = None) -> None:
@@ -145,8 +188,24 @@ def verify(outer_path: Path, expected_sha: str, expected_outer_sha256: str | Non
 
         copy_evidence = _load_json(outer.read(copy_names[0]), "copy evidence")
         p0g_evidence = _load_json(outer.read(p0g_names[0]), "P0-G evidence")
-        _verify_p0_evidence(copy_evidence, expected_sha, "copy evidence")
-        _verify_p0_evidence(p0g_evidence, expected_sha, "P0-G evidence")
+        _verify_p0_evidence(
+            copy_evidence,
+            expected_sha,
+            "copy evidence",
+            required_true=COPY_REQUIRED_TRUE,
+        )
+        _verify_p0_evidence(
+            p0g_evidence,
+            expected_sha,
+            "P0-G evidence",
+            required_true=P0G_REQUIRED_TRUE,
+            required_false=(
+                "board_application_entered",
+                "raw_uci_or_debug_exposed",
+                "human_tested",
+                "nvda_verified",
+            ),
+        )
 
         candidate_bytes = outer.read(candidate_names[0])
         if not candidate_bytes or len(candidate_bytes) > MAX_INNER_BYTES:
