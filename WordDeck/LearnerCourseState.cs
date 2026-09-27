@@ -206,25 +206,37 @@ internal sealed class LearnerCourseStateStore
         RequireCurrentSchemaForWrite(state, "save");
         EnsureNoNewerPersistedState();
 
+        bool primaryExists = File.Exists(_statePath);
+        bool backupExists = File.Exists(_backupPath);
+        bool primaryRecoverable = TryReadRecoverable(_statePath, out LearnerCourseState? existingPrimary) && existingPrimary is not null;
+        bool backupRecoverable = TryReadRecoverable(_backupPath, out LearnerCourseState? existingBackup) && existingBackup is not null;
+
+        if ((primaryExists || backupExists) && !primaryRecoverable && !backupRecoverable)
+            throw new InvalidDataException(
+                "Course-state save was refused because persisted learning state exists but no verified recovery copy can be loaded. Existing files were left untouched.");
+
         LearnerCourseState snapshot = Clone(state);
         Validate(snapshot);
 
         string temp = _statePath + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(snapshot, JsonOptions));
-        if (!TryReadRecoverable(temp, out LearnerCourseState? verified) || verified is null)
+        try
+        {
+            File.WriteAllText(temp, JsonSerializer.Serialize(snapshot, JsonOptions));
+            if (!TryReadRecoverable(temp, out LearnerCourseState? verified) || verified is null)
+                throw new InvalidDataException("Course-state write verification failed; existing state was not replaced.");
+
+            // Rotate only a verified primary. If the primary is corrupt but a
+            // verified backup exists, preserve that backup while replacing primary.
+            if (primaryRecoverable)
+                File.Copy(_statePath, _backupPath, true);
+
+            File.Move(temp, _statePath, true);
+            ReplaceInMemory(state, snapshot);
+        }
+        finally
         {
             TryDelete(temp);
-            throw new InvalidDataException("Course-state write verification failed; existing state was not replaced.");
         }
-
-        // A fixed recovery copy must itself satisfy the supported schema and
-        // semantic invariants. Merely parseable corrupt JSON must never replace
-        // the last known-good recovery copy.
-        if (TryReadRecoverable(_statePath, out LearnerCourseState? existing) && existing is not null)
-            File.Copy(_statePath, _backupPath, true);
-
-        File.Move(temp, _statePath, true);
-        ReplaceInMemory(state, snapshot);
     }
 
     public string CreateTimestampedBackup(string reason)
