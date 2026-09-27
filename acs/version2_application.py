@@ -51,7 +51,9 @@ class Version2Application:
             "book.next",
             "book.previous_heading",
             "book.next_heading",
+            "book.previous_position",
             "book.next_position",
+            "book.previous_game",
             "book.next_game",
             "book.bookmark.save",
             "book.bookmark.restore",
@@ -236,6 +238,16 @@ class Version2Application:
             # The canonical BookBoard delegate owns board-opening publication.
             return self.books.dispatch(command, payload)
         if command in self._BOOK_PROGRESS_COMMANDS:
+            # Native menu actions are globally reachable even though the keymap
+            # correctly scopes these commands to BOOK_READER. Never mutate the
+            # hidden reading cursor from Library/PGN/Settings or another route.
+            if self.shell.current_route.route_id != "books":
+                return self.books.projection.generic_error()
+            # Book Board owns the exact reading origin until its explicit return.
+            # Ownership intentionally survives temporary route changes, so the
+            # active workflow is a separate fence even when Books is visible.
+            if self.book_workflow is not None and self.book_workflow.active:
+                return self.books.projection.generic_error()
             before = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
