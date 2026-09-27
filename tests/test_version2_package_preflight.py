@@ -169,6 +169,7 @@ def _make_tree(root: Path) -> None:
         "product": "Accessible Chess",
         "package_profile": V2_PACKAGE_PROFILE,
         "integration_sha": _SHA,
+        "human_tested": False,
         "nvda_verified": False,
         "upgrade_from_version1": True,
         "upgrade_journal_schema": UPGRADE_JOURNAL_SCHEMA_VERSION,
@@ -227,21 +228,20 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 _validate_tree(root)
 
     def test_winforms_accessibility_app_config_semantics_fail_closed(self):
-        valid = _VALID_WINFORMS_CONFIG
         cases = (
             (
                 "<configuration><runtime /></configuration>\n",
                 "exactly one AppContextSwitchOverrides element",
             ),
             (
-                valid.replace(
+                _VALID_WINFORMS_CONFIG.replace(
                     "Switch.UseLegacyAccessibilityFeatures.3=false",
                     "Switch.UseLegacyAccessibilityFeatures.3=true",
                 ),
                 "disable all legacy accessibility switches",
             ),
             (
-                valid.replace(
+                _VALID_WINFORMS_CONFIG.replace(
                     "Switch.UseLegacyAccessibilityFeatures.5=false",
                     "Switch.UseLegacyAccessibilityFeatures.4=false",
                 ),
@@ -342,6 +342,15 @@ class Version2PackagePreflightTests(unittest.TestCase):
             manifest_path = root / MANIFEST_NAME
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["nvda_verified"] = True
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError, "manifest contract mismatch"
+            ):
+                _validate_tree(root)
+
+            manifest["nvda_verified"] = False
+            manifest["human_tested"] = True
             manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
             _write_checksums(root)
             with self.assertRaisesRegex(

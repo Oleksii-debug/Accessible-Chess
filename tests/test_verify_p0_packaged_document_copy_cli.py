@@ -24,7 +24,7 @@ class VerifyP0PackagedDocumentCopyCliTests(unittest.TestCase):
         self.exe.write_bytes(b"cli-fixture")
         digest = hashlib.sha256(self.exe.read_bytes()).hexdigest()
         (self.package / "RELEASE_MANIFEST.json").write_text(
-            json.dumps({"integration_sha": SHA}), encoding="utf-8"
+            json.dumps({"integration_sha": SHA, "human_tested": False, "nvda_verified": False}), encoding="utf-8"
         )
         (self.package / "SHA256SUMS.txt").write_text(
             f"{digest}  AccessibleChess/AccessibleChess.exe\n", encoding="utf-8"
@@ -36,11 +36,14 @@ class VerifyP0PackagedDocumentCopyCliTests(unittest.TestCase):
                     "product_sha": SHA,
                     "static_document_text": "Game information",
                     "static_document_outside_edit": True,
+                    "static_text_visible_rectangle": True,
                     "native_copy_focus_verified": True,
                     "foreground_product_verified": True,
                     "manifest_product_sha_verified": True,
                     "executable_checksum_verified": True,
                     "textpattern_selection_supported": True,
+                    "textpattern_target_selected": True,
+                    "textpattern_selection_equality": "UIA exact range endpoints and case-sensitive text equality",
                     "clipboard_equality": "case-sensitive exact string equality",
                     "ctrl_c_exact_clipboard": True,
                     "move_input_focus_verified": True,

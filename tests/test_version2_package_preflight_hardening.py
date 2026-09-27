@@ -32,6 +32,7 @@ class Version2PackagePreflightHardeningTests(unittest.TestCase):
         cases = (
             ("manifest_schema", True),
             ("upgrade_journal_schema", True),
+            ("human_tested", 0),
             ("nvda_verified", 0),
             ("upgrade_from_version1", 1),
             ("user_data_bundled", 0),

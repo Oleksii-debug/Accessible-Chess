@@ -172,6 +172,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(manifest["upgrade_journal_schema"], UPGRADE_JOURNAL_SCHEMA_VERSION)
             self.assertEqual(manifest["settings_schema"], SETTINGS_SCHEMA_VERSION)
             self.assertEqual(manifest["acsdb_schema"], ACSDB_SCHEMA_VERSION)
+            self.assertIs(manifest["human_tested"], False)
             self.assertIs(manifest["nvda_verified"], False)
             self.assertIs(manifest["user_data_bundled"], False)
             self.assertIs(manifest["raw_source_bundled"], False)

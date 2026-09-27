@@ -50,7 +50,7 @@ class VerifyP0GPackagedHotkeyResultEvidenceTests(unittest.TestCase):
         self.exe.write_bytes(b"p0g-fixture")
         digest = hashlib.sha256(self.exe.read_bytes()).hexdigest()
         (self.package / "RELEASE_MANIFEST.json").write_text(
-            json.dumps({"integration_sha": SHA}), encoding="utf-8"
+            json.dumps({"integration_sha": SHA, "human_tested": False, "nvda_verified": False}), encoding="utf-8"
         )
         (self.package / "SHA256SUMS.txt").write_text(
             f"{digest}  AccessibleChess/AccessibleChess.exe\n", encoding="utf-8"
