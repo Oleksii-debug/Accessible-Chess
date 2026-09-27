@@ -366,7 +366,8 @@ internal static class GovernedGrammarA106RuntimeUi
         }
         catch (Exception ex)
         {
-            failureMessage = PersistenceFailureMessage("Точку відновлення", ex);
+            string detail = string.IsNullOrWhiteSpace(ex.Message) ? "невідома помилка сховища" : ex.Message.Trim();
+            failureMessage = $"Точку відновлення не вдалося прочитати. WordDeck відкрив основну вправу без припущень про збережений прогрес. {detail}";
             return GovernedGrammarA106StudyCatalog.PrimaryItemId;
         }
     }
@@ -800,7 +801,7 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
                 runtime, out string? resumeError);
             Require(fallbackResume == GovernedGrammarA106StudyCatalog.PrimaryItemId &&
                     !string.IsNullOrWhiteSpace(resumeError) &&
-                    resumeError.Contains("не збережено", StringComparison.OrdinalIgnoreCase),
+                    resumeError.Contains("не вдалося прочитати", StringComparison.OrdinalIgnoreCase),
                 "Unavailable Grammar state did not fall back to a usable primary item with truthful feedback.");
 
             bool practiceSaved = GovernedGrammarA106RuntimeUi.TryRecordPracticeForUi(
