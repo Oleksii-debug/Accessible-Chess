@@ -98,7 +98,7 @@ jobs:
           tests/test_v2_upgrade_publish_race_audit.py=96239e179da44fd5c2671733df4613b298733927
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           tests/test_v2_upgrade_v6_successor.py=163abc29f7c2709fdab3851c32fc710b3fcf4ddf
-          tests/test_v2_upgrade_schema0_integration.py=cf54c75ae464176a9afd9e4a7d91d1cd565bd8e5
+          tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
           tests/test_version2_upgrade.py=4746b998c7eeb9c32dc16f546f4781df15b92cdd
           tests/test_version2_upgrade_recovery_integrity.py=c4ee3bd0b27ef3e69c81d06e536805da5ed7f20d
           tests/test_version2_upgrade_stale_writer.py=c3967104ec33827a6027ce0f0af1ba5a18a04744
