@@ -13,7 +13,7 @@ internal static class DictionaryLoader
     internal const int MaxEntries = 100_000;
     internal const int MaxLineChars = 32_768;
     internal const int MaxFieldChars = 16_384;
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: true, throwOnInvalidBytes: true);
 
     public static DictionaryPackage LoadEmbeddedOxford()
     {
