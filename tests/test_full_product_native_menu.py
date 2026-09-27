@@ -201,7 +201,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
             self.assertTrue(install_full_product_windows_native_menu(window, controller))
 
         menu = window._accessible_chess_native_menu
-        analysis_top = next(top for top in menu.Items if top.Text == "&Analysis")
+        analysis_top = next(top for top in menu.Items if top.Text == "&Engine")
         restart = next(
             item for item in analysis_top.DropDownItems
             if getattr(item, "Text", "").startswith("Restart analysis")
