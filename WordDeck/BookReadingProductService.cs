@@ -199,6 +199,19 @@ internal sealed class BookReadingProductService
         if (decks.Find(learningDeckId) is null)
             throw new InvalidDataException("The selected learning deck no longer exists.");
 
+        // Read durable Reading evidence before any AppState compatibility
+        // initialization. If SQLite is unavailable, the failed capture must not
+        // normalize or otherwise mutate the caller's personal state.
+        BookUnknownWord? priorCapture = _stateStore.LoadUnknowns(document.BookId)
+            .FirstOrDefault(item => item.StableEntryId.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+        bool hadLegacyAssignments = appState.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? originalLegacyAssignments);
+        KeyValuePair<string, string>[] legacyAssignmentSnapshot = hadLegacyAssignments && originalLegacyAssignments is not null
+            ? originalLegacyAssignments.ToArray()
+            : Array.Empty<KeyValuePair<string, string>>();
+        string? legacyActiveDeckSnapshot = appState.ActiveDeckId;
+        bool hadLegacyCurrent = appState.CurrentEntryIdByDictionary.TryGetValue(dictionary.Id, out string? legacyCurrentEntrySnapshot);
+
         RecallStudyScopeState allScope = GetAuthoritativeAllScope(appState, dictionary);
         if (!allScope.DeckIds.ContainsKey(id))
             throw new InvalidDataException("The selected dictionary entry is not available in the All Oxford 5000 Recall workspace.");
@@ -208,16 +221,6 @@ internal sealed class BookReadingProductService
         string[] allShuffleSnapshot = allScope.RemainingShuffleEntryIds.ToArray();
         string allActiveDeckSnapshot = allScope.ActiveDeckId;
         string? allCurrentEntrySnapshot = allScope.CurrentEntryId;
-
-        bool hadLegacyAssignments = appState.DeckIdsByDictionary.TryGetValue(dictionary.Id, out Dictionary<string, string>? originalLegacyAssignments);
-        KeyValuePair<string, string>[] legacyAssignmentSnapshot = hadLegacyAssignments && originalLegacyAssignments is not null
-            ? originalLegacyAssignments.ToArray()
-            : Array.Empty<KeyValuePair<string, string>>();
-        string? legacyActiveDeckSnapshot = appState.ActiveDeckId;
-        bool hadLegacyCurrent = appState.CurrentEntryIdByDictionary.TryGetValue(dictionary.Id, out string? legacyCurrentEntrySnapshot);
-
-        BookUnknownWord? priorCapture = _stateStore.LoadUnknowns(document.BookId)
-            .FirstOrDefault(item => item.StableEntryId.Equals(id, StringComparison.OrdinalIgnoreCase));
 
         try
         {
