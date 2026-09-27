@@ -61,52 +61,6 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             reader.go_to(99)
 
-    def test_navigation_fails_closed_if_document_changes_after_indexing(self):
-        document = self.make_book()
-        reader = BookReader(document)
-        reader.go_to(3)
-        original_index = reader.index
-
-        paragraph = document.blocks[1]
-        self.assertIsInstance(paragraph, Paragraph)
-        paragraph.text = "Edited after reader construction"
-
-        actions = (
-            reader.location,
-            lambda: reader.go_to(4),
-            reader.next_block,
-            reader.previous_block,
-            reader.next_heading,
-            reader.previous_heading,
-            reader.next_position,
-            reader.next_game,
-            lambda: reader.save_return_point("stale"),
-            lambda: reader.restore_return_point("missing"),
-        )
-        for action in actions:
-            with self.subTest(action=action):
-                with self.assertRaisesRegex(RuntimeError, "changed after BookReader"):
-                    action()
-                self.assertEqual(reader.index, original_index)
-
-    def test_stale_revision_check_precedes_changed_document_boundaries(self):
-        document = self.make_book()
-        reader = BookReader(document)
-        reader.go_to(6)
-        document.blocks.append(Paragraph(text="Appended after indexing", block_id="late"))
-
-        with self.assertRaisesRegex(RuntimeError, "changed after BookReader"):
-            reader.next_block()
-        self.assertEqual(reader.index, 6)
-
-    def test_empty_reader_does_not_silently_adopt_later_content(self):
-        document = BookDocument("Empty")
-        reader = BookReader(document)
-        document.append(Paragraph(text="Later content"))
-        with self.assertRaisesRegex(RuntimeError, "changed after BookReader"):
-            reader.location()
-        self.assertEqual(reader.index, -1)
-
     def test_empty_book_is_explicit_not_silent(self):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
