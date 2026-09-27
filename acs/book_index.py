@@ -64,6 +64,8 @@ class BookIndex:
     """Immutable semantic index built from one validated BookDocument snapshot."""
 
     def __init__(self, document: BookDocument):
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be a BookDocument")
         # BookDocument blocks are authoring-mutable. Validate their exact current
         # semantic state before taking the immutable index snapshot so a caller
         # cannot mutate a previously-valid block and then publish stale/corrupt
@@ -190,6 +192,11 @@ class BookIndex:
         """Case-insensitive semantic label search preserving linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
+        if kinds is not None:
+            if type(kinds) is not set or not all(
+                isinstance(kind, BookEntryKind) for kind in kinds
+            ):
+                raise TypeError("Search kinds must be a set of BookEntryKind values")
         needle = text.strip().casefold()
         if not needle:
             raise ValueError("Search text must not be empty")
