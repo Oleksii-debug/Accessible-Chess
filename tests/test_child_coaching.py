@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -19,9 +21,11 @@ from acs.child_coaching import (
     preset_templates,
 )
 from acs.child_coaching_store import (
+    ChildCoachingStoreBusyError,
     ChildCoachingStoreConflictError,
     ChildCoachingStoreError,
     ChildCoachingTemplateStore,
+    _exclusive_store_lock,
 )
 from acs.interaction_contracts import BoardPermissionState, EngineVisibilityPolicy
 from acs.teaching_session import (
@@ -287,6 +291,33 @@ class ChildCoachingStoreTests(unittest.TestCase):
             self.assertNotEqual(new_revision, revision)
             with self.assertRaises(ChildCoachingStoreConflictError):
                 store.save(loaded.templates, expected_revision=revision)
+
+    def test_publication_lock_is_busy_while_owned_and_released_after_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            lock_path = path.with_name(f".{path.name}.lock")
+            store = ChildCoachingTemplateStore(path)
+            templates = preset_templates()
+
+            with _exclusive_store_lock(lock_path):
+                with self.assertRaises(ChildCoachingStoreBusyError):
+                    store.save(templates, expected_revision=None)
+
+            script = (
+                "import os,sys\n"
+                "from pathlib import Path\n"
+                "from acs.child_coaching_store import _exclusive_store_lock\n"
+                "with _exclusive_store_lock(Path(sys.argv[1])):\n"
+                "    os._exit(0)\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", script, str(lock_path)],
+                cwd=Path(__file__).resolve().parents[1],
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0)
+            revision = store.save(templates, expected_revision=None)
+            self.assertEqual(store.load().revision, revision)
 
     def test_legacy_schema_zero_loads_and_future_schema_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
