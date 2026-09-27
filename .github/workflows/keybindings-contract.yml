@@ -18,6 +18,9 @@ concurrency:
   group: keybindings-contract-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  EXPECTED_PRODUCT_SHA: 18c717b88b968d43420a59fe819c7bff97aea504
+
 jobs:
   keybindings:
     strategy:
@@ -38,9 +41,13 @@ jobs:
           set -euo pipefail
           base='${{ github.event.pull_request.base.sha }}'
           head_ref='${{ github.event.pull_request.head.ref }}'
-          merge_base="$(git merge-base "$base" HEAD)"
-          changed="$(git diff --name-only "$merge_base" HEAD | sort)"
           if [ "$head_ref" = 'reconverge/keybindings-terminal-current-product-20260926' ]; then
+            git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            product_ref="refs/remotes/origin/${{ github.base_ref }}"
+            product_sha="$(git rev-parse "$product_ref")"
+            test "$product_sha" = "$EXPECTED_PRODUCT_SHA"
+            git merge-base --is-ancestor "$product_sha" HEAD
+            changed="$(git diff --name-only "$product_sha" HEAD | sort)"
             expected="$(printf '%s\n' \
               '.github/workflows/d01-education-management-webview.yml' \
               '.github/workflows/d01-pgn-workspace-webview.yml' \
@@ -82,6 +89,8 @@ jobs:
               'web/index.html' \
               'web/keybindings.json' | sort)"
           else
+            merge_base="$(git merge-base "$base" HEAD)"
+            changed="$(git diff --name-only "$merge_base" HEAD | sort)"
             expected="$(printf '%s\n' \
               '.github/workflows/keybindings-contract.yml' \
               'acs/keybindings.py' \
