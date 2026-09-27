@@ -33,6 +33,10 @@ class ActionRegistryTests(unittest.TestCase):
         self.assertEqual(normalize_binding("alt+1"), "Alt+1")
         self.assertEqual(normalize_binding("esc"), "Escape")
         self.assertEqual(normalize_binding("nvda+space"), "NVDA+Space")
+        self.assertEqual(normalize_binding("ArrowLeft"), "Left")
+        self.assertEqual(normalize_binding("ArrowRight"), "Right")
+        self.assertEqual(normalize_binding("ArrowUp"), "Up")
+        self.assertEqual(normalize_binding("ArrowDown"), "Down")
 
     def test_context_specific_duplicates_are_allowed(self):
         definitions = [
