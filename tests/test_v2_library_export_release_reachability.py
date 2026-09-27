@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from acs.acsdb import AcsDatabase
-from acs.library_export_service import LibraryExportService
+from acs.library_export_service import LibraryExportRequest, LibraryExportService
+from acs.pgn_service import open_pgn
 from acs.version2_release_app import _build_version2_windows_file_runtime
 from acs.version2_windows_library_export import LibraryExportHostEventKind
 
@@ -145,6 +147,88 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
                 application._file_event.assert_called_once_with(event)
             finally:
                 self.assertTrue(runtime.shutdown())
+        finally:
+            database.close()
+
+
+    def test_production_helper_reaches_canonical_writer_through_trusted_delegate(self) -> None:
+        pgn = """[Event "Release reachability"]
+[Site "Bratislava"]
+[Date "2026.09.27"]
+[Round "1"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+
+1. e4 e5 *
+"""
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("synchronous export must not post UI work")
+
+        class Dialogs:
+            def __init__(self, destination: Path) -> None:
+                self.destination = destination
+                self.calls: list[str] = []
+
+            def export_selection(self, suggested_filename: str = "selection.pgn") -> Path:
+                self.calls.append(suggested_filename)
+                return self.destination
+
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(pgn, source_name="release-reachability.pgn")
+            row = database.conn.execute("SELECT id FROM games").fetchone()
+            self.assertIsNotNone(row)
+            game_id = int(row[0])
+            service = LibraryExportService(database)
+
+            with tempfile.TemporaryDirectory() as temp:
+                destination = Path(temp) / "Обрані партії.pgn"
+                dialogs = Dialogs(destination)
+                application = SimpleNamespace(
+                    library_export=service,
+                    _file_event=Mock(),
+                    session=None,
+                    worker_factory=Mock(return_value=lambda: None),
+                    pgn_commands=SimpleNamespace(export_selected=Mock()),
+                    import_ui_ready=Mock(),
+                    _focus="library-results",
+                    confirm_document_replace=lambda: True,
+                    set_document=Mock(),
+                )
+                with patch(
+                    "acs.version2_windows_library_export.Version2OwnedWindowsPgnExportDialogs",
+                    return_value=dialogs,
+                ):
+                    runtime = _build_version2_windows_file_runtime(
+                        application=application,
+                        api=SimpleNamespace(v2_board_dispatch=Mock()),
+                        database_path=Path("library.acsdb"),
+                        owner_control=Owner(),
+                        dialog_language_provider=lambda: "uk",
+                    )
+                try:
+                    event = runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([game_id]).browser_payload(),
+                    )
+                    reopened = open_pgn(destination)
+                finally:
+                    self.assertTrue(runtime.shutdown())
+
+            self.assertEqual(event.kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(event.game_count, 1)
+            self.assertEqual(event.focus_target, "library-results")
+            self.assertEqual(dialogs.calls, ["library-export.pgn"])
+            self.assertEqual(len(reopened.games), 1)
+            self.assertEqual(reopened.games[0].tags["Event"], "Release reachability")
+            self.assertNotIn(str(destination), repr(event))
+            application._file_event.assert_called_once_with(event)
         finally:
             database.close()
 
