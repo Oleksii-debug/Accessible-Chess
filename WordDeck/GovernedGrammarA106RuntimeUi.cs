@@ -587,7 +587,7 @@ internal static class GovernedGrammarA106RuntimeUi
                     currentItemId,
                     evaluation.Correct,
                     resume,
-                    revealUses: evaluation.Correct ? 0 : 1,
+                    evaluation.Correct ? 0 : 1,
                     out string? persistenceFailure))
             {
                 recommendedItemId = null;
@@ -779,9 +779,9 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
             bool practiceSaved = GovernedGrammarA106RuntimeUi.TryRecordPracticeForUi(
                 runtime,
                 GovernedGrammarA106StudyCatalog.PrimaryItemId,
-                correct: true,
+                true,
                 GovernedGrammarA106StudyCatalog.PrimaryItemId,
-                revealUses: 0,
+                0,
                 out string? practiceError);
             Require(!practiceSaved && !string.IsNullOrWhiteSpace(practiceError),
                 "Forced Grammar practice persistence failure was not contained.");
