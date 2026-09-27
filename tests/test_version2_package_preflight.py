@@ -278,6 +278,20 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 _VALID_WINFORMS_CONFIG.encode("utf-16"),
                 "must be UTF-8",
             ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    'encoding="utf-8"',
+                    'encoding="utf-16"',
+                ),
+                "XML declaration must declare UTF-8",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    'encoding="utf-8"',
+                    'encoding="windows-1252"',
+                ),
+                "XML declaration must declare UTF-8",
+            ),
         )
         for config_text, expected in cases:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:
