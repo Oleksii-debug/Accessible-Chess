@@ -100,6 +100,7 @@ def _database_fixture_bytes(
     *,
     schema_version: int = ACSDB_SCHEMA_VERSION,
     first_white: str | None = None,
+    first_pgn_text: str | None = None,
     source_sha256: str = "0" * 64,
 ) -> bytes:
     with tempfile.TemporaryDirectory() as directory:
@@ -143,7 +144,13 @@ def _database_fixture_bytes(
                             None,
                             None,
                             None,
-                            serialize_game(parse_pgn_text(_pgn_record("Starter", index), strict=True)[0]),
+                            (
+                                first_pgn_text
+                                if index == 0 and first_pgn_text is not None
+                                else serialize_game(
+                                    parse_pgn_text(_pgn_record("Starter", index), strict=True)[0]
+                                )
+                            ),
                         ),
                     )
             database.verify_integrity()
@@ -181,6 +188,7 @@ def _starter_bundle_files(
     database_games: int = STARTER_GAMES,
     database_schema: int = 6,
     database_first_white: str | None = None,
+    database_first_pgn_text: str | None = None,
     database_source_sha256: str | None = None,
 ) -> dict[str, bytes]:
     starter = _pgn_fixture("Starter", STARTER_GAMES)
@@ -190,6 +198,7 @@ def _starter_bundle_files(
         database_games,
         schema_version=database_schema,
         first_white=database_first_white,
+        first_pgn_text=database_first_pgn_text,
         source_sha256=database_source_sha256 or starter_sha256,
     )
     selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
@@ -563,6 +572,29 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         starter[manifest_path] = json.dumps(manifest).encode("utf-8")
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "complete-record count mismatch"):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_manifest_semantics_bind_to_strict_packaged_pgn(self) -> None:
+        starter = _starter_bundle_files()
+        manifest_path = f"{STARTER_ROOT}/manifest.json"
+        manifest = json.loads(starter[manifest_path])
+        selected = manifest["starter_source"]["curation"]["selected_games"][0]
+        selected["event"] = "Self-consistent but not packaged PGN"
+        starter[manifest_path] = json.dumps(manifest).encode("utf-8")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "semantic evidence mismatch at packaged game 1",
+        ):
+            verify(self.path, SHA)
+
+    def test_lawful_starter_database_pgn_text_binds_to_packaged_pgn(self) -> None:
+        starter = _starter_bundle_files(database_first_pgn_text="1. a3 a6 1-0")
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "ACSDB game metadata does not match curated starter evidence",
+        ):
             verify(self.path, SHA)
 
     def test_lawful_starter_database_claim_is_verified_against_sqlite(self) -> None:
