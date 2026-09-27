@@ -409,6 +409,40 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         with self.assertRaises(CandidateArtifactError):
             verify(self.path, SHA)
 
+    def test_manifest_missing_human_acceptance_flag_fails_closed(self) -> None:
+        candidate = _candidate_bytes()
+        with zipfile.ZipFile(io.BytesIO(candidate), "r") as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        manifest = json.loads(files["RELEASE_MANIFEST.json"])
+        del manifest["human_tested"]
+        files["RELEASE_MANIFEST.json"] = json.dumps(manifest).encode()
+        checksums = {
+            name: hashlib.sha256(payload).hexdigest()
+            for name, payload in files.items()
+            if name != "SHA256SUMS.txt"
+        }
+        files["SHA256SUMS.txt"] = _checksums(checksums)
+        self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
+        with self.assertRaisesRegex(CandidateArtifactError, "human_tested"):
+            verify(self.path, SHA)
+
+    def test_manifest_non_boolean_nvda_acceptance_flag_fails_closed(self) -> None:
+        candidate = _candidate_bytes()
+        with zipfile.ZipFile(io.BytesIO(candidate), "r") as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        manifest = json.loads(files["RELEASE_MANIFEST.json"])
+        manifest["nvda_verified"] = "no"
+        files["RELEASE_MANIFEST.json"] = json.dumps(manifest).encode()
+        checksums = {
+            name: hashlib.sha256(payload).hexdigest()
+            for name, payload in files.items()
+            if name != "SHA256SUMS.txt"
+        }
+        files["SHA256SUMS.txt"] = _checksums(checksums)
+        self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
+        with self.assertRaisesRegex(CandidateArtifactError, "nvda_verified"):
+            verify(self.path, SHA)
+
     def test_manifest_nvda_overclaim_fails(self) -> None:
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(nvda_verified=True)))
         with self.assertRaises(CandidateArtifactError):
