@@ -659,10 +659,10 @@ internal sealed partial class MainForm : Form
         bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
         if (_state.AutoPlayPronunciationOnCardChange)
         {
-            if (_current is not null) TryPlayCurrentPronunciation(announceFailure: true);
             AnnounceStatus(saved
                 ? "Automatic British pronunciation enabled."
                 : $"Automatic British pronunciation is enabled for this session, but the setting was not saved. {saveError}");
+            if (_current is not null) TryPlayCurrentPronunciation(announceFailure: true);
         }
         else
         {
@@ -804,20 +804,16 @@ internal sealed partial class MainForm : Form
         _lastMove = null;
         UpdateCounts();
         RebuildSwitchDeckMenu();
-        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
-        if (string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase))
-        {
+        bool activeSourceDeck = string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase);
+        if (activeSourceDeck)
             ShowEntryById(undo.EntryId);
-            AnnounceStatus(saved
+
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? activeSourceDeck
                 ? $"Undid move. {entry.Source} is back in {fromDeck.Name} in {StudyScopeIds.DisplayName(undo.ScopeId)}."
-                : $"Undid move for this session. {entry.Source} is back in {fromDeck.Name}, but the undo was not saved. {saveError}");
-        }
-        else
-        {
-            AnnounceStatus(saved
-                ? $"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}."
-                : $"Undid move for this session. {entry.Source} is back in {fromDeck.Name}, but the undo was not saved. {saveError}");
-        }
+                : $"Undid move. {entry.Source} is back in {fromDeck.Name}; it was removed from {toDeck.Name}."
+            : $"Undid move for this session. {entry.Source} is back in {fromDeck.Name}, but the undo was not saved. {saveError}");
     }
 
     private void CreateDeck()
