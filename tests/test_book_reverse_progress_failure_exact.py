@@ -323,6 +323,11 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 opened = app.browser_command("books", "book.open_position")
                 self.assertEqual(opened["kind"], "delegated")
                 self.assertTrue(app.book_workflow.active)
+                # Book Board ownership deliberately survives temporary route
+                # changes; prove the workflow fence rather than only route scope.
+                routed = app.browser_command("shell", "screen.books")
+                self.assertEqual(routed["kind"], "route")
+                self.assertEqual(app.shell.current_route.route_id, "books")
                 before_reader = app.reader.snapshot()
                 before_durable = self._durable_snapshot(app, progress)
 
@@ -361,6 +366,50 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 returned = app.browser_command("books", "book.return_from_board")
                 self.assertEqual(returned["kind"], "render")
                 self.assertFalse(app.book_workflow.active)
+
+
+
+    def test_off_route_native_reverse_action_cannot_move_hidden_book_progress(self) -> None:
+        cases = (
+            ("book.next_position", "book.previous_position"),
+            ("book.next_game", "book.previous_game"),
+        )
+        for forward, reverse in cases:
+            with self.subTest(reverse=reverse):
+                with tempfile.TemporaryDirectory() as root_text:
+                    with self._app(Path(root_text)) as (app, progress):
+                        self.assertEqual(app.browser_command("books", forward)["kind"], "render")
+                        self.assertEqual(app.browser_command("books", forward)["kind"], "render")
+                        before_reader = app.reader.snapshot()
+                        before_durable = self._durable_snapshot(app, progress)
+
+                        routed = app.browser_command("shell", "screen.library")
+                        self.assertEqual(routed["kind"], "route")
+                        self.assertEqual(app.shell.current_route.route_id, "library")
+
+                        with patch.object(
+                            progress,
+                            "save",
+                            side_effect=AssertionError(
+                                "off-route native Book navigation must not publish progress"
+                            ),
+                        ) as save:
+                            result = app.adapter.activate_action(reverse)
+
+                        self.assertEqual(result.kind, "error")
+                        save.assert_not_called()
+                        self.assertEqual(app.reader.snapshot(), before_reader)
+                        self.assertEqual(self._durable_snapshot(app, progress), before_durable)
+
+                        routed = app.browser_command("shell", "screen.books")
+                        self.assertEqual(routed["kind"], "route")
+                        result = app.adapter.activate_action(reverse)
+                        self.assertEqual(result.kind, "delegated")
+                        self.assertNotEqual(app.reader.snapshot(), before_reader)
+                        self.assertEqual(
+                            self._durable_snapshot(app, progress),
+                            app.reader.snapshot(),
+                        )
 
 
 
