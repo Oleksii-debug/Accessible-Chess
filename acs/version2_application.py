@@ -175,7 +175,7 @@ class Version2Application:
         try:
             return self.progress_store.save(book_key, reader)
         except BookProgressStoreError as error:
-            if error.code is not BookProgressStoreErrorCode.CORRUPT_STORE:
+            if error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                 raise
             # Recovery is destructive with respect to the corrupt primary's
             # newest generation. Never infer consent from the existence of a
