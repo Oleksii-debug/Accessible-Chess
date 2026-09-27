@@ -47,15 +47,16 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertNotIn("W4_READBACK_PRODUCT_AUTHORITY", self.text)
         self.assertNotIn("WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
 
-    def test_expected_product_sha_is_independently_bound_to_live_full_product(self) -> None:
-        self.assertIn(f"FULL_PRODUCT_BRANCH: {FULL_PRODUCT_BRANCH}", self.text)
-        self.assertIn("Bind expected Product SHA from live canonical Full Product authority", self.text)
-        self.assertIn('git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"', self.text)
-        self.assertIn('live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"', self.text)
-        self.assertIn('[[ "$live" =~ ^[0-9a-f]{40}$ ]]', self.text)
-        self.assertIn('git cat-file -e "${live}^{commit}"', self.text)
-        self.assertIn('echo "product_sha=$live" >> "$GITHUB_OUTPUT"', self.text)
-        self.assertIn("W4_READBACK_EXPECTED_PRODUCT_SHA=$live", self.text)
+    def test_expected_product_sha_is_bound_to_completed_run_metadata(self) -> None:
+        self.assertIn("Bind Product identity to the completed run metadata", self.text)
+        self.assertIn("EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
+        self.assertIn('target = "p0-evidence/w4-run-metadata.json"', self.text)
+        self.assertIn('if workflow != expected_workflow:', self.text)
+        self.assertIn('metadata.get("pre_upload_product_freshness") is not True', self.text)
+        self.assertIn('metadata.get("pre_upload_workflow_freshness") is not True', self.text)
+        self.assertIn('stream.write(f"product_sha={product}\\n")', self.text)
+        self.assertIn("W4_READBACK_RUN_IDENTITY=PASS", self.text)
+        self.assertNotIn("FULL_PRODUCT_BRANCH:", self.text)
 
     def test_product_identity_does_not_come_from_untrusted_archive(self) -> None:
         self.assertNotIn("zipfile.ZipFile('candidate-artifact.zip'", self.text)
@@ -64,11 +65,11 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
 
     def test_verifier_is_materialized_from_pinned_authority(self) -> None:
         self.assertIn(
-            "W4_VERIFIER_COMMIT: 70fa4fd75910d659161abcc8bcd192e9a88a7905",
+            "W4_VERIFIER_COMMIT: a8beb88f89ab69bb9476e30f2a68df40a832c19d",
             self.text,
         )
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 74282656f5a38e198640c35e390128448935cde1",
+            "W4_VERIFIER_BLOB_SHA: 01922a47d6fe54b2944f2ae54933eac5d9cdb050",
             self.text,
         )
         self.assertIn('git fetch --no-tags origin "$W4_VERIFIER_COMMIT"', self.text)
@@ -88,20 +89,19 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("candidate artifact exceeds 300 MiB download bound", self.text)
         self.assertIn("--outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'", self.text)
 
-    def test_product_movement_during_readback_fails_closed(self) -> None:
-        self.assertIn("Recheck live Full Product freshness after build and upload", self.text)
-        self.assertGreaterEqual(
-            self.text.count('git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"'),
-            2,
-        )
-        self.assertIn('test "$PRODUCT_SHA" = "$live"', self.text)
-        self.assertIn("STALE_W4_CANDIDATE", self.text)
-        self.assertIn("W4_POST_BUILD_FRESHNESS=PASS", self.text)
+    def test_product_movement_after_upload_does_not_invalidate_completed_run(self) -> None:
+        self.assertNotIn("Recheck live Full Product freshness after build and upload", self.text)
+        self.assertNotIn('git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"', self.text)
+        self.assertNotIn("STALE_W4_CANDIDATE", self.text)
+        self.assertIn("pre_upload_product_freshness", self.text)
+        self.assertIn("pre_upload_workflow_freshness", self.text)
+        self.assertIn("github.event.workflow_run.head_sha", self.text)
 
     def test_independent_verifier_receives_independently_bound_product_sha(self) -> None:
         self.assertIn("python .w4-readback/verify_w4_candidate_artifact.py", self.text)
         self.assertIn("--artifact candidate-artifact.zip", self.text)
         self.assertIn("--product-sha '${{ steps.product.outputs.product_sha }}'", self.text)
+        self.assertIn("--workflow-sha '${{ github.event.workflow_run.head_sha }}'", self.text)
         self.assertIn("W4_EXACT_RUN_ARTIFACT_READBACK=PASS", self.text)
 
     def test_readback_cannot_claim_human_or_nvda_acceptance(self) -> None:
