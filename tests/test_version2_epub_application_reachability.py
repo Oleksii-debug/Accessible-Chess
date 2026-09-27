@@ -79,7 +79,7 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         chapter = f'''<html lang="uk"><body>
 <h1 id="chapter">Розділ EPUB</h1>
 <p>Доступний текст книги.</p>
-<div id="position" data-acs-fen="{Board.START}" data-acs-alt="Початкова позиція"></div>
+<img id="position" alt="Початкова позиція" data-acs-fen="{Board.START}"/>
 <p>Після позиції.</p>
 </body></html>'''.encode("utf-8")
         source = self._write_epub("навчання.epub", chapter)
