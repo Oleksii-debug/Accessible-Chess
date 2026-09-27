@@ -179,6 +179,16 @@ internal static class SelfTest
             "Recall Up/Down dispatch does not preserve distinct next/previous actions.");
         Require(!manager.TrySet(ActionIds.SaveProgress, Keys.Left, out _), "Unmodified Left Arrow must remain standard caret/text navigation.");
         Require(!manager.TrySet(ActionIds.SaveProgress, Keys.Right, out _), "Unmodified Right Arrow must remain standard caret/text navigation.");
+        Require(!manager.TrySet(ActionIds.SaveProgress, Keys.Control | Keys.Left, out _),
+            "Ctrl+Left must remain standard word-by-word text navigation outside the English Recall word surface.");
+        Require(!manager.TrySet(ActionIds.SaveProgress, Keys.Control | Keys.Right, out _),
+            "Ctrl+Right must remain standard word-by-word text navigation outside the English Recall word surface.");
+        var persistedUnsafeState = AppStateStore.Normalize(new AppState());
+        persistedUnsafeState.Shortcuts[ActionIds.SaveProgress] = (Keys.Control | Keys.Left).ToString();
+        var persistedUnsafeManager = new ShortcutManager(persistedUnsafeState);
+        Require(persistedUnsafeManager.Get(ActionIds.SaveProgress) == (Keys.Control | Keys.S) &&
+                persistedUnsafeManager.FindAction(Keys.Control | Keys.Left) is null,
+            "A persisted legacy Ctrl+Left global binding remained live instead of falling back to the safe default.");
         Require(manager.Get(ActionIds.SaveProgress) == (Keys.Control | Keys.S), "Ctrl+S save default changed.");
         Require(manager.Get(ActionIds.AddWords) == (Keys.Control | Keys.Shift | Keys.A), "Bulk-add default changed.");
         Require(ShortcutFormatter.Format(Keys.Control | Keys.Shift | Keys.B) == "Ctrl+Shift+B", "Shared shortcut formatter regression.");
