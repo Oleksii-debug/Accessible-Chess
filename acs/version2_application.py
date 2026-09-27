@@ -60,6 +60,15 @@ class Version2Application:
         }
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
+    _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
+        {
+            "book.board_next_move",
+            "book.board_previous_move",
+            "book.board_enter_variation",
+            "book.board_leave_variation",
+            "book.board_analyze",
+        }
+    )
 
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
@@ -388,6 +397,13 @@ class Version2Application:
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
                 opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
+                if action in self._BOOK_BOARD_ACTIVE_COMMANDS:
+                    # Book Board navigation/analysis is meaningful only while the
+                    # canonical Board surface is visible. A workflow can remain
+                    # active across temporary shell navigation; do not mutate
+                    # that hidden Board from globally reachable native actions.
+                    if self.shell.current_route.route_id != "board":
+                        raise ValueError("book board command requires the visible Board")
                 if opening_board:
                     # Native menus bypass the Book WebView bridge and enter this
                     # delegate directly. Apply the same visible-reader/ownership
