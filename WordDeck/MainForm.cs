@@ -602,10 +602,12 @@ internal sealed partial class MainForm : Form
         string deckName = _decks.Find(_activeDeckId)?.Name ?? "Deck";
         _statusLabel.Text = $"Scope {StudyScopeIds.DisplayName(ActiveScopeId)}. Level {entry.Level}. {deckName}.";
         UpdateCounts();
-        SaveState();
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
         if (focusWord) FocusCurrentWord();
         bool nativeAudioPlayed = _state.AutoPlayPronunciationOnCardChange && TryPlayCurrentPronunciation(announceFailure: false);
         if (focusWord && !nativeAudioPlayed) AccessibilityAnnouncer.Announce(_wordBox, entry.Source);
+        if (!saved)
+            AnnounceStatus($"Current Recall card is available, but this learning progress was not saved. Resolve the storage problem before closing WordDeck. {saveError}");
     }
 
     private void RevealTranslation()
@@ -613,10 +615,14 @@ internal sealed partial class MainForm : Form
         if (_current is null) return;
         _translationBox.Text = _current.Target;
         UserProgressService.RecordTranslationReveal(_state, _current.Id);
-        SaveState();
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
         _translationBox.Focus();
         _translationBox.SelectAll();
-        AccessibilityAnnouncer.Announce(_translationBox, _current.Target);
+        AccessibilityAnnouncer.Announce(
+            _translationBox,
+            saved
+                ? _current.Target
+                : $"{_current.Target}. Warning: this translation reveal was not saved to personal progress. {saveError}");
     }
 
     private void RepeatCurrentWord()
@@ -644,16 +650,20 @@ internal sealed partial class MainForm : Form
     {
         _state.AutoPlayPronunciationOnCardChange = !_state.AutoPlayPronunciationOnCardChange;
         _autoPronunciationMenuItem.Checked = _state.AutoPlayPronunciationOnCardChange;
-        SaveState();
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
         if (_state.AutoPlayPronunciationOnCardChange)
         {
-            AnnounceStatus("Automatic British pronunciation enabled.");
             if (_current is not null) TryPlayCurrentPronunciation(announceFailure: true);
+            AnnounceStatus(saved
+                ? "Automatic British pronunciation enabled."
+                : $"Automatic British pronunciation is enabled for this session, but the setting was not saved. {saveError}");
         }
         else
         {
             _audio.Stop();
-            AnnounceStatus("Automatic British pronunciation disabled. Screen-reader word announcements remain enabled.");
+            AnnounceStatus(saved
+                ? "Automatic British pronunciation disabled. Screen-reader word announcements remain enabled."
+                : $"Automatic British pronunciation is disabled for this session, but the setting was not saved. Screen-reader word announcements remain enabled. {saveError}");
         }
     }
 
