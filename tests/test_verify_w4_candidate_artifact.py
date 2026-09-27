@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import sqlite3
+import stat
 from unittest.mock import patch
 import tempfile
 import unittest
@@ -236,10 +237,12 @@ def _candidate_bytes(
     nvda_verified: bool = False,
     human_tested: bool = False,
     starter_files: dict[str, bytes] | None = None,
+    app_executable: bytes = b"MZ-app",
+    stockfish_executable: bytes = b"MZ-stockfish",
 ) -> bytes:
     payload = {
-        "AccessibleChess/AccessibleChess.exe": b"exe",
-        "AccessibleChess/engines/stockfish/stockfish.exe": b"stockfish",
+        "AccessibleChess/AccessibleChess.exe": app_executable,
+        "AccessibleChess/engines/stockfish/stockfish.exe": stockfish_executable,
         **(starter_files or _starter_bundle_files()),
         "AccessibleChess/web/index.html": b"<!doctype html>",
     }
@@ -691,6 +694,43 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             _outer_bytes(candidate=_candidate_bytes(tamper="AccessibleChess/AccessibleChess.exe"))
         )
         with self.assertRaises(CandidateArtifactError):
+            verify(self.path, SHA)
+
+    def test_application_executable_requires_windows_mz_signature(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(app_executable=b"not-a-pe"))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "application executable.*MZ"):
+            verify(self.path, SHA)
+
+    def test_stockfish_executable_requires_windows_mz_signature(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(stockfish_executable=b"not-a-pe"))
+        )
+        with self.assertRaisesRegex(CandidateArtifactError, "Stockfish executable.*MZ"):
+            verify(self.path, SHA)
+
+    def test_symbolic_link_zip_entry_fails_closed(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr(
+                "Accessible-Chess-V2-fffffff-NVDA-test-candidate.zip",
+                _candidate_bytes(),
+            )
+            archive.writestr(
+                "p0-evidence/packaged-v2-document-copy-summary.json",
+                json.dumps(_copy_evidence()).encode(),
+            )
+            archive.writestr(
+                "p0-evidence/packaged-p0g-hotkey-result-summary.json",
+                json.dumps(_p0g_evidence()).encode(),
+            )
+            link = zipfile.ZipInfo("p0-evidence/packaged-uia-strict-summary.json")
+            link.create_system = 3
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(link, b"uia-target")
+        self.path.write_bytes(buffer.getvalue())
+        with self.assertRaisesRegex(CandidateArtifactError, "symbolic link entry"):
             verify(self.path, SHA)
 
     def test_missing_release_critical_p0f_file_fails(self) -> None:
