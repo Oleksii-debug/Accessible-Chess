@@ -223,6 +223,17 @@ internal static class SentenceCoachSelfTest
 
             string primaryPath = Path.Combine(root, "sentence-coach-state.json");
             string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+
+            // A syntactically valid but semantically conflicting primary must fall back to the verified backup.
+            File.Copy(primaryPath, backupPath, true);
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":2,\"StatsByDictionary\":{\"dict\":{},\"DICT\":{}}}");
+            SentenceCoachState semanticRecovery = new SentenceCoachStateStore(root).Load();
+            Require(semanticRecovery.ActivePackId == "pack-1",
+                "Sentence Coach did not recover from a semantically invalid primary using the valid backup.");
+            store.Save(semanticRecovery);
+
+
             File.WriteAllText(primaryPath, "{ broken primary");
             File.WriteAllText(backupPath, "{ broken backup");
             byte[] corruptPrimary = File.ReadAllBytes(primaryPath);
