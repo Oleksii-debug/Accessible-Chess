@@ -264,7 +264,14 @@ internal sealed class GrammarCoachStateStore
         command.Parameters.AddWithValue("$skill", skillId);
         using SqliteDataReader reader = command.ExecuteReader();
         if (!reader.Read()) return null;
-        return new GrammarSkillMastery(skillId, reader.GetInt32(0), reader.GetInt32(1), reader.GetDouble(2), DateTimeOffset.Parse(reader.GetString(3)));
+        GrammarSkillMastery row = new(
+            skillId,
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetDouble(2),
+            ParseTimestamp(reader.GetString(3), $"grammar mastery '{skillId}'"));
+        ValidateMasteryRow(row, "persisted grammar mastery");
+        return row;
     }
 
     private void Migrate(SqliteConnection connection, int fromVersion)
