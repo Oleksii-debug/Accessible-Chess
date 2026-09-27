@@ -39,6 +39,7 @@ class Element {
   }
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   addEventListener(name, callback) { this.listeners[String(name)] = callback; }
+  focus() { document.activeElement = this; }
   dispatch(name) {
     const callback = this.listeners[name];
     if (callback) callback({target: this});
@@ -61,6 +62,7 @@ documentElement.lang = "en";
 
 const document = {
   documentElement,
+  activeElement: null,
   getElementById(id) { return elements.get(id) || null; },
   createElement(tag) { return new Element(tag); },
   createDocumentFragment() { return new Fragment(); }
@@ -146,7 +148,7 @@ async function run() {
   assert.strictEqual(masterVolume.value, "65");
 
   const moveVolume = elements.get("sound-event-move-volume");
-  const movePreview = elements.get("sound-event-move-preview");
+  let movePreview = elements.get("sound-event-move-preview");
   assert.ok(moveVolume && movePreview, "event controls must be materialized");
   assert.strictEqual(moveVolume.value, "75");
 
@@ -156,10 +158,17 @@ async function run() {
   await Promise.resolve();
   assert.deepStrictEqual(calls[0], ["set_master", {enabled: false}]);
 
+  movePreview = elements.get("sound-event-move-preview");
+  movePreview.focus();
   movePreview.dispatch("click");
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
   assert.deepStrictEqual(calls[1], ["preview", {event_id: "move"}]);
+  assert.strictEqual(document.activeElement.id, "sound-event-move-preview",
+    "rerender must restore keyboard focus to the semantic control");
+  assert.notStrictEqual(document.activeElement, movePreview,
+    "focus proof must cover a newly materialized control after rerender");
   assert.strictEqual(announcements.length, 2);
   assert.strictEqual(announcements[0][0], "Saved.");
   assert.strictEqual(announcements[1][0], "Saved.");
