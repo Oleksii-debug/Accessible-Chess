@@ -84,6 +84,79 @@ internal static class BookReadingWritingSelfTest
             Require(new BookReadingWritingStore(service.DatabasePath).Load(imported.Document.BookId, sentence.SentenceId)?.ResponseText == revisedResponse,
                 "Writing response was lost after the Reading product service restarted.");
 
+            // Regression: Learning capture spans AppState and the private Reading SQLite store.
+            // If caller persistence fails, both state families must return to the exact pre-call values.
+            var readingState = new BookReadingStateStore(service.DatabasePath);
+
+            service.CaptureMappedOccurrenceToLearningDeck(
+                imported.Document,
+                sentence,
+                "rw:alpha",
+                state,
+                dictionary,
+                DeckIds.Core(2));
+            BookUnknownWord priorAlphaCapture = readingState.LoadUnknowns(imported.Document.BookId)
+                .Single(item => item.StableEntryId.Equals("rw:alpha", StringComparison.OrdinalIgnoreCase));
+            state.DeckIdsByDictionary[dictionary.Id]["rw:alpha"] = DeckIds.Core(5);
+
+            int failedPersistCalls = 0;
+            ExpectFailure<IOException>(
+                () => service.CaptureMappedOccurrenceToLearningDeckAndPersist(
+                    imported.Document,
+                    sentence,
+                    "rw:alpha",
+                    state,
+                    dictionary,
+                    DeckIds.Core(2),
+                    () =>
+                    {
+                        failedPersistCalls++;
+                        throw new IOException("simulated AppState persistence failure");
+                    }),
+                "Failed AppState persistence did not fail the cross-store Reading vocabulary capture.");
+            Require(failedPersistCalls == 1, "Cross-store capture did not invoke caller persistence exactly once.");
+            Require(state.DeckIdsByDictionary[dictionary.Id]["rw:alpha"] == DeckIds.Core(5),
+                "Failed AppState persistence left the in-memory deck assignment mutated.");
+            BookUnknownWord restoredAlphaCapture = readingState.LoadUnknowns(imported.Document.BookId)
+                .Single(item => item.StableEntryId.Equals("rw:alpha", StringComparison.OrdinalIgnoreCase));
+            Require(restoredAlphaCapture.SourceSentenceId == priorAlphaCapture.SourceSentenceId &&
+                    restoredAlphaCapture.AddedUtc == priorAlphaCapture.AddedUtc,
+                "Failed AppState persistence did not restore the exact prior private Reading capture.");
+
+            Require(!readingState.LoadUnknowns(imported.Document.BookId)
+                    .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
+                "Failure-path setup unexpectedly contained a prior beta Reading capture.");
+            ExpectFailure<IOException>(
+                () => service.CaptureMappedOccurrenceToLearningDeckAndPersist(
+                    imported.Document,
+                    sentence,
+                    "rw:beta",
+                    state,
+                    dictionary,
+                    DeckIds.Core(5),
+                    () => throw new IOException("simulated first-capture persistence failure")),
+                "Failed first capture did not surface the caller persistence error.");
+            Require(state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(2),
+                "Failed first capture did not restore the prior Learning deck assignment.");
+            Require(!readingState.LoadUnknowns(imported.Document.BookId)
+                    .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
+                "Failed first capture left a durable private Reading row behind.");
+
+            int successfulPersistCalls = 0;
+            service.CaptureMappedOccurrenceToLearningDeckAndPersist(
+                imported.Document,
+                sentence,
+                "rw:beta",
+                state,
+                dictionary,
+                DeckIds.Core(5),
+                () => successfulPersistCalls++);
+            Require(successfulPersistCalls == 1 &&
+                    state.DeckIdsByDictionary[dictionary.Id]["rw:beta"] == DeckIds.Core(5) &&
+                    readingState.LoadUnknowns(imported.Document.BookId)
+                        .Any(item => item.StableEntryId.Equals("rw:beta", StringComparison.OrdinalIgnoreCase)),
+                "Successful cross-store capture did not commit both Learning assignment and Reading evidence.");
+
             Require(BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", "BOOK-A"),
                 "Active-book guard rejected the same stable book identity with case-only differences.");
             Require(!BookReadingWritingSelectionPolicy.CanUseActiveBook("book-a", "book-b"),
@@ -102,7 +175,7 @@ internal static class BookReadingWritingSelfTest
             try { Directory.Delete(root, recursive: true); } catch { }
         }
 
-        Console.WriteLine("BookReading writing self-test PASS: sentence grounding, deterministic non-mastery feedback, bounded input, local SQLite persistence, revision upsert, restart continuity and active-book identity guarding verified.");
+        Console.WriteLine("BookReading writing self-test PASS: sentence grounding, deterministic non-mastery feedback, bounded input, local SQLite persistence, revision upsert, restart continuity, cross-store Learning-capture rollback/commit and active-book identity guarding verified.");
     }
 
     private static DictionaryPackage BuildDictionary() => new()
