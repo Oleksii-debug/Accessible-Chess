@@ -137,8 +137,19 @@ class PreparedPositionNavigator:
         cohort_id: str | None = None,
         require_no_notation: bool = False,
         expected_template_revision: str | None = None,
+        expected_position_revision: int | None = None,
     ) -> LessonSession:
-        source = self.current_source()
+        selected = self.current()
+        if expected_position_revision is not None:
+            if type(expected_position_revision) is not int or expected_position_revision < 0:
+                raise ChildCoachingPreparedPositionError(
+                    "expected prepared position revision must be a non-negative integer"
+                )
+            if selected.revision != expected_position_revision:
+                raise ChildCoachingPreparedPositionError(
+                    "prepared position changed; review it before launching"
+                )
+        source = selected.source
         return self._application.compile_session(
             template_id,
             session_id=session_id,
