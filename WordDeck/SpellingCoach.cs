@@ -469,6 +469,25 @@ internal sealed class SpellingDeckService
     }
 }
 
+internal static class SpellingClosePersistence
+{
+    public static bool TrySave(Action saveAction, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(saveAction);
+        try
+        {
+            saveAction();
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+}
+
 internal static class SpellingAnswerComparer
 {
     public static bool IsCorrect(string typed, string expected) =>
@@ -639,7 +658,16 @@ internal sealed class SpellingForm : Form
         RefreshScopeUi();
         RefreshDeckUi();
         Shown += (_, _) => BeginInvoke(new Action(RestoreOrNext));
-        FormClosing += (_, _) => { _audio.Dispose(); Save(); };
+        FormClosing += (_, e) =>
+        {
+            if (!SpellingClosePersistence.TrySave(Save, out string? error))
+            {
+                e.Cancel = true;
+                Announce($"Closing Spelling was cancelled because personal progress could not be saved. The trainer remains open; resolve the storage problem and try again. {error}");
+                return;
+            }
+            _audio.Dispose();
+        };
     }
 
     private MenuStrip BuildMenu()
