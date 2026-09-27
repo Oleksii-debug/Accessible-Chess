@@ -46,12 +46,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "branch" || {
+            echo 'W4 candidate must be dispatched from a branch ref' >&2
+            exit 1
+          }
+          test "$GITHUB_REF_NAME" = "$FULL_PRODUCT_BRANCH" || {
+            printf 'W4 candidate must be dispatched from canonical Full Product branch %s, got %s\n' "$FULL_PRODUCT_BRANCH" "$GITHUB_REF_NAME" >&2
+            exit 1
+          }
           requested='${{ inputs.product_sha }}'
           [[ "$requested" =~ ^[0-9a-fA-F]{40}$ ]] || {
             echo 'product_sha must be one exact 40-hex commit' >&2
             exit 1
           }
           requested="${requested,,}"
+          workflow_sha="$(git rev-parse HEAD)"
+          test "$workflow_sha" = "$requested" || {
+            printf 'W4 workflow authority %s is not exact requested Product %s\n' "$workflow_sha" "$requested" >&2
+            exit 1
+          }
           git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
           live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
           test "$requested" = "$live" || {
@@ -63,6 +76,7 @@ jobs:
           echo "PRODUCT_SHA=$requested" >> "$GITHUB_ENV"
           echo "SOURCE_INTEGRATION_SHA=$requested" >> "$GITHUB_ENV"
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip" >> "$GITHUB_ENV"
+          echo "W4_WORKFLOW_PRODUCT_IDENTITY=PASS"
           echo "INTEGRATED_FULL_PRODUCT_IDENTITY=PASS"
 
       - name: Materialize exact integrated Product worktree
