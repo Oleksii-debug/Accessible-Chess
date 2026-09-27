@@ -404,6 +404,14 @@ internal static class ListeningCoachSelfTest
             "Loading from verified recovery rewrote the malformed primary unexpectedly.");
         Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
             "Loading from verified recovery rewrote the recovery copy unexpectedly.");
+
+        recovered.ActiveScopeId = StudyScopeIds.A2;
+        store.Save(recovered);
+        ListeningCoachState afterRecoverySave = store.Load();
+        Require(afterRecoverySave.ActiveScopeId == StudyScopeIds.A2,
+            "Recovered Listening state could not be saved after semantic primary corruption.");
+        Require(recoveryBefore.SequenceEqual(File.ReadAllBytes(recovery)),
+            "Saving recovered Listening state replaced the verified recovery copy with malformed primary data.");
     }
 
     private static void TestNewerSchemaSaveFailsClosed(string root)
