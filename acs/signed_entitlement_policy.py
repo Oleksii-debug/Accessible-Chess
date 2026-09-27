@@ -23,6 +23,7 @@ from .entitlements import EntitlementSnapshot, EntitlementState, ProductVersion,
 SIGNED_POLICY_SCHEMA = "accessible-chess-entitlement-policy-v1"
 _SIGNATURE_DOMAIN = b"accessible-chess-entitlement-policy-v1\n"
 _MAX_ENVELOPE_BYTES = 32 * 1024
+_MAX_JSON_NESTING = 128
 _MAX_FEATURES = 256
 _MAX_TEXT = 256
 _KEY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -128,6 +129,9 @@ def verify_signed_entitlement_policy(
     except UnicodeDecodeError as exc:
         raise SignedEntitlementPolicyError("signed entitlement envelope is not valid UTF-8") from exc
 
+    if not _json_bytes_nesting_within_limit(data, _MAX_JSON_NESTING):
+        raise SignedEntitlementPolicyError("signed entitlement envelope exceeds JSON nesting limit")
+
     try:
         document = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
     except SignedEntitlementPolicyError:
@@ -170,6 +174,58 @@ def canonical_entitlement_signature_message(*, schema: str, key_id: str, payload
     normalized_key = _require_identifier(key_id, "key_id", _KEY_ID_RE)
     bounded_payload = _require_exact_mapping(payload, _PAYLOAD_FIELDS, "signed entitlement payload")
     return _canonical_signature_message(schema=schema, key_id=normalized_key, payload=bounded_payload)
+
+
+def _json_bytes_nesting_within_limit(payload: bytes, limit: int) -> bool:
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in payload:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):
+            depth += 1
+            if depth > limit:
+                return False
+        elif byte in (0x5D, 0x7D):
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0 and not in_string and not escaped
+
+
+def _object_nesting_within_limit(value: Any, limit: int) -> bool:
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    seen: set[int] = set()
+    while stack:
+        current, depth = stack.pop()
+        if depth > limit:
+            return False
+        if type(current) is dict:
+            identity = id(current)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            for item in current.values():
+                if type(item) in (dict, list, tuple):
+                    stack.append((item, depth + 1))
+        elif type(current) in (list, tuple):
+            identity = id(current)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            for item in current:
+                if type(item) in (dict, list, tuple):
+                    stack.append((item, depth + 1))
+    return True
 
 
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -230,6 +286,8 @@ def _decode_signature(value: Any) -> bytes:
 
 def _canonical_signature_message(*, schema: str, key_id: str, payload: Mapping[str, Any]) -> bytes:
     signed = {"key_id": key_id, "payload": payload, "schema": schema}
+    if not _object_nesting_within_limit(signed, _MAX_JSON_NESTING):
+        raise SignedEntitlementPolicyError("signed entitlement payload exceeds JSON nesting limit")
     try:
         encoded = json.dumps(
             signed,

@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import json
-import sys
 import unittest
 
 from acs.entitlements import EntitlementState
@@ -92,7 +91,7 @@ class SignedEntitlementPolicyTests(unittest.TestCase):
         )
 
     def test_deep_json_parse_recursion_is_bounded(self) -> None:
-        depth = sys.getrecursionlimit() + 100
+        depth = 129
         nested = ("[" * depth) + "0" + ("]" * depth)
         raw = (
             '{"schema":"' + SIGNED_POLICY_SCHEMA + '","key_id":"release-key-1","payload":' +
@@ -100,7 +99,7 @@ class SignedEntitlementPolicyTests(unittest.TestCase):
         ).encode("utf-8")
         self.assertLess(len(raw), 32 * 1024)
         verifier = FakeVerifier()
-        with self.assertRaisesRegex(SignedEntitlementPolicyError, "not valid JSON") as caught:
+        with self.assertRaisesRegex(SignedEntitlementPolicyError, "nesting limit") as caught:
             verify_signed_entitlement_policy(raw, verifier=verifier)
         self.assertIsNone(caught.exception.__cause__)
         self.assertIsNone(verifier.last_message)
@@ -108,13 +107,13 @@ class SignedEntitlementPolicyTests(unittest.TestCase):
     def test_deep_canonical_payload_recursion_is_bounded(self) -> None:
         nested: dict[str, object] = {}
         cursor = nested
-        for _ in range(sys.getrecursionlimit() + 100):
+        for _ in range(129):
             child: dict[str, object] = {}
             cursor["x"] = child
             cursor = child
         p = payload(account_id=nested)
         with self.assertRaisesRegex(
-            SignedEntitlementPolicyError, "not canonically serializable"
+            SignedEntitlementPolicyError, "nesting limit"
         ) as caught:
             canonical_entitlement_signature_message(
                 schema=SIGNED_POLICY_SCHEMA,
@@ -122,6 +121,19 @@ class SignedEntitlementPolicyTests(unittest.TestCase):
                 payload=p,
             )
         self.assertIsNone(caught.exception.__cause__)
+
+    def test_nesting_scan_ignores_brackets_inside_strings(self) -> None:
+        noisy = ("[" * 512) + "\\\"" + ("]" * 512)
+        p = payload(account_id=noisy)
+        verifier = FakeVerifier()
+        policy = verify_signed_entitlement_policy(envelope_bytes(p), verifier=verifier)
+        self.assertEqual(policy.snapshot.account_id, noisy)
+        message = canonical_entitlement_signature_message(
+            schema=SIGNED_POLICY_SCHEMA,
+            key_id="release-key-1",
+            payload=p,
+        )
+        self.assertEqual(verifier.last_message, message)
 
     def test_signature_failure_does_not_project_claims(self) -> None:
         with self.assertRaisesRegex(SignedEntitlementPolicyError, "signature is invalid"):
