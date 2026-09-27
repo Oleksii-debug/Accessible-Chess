@@ -215,11 +215,13 @@ internal static class GrammarAnswerEvaluator
 
     private static string? ReplaceWholePhrase(string value, string expanded, string contracted)
     {
-        string padded = " " + value + " ";
-        string needle = " " + expanded + " ";
-        if (!padded.Contains(needle, StringComparison.Ordinal))
+        Match match = Regex.Match(
+            value,
+            $@"(?<![a-z]){Regex.Escape(expanded)}(?![a-z])",
+            RegexOptions.CultureInvariant);
+        if (!match.Success)
             return null;
-        return padded.Replace(needle, " " + contracted + " ", StringComparison.Ordinal).Trim();
+        return value[..match.Index] + contracted + value[(match.Index + match.Length)..];
     }
 
     private static GrammarErrorKind Classify(GrammarExercise exercise, string actual, string expected)
