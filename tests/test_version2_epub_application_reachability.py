@@ -176,6 +176,28 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, route_before)
         self.assertEqual(self.app.reader.snapshot(), snapshot_before)
 
+    def test_corrupt_epub_container_is_atomic_against_current_book_state(self) -> None:
+        valid = self._write_epub(
+            "stable.epub",
+            b"<html><body><h1>Stable book</h1><p>Remain open.</p></body></html>",
+        )
+        self.app.open_book(valid)
+        reader_before = self.app.reader
+        key_before = self.app.book_key
+        route_before = self.app.shell.current_route.route_id
+        snapshot_before = reader_before.snapshot()
+
+        corrupt = self.root / "corrupt.epub"
+        corrupt.write_bytes(b"not-an-epub-container")
+        with self.assertRaises(BookEpubImportError) as caught:
+            self.app.open_book(corrupt)
+
+        self.assertEqual(caught.exception.code, BookEpubImportErrorCode.UNSUPPORTED_CONTAINER)
+        self.assertIs(self.app.reader, reader_before)
+        self.assertEqual(self.app.book_key, key_before)
+        self.assertEqual(self.app.shell.current_route.route_id, route_before)
+        self.assertEqual(self.app.reader.snapshot(), snapshot_before)
+
     def test_unmarked_pgn_inside_epub_remains_selectable_reading_text(self) -> None:
         source = self._write_epub(
             "quoted.epub",
