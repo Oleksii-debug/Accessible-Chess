@@ -145,23 +145,47 @@ internal sealed class SpellingProfileService
         }
         catch (Exception importFailure)
         {
-            IReadOnlyList<Exception> rollbackFailures = PersonalStateRollbackExecutor.RestoreAll(new[]
-            {
-                new PersonalStateRollbackStep("Recall", () =>
-                {
-                    ReplaceApp(destinationApp, beforeApp);
-                    _appStore.Save(destinationApp);
-                }),
-                new PersonalStateRollbackStep("Spelling", () =>
-                {
-                    SpellingStateStore.Replace(destinationSpelling, beforeSpelling);
-                    _spellingStore.Save(destinationSpelling);
-                })
-            });
+            IReadOnlyList<Exception> rollbackFailures = RestoreAfterFailedImport(
+                destinationApp,
+                beforeApp,
+                destinationSpelling,
+                beforeSpelling,
+                () => _appStore.Save(destinationApp),
+                () => _spellingStore.Save(destinationSpelling));
             if (rollbackFailures.Count > 0)
                 throw PersonalStateRollbackExecutor.CreateIncompleteImportException(importFailure, rollbackFailures);
             throw;
         }
+    }
+
+    internal static IReadOnlyList<Exception> RestoreAfterFailedImport(
+        AppState destinationApp,
+        AppState beforeApp,
+        SpellingState destinationSpelling,
+        SpellingState beforeSpelling,
+        Action saveRecall,
+        Action saveSpelling)
+    {
+        ArgumentNullException.ThrowIfNull(destinationApp);
+        ArgumentNullException.ThrowIfNull(beforeApp);
+        ArgumentNullException.ThrowIfNull(destinationSpelling);
+        ArgumentNullException.ThrowIfNull(beforeSpelling);
+        ArgumentNullException.ThrowIfNull(saveRecall);
+        ArgumentNullException.ThrowIfNull(saveSpelling);
+
+        return PersonalStateRollbackExecutor.RestoreAll(new[]
+        {
+            new PersonalStateRollbackStep("Recall", () =>
+            {
+                ReplaceApp(destinationApp, beforeApp);
+                saveRecall();
+            }),
+            new PersonalStateRollbackStep("Spelling", () =>
+            {
+                SpellingStateStore.Replace(destinationSpelling, beforeSpelling);
+                saveSpelling();
+            })
+        });
     }
 
     private static void ValidateLegacyProfileCorpus(string sourcePath)
