@@ -20,8 +20,8 @@ internal static class BulkWordImportAccessibilitySelfTest
             "Shift+Tab must remain reverse navigation.");
         Require(BulkWordImportKeyboardPolicy.IsLiteralTabChord(Keys.Control | Keys.Tab),
             "Ctrl+Tab must provide the explicit literal TAB insertion path.");
-        Require(BulkWordImportKeyboardPolicy.IsLiteralTabChord(Keys.Control | Keys.Shift | Keys.Tab),
-            "Ctrl+Shift+Tab may still request literal TAB without stealing plain reverse navigation.");
+        Require(!BulkWordImportKeyboardPolicy.IsLiteralTabChord(Keys.Control | Keys.Shift | Keys.Tab),
+            "Ctrl+Shift+Tab must not be silently repurposed as text insertion.");
         Require(!BulkWordImportKeyboardPolicy.IsLiteralTabChord(Keys.Alt | Keys.Tab),
             "Alt+Tab must never be treated as text insertion.");
         Require(!BulkWordImportKeyboardPolicy.IsLiteralTabChord(Keys.Control | Keys.A),
