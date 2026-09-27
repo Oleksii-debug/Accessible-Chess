@@ -47,7 +47,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PRODUCT_SHA: 18c717b88b968d43420a59fe819c7bff97aea504
+  EXPECTED_PRODUCT_SHA: 232016879709adc0c90eb41b886fd4b8f5e5cf72
 
 jobs:
   convergence:
