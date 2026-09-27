@@ -6,7 +6,7 @@ internal static class ShortcutCaptureKeyboardPolicy
     {
         Keys keyCode = keyData & Keys.KeyCode;
         Keys modifiers = keyData & Keys.Modifiers;
-        if (keyData == (Keys.Alt | Keys.F4))
+        if (keyData is (Keys.Alt | Keys.F4) or (Keys.Alt | Keys.Tab) or (Keys.Control | Keys.Escape) or (Keys.Alt | Keys.Space))
             return true;
         return keyCode == Keys.Tab && modifiers is Keys.None or Keys.Shift;
     }
