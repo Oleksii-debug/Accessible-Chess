@@ -86,6 +86,43 @@ class BookIndexTests(unittest.TestCase):
         with self.assertRaises(BookDocumentError):
             BookIndex(document)
 
+    def test_index_construction_uses_one_validated_detached_snapshot(self):
+        class MutatingAfterExportBookDocument(BookDocument):
+            def as_dict(self):
+                payload = super().as_dict()
+                heading = self.blocks[0]
+                self.assert_heading(heading)
+                heading.level = 6
+                heading.text = "Mutated after export"
+                self.blocks.reverse()
+                return payload
+
+            @staticmethod
+            def assert_heading(block):
+                if not isinstance(block, Heading):
+                    raise AssertionError("fixture must begin with a Heading")
+
+        source = self.make_document()
+        document = MutatingAfterExportBookDocument(
+            title=source.title,
+            language=source.language,
+            author=source.author,
+            source_name=source.source_name,
+            source_uri=source.source_uri,
+            source_rights=source.source_rights,
+            warnings=list(source.warnings),
+            blocks=list(source.blocks),
+        )
+
+        index = BookIndex(document)
+
+        self.assertEqual(index.entries[0].label, "Chapter One")
+        self.assertEqual(index.entries[0].heading_level, 1)
+        self.assertEqual(index.entries[0].target.key, "block:h1")
+        self.assertEqual(index.entries[-1].label, "Return to the critical position")
+        self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
+        self.assertEqual(document.blocks[0].source_anchor, "note-a")
+
     def test_stable_target_prefers_block_id_then_source_anchor(self):
         index = BookIndex(self.make_document())
         self.assertEqual(index.entries[0].target.key, "block:h1")
