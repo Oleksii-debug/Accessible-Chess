@@ -794,8 +794,8 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
                     firstError is null,
                 "Healthy Grammar exposure was rejected before the failure fixture.");
 
-            Directory.Delete(root, recursive: true);
-            File.WriteAllText(root, "block-course-state-directory");
+            string tempWriteBlocker = Path.Combine(root, LearnerCourseStateStore.FileName + ".tmp");
+            Directory.CreateDirectory(tempWriteBlocker);
 
             bool practiceSaved = GovernedGrammarA106RuntimeUi.TryRecordPracticeForUi(
                 runtime,
@@ -811,6 +811,10 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
                 "Grammar persistence failure did not expose truthful learner-facing feedback.");
             Require(!practiceError.Contains("Correct.", StringComparison.Ordinal),
                 "Failed Grammar persistence surfaced false successful-answer wording.");
+            LearnerCourseState durableAfterFailedPractice = new LearnerCourseStateStore(root).Load();
+            Require(durableAfterFailedPractice.EvidenceHistory.Count == 1 &&
+                    durableAfterFailedPractice.EvidenceHistory.Single().ActivityKind == LearnerActivityKind.Exposure,
+                "Failed Grammar practice attempt leaked into durable learner evidence.");
 
             bool exposureSaved = GovernedGrammarA106RuntimeUi.TryRecordExposureForUi(
                 runtime,
@@ -819,10 +823,12 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
             Require(!exposureSaved && !string.IsNullOrWhiteSpace(exposureError) &&
                     exposureError.Contains("не збережено", StringComparison.OrdinalIgnoreCase),
                 "Forced Grammar exposure persistence failure escaped the safe UI boundary.");
+            LearnerCourseState durableAfterFailedExposure = new LearnerCourseStateStore(root).Load();
+            Require(durableAfterFailedExposure.EvidenceHistory.Count == 1,
+                "Failed Grammar exposure leaked into durable learner evidence.");
         }
         finally
         {
-            try { if (File.Exists(root)) File.Delete(root); } catch { }
             try { Directory.Delete(parent, recursive: true); } catch { }
         }
 
