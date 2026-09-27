@@ -19,6 +19,7 @@ from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .sound_settings_application import SoundSettingsApplication
 from .ui_native_menu import _resolve_windows_host_form
 from .ui_review_adapter import ReviewView
 from .version2_profile import VERSION2_FULL_PRODUCT_ACTION_IDS, Version2NativeMenuController
@@ -39,6 +40,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._ui_closed = False
         super().__init__(*args, **kwargs)
         self._version2_application: Any | None = None
+        self._sound_settings_application: SoundSettingsApplication | None = None
         self._version2_language_refresh: Callable[[], bool] | None = None
         self._external_review_fen: str | None = None
 
@@ -95,6 +97,184 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if getattr(application, "adapter", None) is None:
             raise TypeError("Version 2 application requires its accepted WebView adapter")
         self._version2_application = application
+
+    def bind_sound_settings_application(self, application: SoundSettingsApplication) -> None:
+        """Bind the one durable profile-driven sound settings authority."""
+
+        if not isinstance(application, SoundSettingsApplication):
+            raise TypeError("sound settings application must be SoundSettingsApplication")
+        if (
+            self._sound_settings_application is not None
+            and self._sound_settings_application is not application
+        ):
+            raise RuntimeError("sound settings application is already bound")
+        self._sound_settings_application = application
+
+    def _sound_state(self) -> dict[str, Any]:
+        sound = self._sound_settings_application
+        if sound is None:
+            return super()._sound_state()
+        snapshot = sound.snapshot(language=self.lang)
+        events = snapshot.get("events", ())
+        return {
+            "enabled": bool(snapshot.get("master_enabled", True)),
+            "volume": int(snapshot.get("master_volume_percent", 80)),
+            "events": [
+                str(item.get("event_id"))
+                for item in events
+                if isinstance(item, Mapping) and item.get("event_id")
+            ],
+        }
+
+    def set_sound_enabled(self, enabled: bool) -> dict[str, Any]:
+        sound = self._sound_settings_application
+        if type(enabled) is not bool or sound is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося змінити налаштування звуку.",
+                    "Sound setting could not be changed.",
+                ),
+            }
+        try:
+            result = sound.set_master(enabled=enabled, language=self.lang)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти налаштування звуку.",
+                    "Sound setting could not be saved.",
+                ),
+            }
+        return {"ok": result.ok, **self._sound_state(), "message": result.announcement}
+
+    def set_sound_volume(self, volume: int) -> dict[str, Any]:
+        sound = self._sound_settings_application
+        if type(volume) is not int or not 0 <= volume <= 100 or sound is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Гучність має бути від 0 до 100.",
+                    "Volume must be from 0 to 100.",
+                ),
+            }
+        try:
+            result = sound.set_master(volume_percent=volume, language=self.lang)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти гучність.",
+                    "Volume could not be saved.",
+                ),
+            }
+        return {"ok": result.ok, **self._sound_state(), "message": result.announcement}
+
+    def preview_sound(self, event_id: str) -> dict[str, Any]:
+        sound = self._sound_settings_application
+        if sound is None:
+            return super().preview_sound(event_id)
+        try:
+            result = sound.preview(event_id, language=self.lang)
+        except ValueError:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message("Невідомий звук.", "Unknown sound."),
+            }
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося відтворити звук.",
+                    "Sound could not be played.",
+                ),
+            }
+        return {"ok": result.ok, **self._sound_state(), "message": result.announcement}
+
+    def sound_settings_snapshot(self) -> dict[str, Any]:
+        sound = self._sound_settings_application
+        if sound is None:
+            return self._error(
+                self._sound_message(
+                    "Налаштування профілю звуку недоступні.",
+                    "Sound profile settings are unavailable.",
+                )
+            )
+        try:
+            snapshot = sound.snapshot(language=self.lang)
+        except Exception:
+            return self._error(
+                self._sound_message(
+                    "Не вдалося прочитати налаштування звуку.",
+                    "Sound settings could not be read.",
+                )
+            )
+        return {"ok": True, "snapshot": snapshot, "message": ""}
+
+    def sound_settings_command(
+        self,
+        command: str,
+        payload: Mapping[str, object] | None = None,
+    ) -> dict[str, Any]:
+        sound = self._sound_settings_application
+        if sound is None or type(command) is not str:
+            return self._error(
+                self._sound_message(
+                    "Налаштування профілю звуку недоступні.",
+                    "Sound profile settings are unavailable.",
+                )
+            )
+        data = {} if payload is None else payload
+        if not isinstance(data, Mapping):
+            return self._error(
+                self._sound_message("Некоректні параметри звуку.", "Invalid sound settings.")
+            )
+        try:
+            if command == "set_master":
+                result = sound.set_master(
+                    enabled=data.get("enabled"),
+                    volume_percent=data.get("volume_percent"),
+                    language=self.lang,
+                )
+            elif command == "set_event":
+                event_id = data.get("event_id")
+                if type(event_id) is not str:
+                    raise ValueError("event_id")
+                result = sound.set_event(
+                    event_id,
+                    enabled=data.get("enabled"),
+                    volume_percent=data.get("volume_percent"),
+                    language=self.lang,
+                )
+            elif command == "preview":
+                event_id = data.get("event_id")
+                if type(event_id) is not str:
+                    raise ValueError("event_id")
+                result = sound.preview(event_id, language=self.lang)
+            else:
+                raise ValueError("command")
+        except (TypeError, ValueError):
+            return self._error(
+                self._sound_message("Некоректні параметри звуку.", "Invalid sound settings.")
+            )
+        except Exception:
+            return self._error(
+                self._sound_message(
+                    "Не вдалося застосувати налаштування звуку.",
+                    "Sound settings could not be applied.",
+                )
+            )
+        return {
+            "ok": result.ok,
+            "snapshot": result.snapshot,
+            "message": result.announcement,
+        }
 
     def bind_version2_language_refresh(self, callback: Callable[[], bool]) -> None:
         """Bind the owner-host refresh used to rebuild localized native menus."""
