@@ -277,6 +277,8 @@ internal static class UnifiedProfileSelfTest
                 "Rollback executor stopped after an earlier family failed instead of attempting every independent state family.");
             InvalidDataException explicitFailure = PersonalStateRollbackExecutor.CreateIncompleteImportException(
                 new IOException("forced import failure"), isolatedFailures);
+            Require(explicitFailure is IncompletePersonalStateRecoveryException,
+                "Incomplete personal-state recovery did not expose its dedicated fail-closed exception type.");
             Require(explicitFailure.InnerException is AggregateException explicitAggregate &&
                     explicitAggregate.InnerExceptions.Count == 3 &&
                     explicitFailure.Message.Contains("recovery was incomplete", StringComparison.OrdinalIgnoreCase),

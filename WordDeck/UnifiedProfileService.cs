@@ -36,6 +36,12 @@ internal sealed record UnifiedProfileImportResult(
 
 internal sealed record PersonalStateRollbackStep(string StateFamily, Action Restore);
 
+internal sealed class IncompletePersonalStateRecoveryException : InvalidDataException
+{
+    public IncompletePersonalStateRecoveryException(string message, Exception innerException)
+        : base(message, innerException) { }
+}
+
 internal static class PersonalStateRollbackExecutor
 {
     public static IReadOnlyList<Exception> RestoreAll(IEnumerable<PersonalStateRollbackStep> steps)
@@ -57,7 +63,7 @@ internal static class PersonalStateRollbackExecutor
         return failures;
     }
 
-    public static InvalidDataException CreateIncompleteImportException(
+    public static IncompletePersonalStateRecoveryException CreateIncompleteImportException(
         Exception importFailure,
         IReadOnlyList<Exception> rollbackFailures)
     {
@@ -68,7 +74,7 @@ internal static class PersonalStateRollbackExecutor
 
         var failures = new List<Exception>(rollbackFailures.Count + 1) { importFailure };
         failures.AddRange(rollbackFailures);
-        return new InvalidDataException(
+        return new IncompletePersonalStateRecoveryException(
             "WordDeck profile import failed and automatic recovery was incomplete. " +
             "Pre-import recovery backups were preserved. Do not continue learning until personal state is restored from those backups.",
             new AggregateException(failures));
