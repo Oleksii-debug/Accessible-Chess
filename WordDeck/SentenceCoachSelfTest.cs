@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace WordDeck;
 
 internal static class SentenceCoachSelfTest
@@ -184,6 +186,28 @@ internal static class SentenceCoachSelfTest
         string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-state-{Guid.NewGuid():N}");
         try
         {
+            string extensionRoot = Path.Combine(root, "extension-roundtrip");
+            Directory.CreateDirectory(extensionRoot);
+            string extensionPrimary = Path.Combine(extensionRoot, "sentence-coach-state.json");
+            File.WriteAllText(extensionPrimary,
+                "{\"ActivePackId\":\"pack-ext\",\"TargetCount\":1,\"CurrentTargetEntryIds\":[],\"RecentSentenceIds\":[],\"StatsByDictionary\":{\"dict\":{\"ox-improve\":{\"CompletedReviews\":1,\"FirstTrySuccesses\":1,\"WrongAttempts\":0,\"ShowAnswerUses\":0,\"FutureStat\":{\"weight\":3}}}},\"FutureState\":{\"enabled\":true}}");
+            var extensionStore = new SentenceCoachStateStore(extensionRoot);
+            SentenceCoachState extensionState = extensionStore.Load();
+            extensionStore.Save(extensionState);
+            using (JsonDocument extensionJson = JsonDocument.Parse(File.ReadAllText(extensionPrimary)))
+            {
+                JsonElement rootElement = extensionJson.RootElement;
+                Require(rootElement.TryGetProperty("FutureState", out JsonElement futureState) &&
+                        futureState.GetProperty("enabled").GetBoolean(),
+                    "Sentence Coach dropped an unknown supported root-state field during Load-Save.");
+                JsonElement futureStat = rootElement.GetProperty("StatsByDictionary")
+                    .GetProperty("dict")
+                    .GetProperty("ox-improve")
+                    .GetProperty("FutureStat");
+                Require(futureStat.GetProperty("weight").GetInt32() == 3,
+                    "Sentence Coach dropped an unknown per-target statistics field during Load-Save.");
+            }
+
             var store = new SentenceCoachStateStore(root);
             var state = new SentenceCoachState
             {
@@ -215,6 +239,88 @@ internal static class SentenceCoachSelfTest
             SentenceCoachState recovered = new SentenceCoachStateStore(root).Load();
             Require(recovered.ActivePackId == "pack-1", "Sentence Coach backup recovery did not restore the last good state.");
             Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
+
+            // A corrupt primary is replaceable only because the verified recovery copy is still valid.
+            store.Save(recovered);
+            SentenceCoachState afterRecoverySave = new SentenceCoachStateStore(root).Load();
+            Require(afterRecoverySave.ActivePackId == "pack-1", "Sentence Coach could not save recovered state while retaining a valid recovery path.");
+
+            string primaryPath = Path.Combine(root, "sentence-coach-state.json");
+            string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+
+            // A syntactically valid but semantically conflicting primary must fall back to the verified backup.
+            File.Copy(primaryPath, backupPath, true);
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":2,\"StatsByDictionary\":{\"dict\":{},\"DICT\":{}}}");
+            SentenceCoachState semanticRecovery = new SentenceCoachStateStore(root).Load();
+            Require(semanticRecovery.ActivePackId == "pack-1",
+                "Sentence Coach did not recover from a semantically invalid primary using the valid backup.");
+            store.Save(semanticRecovery);
+
+            SentenceCoachState invalidInMemory = new SentenceCoachStateStore(root).Load();
+            invalidInMemory.StatsByDictionary["dict"]["ox-improve"].WrongAttempts = -1;
+            byte[] validPrimaryBeforeRejectedSave = File.ReadAllBytes(primaryPath);
+            byte[] validBackupBeforeRejectedSave = File.ReadAllBytes(backupPath);
+            ExpectInvalid(
+                () => store.Save(invalidInMemory),
+                "Sentence Coach accepted negative persisted learning counters.");
+            Require(File.ReadAllBytes(primaryPath).SequenceEqual(validPrimaryBeforeRejectedSave),
+                "Sentence Coach changed the valid primary after rejecting invalid in-memory counters.");
+            Require(File.ReadAllBytes(backupPath).SequenceEqual(validBackupBeforeRejectedSave),
+                "Sentence Coach changed the valid backup after rejecting invalid in-memory counters.");
+
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":1,\"StatsByDictionary\":{\"dict\":{\"ox-improve\":{\"CompletedReviews\":0,\"FirstTrySuccesses\":0,\"WrongAttempts\":-1,\"ShowAnswerUses\":0}}}}");
+            File.WriteAllBytes(backupPath, validBackupBeforeRejectedSave);
+            SentenceStateSession startupRecovery = TrainingStateContinuityGuard.LoadSentence(root);
+            Require(startupRecovery.State.ActivePackId == "pack-1",
+                "Normal Sentence Coach startup did not reject semantically invalid primary state and recover the valid backup.");
+            startupRecovery.Store.Save(startupRecovery.State);
+
+            File.Copy(primaryPath, backupPath, true);
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":1,\"CurrentTargetEntryIds\":null,\"RecentSentenceIds\":[],\"StatsByDictionary\":{}}");
+            SentenceCoachState nullStructureRecovery = new SentenceCoachStateStore(root).Load();
+            Require(nullStructureRecovery.ActivePackId == "pack-1",
+                "Sentence Coach normalized an explicitly null persisted target list instead of recovering the valid backup.");
+            store.Save(nullStructureRecovery);
+
+            File.Copy(primaryPath, backupPath, true);
+            File.WriteAllText(primaryPath,
+                "{\"TargetCount\":1,\"CurrentTargetEntryIds\":[],\"RecentSentenceIds\":[],\"StatsByDictionary\":{\"dict\":null}}");
+            SentenceCoachState nullStatsRecovery = new SentenceCoachStateStore(root).Load();
+            Require(nullStatsRecovery.ActivePackId == "pack-1",
+                "Sentence Coach normalized an explicitly null statistics map instead of recovering the valid backup.");
+            store.Save(nullStatsRecovery);
+
+            File.WriteAllText(primaryPath, "{ broken primary");
+            File.WriteAllText(backupPath, "{ broken backup");
+            byte[] corruptPrimary = File.ReadAllBytes(primaryPath);
+            byte[] corruptBackup = File.ReadAllBytes(backupPath);
+
+            ExpectInvalid(
+                () => new SentenceCoachStateStore(root).Load(),
+                "Sentence Coach silently fabricated fresh state when both persisted copies were unreadable.");
+            ExpectInvalid(
+                () => store.Save(recovered),
+                "Sentence Coach overwrote unreadable persisted state without a verified recovery copy.");
+            Require(File.ReadAllBytes(primaryPath).SequenceEqual(corruptPrimary),
+                "Sentence Coach changed the unreadable primary after a refused save.");
+            Require(File.ReadAllBytes(backupPath).SequenceEqual(corruptBackup),
+                "Sentence Coach changed the unreadable backup after a refused save.");
+
+            File.Delete(primaryPath);
+            File.WriteAllText(backupPath, "{ broken backup only");
+            byte[] corruptBackupOnly = File.ReadAllBytes(backupPath);
+            ExpectInvalid(
+                () => new SentenceCoachStateStore(root).Load(),
+                "Sentence Coach silently fabricated fresh state from a missing primary plus unreadable recovery copy.");
+            ExpectInvalid(
+                () => store.Save(recovered),
+                "Sentence Coach created a new primary over an unreadable lone recovery copy.");
+            Require(!File.Exists(primaryPath), "Sentence Coach created a primary after a refused save.");
+            Require(File.ReadAllBytes(backupPath).SequenceEqual(corruptBackupOnly),
+                "Sentence Coach changed the lone unreadable recovery copy after a refused save.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
     }
