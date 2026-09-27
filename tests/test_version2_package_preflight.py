@@ -252,6 +252,10 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 "<configuration><runtime /></configuration>",
                 "must not contain DTD or entities",
             ),
+            (
+                _VALID_WINFORMS_CONFIG.encode("utf-16"),
+                "must be UTF-8",
+            ),
         )
         for config_text, expected in cases:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:
@@ -259,7 +263,10 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 root.mkdir()
                 _make_tree(root)
                 config = root / "AccessibleChess" / "AccessibleChess.exe.config"
-                config.write_text(config_text, encoding="utf-8")
+                if isinstance(config_text, bytes):
+                    config.write_bytes(config_text)
+                else:
+                    config.write_text(config_text, encoding="utf-8")
                 _write_checksums(root)
                 with self.assertRaisesRegex(Version2PackagePreflightError, expected):
                     _validate_tree(root)
