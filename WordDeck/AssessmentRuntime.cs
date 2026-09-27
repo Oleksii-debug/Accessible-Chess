@@ -443,6 +443,10 @@ internal sealed class AssessmentRuntimeStateStore
         {
             if (!File.Exists(BackupPath)) return new AssessmentRuntimeState();
             try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
                 throw new InvalidDataException("Assessment runtime state is missing and its backup is invalid.", backup);
@@ -454,12 +458,16 @@ internal sealed class AssessmentRuntimeStateStore
         {
             // A newer primary may contain progress this build cannot understand. Never hide it
             // by silently downgrading to an older backup.
-            throw;
+            throw new InvalidDataException(schema.Message, schema);
         }
         catch (Exception primary) when (primary is JsonException or InvalidDataException or IOException)
         {
             if (!File.Exists(BackupPath)) throw new InvalidDataException("Assessment runtime state is invalid and no backup is available.", primary);
             try { return ReadValidated(BackupPath); }
+            catch (UnsupportedAssessmentRuntimeSchemaException schema)
+            {
+                throw new InvalidDataException(schema.Message, schema);
+            }
             catch (Exception backup) when (backup is JsonException or InvalidDataException or IOException)
             {
                 throw new InvalidDataException("Assessment runtime state and its backup are both invalid.", new AggregateException(primary, backup));
@@ -498,7 +506,7 @@ internal sealed class AssessmentRuntimeStateStore
         {
             // A newer persisted state may contain information this build cannot represent.
             // Never overwrite it through the normal save path.
-            throw;
+            throw new InvalidDataException(schema.Message, schema);
         }
         catch (Exception primary) when (primary is JsonException or InvalidDataException)
         {
