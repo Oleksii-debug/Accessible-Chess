@@ -4,7 +4,7 @@ import unittest
 
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
-from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, Position
+from acs.bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.full_product_presenters import BookReaderPresenter
@@ -52,6 +52,25 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertEqual(reader.next_game().block_id, "game-1")
         self.assertEqual(reader.next_game().block_id, "game-2")
         self.assertEqual(reader.previous_game().block_id, "game-1")
+
+    def test_reverse_position_semantics_include_exercises_and_variation_trees(self) -> None:
+        document = BookDocument(
+            title="Position-like semantics",
+            blocks=[
+                Position(fen=Board.START, block_id="position"),
+                Exercise(fen=Board.START, prompt="Find a move", block_id="exercise"),
+                VariationTree(root_fen=Board.START, pgn="1. e4 *", block_id="variation"),
+                Diagram(fen=Board.START, alt_text="Board", block_id="diagram"),
+            ],
+        )
+        reader = BookReader(document)
+
+        self.assertEqual(reader.next_position().block_id, "exercise")
+        self.assertEqual(reader.next_position().block_id, "variation")
+        self.assertEqual(reader.next_position().block_id, "diagram")
+        self.assertEqual(reader.previous_position().block_id, "variation")
+        self.assertEqual(reader.previous_position().block_id, "exercise")
+        self.assertEqual(reader.previous_position().block_id, "position")
 
     def test_reverse_boundaries_fail_closed_without_moving_cursor(self) -> None:
         reader = BookReader(self.make_document())
