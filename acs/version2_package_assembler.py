@@ -73,6 +73,7 @@ class Version2PackageAssemblyReport:
             "archive_sha256": (
                 None if self.archive_report is None else self.archive_report.archive_sha256
             ),
+            "human_tested": False,
             "nvda_verified": False,
             "result": "PASS",
         }
@@ -175,6 +176,7 @@ def _write_manifest(root: Path, integration_sha: str) -> None:
         "product": "Accessible Chess",
         "package_profile": V2_PACKAGE_PROFILE,
         "integration_sha": integration_sha,
+        "human_tested": False,
         "nvda_verified": False,
         "upgrade_from_version1": True,
         "upgrade_journal_schema": UPGRADE_JOURNAL_SCHEMA_VERSION,
