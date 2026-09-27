@@ -96,11 +96,26 @@
 
   let currentSnapshot = null;
   let busy = false;
+  let eventControls = [];
+
+  function writesBlocked() {
+    return !!(currentSnapshot && currentSnapshot.writes_blocked === true);
+  }
 
   function setBusy(value) {
     busy = !!value;
     root.setAttribute("aria-busy", busy ? "true" : "false");
-    render(currentSnapshot);
+    masterEnabled.disabled = busy || writesBlocked();
+    masterVolume.disabled = busy || writesBlocked();
+    eventControls.forEach(function (entry) {
+      entry.control.disabled = busy || (writesBlocked() && entry.mutation);
+    });
+  }
+
+  function restoreFocus(id) {
+    if (!id) return;
+    const target = documentRef.getElementById(id);
+    if (target && typeof target.focus === "function") target.focus();
   }
 
   function clampVolume(value) {
@@ -110,6 +125,8 @@
   }
 
   function invoke(command, payload) {
+    const active = documentRef.activeElement;
+    const restoreFocusId = active && typeof active.id === "string" ? active.id : "";
     const bridge = api();
     if (busy || !bridge || typeof bridge.sound_settings_command !== "function") {
       announce(text("Налаштування звуку недоступні.", "Sound settings are unavailable."), true);
@@ -124,6 +141,7 @@
       }
       currentSnapshot = result.snapshot;
       render(currentSnapshot);
+      restoreFocus(restoreFocusId);
       announce(result.message || "", true);
       return true;
     }, function () {
@@ -156,6 +174,7 @@
     });
     group.appendChild(enabled);
     group.appendChild(enabledLabel);
+    eventControls.push({control: enabled, mutation: true});
 
     const volumeLabel = documentRef.createElement("label");
     volumeLabel.setAttribute("for", "sound-event-" + safeId + "-volume");
@@ -180,6 +199,7 @@
     });
     group.appendChild(volumeLabel);
     group.appendChild(volume);
+    eventControls.push({control: volume, mutation: true});
 
     const preview = documentRef.createElement("button");
     preview.type = "button";
@@ -190,6 +210,7 @@
       invoke("preview", {event_id: eventId});
     });
     group.appendChild(preview);
+    eventControls.push({control: preview, mutation: false});
 
     const effective = documentRef.createElement("span");
     effective.id = "sound-event-" + safeId + "-effective";
@@ -228,6 +249,7 @@
     masterVolume.value = String(snapshot.master_volume_percent);
     masterVolume.disabled = writesBlocked || busy;
 
+    eventControls = [];
     const fragment = documentRef.createDocumentFragment();
     const events = Array.isArray(snapshot.events) ? snapshot.events : [];
     events.forEach(function (item) {
