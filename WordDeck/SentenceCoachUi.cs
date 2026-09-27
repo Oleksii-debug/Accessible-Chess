@@ -73,7 +73,6 @@ internal sealed class SentenceCoachStateStore
     public void Save(SentenceCoachState state)
     {
         Normalize(state);
-        ValidateState(state);
 
         bool primaryExists = File.Exists(_path);
         bool backupExists = File.Exists(_backupPath);
@@ -100,9 +99,7 @@ internal sealed class SentenceCoachStateStore
             SentenceCoachState? state = JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(path));
             if (state is null)
                 return null;
-            Normalize(state);
-            ValidateState(state);
-            return state;
+            return Normalize(state);
         }
         catch { return null; }
     }
@@ -167,6 +164,7 @@ internal sealed class SentenceCoachStateStore
             pair => pair.Key,
             pair => new Dictionary<string, SentenceTargetStats>(pair.Value ?? new(), StringComparer.OrdinalIgnoreCase),
             StringComparer.OrdinalIgnoreCase);
+        ValidateState(state);
         return state;
     }
 }
