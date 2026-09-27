@@ -42,6 +42,17 @@ _REQUIRED_WEB = (
     "version2_release_bootstrap.js",
 )
 
+_VALID_WINFORMS_CONFIG = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<configuration><runtime><AppContextSwitchOverrides value="'
+    'Switch.UseLegacyAccessibilityFeatures=false;'
+    'Switch.UseLegacyAccessibilityFeatures.2=false;'
+    'Switch.UseLegacyAccessibilityFeatures.3=false;'
+    'Switch.UseLegacyAccessibilityFeatures.4=false;'
+    'Switch.UseLegacyAccessibilityFeatures.5=false'
+    '" /></runtime></configuration>\n'
+)
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -72,7 +83,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         web.mkdir(parents=True)
         (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
         (product / "AccessibleChess.exe.config").write_text(
-            "<configuration><runtime /></configuration>\n", encoding="utf-8"
+            _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         (product / "runtime.dll").write_bytes(b"runtime")
         for name in _REQUIRED_WEB:
@@ -223,6 +234,32 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                 )
             self.assertFalse(other.exists())
 
+    def test_invalid_winforms_accessibility_config_fails_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product, notices = self._sources(root)
+            config = product / "AccessibleChess.exe.config"
+            config.write_text(
+                _VALID_WINFORMS_CONFIG.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.5=false",
+                    "Switch.UseLegacyAccessibilityFeatures.5=true",
+                ),
+                encoding="utf-8",
+            )
+            output = root / "candidate"
+
+            with self.assertRaisesRegex(
+                Exception,
+                "disable all legacy accessibility switches",
+            ):
+                assemble_version2_package_tree(
+                    product,
+                    notices,
+                    output,
+                    integration_sha=_SHA,
+                )
+            self.assertFalse(output.exists())
+
     def test_user_data_and_raw_source_leaks_fail_before_publication(self) -> None:
         cases = (
             ("settings.json", b"{}\n", "user state is forbidden"),
@@ -353,6 +390,11 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(timestamps, {(1980, 1, 1, 0, 0, 0)})
             self.assertIn("AccessibleChess/AccessibleChess.exe", names)
             self.assertIn("AccessibleChess/AccessibleChess.exe.config", names)
+            with zipfile.ZipFile(first) as archive:
+                self.assertEqual(
+                    archive.read("AccessibleChess/AccessibleChess.exe.config"),
+                    (output / "AccessibleChess" / "AccessibleChess.exe.config").read_bytes(),
+                )
             self.assertIn(MANIFEST_NAME, names)
             self.assertIn(CHECKSUMS_NAME, names)
 
