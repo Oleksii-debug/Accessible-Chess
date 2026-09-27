@@ -85,7 +85,13 @@ internal sealed class SentenceCoachStateStore
 
     private static SentenceCoachState? TryLoad(string path)
     {
-        try { return File.Exists(path) ? JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(path)) : null; }
+        try
+        {
+            if (!File.Exists(path))
+                return null;
+            SentenceCoachState? state = JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(path));
+            return state is null ? null : Normalize(state);
+        }
         catch { return null; }
     }
 
