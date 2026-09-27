@@ -21,12 +21,34 @@
     return language() === "en" ? en : uk;
   }
 
-  function announce(message) {
-    if (!live || !message) return;
+  let soundDispatchCounter = 1000000000;
+
+  function announce(message, explicitAction) {
+    if (!message) return;
+    const textValue = String(message).slice(0, 300);
+    if (
+      explicitAction &&
+      global.AccessibleChessP0Runtime &&
+      typeof global.AccessibleChessP0Runtime.exposeAnnouncement === "function"
+    ) {
+      soundDispatchCounter += 1;
+      global.AccessibleChessP0Runtime.exposeAnnouncement(textValue, soundDispatchCounter);
+      return;
+    }
+    if (typeof global.announce === "function") {
+      global.announce(textValue);
+      return;
+    }
+    if (!live) return;
     live.textContent = "";
     global.setTimeout(function () {
-      live.textContent = String(message).slice(0, 300);
+      live.textContent = textValue;
     }, 20);
+  }
+
+  function setStatus(message) {
+    const next = String(message || "");
+    if (status.textContent !== next) status.textContent = next;
   }
 
   const root = documentRef.createElement("fieldset");
@@ -90,22 +112,22 @@
   function invoke(command, payload) {
     const bridge = api();
     if (busy || !bridge || typeof bridge.sound_settings_command !== "function") {
-      announce(text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
+      announce(text("Налаштування звуку недоступні.", "Sound settings are unavailable."), true);
       return Promise.resolve(false);
     }
     setBusy(true);
     return bridge.sound_settings_command(command, payload || {}).then(function (result) {
       if (!result || result.ok !== true || !result.snapshot) {
         announce(result && result.message ? result.message :
-          text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."));
+          text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."), true);
         return false;
       }
       currentSnapshot = result.snapshot;
       render(currentSnapshot);
-      announce(result.message || "");
+      announce(result.message || "", true);
       return true;
     }, function () {
-      announce(text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."));
+      announce(text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."), true);
       return false;
     }).finally(function () {
       setBusy(false);
@@ -151,7 +173,7 @@
       const value = clampVolume(volume.value);
       if (value === null) {
         volume.value = String(item.volume_percent);
-        announce(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."));
+        announce(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."), true);
         return;
       }
       invoke("set_event", {event_id: eventId, volume_percent: value});
@@ -184,7 +206,7 @@
     eventHeading.textContent = text("Події", "Events");
 
     if (!snapshot || typeof snapshot !== "object") {
-      status.textContent = text("Завантаження налаштувань звуку.", "Loading sound settings.");
+      setStatus(text("Завантаження налаштувань звуку.", "Loading sound settings."));
       masterEnabled.disabled = true;
       masterVolume.disabled = true;
       eventList.replaceChildren();
@@ -192,7 +214,7 @@
     }
 
     const writesBlocked = snapshot.writes_blocked === true;
-    status.textContent = writesBlocked
+    setStatus(writesBlocked
       ? text(
           "Цей профіль створено новішою версією. Зміни заблоковано, щоб не пошкодити дані.",
           "This profile was created by a newer version. Changes are blocked to protect the data."
@@ -200,7 +222,7 @@
       : text(
           "Активний набір: " + String(snapshot.active_pack_id || "classic") + ".",
           "Active pack: " + String(snapshot.active_pack_id || "classic") + "."
-        );
+        ));
     masterEnabled.checked = snapshot.master_enabled === true;
     masterEnabled.disabled = writesBlocked || busy;
     masterVolume.value = String(snapshot.master_volume_percent);
@@ -236,15 +258,15 @@
     }
     return bridge.sound_settings_snapshot().then(function (result) {
       if (!result || result.ok !== true || !result.snapshot) {
-        status.textContent = result && result.message ? result.message :
-          text("Налаштування звуку недоступні.", "Sound settings are unavailable.");
+        setStatus(result && result.message ? result.message :
+          text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
         return false;
       }
       currentSnapshot = result.snapshot;
       render(currentSnapshot);
       return true;
     }, function () {
-      status.textContent = text("Налаштування звуку недоступні.", "Sound settings are unavailable.");
+      setStatus(text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
       return false;
     });
   }
