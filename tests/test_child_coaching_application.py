@@ -14,6 +14,7 @@ from acs.child_coaching_application import (
 from acs.child_coaching_store import (
     ChildCoachingStoreConflictError,
     ChildCoachingTemplateStore,
+    _exclusive_store_lock,
 )
 from acs.teaching_session import PositionSourceKind, TeachingActivity, TeachingPositionSource
 
@@ -88,6 +89,33 @@ class ChildCoachingApplicationTests(unittest.TestCase):
             )
             with self.assertRaises(ChildCoachingApplicationError):
                 deleted.summary("teacher-preschool")
+
+    def test_store_contention_is_reduced_to_stable_application_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            store = ChildCoachingTemplateStore(path)
+            app = ChildCoachingApplication(store)
+            lock_path = path.with_name(f".{path.name}.lock")
+
+            with _exclusive_store_lock(lock_path):
+                with self.assertRaisesRegex(
+                    ChildCoachingApplicationError,
+                    "catalog is busy; retry",
+                ):
+                    app.open_catalog()
+
+            catalog = app.open_catalog()
+            with _exclusive_store_lock(lock_path):
+                with self.assertRaisesRegex(
+                    ChildCoachingApplicationError,
+                    "catalog is busy; retry",
+                ):
+                    app.copy_template(
+                        "preset-preschool-4-6",
+                        template_id="busy-copy",
+                        title="Busy copy",
+                        expected_revision=catalog.revision,
+                    )
 
     def test_open_catalog_retries_seed_after_concurrent_partial_catalog_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
