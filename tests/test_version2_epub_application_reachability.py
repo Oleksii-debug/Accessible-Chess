@@ -110,6 +110,40 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         self.assertEqual(restarted.reader.location(), position)
         self.assertEqual(restarted.reader.document.blocks[position.index].fen, Board.START)
 
+    def test_epub_semantic_position_opens_on_canonical_board_and_returns_exactly(self) -> None:
+        chapter = f'''<html><body>
+<h1>Board flow</h1>
+<p>Before.</p>
+<img id="position" alt="Початкова позиція" data-acs-fen="${Board.START}"/>
+<p>After.</p>
+</body></html>'''.encode("utf-8")
+        source = self._write_epub("board-flow.epub", chapter)
+        projected: list[str] = []
+        self.app._board_position_projector = (
+            lambda fen: projected.append(fen) or {"ok": True}
+        )
+
+        self.app.open_book(source)
+        origin = self.app.reader.next_position()
+        self.app.save_book_progress()
+
+        result = self.app.browser_command("books", "book.open_position")
+
+        self.assertEqual(result["kind"], "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(projected[-1], Board.START)
+
+        returned = self.app.browser_command("review", "book.return")
+        self.assertEqual(returned["kind"], "review")
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(
+            self.progress.restore(self.app.book_key, self.app.reader.document).location(),
+            origin,
+        )
+
     def test_malformed_explicit_epub_chess_content_never_replaces_current_book(self) -> None:
         valid = self._write_epub(
             "valid.epub",
