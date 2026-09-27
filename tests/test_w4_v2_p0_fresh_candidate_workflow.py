@@ -60,6 +60,10 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         for name in ("starter_uk.pgn", "stress_uk.pgn", "sample_library.acsdb", "manifest.json"):
             self.assertIn(name, self.text)
 
+    def test_packaged_diagnostic_requires_the_shipping_final_product_marker(self) -> None:
+        self.assertIn("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS", self.text)
+        self.assertNotIn("ACCESSIBLE CHESS V2 PRODUCTION COMPOSITION DIAGNOSTIC PASS", self.text)
+
     def test_fresh_extraction_precedes_packaged_machine_acceptance(self) -> None:
         extract = self.text.index("Expand-Archive")
         preflight = self.text.index("FRESH_EXTRACTION_PREFLIGHT=PASS")
