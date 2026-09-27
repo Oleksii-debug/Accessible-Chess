@@ -26,6 +26,7 @@ from .sound_runtime import (
     ProfiledSoundRuntime,
     SoundAssetPlaybackPort,
     SoundAssetRequest,
+    SoundPlaybackPort,
 )
 from .sound_settings_application import SoundSettingsApplication
 from .sound_windows import PackagedSoundAssetResolver
@@ -74,7 +75,7 @@ class _InjectedClassicPlaybackBridge:
 
 
 def _asset_playback(
-    playback: SoundAssetPlaybackPort | Any | None,
+    playback: SoundAssetPlaybackPort | SoundPlaybackPort | None,
     *,
     application_dir: Path,
     pack_store: FilesystemSoundPackStore,
@@ -123,7 +124,7 @@ def create_local_sound_composition(
     application_dir: str | os.PathLike[str],
     data_root: str | os.PathLike[str],
     legacy_settings: Mapping[str, object] | None = None,
-    asset_playback: SoundAssetPlaybackPort | None = None,
+    asset_playback: SoundAssetPlaybackPort | SoundPlaybackPort | None = None,
 ) -> LocalSoundComposition:
     """Create one durable local sound composition for the shipping application.
 
