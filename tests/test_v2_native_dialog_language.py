@@ -347,7 +347,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "_share_v2_action_registry"),
                 mock.patch.object(
                     release_app,
-                    "Version2WindowsFileWorkflowRuntime",
+                    "build_version2_windows_library_file_runtime",
                     return_value=native_runtime,
                 ),
                 mock.patch.object(
