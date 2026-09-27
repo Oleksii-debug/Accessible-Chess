@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SoundSettingsWebViewTests(unittest.TestCase):
-    def test_final_product_ships_sound_surface_before_bootstrap(self) -> None:
-        source = (ROOT / "acs" / "version2_final_release.py").read_text(encoding="utf-8")
+    def test_actual_launcher_resource_authority_ships_sound_surface_before_bootstrap(self) -> None:
+        source = (ROOT / "acs" / "version2_education_mutation_release.py").read_text(encoding="utf-8")
         sound = '("V2 sound settings surface", root / "full_product_sound_settings.js")'
         bootstrap = '("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js")'
         self.assertIn(sound, source)
