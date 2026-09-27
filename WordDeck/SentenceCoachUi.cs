@@ -154,6 +154,7 @@ internal sealed class SentenceCoachForm : Form
     private readonly SentenceCoachState _state;
     private readonly Random _random = new();
     private readonly Dictionary<string, HashSet<string>> _coverageCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly BlankLearningSubmissionGuard _blankSubmissionGuard;
 
     private readonly ComboBox _packCombo = new()
     {
@@ -291,6 +292,7 @@ internal sealed class SentenceCoachForm : Form
         root.Controls.Add(_modeInfo, 0, 10);
         Controls.Add(root);
         root.BringToFront();
+        _blankSubmissionGuard = BlankLearningSubmissionGuard.Attach(this, _answer.AccessibleName!);
 
         _packCombo.SelectedIndexChanged += (_, _) => ChangePack();
         _deckCombo.SelectedIndexChanged += (_, _) =>
@@ -353,6 +355,7 @@ internal sealed class SentenceCoachForm : Form
                 Announce($"Closing Sentence Spelling was cancelled because personal progress could not be saved. The trainer remains open; resolve the storage problem and try again. {error}");
             }
         };
+        FormClosed += (_, _) => _blankSubmissionGuard.Dispose();
     }
 
     private MenuStrip BuildMenu()
