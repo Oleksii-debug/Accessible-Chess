@@ -13,6 +13,7 @@ internal static class DictionaryLoader
     internal const int MaxEntries = 100_000;
     internal const int MaxLineChars = 32_768;
     internal const int MaxFieldChars = 16_384;
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     public static DictionaryPackage LoadEmbeddedOxford()
     {
@@ -61,7 +62,15 @@ internal static class DictionaryLoader
         if (info.Length > MaxImportedFileBytes)
             throw new InvalidDataException($"Dictionary file exceeds the {MaxImportedFileBytes / (1024 * 1024)} MiB import limit.");
 
-        string text = File.ReadAllText(fullPath, Encoding.UTF8);
+        string text;
+        try
+        {
+            text = File.ReadAllText(fullPath, StrictUtf8);
+        }
+        catch (DecoderFallbackException ex)
+        {
+            throw new InvalidDataException("Dictionary file is not valid UTF-8 and was left unimported.", ex);
+        }
         if (text.Length > MaxDictionaryTextChars)
             throw new InvalidDataException($"Dictionary text exceeds the {MaxDictionaryTextChars:N0}-character import limit.");
 
