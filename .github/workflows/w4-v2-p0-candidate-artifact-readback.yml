@@ -3,7 +3,6 @@ name: W4 V2 P0 Candidate Artifact Readback
 on:
   workflow_run:
     workflows: ['W4 V2 P0 Fresh Windows Candidate']
-    branches: [work/full-product-teacher-education-reachability-20260911]
     types: [completed]
 
 permissions:
@@ -18,30 +17,35 @@ jobs:
   readback:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'work/full-product-teacher-education-reachability-20260911'
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
+      FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
       W4_VERIFIER_COMMIT: 70fa4fd75910d659161abcc8bcd192e9a88a7905
       W4_VERIFIER_BLOB_SHA: 74282656f5a38e198640c35e390128448935cde1
     steps:
-      - name: Checkout exact canonical workflow authority from completed run
+      - name: Checkout exact default-branch workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
-      - name: Re-prove completed run branch and checked-out authority
+      - name: Re-prove completed workflow-dispatch authority
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
           EXPECTED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EXPECTED_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_EVENT: ${{ github.event.workflow_run.event }}
         run: |
           set -euo pipefail
-          test "$EXPECTED_BRANCH" = 'work/full-product-teacher-education-reachability-20260911'
+          test "$EXPECTED_EVENT" = 'workflow_dispatch'
+          test "$EXPECTED_BRANCH" = "$EXPECTED_DEFAULT_BRANCH"
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$EXPECTED_SHA"
-          echo "W4_READBACK_PRODUCT_AUTHORITY=$actual"
+          echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
 
       - name: Materialize immutable W4 artifact verifier
         shell: bash
@@ -64,6 +68,21 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
+
+      - name: Bind expected Product SHA from live canonical Full Product authority
+        id: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
+          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          [[ "$live" =~ ^[0-9a-f]{40}$ ]] || {
+            printf 'live Full Product head is not exact 40-hex: %s\n' "$live" >&2
+            exit 1
+          }
+          git cat-file -e "${live}^{commit}"
+          echo "product_sha=$live" >> "$GITHUB_OUTPUT"
+          echo "W4_READBACK_EXPECTED_PRODUCT_SHA=$live"
 
       - name: Resolve exact candidate artifact from completed W4 run
         id: artifact
@@ -151,32 +170,14 @@ jobs:
           print('W4_RAW_ARTIFACT_DOWNLOAD=PASS')
           PY
 
-      - name: Bind expected Product SHA from completed canonical workflow authority
-        id: product
-        shell: bash
-        env:
-          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os, re
-          sha=os.environ['WORKFLOW_SHA'].lower()
-          if not re.fullmatch(r'[0-9a-f]{40}', sha):
-              raise SystemExit('completed workflow head_sha is not exact 40-hex')
-          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as stream:
-              stream.write(f'product_sha={sha}\n')
-          print(f'W4_READBACK_EXPECTED_PRODUCT_SHA={sha}')
-          PY
-
       - name: Recheck live Full Product freshness after build and upload
         shell: bash
         env:
           PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
         run: |
           set -euo pipefail
-          canonical='work/full-product-teacher-education-reachability-20260911'
-          git fetch --no-tags origin "$canonical"
-          live="$(git rev-parse "origin/$canonical")"
+          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
+          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
           test "$PRODUCT_SHA" = "$live" || {
             printf 'STALE_W4_CANDIDATE product=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
             exit 1
