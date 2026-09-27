@@ -27,10 +27,11 @@ internal static class DictionaryLoaderSafetySelfTest
             TestNormalUnicodePathAndStableFallbackIdentity(root);
             TestOversizedFileRejectedBeforeRead(root);
             TestMalformedUtf8Rejected(root);
+            TestUtf16Rejected(root);
             TestOversizedRowAndFieldRejected();
             TestEntryCountGuard();
             Console.WriteLine(
-                "WordDeck dictionary import safety self-test passed: Unicode/space paths, stable fallback identity, strict UTF-8, file/row/field limits and entry-count bounds verified.");
+                "WordDeck dictionary import safety self-test passed: Unicode/space paths, stable fallback identity, strict UTF-8/BOM handling, file/row/field limits and entry-count bounds verified.");
         }
         finally
         {
@@ -47,16 +48,19 @@ internal static class DictionaryLoaderSafetySelfTest
 
         string first = Path.Combine(root, "мій словник один.tsv");
         string second = Path.Combine(root, "інше ім'я.tsv");
+        string bom = Path.Combine(root, "словник з bom.tsv");
         File.WriteAllText(first, body, new UTF8Encoding(false));
         File.WriteAllText(second, body, new UTF8Encoding(false));
+        File.WriteAllText(bom, body, new UTF8Encoding(true));
 
         DictionaryPackage a = DictionaryLoader.LoadFromFile(first);
         DictionaryPackage b = DictionaryLoader.LoadFromFile(second);
+        DictionaryPackage withBom = DictionaryLoader.LoadFromFile(bom);
 
         Require(a.Entries.Count == 2 && a.Entries[0].Source == "apple" && a.Entries[0].Target == "яблуко",
             "Normal UTF-8 dictionary in a Unicode/space path did not load correctly.");
-        Require(a.Id == b.Id && a.Id.StartsWith("imported-", StringComparison.Ordinal),
-            "Content-derived fallback dictionary identity changed with the file path.");
+        Require(a.Id == b.Id && a.Id == withBom.Id && a.Id.StartsWith("imported-", StringComparison.Ordinal),
+            "Content-derived fallback dictionary identity changed with the file path or UTF-8 BOM.");
         Require(a.Entries[0].Id.StartsWith(a.Id + ":", StringComparison.Ordinal),
             "Blank imported entry ID did not receive a stable dictionary-derived fallback ID.");
         Require(a.Entries[1].Id == "fixed-id",
@@ -99,6 +103,23 @@ internal static class DictionaryLoaderSafetySelfTest
             rejected = ex.Message.Contains("valid UTF-8", StringComparison.OrdinalIgnoreCase);
         }
         Require(rejected, "Malformed UTF-8 dictionary bytes were silently replacement-decoded.");
+    }
+
+    private static void TestUtf16Rejected(string root)
+    {
+        string path = Path.Combine(root, "utf16-not-supported.tsv");
+        File.WriteAllText(
+            path,
+            "entryId\tlevel\tsource\ttarget\nrow\tA1\tword\tслово\n",
+            Encoding.Unicode);
+
+        bool rejected = false;
+        try { _ = DictionaryLoader.LoadFromFile(path); }
+        catch (InvalidDataException ex)
+        {
+            rejected = ex.Message.Contains("valid UTF-8", StringComparison.OrdinalIgnoreCase);
+        }
+        Require(rejected, "UTF-16 dictionary silently changed the declared UTF-8 import format.");
     }
 
     private static void TestOversizedRowAndFieldRejected()
