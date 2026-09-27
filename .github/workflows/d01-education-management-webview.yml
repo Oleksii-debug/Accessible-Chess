@@ -31,7 +31,9 @@ env:
   MUTATION_APP_BLOB: f9429f3c9e9a6fdc32708716cacfa669c7cb4184
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
+  KEYBINDING_DOM_TEST_BLOB: e28f2c9bd433ffebf2c95e3e29dc4ab0124bda4d
   WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
+  KEYBINDING_WEB_SURFACE_BLOB: 8adb906ba89ee86666646b4875f2f6d4d2b4a329
   OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
 
 jobs:
@@ -78,8 +80,16 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_education_open_selected.py)" = "$OPEN_SELECTED_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
-          test "$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)" = "$DOM_TEST_BLOB"
-          test "$(git rev-parse HEAD:web/full_product_education.js)" = "$WEB_SURFACE_BLOB"
+          dom_blob="$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)"
+          case "$dom_blob" in
+            "$DOM_TEST_BLOB"|"$KEYBINDING_DOM_TEST_BLOB") ;;
+            *) echo "Unexpected Education DOM successor blob: $dom_blob" >&2; exit 1 ;;
+          esac
+          surface_blob="$(git rev-parse HEAD:web/full_product_education.js)"
+          case "$surface_blob" in
+            "$WEB_SURFACE_BLOB"|"$KEYBINDING_WEB_SURFACE_BLOB") ;;
+            *) echo "Unexpected Education surface successor blob: $surface_blob" >&2; exit 1 ;;
+          esac
 
           # These two files form the Product-owned Education release binding
           # contract. P0 convergence intentionally evolves them together from
