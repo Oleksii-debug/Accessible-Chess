@@ -374,7 +374,8 @@ internal sealed partial class MainForm : Form
         RefreshDeckUi();
         RestoreSequenceForScope();
         UpdateCounts();
-        SaveState(preserveStoredCurrentEntry: true);
+        if (!RecallClosePersistence.TrySave(() => SaveState(preserveStoredCurrentEntry: true), out string? saveError))
+            _statusLabel.Text = $"Personal Recall state is loaded for this session, but startup reconciliation could not be saved. {saveError}";
     }
 
     private DictionaryPackage WithCustomEntries(DictionaryPackage basePackage)
@@ -420,8 +421,10 @@ internal sealed partial class MainForm : Form
         RefreshDeckUi();
         RestoreSequenceForScope();
         UpdateCounts();
-        SaveState(preserveStoredCurrentEntry: true);
-        AnnounceStatus($"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope.");
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(preserveStoredCurrentEntry: true), out string? saveError);
+        AnnounceStatus(saved
+            ? $"Recall study scope: {StudyScopeIds.DisplayName(scopeId)}. {_scopeService.ScopeTotal(scopeId)} words in this scope."
+            : $"Recall study scope changed to {StudyScopeIds.DisplayName(scopeId)} for this session, but the change was not saved. {saveError}");
         RestoreCurrentOrNextWord(focusWord);
     }
 
@@ -469,8 +472,10 @@ internal sealed partial class MainForm : Form
         RebuildSwitchDeckMenu();
         ResetSequence();
         UpdateCounts();
-        SaveState();
-        AnnounceStatus($"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name}.");
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? $"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name}."
+            : $"{StudyScopeIds.DisplayName(ActiveScopeId)}: switched to {deck.Name} for this session, but the change was not saved. {saveError}");
         NextWord(focusWord);
     }
 
@@ -567,7 +572,8 @@ internal sealed partial class MainForm : Form
             _translationBox.Clear();
             _statusLabel.Text = $"{StudyScopeIds.DisplayName(ActiveScopeId)} — {activeDeck.Name} is empty.";
             UpdateCounts();
-            SaveState();
+            if (!RecallClosePersistence.TrySave(() => SaveState(), out string? saveError))
+                AnnounceStatus($"{StudyScopeIds.DisplayName(ActiveScopeId)} — {activeDeck.Name} is empty. Current Recall state was not saved. {saveError}");
             if (focusWord)
             {
                 _wordBox.Focus();
@@ -762,8 +768,10 @@ internal sealed partial class MainForm : Form
         _translationBox.Clear();
         UpdateCounts();
         RebuildSwitchDeckMenu();
-        SaveState();
-        AnnounceStatus($"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name} in {StudyScopeIds.DisplayName(scopeId)}. Undo is available.");
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+        AnnounceStatus(saved
+            ? $"Moved {movedWord} from {fromDeck.Name} to {targetDeck.Name} in {StudyScopeIds.DisplayName(scopeId)}. Undo is available."
+            : $"Moved {movedWord} to {targetDeck.Name} for this session, but the move was not saved. Undo remains available. {saveError}");
         NextWord();
     }
 
@@ -794,7 +802,9 @@ internal sealed partial class MainForm : Form
         _lastMove = null;
         UpdateCounts();
         RebuildSwitchDeckMenu();
-        SaveState();
+        bool saved = RecallClosePersistence.TrySave(() => SaveState(), out string? saveError);
+        if (!saved)
+            AnnounceStatus($"The deck move was undone for this session, but the undo was not saved. {saveError}");
         if (string.Equals(_activeDeckId, undo.FromDeckId, StringComparison.OrdinalIgnoreCase))
         {
             ShowEntryById(undo.EntryId);
