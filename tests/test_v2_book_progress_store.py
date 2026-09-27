@@ -222,6 +222,61 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_reads_do_not_reopen_path_after_file_identity_validation(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+
+        with mock.patch.object(
+            Path,
+            "read_bytes",
+            side_effect=AssertionError("validated progress file must be read by descriptor"),
+        ):
+            self.assertFalse(self.store.has("book:one"))
+
+    def test_regular_file_replacement_between_lstat_and_open_fails_closed(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+        replacement = self.path.with_name("replacement.json")
+        replacement.write_text('{"schema_version":1,"entries":{"book:one":{}}}', encoding="utf-8")
+
+        real_open = os.open
+        swapped = False
+
+        def replacing_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal swapped
+            if not swapped and os.fspath(path) == os.fspath(self.path):
+                swapped = True
+                os.replace(replacement, self.path)
+            return real_open(path, flags, mode)
+
+        with mock.patch("acs.book_progress_store.os.open", side_effect=replacing_open):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+
+    @unittest.skipIf(os.name == "nt", "Windows symlink creation requires environment-specific privileges")
+    def test_symlink_swap_between_lstat_and_open_fails_closed(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+        outside = self.path.with_name("outside.json")
+        outside.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+
+        real_open = os.open
+        swapped = False
+
+        def replacing_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal swapped
+            if not swapped and os.fspath(path) == os.fspath(self.path):
+                swapped = True
+                self.path.unlink()
+                self.path.symlink_to(outside)
+            return real_open(path, flags, mode)
+
+        with mock.patch("acs.book_progress_store.os.open", side_effect=replacing_open):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+
     def test_storage_errors_do_not_put_local_path_in_exception_message(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_bytes(b"not json")
