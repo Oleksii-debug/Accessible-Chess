@@ -228,7 +228,7 @@
       global.setTimeout(function () {
         announcementRunning = false;
         pumpAnnouncements();
-      }, 25);
+      }, 20);
     }, 30);
   }
 
