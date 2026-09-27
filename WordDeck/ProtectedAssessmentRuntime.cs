@@ -153,7 +153,7 @@ internal sealed class ProtectedAssessmentBindingState
         ArgumentNullException.ThrowIfNull(runtimeState);
         runtimeState.Validate();
         if (SchemaVersion != CurrentSchemaVersion)
-            throw new UnsupportedProtectedAssessmentSchemaException("binding", SchemaVersion, CurrentSchemaVersion);
+            throw new InvalidDataException($"Unsupported protected assessment binding schema {SchemaVersion}; expected {CurrentSchemaVersion}.");
 
         var runtimeSessions = runtimeState.Sessions.ToDictionary(x => x.SessionId, StringComparer.OrdinalIgnoreCase);
         var sessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -202,14 +202,14 @@ internal sealed class ProtectedAssessmentRuntimeSnapshot
     public void Validate()
     {
         if (SchemaVersion != CurrentSchemaVersion)
-            throw new UnsupportedProtectedAssessmentSchemaException("snapshot", SchemaVersion, CurrentSchemaVersion);
+            throw new InvalidDataException($"Unsupported protected assessment snapshot schema {SchemaVersion}; expected {CurrentSchemaVersion}.");
         ArgumentNullException.ThrowIfNull(RuntimeState);
         ArgumentNullException.ThrowIfNull(BindingState);
         BindingState.Validate(RuntimeState);
     }
 }
 
-internal sealed class UnsupportedProtectedAssessmentSchemaException : InvalidDataException
+internal sealed class UnsupportedProtectedAssessmentSchemaException : Exception
 {
     public UnsupportedProtectedAssessmentSchemaException(string component, int schemaVersion, int supportedSchemaVersion)
         : base($"Unsupported protected assessment {component} schema {schemaVersion}; expected {supportedSchemaVersion}.")
@@ -586,6 +586,22 @@ internal sealed class ProtectedAssessmentRuntimeStateStore
     {
         ProtectedAssessmentRuntimeSnapshot? snapshot = JsonSerializer.Deserialize<ProtectedAssessmentRuntimeSnapshot>(File.ReadAllText(path), JsonOptions);
         if (snapshot is null) throw new InvalidDataException("Protected assessment state is empty.");
+        if (snapshot.SchemaVersion > ProtectedAssessmentRuntimeSnapshot.CurrentSchemaVersion)
+            throw new UnsupportedProtectedAssessmentSchemaException(
+                "snapshot",
+                snapshot.SchemaVersion,
+                ProtectedAssessmentRuntimeSnapshot.CurrentSchemaVersion);
+        if (snapshot.RuntimeState is not null &&
+            snapshot.RuntimeState.SchemaVersion > AssessmentRuntimeState.CurrentSchemaVersion)
+            throw new UnsupportedAssessmentRuntimeSchemaException(
+                snapshot.RuntimeState.SchemaVersion,
+                AssessmentRuntimeState.CurrentSchemaVersion);
+        if (snapshot.BindingState is not null &&
+            snapshot.BindingState.SchemaVersion > ProtectedAssessmentBindingState.CurrentSchemaVersion)
+            throw new UnsupportedProtectedAssessmentSchemaException(
+                "binding",
+                snapshot.BindingState.SchemaVersion,
+                ProtectedAssessmentBindingState.CurrentSchemaVersion);
         snapshot.Validate();
         return snapshot;
     }
