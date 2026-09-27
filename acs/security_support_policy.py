@@ -337,24 +337,53 @@ def _version(value: Any) -> str:
 def _https_url(value: Any, label: str) -> str:
     if type(value) is not str or value != value.strip() or len(value) > 2048:
         raise SecuritySupportError(f"{label} is invalid")
+    if "\\" in value or _has_encoded_ascii_control(value):
+        raise SecuritySupportError(f"{label} must be a clean HTTPS URL")
     parsed = urlparse(value)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise SecuritySupportError(f"{label} must be a clean HTTPS URL") from exc
     if (
         parsed.scheme != "https"
         or not parsed.netloc
+        or parsed.hostname is None
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment
+        or (port is not None and not 1 <= port <= 65535)
     ):
         raise SecuritySupportError(f"{label} must be a clean HTTPS URL")
     return value
 
 
+def _has_encoded_ascii_control(value: str) -> bool:
+    lowered = value.lower()
+    for code in range(0x20):
+        if f"%{code:02x}" in lowered:
+            return True
+    return "%7f" in lowered
+
+
 def _contact_uri(value: Any) -> str:
     if type(value) is not str or value != value.strip() or len(value) > 2048:
         raise SecuritySupportError("vulnerability contact is invalid")
+    if "\\" in value or _has_encoded_ascii_control(value):
+        raise SecuritySupportError("vulnerability contact is invalid")
     parsed = urlparse(value)
     if parsed.scheme == "https":
-        if not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise SecuritySupportError("HTTPS vulnerability contact is invalid") from exc
+        if (
+            not parsed.netloc
+            or parsed.hostname is None
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+            or (port is not None and not 1 <= port <= 65535)
+        ):
             raise SecuritySupportError("HTTPS vulnerability contact is invalid")
         return value
     if parsed.scheme == "mailto":
