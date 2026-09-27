@@ -11,8 +11,11 @@ namespace WordDeck;
 /// </summary>
 internal sealed class PronunciationAudio : IDisposable
 {
-    private const string Alias = "worddeck_pronunciation";
+    private static long _nextAliasId;
+    private readonly string _alias = $"worddeck_pronunciation_{Interlocked.Increment(ref _nextAliasId)}";
     private bool _opened;
+
+    internal string AliasForTest => _alias;
 
     [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
     private static extern int mciSendString(string command, StringBuilder? returnValue, int returnLength, IntPtr callback);
@@ -37,7 +40,7 @@ internal sealed class PronunciationAudio : IDisposable
         }
 
         Stop();
-        int result = mciSendString($"open \"{path}\" type mpegvideo alias {Alias}", null, 0, IntPtr.Zero);
+        int result = mciSendString($"open \"{path}\" type mpegvideo alias {_alias}", null, 0, IntPtr.Zero);
         if (result != 0)
         {
             error = DescribeError("Could not open pronunciation audio", result);
@@ -45,7 +48,7 @@ internal sealed class PronunciationAudio : IDisposable
         }
 
         _opened = true;
-        result = mciSendString($"play {Alias} from 0", null, 0, IntPtr.Zero);
+        result = mciSendString($"play {_alias} from 0", null, 0, IntPtr.Zero);
         if (result != 0)
         {
             error = DescribeError("Could not play pronunciation audio", result);
@@ -62,8 +65,8 @@ internal sealed class PronunciationAudio : IDisposable
         if (!OperatingSystem.IsWindows() || !_opened)
             return;
 
-        mciSendString($"stop {Alias}", null, 0, IntPtr.Zero);
-        mciSendString($"close {Alias}", null, 0, IntPtr.Zero);
+        mciSendString($"stop {_alias}", null, 0, IntPtr.Zero);
+        mciSendString($"close {_alias}", null, 0, IntPtr.Zero);
         _opened = false;
     }
 
