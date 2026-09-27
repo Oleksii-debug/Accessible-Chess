@@ -267,9 +267,9 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "_share_v2_action_registry"),
                 mock.patch.object(
                     release_app,
-                    "Version2WindowsFileWorkflowRuntime",
+                    "build_version2_windows_library_file_runtime",
                     return_value=native_runtime,
-                ) as runtime_class,
+                ) as runtime_builder,
             ):
                 _, returned_application, _, native_runtime_factory = (
                     release_app.create_version2_release_application(
@@ -282,7 +282,15 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 self.assertIs(native_runtime_factory(owner), native_runtime)
                 self.assertEqual(len(owner.FormClosing.handlers), 1)
 
-            provider = runtime_class.call_args.kwargs["dialog_language_provider"]
+            provider = runtime_builder.call_args.kwargs["dialog_language_provider"]
+            self.assertIs(
+                runtime_builder.call_args.kwargs["library_service"],
+                application.library_export,
+            )
+            self.assertIs(
+                runtime_builder.call_args.kwargs["library_export_event_sink"],
+                application._file_event,
+            )
             self.assertEqual(provider(), UILanguage.UA)
             application.shell.language = UILanguage.EN
             self.assertEqual(provider(), UILanguage.EN)
