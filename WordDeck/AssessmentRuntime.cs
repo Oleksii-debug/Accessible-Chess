@@ -145,7 +145,7 @@ internal sealed class AssessmentRuntimeState
     public void Validate()
     {
         if (SchemaVersion != CurrentSchemaVersion)
-            throw new UnsupportedAssessmentRuntimeSchemaException(SchemaVersion, CurrentSchemaVersion);
+            throw new InvalidDataException($"Unsupported assessment runtime schema {SchemaVersion}; expected {CurrentSchemaVersion}.");
 
         var sessions = new Dictionary<string, AssessmentSessionState>(StringComparer.OrdinalIgnoreCase);
         foreach (AssessmentSessionState session in Sessions)
@@ -199,7 +199,7 @@ internal sealed class AssessmentRuntimeState
     }
 }
 
-internal sealed class UnsupportedAssessmentRuntimeSchemaException : InvalidDataException
+internal sealed class UnsupportedAssessmentRuntimeSchemaException : Exception
 {
     public UnsupportedAssessmentRuntimeSchemaException(int schemaVersion, int supportedSchemaVersion)
         : base($"Unsupported assessment runtime schema {schemaVersion}; expected {supportedSchemaVersion}.")
@@ -522,6 +522,8 @@ internal sealed class AssessmentRuntimeStateStore
     {
         AssessmentRuntimeState? state = JsonSerializer.Deserialize<AssessmentRuntimeState>(File.ReadAllText(path), JsonOptions);
         if (state is null) throw new InvalidDataException("Assessment runtime state is empty.");
+        if (state.SchemaVersion > AssessmentRuntimeState.CurrentSchemaVersion)
+            throw new UnsupportedAssessmentRuntimeSchemaException(state.SchemaVersion, AssessmentRuntimeState.CurrentSchemaVersion);
         state.Validate();
         return state;
     }
