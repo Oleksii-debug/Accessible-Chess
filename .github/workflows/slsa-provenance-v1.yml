@@ -1,0 +1,126 @@
+name: SLSA Provenance V1 Contract
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/slsa_provenance.py'
+      - 'tools/generate_slsa_provenance.py'
+      - 'tests/test_slsa_provenance.py'
+      - 'tests/test_slsa_provenance_builder_binding.py'
+      - '.github/workflows/slsa-provenance-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slsa-provenance-v1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact bounded scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/slsa-provenance-v1.yml' \
+            'acs/slsa_provenance.py' \
+            'tests/test_slsa_provenance.py' \
+            'tests/test_slsa_provenance_builder_binding.py' \
+            'tools/generate_slsa_provenance.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected SLSA provenance scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile provenance tooling
+        run: >-
+          python -m py_compile
+          acs/slsa_provenance.py
+          tools/generate_slsa_provenance.py
+          tests/test_slsa_provenance.py
+          tests/test_slsa_provenance_builder_binding.py
+
+      - name: Run provenance regressions
+        run: >-
+          python -m unittest -v
+          tests.test_slsa_provenance
+          tests.test_slsa_provenance_builder_binding
+
+      - name: Generate a supported workflow_dispatch statement twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > provenance-input.json <<'JSON'
+          {
+            "artifact": {
+              "name": "Accessible-Chess-V2.zip",
+              "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "workflow": {
+              "repository": "https://github.com/Oleksii-debug/Accessible-Chess",
+              "ref": "refs/heads/work/full-product-teacher-education-reachability-20260911",
+              "workflow_path": ".github/workflows/version2-windows-package.yml",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "builder_id": "https://github.com/Oleksii-debug/Accessible-Chess/.github/workflows/version2-windows-package.yml@refs/heads/work/full-product-teacher-education-reachability-20260911",
+              "invocation_id": "https://github.com/Oleksii-debug/Accessible-Chess/actions/runs/123456789/attempts/1",
+              "event_name": "workflow_dispatch",
+              "actor_id": "316471245",
+              "repository_id": "1332820974",
+              "repository_owner_id": "316471245",
+              "triggering_actor_id": null
+            },
+            "started_on": "2026-09-26T21:00:00Z",
+            "finished_on": "2026-09-26T21:05:00Z",
+            "workflow_inputs": {"release": "v2"},
+            "repository_vars": {},
+            "release_parameters": {}
+          }
+          JSON
+          python tools/generate_slsa_provenance.py --input provenance-input.json --output first.json
+          python tools/generate_slsa_provenance.py --input provenance-input.json --output second.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          a = Path("first.json").read_bytes()
+          b = Path("second.json").read_bytes()
+          if a != b:
+              raise SystemExit("SLSA provenance output is not deterministic")
+          statement = json.loads(a)
+          assert statement["_type"] == "https://in-toto.io/Statement/v1"
+          assert statement["predicateType"] == "https://slsa.dev/provenance/v1"
+          assert statement["predicate"]["buildDefinition"]["buildType"] == "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
+          print("SLSA_PROVENANCE_V1_BYTE_IDENTITY=PASS")
+          PY
+
+      - name: Core selftest
+        run: python -m acs.selftest
