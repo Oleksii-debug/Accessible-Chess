@@ -27,6 +27,9 @@ internal sealed class SentenceCoachState
     public bool CurrentTargetUsedHint { get; set; }
     public List<string> RecentSentenceIds { get; set; } = new();
     public Dictionary<string, Dictionary<string, SentenceTargetStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed class SentenceCoachStateStore
