@@ -121,9 +121,13 @@ def normalize_binding(value: str | None) -> str | None:
         "pageup": "PageUp",
         "pagedown": "PageDown",
         "left": "Left",
+        "arrowleft": "Left",
         "right": "Right",
+        "arrowright": "Right",
         "up": "Up",
+        "arrowup": "Up",
         "down": "Down",
+        "arrowdown": "Down",
     }
     modifiers: list[str] = []
     key = None
