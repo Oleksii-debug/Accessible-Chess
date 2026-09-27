@@ -367,6 +367,18 @@ jobs:
           if(-not (Test-Path 'candidate-output\p0-evidence\packaged-p0g-hotkey-result-summary.json')){throw 'P0-G evidence missing'}
           Write-Host 'FRESH_PACKAGED_P0_ACCEPTANCE=PASS'
 
+      - name: Recheck live Full Product freshness before artifact publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$FULL_PRODUCT_BRANCH"
+          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          test "$PRODUCT_SHA" = "$live" || {
+            printf 'STALE_W4_CANDIDATE requested=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
+
       - name: Upload exact Windows NVDA test candidate and machine evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
