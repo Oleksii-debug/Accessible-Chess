@@ -13,6 +13,7 @@ internal sealed class SentenceTargetStats
 
 internal sealed class SentenceCoachState
 {
+    public int SchemaVersion { get; set; }
     public string? ActivePackId { get; set; }
     public string? ActiveSpellingDeckId { get; set; }
     public int TargetCount { get; set; } = 1;
@@ -26,28 +27,69 @@ internal sealed class SentenceCoachState
     public bool CurrentTargetUsedHint { get; set; }
     public List<string> RecentSentenceIds { get; set; } = new();
     public Dictionary<string, Dictionary<string, SentenceTargetStats>> StatsByDictionary { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 internal sealed class SentenceCoachStateStore
 {
+    public const int CurrentSchemaVersion = 1;
     private readonly string _path;
     private readonly string _backupPath;
+    private readonly string _backupsDirectory;
 
     public SentenceCoachStateStore()
         : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WordDeck")) { }
 
     internal SentenceCoachStateStore(string root)
     {
+        if (string.IsNullOrWhiteSpace(root))
+            throw new ArgumentException("Sentence Spelling state root directory must not be blank.", nameof(root));
         Directory.CreateDirectory(root);
         _path = Path.Combine(root, "sentence-coach-state.json");
         _backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+        _backupsDirectory = Path.Combine(root, "Backups");
+        Directory.CreateDirectory(_backupsDirectory);
     }
 
-    public SentenceCoachState Load() => Normalize(TryLoad(_path) ?? TryLoad(_backupPath) ?? new SentenceCoachState());
+    public SentenceCoachState Load()
+    {
+        SentenceCoachState? primary = TryLoad(_path);
+        if (primary is not null) return PrepareLoaded(primary, _path);
+
+        SentenceCoachState? backup = TryLoad(_backupPath);
+        if (backup is not null) return PrepareLoaded(backup, _backupPath);
+
+        if (File.Exists(_path) || File.Exists(_backupPath))
+            throw new InvalidDataException("WordDeck Sentence Spelling state is unreadable and no verified backup can be loaded. Existing files were left untouched.");
+
+        return Normalize(new SentenceCoachState());
+    }
+
+    private SentenceCoachState PrepareLoaded(SentenceCoachState state, string sourcePath)
+    {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new InvalidDataException($"This Sentence Spelling state uses newer schema {state.SchemaVersion}; this build supports up to {CurrentSchemaVersion}. No Sentence Spelling state was changed.");
+
+        if (state.SchemaVersion < CurrentSchemaVersion)
+        {
+            CreateTimestampedFileBackup(sourcePath, "pre-migration");
+            Normalize(state);
+            Save(state);
+        }
+        else
+        {
+            Normalize(state);
+        }
+
+        return state;
+    }
 
     public void Save(SentenceCoachState state)
     {
         Normalize(state);
+        state.SchemaVersion = CurrentSchemaVersion;
         string temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
         if (TryLoad(_path) is not null) File.Copy(_path, _backupPath, true);
@@ -60,8 +102,25 @@ internal sealed class SentenceCoachStateStore
         catch { return null; }
     }
 
+    private string CreateTimestampedFileBackup(string sourcePath, string reason)
+    {
+        Directory.CreateDirectory(_backupsDirectory);
+        string safeReason = string.Concat(reason.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-'));
+        string destination = Path.Combine(_backupsDirectory, $"sentence-coach-state-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{safeReason}.json");
+        File.Copy(sourcePath, destination, overwrite: false);
+        foreach (FileInfo stale in new DirectoryInfo(_backupsDirectory).GetFiles("sentence-coach-state-*.json")
+                     .OrderByDescending(file => file.LastWriteTimeUtc).Skip(20))
+        {
+            try { stale.Delete(); } catch { }
+        }
+        return destination;
+    }
+
     internal static SentenceCoachState Normalize(SentenceCoachState state)
     {
+        if (state.SchemaVersion > CurrentSchemaVersion)
+            throw new InvalidDataException($"Sentence Spelling state schema {state.SchemaVersion} is newer than supported schema {CurrentSchemaVersion}.");
+        state.SchemaVersion = CurrentSchemaVersion;
         state.TargetCount = Math.Clamp(state.TargetCount, 1, 3);
         if (state.PoolPreset is not (ContextStudyPoolPreset.Thirty or ContextStudyPoolPreset.Hundred or ContextStudyPoolPreset.TwoHundred or ContextStudyPoolPreset.Full))
             state.PoolPreset = ContextStudyPoolPreset.Full;
@@ -102,6 +161,25 @@ internal sealed class SentenceCoachStateStore
     }
 }
 
+internal static class SentenceClosePersistence
+{
+    public static bool TrySave(Action saveAction, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(saveAction);
+        try
+        {
+            saveAction();
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+}
+
 internal sealed class SentenceCoachForm : Form
 {
     private sealed record PackChoice(string Name, InstalledSentencePack Installed)
@@ -135,6 +213,7 @@ internal sealed class SentenceCoachForm : Form
     private readonly SentenceCoachState _state;
     private readonly Random _random = new();
     private readonly Dictionary<string, HashSet<string>> _coverageCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly BlankLearningSubmissionGuard _blankSubmissionGuard;
 
     private readonly ComboBox _packCombo = new()
     {
@@ -272,6 +351,7 @@ internal sealed class SentenceCoachForm : Form
         root.Controls.Add(_modeInfo, 0, 10);
         Controls.Add(root);
         root.BringToFront();
+        _blankSubmissionGuard = BlankLearningSubmissionGuard.Attach(this, _answer.AccessibleName!);
 
         _packCombo.SelectedIndexChanged += (_, _) => ChangePack();
         _deckCombo.SelectedIndexChanged += (_, _) =>
@@ -326,7 +406,15 @@ internal sealed class SentenceCoachForm : Form
         PopulatePacks();
         UpdateModeInfo();
         Shown += (_, _) => BeginInvoke(new Action(RestoreOrNext));
-        FormClosing += (_, _) => Save();
+        FormClosing += (_, e) =>
+        {
+            if (!SentenceClosePersistence.TrySave(Save, out string? error))
+            {
+                e.Cancel = true;
+                Announce($"Closing Sentence Spelling was cancelled because personal progress could not be saved. The trainer remains open; resolve the storage problem and try again. {error}");
+            }
+        };
+        FormClosed += (_, _) => _blankSubmissionGuard.Dispose();
     }
 
     private MenuStrip BuildMenu()
@@ -718,8 +806,14 @@ internal sealed class SentenceCoachForm : Form
 
     private void Submit()
     {
-        if (_currentSentence is null || _targetSession is null || _targetSession.Complete || string.IsNullOrWhiteSpace(_answer.Text))
+        if (_currentSentence is null || _targetSession is null || _targetSession.Complete)
             return;
+        if (BlankLearningSubmissionGuard.ShouldSuppressBlankEnter(Keys.Enter, _answer.Text))
+        {
+            Announce("Type an answer before pressing Enter. No learning statistics were changed.");
+            _answer.Focus();
+            return;
+        }
 
         SentenceCoachTargetOnlyPrompt prompt = _targetSession.CurrentPrompt();
         SentenceCoachTargetOnlyCheck result = _targetSession.Check(_answer.Text);

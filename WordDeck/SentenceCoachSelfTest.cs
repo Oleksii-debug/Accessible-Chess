@@ -13,6 +13,8 @@ internal static class SentenceCoachSelfTest
         TestGeneratorFallbackContract();
         TestGeneratorFallbackValidation();
         TestSentenceCoachStatePersistence();
+        TestSentenceCoachStateSchemaMigration();
+        TestClosePersistenceBoundary();
     }
 
     private static SentencePack BuildPack()
@@ -215,8 +217,85 @@ internal static class SentenceCoachSelfTest
             SentenceCoachState recovered = new SentenceCoachStateStore(root).Load();
             Require(recovered.ActivePackId == "pack-1", "Sentence Coach backup recovery did not restore the last good state.");
             Require(recovered.TargetCount == 2 && recovered.CurrentTargetEntryIds.Count == 2, "Sentence Coach backup recovery lost two-target exercise state.");
+
+            string primaryPath = Path.Combine(root, "sentence-coach-state.json");
+            string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+            File.WriteAllText(primaryPath, "{ still broken primary");
+            File.WriteAllText(backupPath, "{ broken backup too");
+            string primaryBefore = File.ReadAllText(primaryPath);
+            string backupBefore = File.ReadAllText(backupPath);
+            ExpectInvalid(() => new SentenceCoachStateStore(root).Load(),
+                "Sentence Coach silently reset progress when both persisted state files were unreadable.");
+            Require(File.ReadAllText(primaryPath) == primaryBefore && File.ReadAllText(backupPath) == backupBefore,
+                "Sentence Coach changed unreadable state files while failing closed.");
         }
         finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
+    }
+
+    private static void TestSentenceCoachStateSchemaMigration()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentence-schema-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(root);
+            string primaryPath = Path.Combine(root, "sentence-coach-state.json");
+            string backupPath = Path.Combine(root, "sentence-coach-state.backup.json");
+
+            File.WriteAllText(primaryPath, "{\"ActivePackId\":\"legacy-pack\",\"TargetCount\":2}");
+            var store = new SentenceCoachStateStore(root);
+            SentenceCoachState migrated = store.Load();
+            Require(migrated.SchemaVersion == SentenceCoachStateStore.CurrentSchemaVersion &&
+                    migrated.ActivePackId == "legacy-pack" && migrated.TargetCount == 2,
+                "Legacy Sentence state was not migrated to the current schema.");
+            Require(Directory.GetFiles(Path.Combine(root, "Backups"), "sentence-coach-state-*-pre-migration.json").Length >= 1,
+                "Sentence schema migration did not create a timestamped pre-migration backup.");
+            SentenceCoachState persisted = JsonSerializer.Deserialize<SentenceCoachState>(File.ReadAllText(primaryPath))
+                ?? throw new InvalidDataException("Migrated Sentence state could not be parsed.");
+            Require(persisted.SchemaVersion == SentenceCoachStateStore.CurrentSchemaVersion,
+                "Sentence schema migration was not persisted.");
+
+            File.WriteAllText(primaryPath,
+                "{\"SchemaVersion\":1,\"ActivePackId\":\"known-pack\",\"FutureHint\":{\"mode\":\"keep-me\"}}");
+            SentenceCoachState withUnknown = new SentenceCoachStateStore(root).Load();
+            Require(withUnknown.ExtensionData is not null && withUnknown.ExtensionData.ContainsKey("FutureHint"),
+                "Sentence state loader dropped an unknown current-schema field.");
+            store.Save(withUnknown);
+            using (JsonDocument document = JsonDocument.Parse(File.ReadAllText(primaryPath)))
+                Require(document.RootElement.TryGetProperty("FutureHint", out _),
+                    "Sentence state Save dropped an unknown extension field.");
+
+            string validBackup = File.ReadAllText(primaryPath);
+            File.WriteAllText(backupPath, validBackup);
+            File.WriteAllText(primaryPath, "{\"SchemaVersion\":999,\"ActivePackId\":\"future-pack\"}");
+            string futureBefore = File.ReadAllText(primaryPath);
+            string backupBefore = File.ReadAllText(backupPath);
+            ExpectInvalid(() => new SentenceCoachStateStore(root).Load(),
+                "Newer Sentence schema incorrectly fell back to an older backup.");
+            Require(File.ReadAllText(primaryPath) == futureBefore && File.ReadAllText(backupPath) == backupBefore,
+                "Newer Sentence schema rejection modified persisted state.");
+        }
+        finally { try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
+    }
+
+    private static void TestClosePersistenceBoundary()
+    {
+        int successCalls = 0;
+        bool saved = SentenceClosePersistence.TrySave(() => successCalls++, out string? successError);
+        Require(saved && successCalls == 1 && successError is null,
+            "Successful Sentence close persistence did not complete exactly once.");
+
+        int failureCalls = 0;
+        bool failedSave = SentenceClosePersistence.TrySave(() =>
+        {
+            failureCalls++;
+            throw new IOException("simulated sentence close write failure");
+        }, out string? failureError);
+
+        Require(!failedSave && failureCalls == 1,
+            "Failed Sentence close persistence was not contained exactly once.");
+        Require(failureError is not null &&
+                failureError.Contains("simulated sentence close write failure", StringComparison.Ordinal),
+            "Failed Sentence close persistence did not preserve the storage failure reason.");
     }
 
     private sealed class StubGenerator : IControlledSentenceGenerator
