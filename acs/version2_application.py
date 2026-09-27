@@ -15,7 +15,11 @@ from .book_board_workflow import BookBoardWorkflow
 from .book_html_import import import_html_book, MAX_HTML_SOURCE_BYTES
 from .book_text_import import import_text_book, BookTextFormat, MAX_TEXT_SOURCE_BYTES
 from .book_library_game_lookup import AcsdbBookGameLookup
-from .book_progress_store import BookProgressStore
+from .book_progress_store import (
+    BookProgressStore,
+    BookProgressStoreError,
+    BookProgressStoreErrorCode,
+)
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
@@ -90,6 +94,10 @@ class Version2Application:
         self.library = build_library_export_webview(database, self.router.dispatch, language=language)
         self.library.projection.search(GameSearchQuery())
         self.confirm_document_replace = lambda: not (self.session and self.session.dirty)
+        # Backup rollback can discard the newest saved progress generation, so
+        # production must bind an explicit owner-controlled confirmation. Tests
+        # and non-Windows compositions fail closed by default.
+        self.confirm_book_progress_recovery = lambda: False
         self.open_book_dialog = lambda: None
 
     def _assert_thread(self):
@@ -155,15 +163,40 @@ class Version2Application:
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
         # Do not publish the staged reader/workflow/route until its initial
         # progress state is durably accepted by the canonical progress store.
-        self.progress_store.save(imported.book_key, reader)
+        self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self.shell.open_route("books")
         return len(imported.warnings)
 
+    def _persist_book_progress(self, book_key, reader):
+        """Publish Book progress, offering only explicit bounded backup rollback."""
+
+        try:
+            return self.progress_store.save(book_key, reader)
+        except BookProgressStoreError as error:
+            if error.code is not BookProgressStoreErrorCode.CORRUPT_STORE:
+                raise
+            # Recovery is destructive with respect to the corrupt primary's
+            # newest generation. Never infer consent from the existence of a
+            # valid backup or from a generic Book-open action.
+            try:
+                confirmed = self.confirm_book_progress_recovery()
+            except Exception:
+                confirmed = False
+            if confirmed is not True:
+                raise
+            if not self.progress_store.recover_from_backup():
+                raise
+            # Re-enter the canonical store write after recovery. This reloads
+            # the recovered generation under its normal interprocess/CAS locks;
+            # stale/unavailable recovery therefore still fails closed.
+            return self.progress_store.save(book_key, reader)
+
     def save_book_progress(self):
         self._assert_thread()
-        if self.reader is not None: self.progress_store.save(self.book_key, self.reader)
+        if self.reader is not None:
+            self._persist_book_progress(self.book_key, self.reader)
 
     def save_training_progress(self):
         self._assert_thread()
