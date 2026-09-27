@@ -64,16 +64,16 @@ internal static class PronunciationAudioPathSelfTest
                 StringComparison.OrdinalIgnoreCase),
             "Safe existing pronunciation IDs must keep their established path names.");
 
-        IReadOnlyList<DictionaryEntry> additions = ReviewedOxford5000Bootstrap.BuildEntriesForTest();
-        Require(additions.Count == ReviewedOxford5000Bootstrap.ExpectedCanonicalRows,
-            "Oxford 5000 audio compatibility regression did not receive the full canonical addition set.");
-        foreach (DictionaryEntry addition in additions)
+        DictionaryPackage fullOxford = DictionaryLoader.LoadEmbeddedOxford();
+        Require(fullOxford.Entries.Count == 5446,
+            "Built-in Oxford audio compatibility regression must cover all 5446 canonical entries.");
+        foreach (DictionaryEntry entry in fullOxford.Entries)
         {
-            IReadOnlyList<string> paths = PronunciationAudio.CandidatePaths("oxford-3000-en-uk", addition.Id);
-            Require(string.Equals(Path.GetFileName(paths[0]), addition.Id + ".mp3", StringComparison.Ordinal),
-                $"Canonical Oxford 5000 audio filename changed for {addition.Id}.");
+            IReadOnlyList<string> paths = PronunciationAudio.CandidatePaths(fullOxford.Id, entry.Id);
+            Require(string.Equals(Path.GetFileName(paths[0]), entry.Id + ".mp3", StringComparison.Ordinal),
+                $"Built-in Oxford audio filename changed for {entry.Id}.");
             Require(IsContained(paths[0], portableRoot) && IsContained(paths[1], localRoot),
-                $"Canonical Oxford 5000 audio path escaped its AudioPacks root for {addition.Id}.");
+                $"Built-in Oxford audio path escaped its AudioPacks root for {entry.Id}.");
         }
 
         IReadOnlyList<string> reserved = PronunciationAudio.CandidatePaths("CON", "NUL");
