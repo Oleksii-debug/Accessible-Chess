@@ -132,7 +132,8 @@ internal static class BookReadingWritingSelfTest
                     () =>
                     {
                         failedPersistCalls++;
-                        throw new IOException("simulated AppState persistence failure");
+                        AppStateStore.Normalize(state);
+                        throw new IOException("simulated AppState persistence failure after normalization");
                     }),
                 "Failed AppState persistence did not fail the cross-store Reading vocabulary capture.");
             Require(failedPersistCalls == 1, "Cross-store capture did not invoke caller persistence exactly once.");
