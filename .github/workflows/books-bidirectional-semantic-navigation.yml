@@ -1,0 +1,82 @@
+name: Books Bidirectional Semantic Navigation
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/bookreader.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/book_webview_projection.py'
+      - 'acs/book_webview_bridge.py'
+      - 'tests/test_book_bidirectional_semantic_navigation.py'
+      - '.github/workflows/books-bidirectional-semantic-navigation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-bidirectional-semantic-navigation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-navigation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact candidate and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          git fetch --no-tags origin work/full-product-teacher-education-reachability-20260911
+          product="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
+          git merge-base --is-ancestor "$product" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
+
+          mapfile -t actual < <(git diff --name-only "$product" HEAD | LC_ALL=C sort)
+          expected_paths=(
+            '.github/workflows/books-bidirectional-semantic-navigation.yml'
+            'acs/book_webview_bridge.py'
+            'acs/book_webview_projection.py'
+            'acs/bookreader.py'
+            'acs/full_product_presenters.py'
+            'tests/test_book_bidirectional_semantic_navigation.py'
+          )
+          mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
+          test "${actual[*]}" = "${wanted[*]}"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/bookreader.py
+          acs/full_product_presenters.py
+          acs/book_webview_projection.py
+          acs/book_webview_bridge.py
+          tests/test_book_bidirectional_semantic_navigation.py
+
+      - name: Run focused and adjacent Book semantics
+        run: >-
+          python -m unittest -v
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookreader
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_version2_book_workspace

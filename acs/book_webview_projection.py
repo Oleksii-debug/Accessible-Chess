@@ -28,7 +28,9 @@ _LABELS = {
         "next": "Наступний блок",
         "previous_heading": "Попередній заголовок",
         "next_heading": "Наступний заголовок",
+        "previous_position": "Попередня позиція",
         "next_position": "Наступна позиція",
+        "previous_game": "Попередня партія",
         "next_game": "Наступна партія",
         "bookmark_name": "Назва закладки",
         "save_bookmark": "Зберегти закладку",
@@ -50,7 +52,9 @@ _LABELS = {
         "next": "Next block",
         "previous_heading": "Previous heading",
         "next_heading": "Next heading",
+        "previous_position": "Previous position",
         "next_position": "Next position",
+        "previous_game": "Previous game",
         "next_game": "Next game",
         "bookmark_name": "Bookmark name",
         "save_bookmark": "Save bookmark",
@@ -151,6 +155,7 @@ class BookWebViewProjection:
         if role not in {"heading", "paragraph", "img", "group", "tree", "note"}:
             raise ValueError("book block role is invalid")
         labels = _LABELS[self._language]
+        navigation = self._presenter.navigation_availability()
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
@@ -175,12 +180,14 @@ class BookWebViewProjection:
                 "warning": _safe_text(block.warning, language=self._language, limit=1000),
             },
             "actions": (
-                {"command": "book.previous", "label": labels["previous"], "enabled": block.index > 0},
-                {"command": "book.next", "label": labels["next"], "enabled": True},
-                {"command": "book.previous_heading", "label": labels["previous_heading"], "enabled": block.index > 0},
-                {"command": "book.next_heading", "label": labels["next_heading"], "enabled": True},
-                {"command": "book.next_position", "label": labels["next_position"], "enabled": True},
-                {"command": "book.next_game", "label": labels["next_game"], "enabled": True},
+                {"command": "book.previous", "label": labels["previous"], "enabled": navigation["previous"]},
+                {"command": "book.next", "label": labels["next"], "enabled": navigation["next"]},
+                {"command": "book.previous_heading", "label": labels["previous_heading"], "enabled": navigation["previous_heading"]},
+                {"command": "book.next_heading", "label": labels["next_heading"], "enabled": navigation["next_heading"]},
+                {"command": "book.previous_position", "label": labels["previous_position"], "enabled": navigation["previous_position"]},
+                {"command": "book.next_position", "label": labels["next_position"], "enabled": navigation["next_position"]},
+                {"command": "book.previous_game", "label": labels["previous_game"], "enabled": navigation["previous_game"]},
+                {"command": "book.next_game", "label": labels["next_game"], "enabled": navigation["next_game"]},
                 {"command": "book.open_position", "label": labels["open_position"], "enabled": block.position_fen is not None},
                 {"command": "book.return_from_board", "label": labels["return_from_board"], "enabled": True},
             ),
@@ -223,8 +230,14 @@ class BookWebViewProjection:
     def next_position(self) -> BookWebViewEvent:
         return self._render(self._presenter.next_position())
 
+    def previous_position(self) -> BookWebViewEvent:
+        return self._render(self._presenter.previous_position())
+
     def next_game(self) -> BookWebViewEvent:
         return self._render(self._presenter.next_game())
+
+    def previous_game(self) -> BookWebViewEvent:
+        return self._render(self._presenter.previous_game())
 
     def save_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
