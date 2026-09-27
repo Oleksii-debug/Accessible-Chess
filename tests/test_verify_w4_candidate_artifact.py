@@ -102,6 +102,7 @@ def _database_fixture_bytes(
     schema_version: int = ACSDB_SCHEMA_VERSION,
     first_white: str | None = None,
     first_pgn_text: str | None = None,
+    first_source_index: int | None = None,
     source_sha256: str = "0" * 64,
 ) -> bytes:
     with tempfile.TemporaryDirectory() as directory:
@@ -128,7 +129,11 @@ def _database_fixture_bytes(
                         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             source_id,
-                            index + 1,
+                            (
+                                first_source_index
+                                if index == 0 and first_source_index is not None
+                                else index
+                            ),
                             "full",
                             "[]",
                             f"Starter {index}",
@@ -190,6 +195,7 @@ def _starter_bundle_files(
     database_schema: int = 6,
     database_first_white: str | None = None,
     database_first_pgn_text: str | None = None,
+    database_first_source_index: int | None = None,
     database_source_sha256: str | None = None,
 ) -> dict[str, bytes]:
     starter = _pgn_fixture("Starter", STARTER_GAMES)
@@ -200,6 +206,7 @@ def _starter_bundle_files(
         schema_version=database_schema,
         first_white=database_first_white,
         first_pgn_text=database_first_pgn_text,
+        first_source_index=database_first_source_index,
         source_sha256=database_source_sha256 or starter_sha256,
     )
     selected = [_selected_game_fixture(index) for index in range(STARTER_GAMES)]
@@ -662,6 +669,15 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
         self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
         with self.assertRaisesRegex(CandidateArtifactError, "ACSDB semantic evidence mismatch"):
             verify(self.path, SHA)
+
+    def test_lawful_starter_database_source_indexes_are_zero_based_and_stable(self) -> None:
+        starter = _starter_bundle_files(database_first_source_index=240)
+        self.path.write_bytes(_outer_bytes(candidate=_candidate_bytes(starter_files=starter)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "ACSDB game metadata does not match curated starter evidence",
+        ):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_lawful_starter_database_source_provenance_binds_to_starter_pgn(self) -> None:
         starter = _starter_bundle_files(database_source_sha256="0" * 64)
