@@ -109,6 +109,33 @@ class ChildCoachingPreparedPositionTests(unittest.TestCase):
             self.assertEqual(navigator.current().revision, 1)
             self.assertEqual(navigator.current_source(), source)
 
+    def test_removed_explicit_selection_does_not_silently_fall_back_to_another_position(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            holder, _, navigator = self.make_context(temp)
+            navigator.select("prep-fen")
+            holder["workspace"] = ew.delete_prepared_position(
+                holder["workspace"],
+                position_id="prep-fen",
+                expected_position_revision=1,
+            )
+
+            snapshot = navigator.snapshot()
+            self.assertIsNone(snapshot.selected_position_id)
+            self.assertTrue(all(not item.selected for item in snapshot.positions))
+            with self.assertRaisesRegex(
+                ChildCoachingPreparedPositionError,
+                "select again",
+            ):
+                navigator.current()
+            with self.assertRaisesRegex(
+                ChildCoachingPreparedPositionError,
+                "select again",
+            ):
+                navigator.next()
+
+            recovered = navigator.select("prep-pgn")
+            self.assertEqual(recovered.selected_position_id, "prep-pgn")
+
     def test_empty_workspace_has_no_selection_and_launch_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             workspace = ew.EducationWorkspace.empty(cd.ClassroomSnapshot())
