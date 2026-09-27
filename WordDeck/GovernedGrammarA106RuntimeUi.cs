@@ -353,6 +353,24 @@ internal static class GovernedGrammarA106RuntimeUi
         ("Close Deep Grammar practice", 6)
     };
 
+    internal static string GetResumeItemForUi(
+        GovernedGrammarA106StudyRuntime runtime,
+        out string? failureMessage)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        try
+        {
+            string itemId = runtime.GetResumeItemId();
+            failureMessage = null;
+            return itemId;
+        }
+        catch (Exception ex)
+        {
+            failureMessage = PersistenceFailureMessage("Точку відновлення", ex);
+            return GovernedGrammarA106StudyCatalog.PrimaryItemId;
+        }
+    }
+
     internal static bool TryRecordExposureForUi(
         GovernedGrammarA106StudyRuntime runtime,
         string itemId,
@@ -529,7 +547,7 @@ internal static class GovernedGrammarA106RuntimeUi
             AccessibleName = "Close Deep Grammar practice"
         };
 
-        string currentItemId = runtime.GetResumeItemId();
+        string currentItemId = GetResumeItemForUi(runtime, out string? startupPersistenceWarning);
         string? recommendedItemId = null;
 
         void RefreshProgress()
@@ -559,13 +577,15 @@ internal static class GovernedGrammarA106RuntimeUi
             }
             prompt.Text = $"{item.ItemId}. {item.Prompt}";
             answer.Clear();
-            feedback.Text = persistenceWarning ?? (item.IsDeepPractice
+            feedback.Text = persistenceWarning ?? startupPersistenceWarning ?? (item.IsDeepPractice
                 ? "Це цільова Deep Practice вправа. Після правильної відповіді WordDeck поверне вас до нового контексту основного завдання."
                 : "Введіть англійське питання. Натисніть Enter або кнопку «Перевірити відповідь».");
             next.Enabled = false;
             RefreshProgress();
-            if (persistenceWarning is not null)
-                AccessibilityAnnouncer.Announce(feedback, persistenceWarning);
+            string? announcement = persistenceWarning ?? startupPersistenceWarning;
+            if (announcement is not null)
+                AccessibilityAnnouncer.Announce(feedback, announcement);
+            startupPersistenceWarning = null;
         }
 
         check.Click += (_, _) =>
@@ -775,6 +795,13 @@ internal static class GovernedGrammarA106RuntimeUiSelfTest
 
             Directory.Delete(root, recursive: true);
             File.WriteAllText(root, "block-course-state-directory");
+
+            string fallbackResume = GovernedGrammarA106RuntimeUi.GetResumeItemForUi(
+                runtime, out string? resumeError);
+            Require(fallbackResume == GovernedGrammarA106StudyCatalog.PrimaryItemId &&
+                    !string.IsNullOrWhiteSpace(resumeError) &&
+                    resumeError.Contains("не збережено", StringComparison.OrdinalIgnoreCase),
+                "Unavailable Grammar state did not fall back to a usable primary item with truthful feedback.");
 
             bool practiceSaved = GovernedGrammarA106RuntimeUi.TryRecordPracticeForUi(
                 runtime,
