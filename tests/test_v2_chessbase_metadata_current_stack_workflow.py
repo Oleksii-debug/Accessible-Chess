@@ -76,6 +76,14 @@ class ChessBaseMetadataCurrentStackWorkflowTests(unittest.TestCase):
         self.assertIn("LIBCBH_ANNOTATION_DIR:", self.workflow)
         self.assertIn("LIBCBH_VARIATION_DIR:", self.workflow)
         self.assertIn("LIBCBH_UNUSUAL_DIR:", self.workflow)
+        self.assertIn(
+            "LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart",
+            self.workflow,
+        )
+        self.assertNotIn(
+            "LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStartBytes",
+            self.workflow,
+        )
 
 
 if __name__ == "__main__":

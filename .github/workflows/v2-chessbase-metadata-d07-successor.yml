@@ -228,7 +228,7 @@ jobs:
           LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
           LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
           LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
-          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStartBytes
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
         run: python -m unittest -v tests.test_v2_dev09_cbh_annotations_variations
 
       - name: Run exhaustive real 6117-game metadata oracle through D07 Search and bounded Export Reopen
