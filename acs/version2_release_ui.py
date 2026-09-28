@@ -127,6 +127,22 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 raise TypeError(f"Version 2 {bridge_name} surface cannot change language")
             set_projection_language(language)
 
+        # Training is materialized through a workspace rather than a direct
+        # application bridge attribute. Once live, it participates in the same
+        # persisted presentation-language transaction as every other V2 surface.
+        # Projection mutation happens first; workspace.language is published only
+        # after render succeeds, so the outer set_language rollback can restore a
+        # post-mutation projection failure without leaving split authorities.
+        training_workspace = getattr(application, "training_workspace", None)
+        if training_workspace is not None:
+            bridge = getattr(training_workspace, "bridge", None)
+            projection = getattr(bridge, "projection", None)
+            set_projection_language = getattr(projection, "set_language", None)
+            if not callable(set_projection_language):
+                raise TypeError("Version 2 Training surface cannot change language")
+            set_projection_language(language)
+            training_workspace.language = language
+
     @staticmethod
     def _queue_version2_language_refresh(application: Any) -> None:
         """Wake the existing V2 event poller without creating a spoken announcement."""
