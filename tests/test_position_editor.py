@@ -68,6 +68,7 @@ class PositionEditorTests(unittest.TestCase):
             "7/8/8/8/8/8/8/8 w - - 0 1",
             "44/8/8/8/8/8/8/8 w - - 0 1",
             "11111111/8/8/8/8/8/8/8 w - - 0 1",
+            "٨/8/8/8/8/8/8/8 w - - 0 1",
             "8/8/8/8/8/8/8/X7 w - - 0 1",
         )
         for fen in invalid:
