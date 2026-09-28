@@ -12,6 +12,7 @@ internal static class TatoebaSentencePackSelfTest
         TestFinalOxford5000Integration();
         TestLanguageAndMalformedInputRejection();
         TestVerifiedManifestProvenance();
+        TestAttributedInstallationRequiresBothSides();
     }
 
     private static void TestSupportedPairLayouts()
@@ -213,6 +214,66 @@ internal static class TatoebaSentencePackSelfTest
         {
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    private static void TestAttributedInstallationRequiresBothSides()
+    {
+        const string english = "We learn words";
+        List<string> tokens = SentenceTokenizer.Tokenize(english).ToList();
+
+        SentencePack ValidPack(string source, string sourceId = "101", string translationId = "201") => new()
+        {
+            PackId = "tatoeba-attributed-install-test",
+            Provenance = "Tatoeba attributed installation regression fixture",
+            License = "CC BY 2.0 FR",
+            Sentences = new List<SentenceRecord>
+            {
+                new()
+                {
+                    Id = "tatoeba-en-101-uk-201",
+                    English = english,
+                    Ukrainian = "Ми вивчаємо слова",
+                    Source = source,
+                    License = "CC BY 2.0 FR",
+                    SourceSentenceId = sourceId,
+                    TranslationSentenceId = translationId,
+                    Tokens = tokens,
+                    Lemmas = tokens.ToList(),
+                    TargetEntryIds = new List<string> { "ox-learn" },
+                    EntryLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["ox-learn"] = "A1"
+                    },
+                    DifficultyLevel = "A1"
+                }
+            }
+        };
+
+        SentencePack good = ValidPack(
+            "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #201 by Olena.");
+        SentencePackLicenseValidator.ValidateForInstallation(good);
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack("Tatoeba; English sentence #101; Ukrainian sentence #201 by Olena.")),
+            "attributed installation with no English author");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack("Tatoeba; English sentence #101 by Alice; Ukrainian sentence #201.")),
+            "attributed installation with no Ukrainian author");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #999 by Alice; Ukrainian sentence #201 by Olena.")),
+            "attribution bound to the wrong English upstream id");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #999 by Olena.")),
+            "attribution bound to the wrong Ukrainian upstream id");
     }
 
     private static string Hash(string path)
