@@ -980,6 +980,29 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         ).snapshot(),
                     )
                     self.assertTrue(app.training_workspace.session.completed)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated native next exercise render failure"),
+                    ), patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.generic_error",
+                        side_effect=RuntimeError("simulated native error projection failure"),
+                    ):
+                        native = app.adapter.activate_action("training.continue")
+
+                    self.assertEqual("error", native.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertTrue(app.training_workspace.session.completed)
                 finally:
                     app.shutdown()
             finally:
