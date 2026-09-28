@@ -61,6 +61,34 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             reader.go_to(99)
 
+    def test_navigation_fails_closed_after_document_revision_changes(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+
+        # Authoring/import code may mutate a BookDocument in place.  A reader
+        # created for the previous semantic revision must never combine the old
+        # BookIndex with new live blocks.
+        book.blocks[2].text = "Changed chapter"
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.next_heading()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.go_to(0)
+
+        # Failed navigation is atomic: the cursor remains on the last valid
+        # location from the indexed revision.
+        self.assertEqual(reader.index, 3)
+
+    def test_navigation_fails_closed_if_document_becomes_empty(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        book.blocks.clear()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+
     def test_empty_book_is_explicit_not_silent(self):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
