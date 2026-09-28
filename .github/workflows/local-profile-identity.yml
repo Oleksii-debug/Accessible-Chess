@@ -1,0 +1,52 @@
+name: Local Profile Identity Contract
+
+on:
+  pull_request:
+    paths:
+      - "acs/local_profile.py"
+      - "tests/test_local_profile.py"
+      - ".github/workflows/local-profile-identity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-profile:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify pull-request scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${{ github.event.pull_request.base.sha }}"
+          mapfile -t changed < <(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)
+          printf '%s\n' "${changed[@]}"
+          allowed='^(acs/local_profile\.py|tests/test_local_profile\.py|\.github/workflows/local-profile-identity\.yml)$'
+          for path in "${changed[@]}"; do
+            if [[ ! "$path" =~ $allowed ]]; then
+              echo "Unexpected path in local-profile identity scope: $path" >&2
+              exit 1
+            fi
+          done
+          test "${#changed[@]}" -eq 3
+          git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile identity boundary
+        run: python -m py_compile acs/local_profile.py tests/test_local_profile.py
+
+      - name: Run focused local-profile contract
+        run: python -m unittest -v tests.test_local_profile
