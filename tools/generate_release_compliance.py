@@ -12,7 +12,6 @@ import dataclasses
 import datetime as dt
 import hashlib
 import json
-import mimetypes
 from pathlib import Path
 import re
 import sys
@@ -31,6 +30,19 @@ DEFAULT_INCLUDES = (
     "HOTKEYS_UA.txt",
 )
 HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+_MEDIA_TYPES = {
+    ".config": "application/xml",
+    ".css": "text/css",
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".py": "text/x-python",
+    ".txt": "text/plain",
+    ".xml": "application/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+}
 
 
 class EvidenceError(RuntimeError):
@@ -125,7 +137,7 @@ def collect_runtime_files(root: Path, includes: Sequence[str]) -> list[FileRecor
             if relative in seen:
                 continue
             seen.add(relative)
-            media_type = mimetypes.guess_type(relative)[0] or "application/octet-stream"
+            media_type = _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
             records.append(
                 FileRecord(
                     path=relative,
