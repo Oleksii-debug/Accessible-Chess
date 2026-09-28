@@ -11,6 +11,8 @@ on:
       - 'acs/book_webview_projection.py'
       - 'acs/book_webview_bridge.py'
       - 'tests/test_book_bidirectional_semantic_navigation.py'
+      - 'tests/test_bookreader.py'
+      - 'tests/test_bookreader_snapshot_bounds.py'
       - 'acs/full_product_actions.py'
       - 'tests/test_full_product_native_menu.py'
       - 'acs/full_product_native_menu.py'
@@ -73,6 +75,8 @@ jobs:
             'acs/version2_application.py'
             'acs/version2_starter_content_application.py'
             'tests/test_book_bidirectional_semantic_navigation.py'
+            'tests/test_bookreader.py'
+            'tests/test_bookreader_snapshot_bounds.py'
             'tests/test_book_reverse_progress_failure_exact.py'
             'tests/test_v2_book_board_workflow.py'
             'tests/test_w3_p0f_starter_books_training_content.py'
@@ -100,6 +104,8 @@ jobs:
           acs/book_webview_projection.py
           acs/book_webview_bridge.py
           tests/test_book_bidirectional_semantic_navigation.py
+          tests/test_bookreader.py
+          tests/test_bookreader_snapshot_bounds.py
           tests/test_book_reverse_progress_failure_exact.py
           tests/test_v2_book_board_workflow.py
           tests/test_w3_p0f_starter_books_training_content.py
@@ -111,6 +117,8 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookreader
+          tests.test_bookreader_snapshot_bounds
           tests.test_book_reverse_progress_failure_exact
           tests.test_w3_p0f_starter_books_training_content
           tests.test_version2_application
@@ -118,7 +126,6 @@ jobs:
           tests.test_v2_shared_presentation_path_privacy
           tests.test_book_board_progress_failure_exact
           tests.test_v2_book_board_workflow
-          tests.test_bookreader
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_books_training_webview_bridge
           tests.test_version2_book_workspace
