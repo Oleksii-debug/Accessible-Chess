@@ -276,6 +276,110 @@ class BookEpubImportTests(unittest.TestCase):
             import_epub_book(raw, source_name="doctype.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
 
+    def test_utf16_opf_doctype_entity_is_rejected_structurally(self) -> None:
+        dangerous = """<?xml version="1.0" encoding="UTF-16"?>
+<!DOCTYPE package [<!ENTITY injected "Injected title">]>
+<package version="3.0"
+ xmlns="http://www.idpf.org/2007/opf"
+ xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:title>&injected;</dc:title></metadata>
+  <manifest>
+    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>""".encode("utf-16")
+        raw = _epub(
+            opf=dangerous,
+            entries={
+                "OEBPS/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="utf16-doctype-opf.epub")
+        self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
+
+    def test_utf16_endian_opf_doctype_entity_is_rejected_structurally(self) -> None:
+        template = """<?xml version="1.0" encoding="{declaration}"?>
+<!DOCTYPE package [<!ENTITY injected "Injected title">]>
+<package version="3.0"
+ xmlns="http://www.idpf.org/2007/opf"
+ xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:title>&injected;</dc:title></metadata>
+  <manifest>
+    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>"""
+        for encoding, declaration in (
+            ("utf-16-le", "UTF-16LE"),
+            ("utf-16-be", "UTF-16BE"),
+        ):
+            with self.subTest(encoding=encoding):
+                raw = _epub(
+                    opf=template.format(declaration=declaration).encode(encoding),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        raw,
+                        source_name=f"{encoding}-doctype-opf.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
+    def test_utf16_container_doctype_entity_is_rejected_structurally(self) -> None:
+        dangerous_container = """<?xml version="1.0" encoding="UTF-16"?>
+<!DOCTYPE container [<!ENTITY packagePath "OEBPS/content.opf">]>
+<container version="1.0"
+ xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="&packagePath;"
+      media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>""".encode("utf-16")
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            },
+            container=dangerous_container,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="utf16-doctype-container.epub")
+        self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
+
+    def test_utf16_opf_without_dtd_remains_supported(self) -> None:
+        opf_text = _opf(
+            manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        ).decode("utf-8")
+        opf_utf16 = opf_text.replace(
+            'encoding="UTF-8"',
+            'encoding="UTF-16"',
+            1,
+        ).encode("utf-16")
+        raw = _epub(
+            opf=opf_utf16,
+            entries={
+                "OEBPS/chapter.xhtml": b"<html><body><p>UTF-16 metadata, safe content.</p></body></html>",
+            },
+        )
+        result = import_epub_book(raw, source_name="utf16-safe-opf.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "UTF-16 metadata, safe content.",
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+        )
+
     def test_unsupported_only_spine_fails_no_readable_content(self) -> None:
         raw = _epub(
             opf=_opf(
