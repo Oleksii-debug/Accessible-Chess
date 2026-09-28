@@ -189,10 +189,18 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
         self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
         self.assertIn('return refresh(true);', drain)
-        self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
+        queued_restore = 'if (queuedFocusTarget) restoreQueuedFocus(queuedFocusTarget);'
+        self.assertIn(queued_restore, drain)
+        self.assertLess(drain.index('return refresh(true);'), drain.index(queued_restore))
+
+        restore_start = BOOTSTRAP.index('  function restoreQueuedFocus(id)')
+        restore_end = BOOTSTRAP.index('  function restoreStage1Focus(', restore_start)
+        restore = BOOTSTRAP[restore_start:restore_end]
+        self.assertIn('if (active && workspace.contains(active) && !hiddenByAncestor(active)) return true;', restore)
+        self.assertIn('return focusById(id);', restore)
         self.assertLess(
-            drain.index('return refresh(true);'),
-            drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
+            restore.index('if (active && workspace.contains(active) && !hiddenByAncestor(active)) return true;'),
+            restore.index('return focusById(id);'),
         )
 
     def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:
