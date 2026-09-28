@@ -28,6 +28,7 @@ from .engine_play_service import (
 )
 from .game_lifecycle import EndReason, GameStatus
 from .sound_events import MoveSoundFacts, SoundEvent
+from .sound_profiles import CORE_SOUND_EVENTS, SoundProfileController, SoundPreviewService
 from .ui_native_menu import install_windows_native_menu
 from .webapp_keymap import (
     KeymapAwareAccessibleChessAPI,
@@ -45,6 +46,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         game_sounds: Any | None = None,
         sound_runtime: Any | None = None,
         settings: Any | None = None,
+        sound_profile_controller: SoundProfileController | None = None,
+        sound_preview_service: SoundPreviewService | None = None,
         engine_play_service: EnginePlayService | None = None,
         **kwargs: Any,
     ) -> None:
@@ -57,6 +60,18 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._game_sounds = game_sounds
         self._sound_runtime = sound_runtime
         self._settings = settings
+        if sound_profile_controller is not None and not isinstance(
+            sound_profile_controller, SoundProfileController
+        ):
+            raise TypeError(
+                "sound_profile_controller must be SoundProfileController or None"
+            )
+        if sound_preview_service is not None and not isinstance(
+            sound_preview_service, SoundPreviewService
+        ):
+            raise TypeError("sound_preview_service must be SoundPreviewService or None")
+        self._sound_profile_controller = sound_profile_controller
+        self._sound_preview_service = sound_preview_service
         self._engine_play_service = engine_play_service
         self._engine_session: EngineGameSessionCoordinator | None = None
         self._engine_game_phase = "idle"
@@ -71,6 +86,23 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return uk if self.lang == "uk" else en
 
     def _sound_state(self) -> dict[str, Any]:
+        if self._sound_profile_controller is not None:
+            try:
+                profile = self._sound_profile_controller.current()
+                return {
+                    "enabled": profile.master_enabled,
+                    "volume": profile.master_volume_percent,
+                    "pack_id": profile.pack_id,
+                    "events": list(CORE_SOUND_EVENTS),
+                    "event_preferences": {
+                        event_id: profile.preference_for(event_id).to_mapping()
+                        for event_id in CORE_SOUND_EVENTS
+                    },
+                    "profile_warning": self._sound_profile_controller.warning or "",
+                }
+            except Exception:
+                pass
+
         enabled = True
         volume = 80
         if self._settings is not None:
@@ -82,7 +114,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return {
             "enabled": enabled,
             "volume": max(0, min(100, volume)),
+            "pack_id": "classic",
             "events": [event.value for event in SoundEvent],
+            "event_preferences": {},
+            "profile_warning": "",
         }
 
     def get_sound_settings(self) -> dict[str, Any]:
@@ -90,7 +125,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return {"ok": True, **state, "message": ""}
 
     def set_sound_enabled(self, enabled: bool) -> dict[str, Any]:
-        if not isinstance(enabled, bool) or self._settings is None:
+        if not isinstance(enabled, bool):
             return {
                 "ok": False,
                 **self._sound_state(),
@@ -100,7 +135,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 ),
             }
         try:
-            self._settings.set("sounds", enabled)
+            if self._sound_profile_controller is not None:
+                self._sound_profile_controller.set_master_enabled(enabled)
+            elif self._settings is not None:
+                self._settings.set("sounds", enabled)
+            else:
+                raise RuntimeError("sound settings are unavailable")
         except Exception:
             return {
                 "ok": False,
@@ -120,7 +160,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         }
 
     def set_sound_volume(self, volume: int) -> dict[str, Any]:
-        if isinstance(volume, bool) or not isinstance(volume, int) or not 0 <= volume <= 100 or self._settings is None:
+        if isinstance(volume, bool) or not isinstance(volume, int) or not 0 <= volume <= 100:
             return {
                 "ok": False,
                 **self._sound_state(),
@@ -130,7 +170,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 ),
             }
         try:
-            self._settings.set("volume", volume)
+            if self._sound_profile_controller is not None:
+                self._sound_profile_controller.set_master_volume(volume)
+            elif self._settings is not None:
+                self._settings.set("volume", volume)
+            else:
+                raise RuntimeError("sound settings are unavailable")
         except Exception:
             return {
                 "ok": False,
@@ -149,7 +194,142 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             ),
         }
 
+    def set_sound_event_enabled(
+        self, event_id: str, enabled: bool
+    ) -> dict[str, Any]:
+        if self._sound_profile_controller is None or type(enabled) is not bool:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Налаштування події звуку недоступне.",
+                    "Sound event setting is unavailable.",
+                ),
+            }
+        try:
+            self._sound_profile_controller.set_event(event_id, enabled=enabled)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти подію звуку.",
+                    "Sound event could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Подію звуку оновлено.",
+                "Sound event updated.",
+            ),
+        }
+
+    def set_sound_event_volume(
+        self, event_id: str, volume: int
+    ) -> dict[str, Any]:
+        if (
+            self._sound_profile_controller is None
+            or isinstance(volume, bool)
+            or not isinstance(volume, int)
+            or not 0 <= volume <= 100
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Гучність події має бути від 0 до 100.",
+                    "Event volume must be from 0 to 100.",
+                ),
+            }
+        try:
+            self._sound_profile_controller.set_event(
+                event_id, volume_percent=volume
+            )
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти гучність події.",
+                    "Event volume could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                f"Гучність події {volume} відсотків.",
+                f"Event volume {volume} percent.",
+            ),
+        }
+
+    def set_sound_event_sound(
+        self, event_id: str, sound_id: str | None
+    ) -> dict[str, Any]:
+        if self._sound_profile_controller is None or (
+            sound_id is not None and not isinstance(sound_id, str)
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Вибір звуку недоступний.",
+                    "Sound selection is unavailable.",
+                ),
+            }
+        try:
+            self._sound_profile_controller.set_event(event_id, sound_id=sound_id)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти вибір звуку.",
+                    "Sound selection could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Звук події оновлено.",
+                "Event sound updated.",
+            ),
+        }
+
     def preview_sound(self, event_id: str) -> dict[str, Any]:
+        if self._sound_preview_service is not None:
+            try:
+                result = self._sound_preview_service.preview(event_id)
+            except Exception:
+                return {
+                    "ok": False,
+                    **self._sound_state(),
+                    "message": self._sound_message(
+                        "Не вдалося відтворити звук.",
+                        "Sound could not be played.",
+                    ),
+                }
+            if not result.played:
+                return {
+                    "ok": False,
+                    **self._sound_state(),
+                    "message": self._sound_message(
+                        "Цей звук вимкнено в профілі.",
+                        "This sound is silenced in the profile.",
+                    ),
+                }
+            return {
+                "ok": True,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Звук відтворено.",
+                    "Sound played.",
+                ),
+            }
+
         try:
             event = SoundEvent(str(event_id))
         except Exception:
@@ -178,13 +358,13 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                     "Sound could not be played.",
                 ),
             }
-        if getattr(report, "disabled", False):
+        if getattr(report, "disabled", False) or getattr(report, "silenced", ()):
             return {
                 "ok": False,
                 **self._sound_state(),
                 "message": self._sound_message(
-                    "Спочатку увімкніть звуки та гучність.",
-                    "Enable sounds and volume first.",
+                    "Спочатку увімкніть цей звук та гучність.",
+                    "Enable this sound and volume first.",
                 ),
             }
         if getattr(report, "failures", ()):

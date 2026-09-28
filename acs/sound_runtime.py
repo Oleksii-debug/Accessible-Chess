@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Protocol
 
 from .sound_events import MoveSoundFacts, SoundEvent, SoundEventPolicy
+from .sound_profiles import SoundProfile
 
 
 class SoundPlaybackPort(Protocol):
@@ -47,6 +48,56 @@ class SoundRuntimeSettings:
         return cls(enabled=enabled, volume=volume)  # type: ignore[arg-type]
 
 
+class LegacyProfiledSoundPlaybackAdapter:
+    """Compatibility wrapper for injected legacy playback fakes/adapters.
+
+    Production Windows playback has native profile support. This wrapper exists so
+    diagnostics that inject the historical play(event, volume=...) contract do not
+    become a second runtime. It can only represent the built-in classic mapping;
+    custom pack/sound requests fail closed.
+    """
+
+    def __init__(self, playback: SoundPlaybackPort) -> None:
+        if isinstance(playback, type) or not callable(getattr(playback, "play", None)):
+            raise TypeError("playback must expose callable play")
+        self._playback = playback
+
+    def play(self, event: SoundEvent, *, volume: int) -> None:
+        self._playback.play(event, volume=volume)
+
+    def play_profiled(
+        self,
+        event: SoundEvent,
+        *,
+        pack_id: str,
+        sound_id: str,
+        volume: int,
+    ) -> None:
+        if pack_id != "classic" or sound_id != event.value:
+            raise FileNotFoundError(
+                "legacy playback cannot resolve custom sound packs or sound ids"
+            )
+        self._playback.play(event, volume=volume)
+
+    def play_sound(
+        self,
+        *,
+        pack_id: str,
+        sound_id: str,
+        volume: int,
+        fallback_event: SoundEvent | None = None,
+    ) -> None:
+        if (
+            pack_id != "classic"
+            or fallback_event is None
+            or sound_id != fallback_event.value
+        ):
+            raise FileNotFoundError(
+                "legacy playback cannot resolve custom sound packs or sound ids"
+            )
+        self._playback.play(fallback_event, volume=volume)
+
+
 @dataclass(frozen=True)
 class SoundPlaybackFailure:
     event: SoundEvent
@@ -69,6 +120,7 @@ class SoundPlaybackReport:
     delivered: tuple[SoundEvent, ...]
     failures: tuple[SoundPlaybackFailure, ...]
     disabled: bool = False
+    silenced: tuple[SoundEvent, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.requested, tuple) or any(
@@ -85,6 +137,10 @@ class SoundPlaybackReport:
             raise TypeError("failures must be a SoundPlaybackFailure tuple")
         if type(self.disabled) is not bool:
             raise TypeError("disabled must be boolean")
+        if not isinstance(self.silenced, tuple) or any(
+            not isinstance(event, SoundEvent) for event in self.silenced
+        ):
+            raise TypeError("silenced must be a SoundEvent tuple")
 
     @property
     def ok(self) -> bool:
@@ -107,22 +163,36 @@ class SoundRuntime:
         playback: SoundPlaybackPort,
         *,
         settings: SoundRuntimeSettings | Callable[[], SoundRuntimeSettings] | None = None,
+        profile: SoundProfile | Callable[[], SoundProfile] | None = None,
         error_sink: Callable[[SoundPlaybackFailure], None] | None = None,
     ) -> None:
         if isinstance(playback, type) or not callable(getattr(playback, "play", None)):
             raise TypeError("playback must expose callable play")
         if settings is not None and not isinstance(settings, SoundRuntimeSettings) and not callable(settings):
             raise TypeError("settings must be SoundRuntimeSettings, callable, or None")
+        if profile is not None and not isinstance(profile, SoundProfile) and not callable(profile):
+            raise TypeError("profile must be SoundProfile, callable, or None")
+        if profile is not None and not callable(getattr(playback, "play_profiled", None)):
+            raise TypeError("profiled sound playback must expose callable play_profiled")
         if error_sink is not None and not callable(error_sink):
             raise TypeError("error_sink must be callable or None")
         self._playback = playback
         self._settings = SoundRuntimeSettings() if settings is None else settings
+        self._profile = profile
         self._error_sink = error_sink
 
     def current_settings(self) -> SoundRuntimeSettings:
         value = self._settings() if callable(self._settings) else self._settings
         if not isinstance(value, SoundRuntimeSettings):
             raise TypeError("sound settings provider must return SoundRuntimeSettings")
+        return value
+
+    def current_profile(self) -> SoundProfile | None:
+        if self._profile is None:
+            return None
+        value = self._profile() if callable(self._profile) else self._profile
+        if not isinstance(value, SoundProfile):
+            raise TypeError("sound profile provider must return SoundProfile")
         return value
 
     def dispatch(self, events: Iterable[SoundEvent]) -> SoundPlaybackReport:
@@ -139,15 +209,38 @@ class SoundRuntime:
                 seen.add(event)
                 ordered.append(event)
         requested = tuple(ordered)
+        profile = self.current_profile()
         settings = self.current_settings()
-        if not settings.enabled or settings.volume == 0:
-            return SoundPlaybackReport(requested, (), (), disabled=True)
+        if profile is None:
+            if not settings.enabled or settings.volume == 0:
+                return SoundPlaybackReport(requested, (), (), disabled=True)
+        elif not profile.master_enabled or profile.master_volume_percent == 0:
+            return SoundPlaybackReport(
+                requested,
+                (),
+                (),
+                disabled=True,
+                silenced=requested,
+            )
 
         delivered: list[SoundEvent] = []
         failures: list[SoundPlaybackFailure] = []
+        silenced: list[SoundEvent] = []
         for event in requested:
             try:
-                self._playback.play(event, volume=settings.volume)
+                if profile is None:
+                    self._playback.play(event, volume=settings.volume)
+                else:
+                    volume = profile.effective_volume(event.value)
+                    if volume == 0:
+                        silenced.append(event)
+                        continue
+                    self._playback.play_profiled(
+                        event,
+                        pack_id=profile.pack_id,
+                        sound_id=profile.selected_sound_id(event.value),
+                        volume=volume,
+                    )
             except Exception as exc:  # infrastructure boundary
                 message = str(exc).strip() or type(exc).__name__
                 failure = SoundPlaybackFailure(event, type(exc).__name__, message)
@@ -161,7 +254,12 @@ class SoundRuntime:
                         pass
             else:
                 delivered.append(event)
-        return SoundPlaybackReport(requested, tuple(delivered), tuple(failures))
+        return SoundPlaybackReport(
+            requested,
+            tuple(delivered),
+            tuple(failures),
+            silenced=tuple(silenced),
+        )
 
 
 class GameSoundRuntime:
