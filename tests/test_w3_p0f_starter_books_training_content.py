@@ -836,6 +836,35 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     rebuilt = app.training_workspace.snapshot()
                     self.assertEqual("en", rebuilt["document"]["lang"])
                     self.assertEqual("Training", rebuilt["heading"])
+
+                    # A failed language render used to return the generic error
+                    # from the rejected target language even though the workspace
+                    # correctly rolled back to the prior language. Compare with a
+                    # same-state control error so the event and restored surface
+                    # must remain language-coherent for screen-reader output.
+                    control_error = app.browser_command(
+                        "training",
+                        "training.unsupported",
+                    )
+                    self.assertEqual("error", control_error["kind"])
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.snapshot",
+                        side_effect=RuntimeError("simulated language render failure"),
+                    ):
+                        failed_language = app.browser_command(
+                            "training",
+                            "training.language",
+                            {"language": "ua"},
+                        )
+
+                    self.assertEqual("error", failed_language["kind"])
+                    rebuilt = app.training_workspace.snapshot()
+                    self.assertEqual("en", rebuilt["document"]["lang"])
+                    self.assertEqual("Training", rebuilt["heading"])
+                    self.assertEqual(
+                        control_error["payload"]["message"],
+                        failed_language["payload"]["message"],
+                    )
                 finally:
                     app.shutdown()
             finally:

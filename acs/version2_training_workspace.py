@@ -194,7 +194,11 @@ class Version2BookTrainingWorkspace:
             self.language = before_language
             self.bridge = self._bridge_for(restored, message=before_message)
             self._revision = revision
-            return event
+            # The bridge can construct its generic error after partially mutating
+            # presentation state (notably a rejected language switch). We have
+            # just restored the authoritative pre-command projection, so never
+            # return an error localized from the rejected transient state.
+            return self.bridge.projection.generic_error()
         try:
             self.save()
         except Exception:
