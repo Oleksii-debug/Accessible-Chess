@@ -402,6 +402,9 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     board_position_projector=lambda _fen: {"ok": True},
                 )
                 try:
+                    opened_books = app.browser_command("shell", "screen.books")
+                    self.assertEqual("route", opened_books["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
                     catalogue = app.snapshot()["books"]["starter_materials"]
                     booklet = next(
                         item
