@@ -39,6 +39,24 @@ internal static class SentencePackStructuralLimitsSelfTest
         maxLength.Sentences.Single().EntryLevels[new string('e', SentencePackStructuralLimits.MaxIdentifierChars)] = "A1";
         SentencePackStructuralLimits.Validate(maxLength);
 
+        string root = Path.Combine(Path.GetTempPath(), $"WordDeck-sentencepack-metadata-limits-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(root);
+            string output = Path.Combine(root, "pack.json.gz");
+            SentencePack overlongIoPack = BuildPack(sourceSentenceId: tooLong);
+            bool writeRejected = false;
+            try { SentencePackIo.WriteGZip(output, overlongIoPack); }
+            catch (InvalidDataException) { writeRejected = true; }
+            Require(writeRejected, "Portable SentencePack write path accepted overlong upstream metadata.");
+            Require(!File.Exists(output) || new FileInfo(output).Length == 0,
+                "Rejected overlong SentencePack left a usable-looking portable artifact.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+        }
+
         Console.WriteLine("SentencePack metadata structural-limits self-test passed.");
     }
 
@@ -75,6 +93,11 @@ internal static class SentencePackStructuralLimitsSelfTest
                 }
             }
         };
+    }
+
+    private static void Require(bool condition, string message)
+    {
+        if (!condition) throw new InvalidDataException(message);
     }
 
     private static void ExpectRejected(SentencePack pack, string description)
