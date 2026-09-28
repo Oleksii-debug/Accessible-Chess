@@ -12,6 +12,7 @@ internal static class TatoebaSentencePackSelfTest
         TestFinalOxford5000Integration();
         TestLanguageAndMalformedInputRejection();
         TestVerifiedManifestProvenance();
+        TestAttributedInstallationRequiresBothSides();
     }
 
     private static void TestSupportedPairLayouts()
@@ -61,10 +62,10 @@ internal static class TatoebaSentencePackSelfTest
         var pairs = new[]
         {
             new TatoebaSentencePair(101, "I improve skills.", 201, "Я покращую навички.", "Alice", "Olena"),
-            new TatoebaSentencePair(102, "We learn words.", 202, "Ми вивчаємо слова."),
+            new TatoebaSentencePair(102, "We learn words.", 202, "Ми вивчаємо слова.", "Bob", "Iryna"),
             new TatoebaSentencePair(103, "xylophone qwerty.", 203, "Ксилофон."),
-            new TatoebaSentencePair(104, "I like ice cream.", 204, "Я люблю морозиво."),
-            new TatoebaSentencePair(105, "I bank money.", 205, "Я кладу гроші до банку.")
+            new TatoebaSentencePair(104, "I like ice cream.", 204, "Я люблю морозиво.", "Carol", "Svitlana"),
+            new TatoebaSentencePair(105, "I bank money.", 205, "Я кладу гроші до банку.", "Dan", "Marta")
         };
 
         (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
@@ -92,6 +93,24 @@ internal static class TatoebaSentencePackSelfTest
         SentencePack reparsed = SentencePackJson.Parse(SentencePackJson.Serialize(pack));
         Require(reparsed.Sentences.Count == pack.Sentences.Count && reparsed.License == "CC BY 2.0 FR",
             "Built Tatoeba SentencePack did not survive JSON round-trip.");
+
+        ExpectInvalidBuild(
+            () => TatoebaSentencePackBuilder.Build(
+                new[] { new TatoebaSentencePair(106, "I improve skills.", 206, "Я покращую навички.") },
+                dictionary,
+                "tatoeba-attribution-missing",
+                "Synthetic attributed build rejection fixture",
+                "CC BY 2.0 FR"),
+            "attributed accepted sentence missing both author usernames");
+
+        (SentencePack cc0WithoutAuthors, _) = TatoebaSentencePackBuilder.Build(
+            new[] { new TatoebaSentencePair(107, "I improve skills.", 207, "Я покращую навички.") },
+            dictionary,
+            "tatoeba-cc0-no-authors",
+            "Synthetic CC0 build fixture",
+            "CC0 1.0");
+        Require(cc0WithoutAuthors.Sentences.Count == 1,
+            "CC0 SentencePack unexpectedly required per-side attribution usernames.");
     }
 
     private static void TestFinalOxford5000Integration()
@@ -150,8 +169,40 @@ internal static class TatoebaSentencePackSelfTest
             WriteManifest(manifestPath, "unapproved-license-filter", hash);
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "unknown license filter");
 
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash, "CC BY 2.0 FR");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "CC0 filter with contradictory declared license");
+
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash, "CC0 1.0");
+            Require(TatoebaImportProvenance.Resolve(pairPath).VerifiedCc0Manifest,
+                "Matching explicit CC0 license declaration was incorrectly rejected.");
+
             WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash, "CC0 1.0");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "mismatched declared CC-BY license");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate schema_version authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"unapproved\",\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate license_filter authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\",\"output_sha256\":\"{hash}\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate output_sha256 authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"CC BY 2.0 FR with BOTH sentence-owner usernames retained\",\"output_sha256\":\"{hash}\",\"license\":\"CC0 1.0\",\"license\":\"CC BY 2.0 FR\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate declared license authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\",\"future_note\":\"unique extension metadata\"}}");
+            TatoebaImportMetadata withExtension = TatoebaImportProvenance.Resolve(pairPath);
+            Require(withExtension.VerifiedCc0Manifest,
+                "A unique unknown manifest extension property was incorrectly rejected.");
+
+            File.WriteAllText(manifestPath, "[]");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "non-object manifest root");
 
             File.WriteAllText(manifestPath, "{ broken json");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "malformed manifest JSON");
@@ -163,6 +214,80 @@ internal static class TatoebaSentencePackSelfTest
         {
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    private static void TestAttributedInstallationRequiresBothSides()
+    {
+        const string english = "We learn words";
+        List<string> tokens = SentenceTokenizer.Tokenize(english).ToList();
+
+        SentencePack ValidPack(string source, string sourceId = "101", string translationId = "201") => new()
+        {
+            PackId = "tatoeba-attributed-install-test",
+            Provenance = "Tatoeba attributed installation regression fixture",
+            License = "CC BY 2.0 FR",
+            Sentences = new List<SentenceRecord>
+            {
+                new()
+                {
+                    Id = "tatoeba-en-101-uk-201",
+                    English = english,
+                    Ukrainian = "Ми вивчаємо слова",
+                    Source = source,
+                    License = "CC BY 2.0 FR",
+                    SourceSentenceId = sourceId,
+                    TranslationSentenceId = translationId,
+                    Tokens = tokens,
+                    Lemmas = tokens.ToList(),
+                    TargetEntryIds = new List<string> { "ox-learn" },
+                    EntryLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["ox-learn"] = "A1"
+                    },
+                    DifficultyLevel = "A1"
+                }
+            }
+        };
+
+        SentencePack good = ValidPack(
+            "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #201 by Olena.");
+        SentencePackLicenseValidator.ValidateForInstallation(good);
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack("Tatoeba; English sentence #101; Ukrainian sentence #201 by Olena.")),
+            "attributed installation with no English author");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack("Tatoeba; English sentence #101 by Alice; Ukrainian sentence #201.")),
+            "attributed installation with no Ukrainian author");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #999 by Alice; Ukrainian sentence #201 by Olena.")),
+            "attribution bound to the wrong English upstream id");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #999 by Olena.")),
+            "attribution bound to the wrong Ukrainian upstream id");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #not-a-number by Alice; Ukrainian sentence #201 by Olena.",
+                    sourceId: "not-a-number")),
+            "non-numeric Tatoeba source sentence id");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #0 by Olena.",
+                    translationId: "0")),
+            "non-positive Tatoeba translation sentence id");
     }
 
     private static string Hash(string path)
@@ -181,6 +306,13 @@ internal static class TatoebaSentencePackSelfTest
         };
         if (license is not null) payload["license"] = license;
         File.WriteAllText(path, JsonSerializer.Serialize(payload));
+    }
+
+    private static void ExpectInvalidBuild(Action action, string description)
+    {
+        try { action(); }
+        catch (InvalidDataException) { return; }
+        throw new InvalidDataException($"Tatoeba builder accepted invalid input: {description}.");
     }
 
     private static void ExpectInvalidProvenance(Action action, string description)

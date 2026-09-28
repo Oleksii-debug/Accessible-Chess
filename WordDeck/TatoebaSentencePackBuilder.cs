@@ -198,6 +198,13 @@ internal static partial class TatoebaSentencePackBuilder
                 continue;
             }
 
+            if (string.Equals(license, "CC BY 2.0 FR", StringComparison.Ordinal) &&
+                (string.IsNullOrWhiteSpace(pair.EnglishAuthor) || string.IsNullOrWhiteSpace(pair.UkrainianAuthor)))
+            {
+                throw new InvalidDataException(
+                    $"Attributed Tatoeba pair {pair.EnglishId}/{pair.UkrainianId} would be included in the SentencePack but is missing an English or Ukrainian sentence-owner username.");
+            }
+
             string difficulty = EstimateDifficulty(tokens, bySurface);
             var flags = new List<string>();
             if (offList > Math.Max(2, tokens.Count / 3))

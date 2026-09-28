@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace WordDeck;
 
 internal static class SentencePackLicenseValidator
@@ -27,8 +29,12 @@ internal static class SentencePackLicenseValidator
 
         foreach (SentenceRecord sentence in pack.Sentences)
         {
-            if (string.IsNullOrWhiteSpace(sentence.SourceSentenceId) || string.IsNullOrWhiteSpace(sentence.TranslationSentenceId))
-                throw new InvalidDataException($"Tatoeba SentencePack record {sentence.Id} is missing upstream sentence identifiers.");
+            if (!IsPositiveTatoebaSentenceId(sentence.SourceSentenceId) ||
+                !IsPositiveTatoebaSentenceId(sentence.TranslationSentenceId))
+            {
+                throw new InvalidDataException(
+                    $"Tatoeba SentencePack record {sentence.Id} is missing a valid positive decimal upstream sentence identifier.");
+            }
         }
 
         if (!string.Equals(pack.License, TatoebaCcBy, StringComparison.Ordinal))
@@ -36,14 +42,34 @@ internal static class SentencePackLicenseValidator
 
         foreach (SentenceRecord sentence in pack.Sentences)
         {
-            // The attributed builder writes both owner names into Source. Requiring the two
-            // sentence markers prevents a generic CC-BY label from silently replacing record-level attribution.
-            if (!sentence.Source.Contains("English sentence #", StringComparison.Ordinal) ||
-                !sentence.Source.Contains("Ukrainian sentence #", StringComparison.Ordinal) ||
-                !sentence.Source.Contains(" by ", StringComparison.Ordinal))
+            if (!HasSideAttribution(sentence.Source, "English sentence", sentence.SourceSentenceId!) ||
+                !HasSideAttribution(sentence.Source, "Ukrainian sentence", sentence.TranslationSentenceId!))
             {
-                throw new InvalidDataException($"Attributed Tatoeba record {sentence.Id} is missing required per-side author attribution.");
+                throw new InvalidDataException(
+                    $"Attributed Tatoeba record {sentence.Id} is missing exact per-side author attribution bound to its upstream sentence IDs.");
             }
         }
+    }
+
+    private static bool IsPositiveTatoebaSentenceId(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long parsed) &&
+        parsed > 0;
+
+    private static bool HasSideAttribution(string source, string sideLabel, string sentenceId)
+    {
+        string marker = $"{sideLabel} #{sentenceId} by ";
+        int markerIndex = source.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+            return false;
+
+        int authorStart = markerIndex + marker.Length;
+        int separator = source.IndexOf(';', authorStart);
+        int period = source.IndexOf('.', authorStart);
+        int authorEnd = separator >= 0 && period >= 0
+            ? Math.Min(separator, period)
+            : separator >= 0 ? separator : period >= 0 ? period : source.Length;
+
+        return authorEnd > authorStart && !string.IsNullOrWhiteSpace(source[authorStart..authorEnd]);
     }
 }

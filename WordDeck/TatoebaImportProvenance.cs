@@ -32,6 +32,7 @@ internal static class TatoebaImportProvenance
         {
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(manifestPath));
             JsonElement root = document.RootElement;
+            RequireUniqueTopLevelProperties(root);
 
             if (!root.TryGetProperty("schema_version", out JsonElement schemaElement) ||
                 !schemaElement.TryGetInt32(out int schemaVersion) ||
@@ -52,6 +53,14 @@ internal static class TatoebaImportProvenance
 
             if (string.Equals(licenseFilter, VerifiedCc0Filter, StringComparison.Ordinal))
             {
+                if (root.TryGetProperty("license", out JsonElement declaredCc0License) &&
+                    (declaredCc0License.ValueKind != JsonValueKind.String ||
+                     !string.Equals(declaredCc0License.GetString(), "CC0 1.0", StringComparison.Ordinal)))
+                {
+                    throw new InvalidDataException(
+                        "CC0 Tatoeba manifest declares a license value inconsistent with its verified CC0 filter.");
+                }
+
                 string provenance =
                     "Tatoeba official weekly EN-UA exports filtered by WordDeck so BOTH English and Ukrainian sentence IDs are independently present in the official CC0 sentence exports. Upstream sentence IDs are preserved; adjacent manifest SHA-256 was verified against this pair TSV.";
                 return new TatoebaImportMetadata(provenance, "CC0 1.0", true);
@@ -73,6 +82,20 @@ internal static class TatoebaImportProvenance
         catch (JsonException ex)
         {
             throw new InvalidDataException("Tatoeba provenance manifest is malformed JSON.", ex);
+        }
+    }
+
+    private static void RequireUniqueTopLevelProperties(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("Tatoeba provenance manifest root must be a JSON object.");
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonProperty property in root.EnumerateObject())
+        {
+            if (!names.Add(property.Name))
+                throw new InvalidDataException(
+                    $"Tatoeba provenance manifest contains duplicate property '{property.Name}'. Provenance authority must be single-valued.");
         }
     }
 
