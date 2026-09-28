@@ -775,6 +775,17 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
                     self.assertEqual(session_before, app.training_workspace.session.snapshot())
                     self.assertEqual(revision_before, app.training_workspace._revision)
+
+                    with patch.object(
+                        app.training_workspace._store,
+                        "save",
+                        side_effect=OSError("simulated Training progress write failure"),
+                    ):
+                        save_failed = app.browser_command("training", "training.retry")
+                    self.assertEqual("error", save_failed["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
                 finally:
                     app.shutdown()
             finally:
