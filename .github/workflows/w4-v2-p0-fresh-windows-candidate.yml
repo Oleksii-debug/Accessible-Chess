@@ -164,6 +164,10 @@ jobs:
           Write-Host 'SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS'
           Write-Host 'SOURCE_RELEASE_CRITICAL_P0_CONTRACTS=PASS'
 
+          python -m unittest -v tests.test_version2_epub_application_reachability tests.test_v2_book_epub_import tests.test_v2_native_dialog_language tests.test_version2_application tests.test_bookreader tests.test_bookdocument tests.test_v2_book_progress_store tests.test_v2_book_progress_store_production
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_EPUB_APPLICATION_REACHABILITY_FAILURE'}
+          Write-Host 'SOURCE_EPUB_APPLICATION_REACHABILITY=PASS'
+
       - name: Build standalone AccessibleChess.exe
         shell: pwsh
         working-directory: product-source
