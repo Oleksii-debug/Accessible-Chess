@@ -977,6 +977,8 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertTrue(app.training_workspace.session.completed)
                     reader_before = app.reader.snapshot()
                     training_before = app.training_workspace.snapshot()
+                    message_before = app.training_workspace.presenter_message
+                    self.assertEqual("Exercise completed.", message_before)
                     key_before = app.book_key
                     durable_before = app.progress_store.restore(
                         key_before,
@@ -994,6 +996,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual(key_before, app.book_key)
                     self.assertEqual(reader_before, app.reader.snapshot())
                     self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(message_before, app.training_workspace.presenter_message)
                     self.assertEqual(
                         durable_before,
                         app.progress_store.restore(
@@ -1018,6 +1021,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual(key_before, app.book_key)
                     self.assertEqual(reader_before, app.reader.snapshot())
                     self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(message_before, app.training_workspace.presenter_message)
                     self.assertEqual(
                         durable_before,
                         app.progress_store.restore(

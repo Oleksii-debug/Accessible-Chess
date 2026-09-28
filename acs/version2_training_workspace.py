@@ -83,12 +83,14 @@ class Version2BookTrainingWorkspace:
     def _prepare(
         self,
         material: BookTrainingMaterial,
+        *,
+        message: str = "",
     ) -> tuple[ExerciseSession, TrainingWebViewBridge, TrainingProgressStore, str | None]:
         store = self._store_for(material)
         loaded = store.load(material.definition)
         session = ExerciseSession(material.definition) if loaded is None else loaded.session
         revision = None if loaded is None else loaded.revision
-        return session, self._bridge_for(session), store, revision
+        return session, self._bridge_for(session, message=message), store, revision
 
     @property
     def session(self) -> ExerciseSession:
@@ -96,9 +98,15 @@ class Version2BookTrainingWorkspace:
             raise RuntimeError("no Training exercise is active")
         return self._session
 
-    def start_current(self) -> TrainingWebViewBridge:
+    @property
+    def presenter_message(self) -> str:
+        if self.bridge is None:
+            raise RuntimeError("no Training exercise is active")
+        return self.bridge.projection.presenter_message
+
+    def start_current(self, *, message: str = "") -> TrainingWebViewBridge:
         material = build_current_book_training_material(self.reader)
-        session, bridge, store, revision = self._prepare(material)
+        session, bridge, store, revision = self._prepare(material, message=message)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
         return bridge
