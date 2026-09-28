@@ -12,6 +12,7 @@ on:
       - 'acs/book_webview_bridge.py'
       - 'acs/version2_book_workspace.py'
       - 'tests/test_book_bidirectional_semantic_navigation.py'
+      - 'tests/test_dev1_books_training_web_asset.py'
       - 'tests/test_bookreader.py'
       - 'tests/test_bookreader_snapshot_bounds.py'
       - 'tests/test_version2_book_workspace.py'
@@ -78,6 +79,7 @@ jobs:
             'acs/version2_book_workspace.py'
             'acs/version2_starter_content_application.py'
             'tests/test_book_bidirectional_semantic_navigation.py'
+            'tests/test_dev1_books_training_web_asset.py'
             'tests/test_bookreader.py'
             'tests/test_bookreader_snapshot_bounds.py'
             'tests/test_book_reverse_progress_failure_exact.py'
@@ -110,6 +112,7 @@ jobs:
           acs/book_webview_projection.py
           acs/book_webview_bridge.py
           tests/test_book_bidirectional_semantic_navigation.py
+          tests/test_dev1_books_training_web_asset.py
           tests/test_bookreader.py
           tests/test_bookreader_snapshot_bounds.py
           tests/test_book_reverse_progress_failure_exact.py
@@ -125,6 +128,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_book_bidirectional_semantic_navigation
+          tests.test_dev1_books_training_web_asset
           tests.test_bookreader
           tests.test_bookreader_snapshot_bounds
           tests.test_book_reverse_progress_failure_exact
