@@ -32,6 +32,7 @@ internal static class TatoebaImportProvenance
         {
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(manifestPath));
             JsonElement root = document.RootElement;
+            RequireUniqueTopLevelProperties(root);
 
             if (!root.TryGetProperty("schema_version", out JsonElement schemaElement) ||
                 !schemaElement.TryGetInt32(out int schemaVersion) ||
@@ -73,6 +74,20 @@ internal static class TatoebaImportProvenance
         catch (JsonException ex)
         {
             throw new InvalidDataException("Tatoeba provenance manifest is malformed JSON.", ex);
+        }
+    }
+
+    private static void RequireUniqueTopLevelProperties(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("Tatoeba provenance manifest root must be a JSON object.");
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonProperty property in root.EnumerateObject())
+        {
+            if (!names.Add(property.Name))
+                throw new InvalidDataException(
+                    $"Tatoeba provenance manifest contains duplicate property '{property.Name}'. Provenance authority must be single-valued.");
         }
     }
 
