@@ -8,7 +8,10 @@ from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
-_POSITION_SECTIONS_RE = re.compile(\n    r"(?is)^\\s*W\\s*:\\s*(?P<white>.*?)\\s*\\bB\\s*:\\s*(?P<black>.*?)\\s*$"\n)\n
+_POSITION_SECTIONS_RE = re.compile(
+    r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
+)
+
 
 class PositionValidationError(ValueError):
     """Raised when a position/FEN cannot be represented safely."""
