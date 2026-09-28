@@ -174,7 +174,8 @@ class LocalProfileStore:
     """Crash-safe local identity storage with one durable recovery copy.
 
     Loading never rewrites source bytes. A parseable newer-schema primary blocks
-    fallback so an older backup cannot silently downgrade identity state.
+    fallback so an older backup cannot silently downgrade identity state. Recovery
+    publication is explicit through ``repair_from_backup``.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -244,6 +245,35 @@ class LocalProfileStore:
         updated = current.renamed(display_name)
         self._publish(updated, expected_revision=current.revision, allow_initial=False)
         return updated
+
+    def repair_from_backup(self) -> LocalProfile:
+        """Explicitly restore a verified recovery copy as the primary profile.
+
+        A valid primary is returned unchanged. A parseable newer primary still
+        blocks recovery so an old backup can never silently downgrade identity.
+        """
+        primary_exists = self.path.exists() or self.path.is_symlink()
+        if primary_exists:
+            try:
+                return self._read_profile(self.path)
+            except UnsupportedLocalProfileSchema:
+                raise
+            except LocalProfileError:
+                pass
+
+        if not (self.backup_path.exists() or self.backup_path.is_symlink()):
+            raise LocalProfileError("no verified local-profile recovery copy is available")
+        backup_bytes = self._read_bounded(self.backup_path)
+        recovered = parse_local_profile_bytes(backup_bytes)
+        self._atomic_replace_bytes(self.path, backup_bytes)
+        # Read back the publication instead of assuming replace preserved bytes.
+        published_bytes = self._read_bounded(self.path)
+        if published_bytes != backup_bytes:
+            raise LocalProfileError("local profile recovery readback mismatch")
+        published = parse_local_profile_bytes(published_bytes)
+        if published != recovered:
+            raise LocalProfileError("local profile recovery semantic mismatch")
+        return published
 
     def _assert_safe_target(self, path: Path) -> None:
         if path.exists() and path.is_symlink():
