@@ -58,11 +58,11 @@ class FileRecord:
     media_type: str
 
     def canonical_line(self) -> str:
-        return f"{self.path}\\0{self.size}\\0{self.sha256}\\0{self.media_type}\\n"
+        return f"{self.path}\0{self.size}\0{self.sha256}\0{self.media_type}\n"
 
 
 def _json_bytes(value: object) -> bytes:
-    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\\n").encode("utf-8")
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
 
 def _normalize_created(value: str) -> str:
