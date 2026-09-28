@@ -53,6 +53,14 @@ internal static class TatoebaImportProvenance
 
             if (string.Equals(licenseFilter, VerifiedCc0Filter, StringComparison.Ordinal))
             {
+                if (root.TryGetProperty("license", out JsonElement declaredCc0License) &&
+                    (declaredCc0License.ValueKind != JsonValueKind.String ||
+                     !string.Equals(declaredCc0License.GetString(), "CC0 1.0", StringComparison.Ordinal)))
+                {
+                    throw new InvalidDataException(
+                        "CC0 Tatoeba manifest declares a license value inconsistent with its verified CC0 filter.");
+                }
+
                 string provenance =
                     "Tatoeba official weekly EN-UA exports filtered by WordDeck so BOTH English and Ukrainian sentence IDs are independently present in the official CC0 sentence exports. Upstream sentence IDs are preserved; adjacent manifest SHA-256 was verified against this pair TSV.";
                 return new TatoebaImportMetadata(provenance, "CC0 1.0", true);
