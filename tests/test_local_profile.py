@@ -141,6 +141,33 @@ class LocalProfileStoreTests(unittest.TestCase):
             self.store.create("Replacement")
         self.assertFalse(self.store.path.exists())
 
+    def test_explicit_repair_restores_missing_primary_then_allows_rename(self) -> None:
+        original = self.store.create("Alice")
+        self.store.rename(original, "Alice Two")
+        backup_before = self.store.backup_path.read_bytes()
+        self.store.path.unlink()
+
+        repaired = self.store.repair_from_backup()
+        self.assertEqual(repaired, original)
+        self.assertEqual(self.store.path.read_bytes(), backup_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
+
+        renamed = self.store.rename(repaired, "Alice Recovered")
+        self.assertEqual(renamed.profile_id, original.profile_id)
+        self.assertEqual(renamed.display_name, "Alice Recovered")
+        self.assertEqual(renamed.revision, original.revision + 1)
+
+    def test_explicit_repair_replaces_corrupt_primary_only_from_verified_backup(self) -> None:
+        original = self.store.create("Alice")
+        self.store.rename(original, "Alice Two")
+        backup_before = self.store.backup_path.read_bytes()
+        self.store.path.write_bytes(b"corrupt-primary")
+
+        repaired = self.store.repair_from_backup()
+        self.assertEqual(repaired, original)
+        self.assertEqual(self.store.path.read_bytes(), backup_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
+
     def test_both_unreadable_refuse_fresh_identity_and_preserve_bytes(self) -> None:
         original = self.store.create("Alice")
         self.store.rename(original, "Alice Two")
@@ -152,6 +179,8 @@ class LocalProfileStoreTests(unittest.TestCase):
             self.store.load()
         with self.assertRaises(LocalProfileError):
             self.store.create("Replacement")
+        with self.assertRaises(LocalProfileError):
+            self.store.repair_from_backup()
         self.assertEqual(self.store.path.read_bytes(), primary_before)
         self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
 
@@ -167,6 +196,8 @@ class LocalProfileStoreTests(unittest.TestCase):
             self.store.load()
         with self.assertRaises(UnsupportedLocalProfileSchema):
             self.store.create("Replacement")
+        with self.assertRaises(UnsupportedLocalProfileSchema):
+            self.store.repair_from_backup()
         self.assertEqual(self.store.path.read_bytes(), future_bytes)
         self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
 
