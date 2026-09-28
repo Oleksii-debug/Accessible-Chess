@@ -873,6 +873,14 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                                     app.training_workspace._revision,
                                 )
                     save.assert_not_called()
+
+                    malformed_before = app.training_workspace.snapshot()
+                    malformed = app.training_workspace.dispatch([], None)
+                    self.assertEqual("error", malformed.kind)
+                    self.assertEqual(
+                        malformed_before,
+                        app.training_workspace.snapshot(),
+                    )
                 finally:
                     app.shutdown()
             finally:

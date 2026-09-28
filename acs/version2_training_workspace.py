@@ -166,7 +166,7 @@ class Version2BookTrainingWorkspace:
             raise RuntimeError("no Training exercise is active")
         if (
             self.session.completed
-            and command in {"training.hint", "training.reveal", "training.retry"}
+            and command in ("training.hint", "training.reveal", "training.retry")
         ):
             # These controls are explicitly disabled in the canonical snapshot
             # after completion. Enforce the same boundary server-side so stale
