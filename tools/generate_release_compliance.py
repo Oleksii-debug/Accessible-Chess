@@ -335,7 +335,7 @@ def generate(
     source_commit: str,
     created: str,
     includes: Sequence[str],
-) -> tuple[Path, Path]:
+) -> tuple[Path, ...]:
     root = root.resolve(strict=True)
     source_commit = _validate_commit(source_commit)
     created = _normalize_created(created)
@@ -366,7 +366,13 @@ def generate(
     provenance_path = output_dir / "accessible-chess.provenance.json"
     spdx_path.write_bytes(_json_bytes(spdx))
     provenance_path.write_bytes(_json_bytes(provenance))
-    return spdx_path, provenance_path
+    manifest_path = output_dir / "accessible-chess.evidence.sha256"
+    manifest_lines = []
+    for path in (spdx_path, provenance_path):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest_lines.append(f"{digest}  {path.name}\n")
+    manifest_path.write_text("".join(manifest_lines), encoding="utf-8", newline="\n")
+    return spdx_path, provenance_path, manifest_path
 
 
 class tempfile_directory:
