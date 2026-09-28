@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -74,10 +75,30 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
             for name in (
                 "accessible-chess.spdx.json",
                 "accessible-chess.provenance.json",
+                "accessible-chess.evidence.sha256",
             ):
                 self.assertEqual(
                     (first / name).read_bytes(),
                     (second / name).read_bytes(),
+                )
+
+            manifest_lines = (
+                first / "accessible-chess.evidence.sha256"
+            ).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(2, len(manifest_lines))
+            for line, name in zip(
+                manifest_lines,
+                (
+                    "accessible-chess.spdx.json",
+                    "accessible-chess.provenance.json",
+                ),
+                strict=True,
+            ):
+                digest, recorded_name = line.split("  ", 1)
+                self.assertEqual(name, recorded_name)
+                self.assertEqual(
+                    hashlib.sha256((first / name).read_bytes()).hexdigest(),
+                    digest,
                 )
 
             verify(
