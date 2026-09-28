@@ -149,13 +149,34 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
-          acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
+
+          # Book reverse semantic navigation is an exact reviewed successor of
+          # the shared presenter/action registry. Keep both prior and reviewed
+          # successor identities fail-closed.
+          presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
+          case "$presenter_actual" in
+            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
+          case "$actions_actual" in
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # The shared semantic document may be the pre-P0-G Product blob,
           # either reviewed event-aware P0-G predecessor, the exact current
