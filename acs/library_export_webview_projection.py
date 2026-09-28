@@ -137,11 +137,26 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         payload["focus_target"] = self._export_focus_target(event, game_id)
         return LibraryWebViewEvent(event.kind, payload)
 
+    @staticmethod
+    def _post_clear_focus_target(event: LibraryWebViewEvent) -> str:
+        snapshot = event.payload.get("snapshot")
+        if isinstance(snapshot, Mapping):
+            rows = snapshot.get("rows")
+            if isinstance(rows, (tuple, list)):
+                for row in rows:
+                    if not isinstance(row, Mapping):
+                        continue
+                    target = row.get("export_dom_id")
+                    if type(target) is str and target:
+                        return target
+        return "library-search-player"
+
     def clear_export_selection(self) -> LibraryWebViewEvent:
         self._export_game_ids.clear()
         event = self._render_event(self._presenter.view(), announce=False)
         payload = dict(event.payload)
         payload["announcement"] = _EXPORT_LABELS[self.language]["cleared"]
+        payload["focus_target"] = self._post_clear_focus_target(event)
         return LibraryWebViewEvent(event.kind, payload)
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
