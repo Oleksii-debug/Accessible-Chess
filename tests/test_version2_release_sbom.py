@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import redirect_stdout
+from io import StringIO
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+
+from scripts import write_version2_release_sbom as sbom_cli
+from tests.test_version2_package_preflight import (
+    _make_tree as _make_valid_package_tree,
+    _write_checksums as _write_package_checksums,
+)
 
 from acs.version2_release_sbom import (
     SBOM_NAME,
@@ -32,6 +40,45 @@ def _package_verification_code(package: Path, inventory: tuple[str, ...]) -> str
 
 
 class Version2ReleaseSbomTests(unittest.TestCase):
+    def test_cli_reuses_current_canonical_package_preflight_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = root / "package"
+            package.mkdir()
+            _make_valid_package_tree(package)
+
+            # The canonical preflight fixture proves the shipping package topology.
+            # Add only the exact GPL text sidecar that the SPDX contract itself
+            # requires, then regenerate canonical package checksums.
+            notices = package / "THIRD_PARTY_NOTICES"
+            (notices / "Stockfish-COPYING.txt").write_text(
+                "GNU GENERAL PUBLIC LICENSE\n"
+                "Version 3\n"
+                "Redistribution is permitted under version 3 or any later version.\n",
+                encoding="utf-8",
+            )
+            _write_package_checksums(package)
+
+            output = root / SBOM_NAME
+            captured = StringIO()
+            argv = [
+                "write_version2_release_sbom.py",
+                str(package),
+                str(output),
+                "--integration-sha",
+                _SHA,
+            ]
+            with mock.patch("sys.argv", argv), redirect_stdout(captured):
+                self.assertEqual(sbom_cli.main(), 0)
+
+            summary = json.loads(captured.getvalue())
+            document = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(summary["result"], "PASS")
+            self.assertEqual(summary["integration_sha"], _SHA)
+            self.assertEqual(summary["package_files"], summary["sbom_files"])
+            self.assertEqual(summary["sbom_files"], len(document["files"]))
+            self.assertIs(summary["nvda_verified"], False)
+
     def _package(self, root: Path) -> Path:
         package = root / "package"
         engine = package / "AccessibleChess" / "engines" / "stockfish"
