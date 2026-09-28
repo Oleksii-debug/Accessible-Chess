@@ -59,7 +59,7 @@ class FakeTeacherBackend:
 class AccessibleShellTests(unittest.TestCase):
     def test_route_registry_is_unique_localized_and_keyboard_focusable(self):
         validate_routes()
-        self.assertEqual(10, len(ROUTES))
+        self.assertEqual(11, len(ROUTES))
         self.assertEqual(len(ROUTES), len({route.open_action_id for route in ROUTES}))
 
     def test_navigation_exposes_all_major_product_modules(self):
@@ -75,11 +75,22 @@ class AccessibleShellTests(unittest.TestCase):
                 "training",
                 "teacher",
                 "classes",
+                "access",
                 "settings",
                 "help",
             ],
             ids,
         )
+
+    def test_access_route_is_keyboard_reachable_and_restores_focus(self):
+        shell = AccessibleShellState(language=UILanguage.EN)
+        self.assertEqual(
+            "entitlement-status",
+            shell.open_route("access", current_focus_id="board-square-e4"),
+        )
+        shell.record_focus("entitlement-action")
+        self.assertEqual("board-square-e4", shell.open_route("board"))
+        self.assertEqual("entitlement-action", shell.open_route("access"))
 
     def test_route_focus_restores_without_mouse_dependency(self):
         shell = AccessibleShellState()
