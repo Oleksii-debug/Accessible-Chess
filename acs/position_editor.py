@@ -179,11 +179,8 @@ class PositionState:
             if file_index != 8:
                 raise PositionValidationError("each FEN rank must expand to exactly 8 squares")
 
-        try:
-            halfmove = int(halfmove_text)
-            fullmove = int(fullmove_text)
-        except ValueError as exc:
-            raise PositionValidationError("FEN move counters must be integers") from exc
+        halfmove = _parse_fen_counter(halfmove_text, "halfmove clock")
+        fullmove = _parse_fen_counter(fullmove_text, "fullmove number")
 
         return cls(
             tuple(pieces),
@@ -283,9 +280,21 @@ def _validate_castling(value: str) -> None:
         raise PositionValidationError("castling rights must not contain duplicates")
 
 
+def _parse_fen_counter(value: str, field_name: str) -> int:
+    if not value or not value.isascii() or not value.isdecimal():
+        raise PositionValidationError(
+            f"FEN {field_name} must be an ASCII decimal integer"
+        )
+    return int(value)
+
+
 def _validate_en_passant(value: str, turn: str) -> None:
     if value == "-":
         return
+    if value != value.strip() or value != value.lower():
+        raise PositionValidationError(
+            "en-passant square must use canonical lowercase algebraic text"
+        )
     _square_index(value)
     rank = value[1]
     expected = "6" if turn == "w" else "3"
