@@ -17,6 +17,10 @@ from .presentation_privacy import redact_local_paths
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 _MAX_BOOKMARK_NAME = 80
+# Accepted TXT/HTML ingress bounds visible content at 12 MiB. Preserve the
+# complete current semantic block up to that release budget instead of silently
+# truncating reader-visible/copyable content to a small UI preview.
+_MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024
 
 _LABELS = {
     UILanguage.UA: {
@@ -78,6 +82,33 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
     return text[:limit]
+
+
+def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
+    text = _safe_text(
+        value,
+        language=language,
+        limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+    )
+    if len(text) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+        raise ValueError("book presentation block exceeds the visible-text budget")
+    return text
+
+
+def _safe_visible_list_items(
+    values: tuple[str, ...],
+    *,
+    language: UILanguage,
+) -> tuple[str, ...]:
+    rendered: list[str] = []
+    total = 0
+    for value in values:
+        item = _safe_visible_block_text(value, language=language)
+        total += len(item)
+        if total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+            raise ValueError("book presentation list exceeds the visible-text budget")
+        rendered.append(item)
+    return tuple(rendered)
 
 
 def _bookmark_name(value: object) -> str:
@@ -189,12 +220,15 @@ class BookWebViewProjection:
                 "kind": _safe_text(block.kind, language=self._language, limit=80),
                 "role": role,
                 "title": _safe_text(block.title, language=self._language, limit=360),
-                "text": _safe_text(block.text, language=self._language, limit=8000),
+                "text": _safe_visible_block_text(
+                    block.text,
+                    language=self._language,
+                ),
                 "list": (
                     {
-                        "items": tuple(
-                            _safe_text(item, language=self._language, limit=8000)
-                            for item in block.list_items
+                        "items": _safe_visible_list_items(
+                            block.list_items,
+                            language=self._language,
                         ),
                         "ordered": block.list_ordered,
                         "start": block.list_start,

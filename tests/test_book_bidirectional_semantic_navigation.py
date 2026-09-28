@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
@@ -188,6 +189,38 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         )
         self.assertEqual(block["role"], "list")
         self.assertEqual(block["text"], "")
+
+    def test_projection_preserves_complete_text_beyond_legacy_preview_cap(self) -> None:
+        long_text = "Початок " + ("абвгд" * 1800) + " Кінець"
+        document = BookDocument(
+            title="Long readable block",
+            blocks=[Paragraph(text=long_text, block_id="long")],
+        )
+        projection = BookWebViewProjection(
+            BookReaderPresenter(BookReader(document), language=UILanguage.UA),
+            lambda *_: None,
+            language=UILanguage.UA,
+        )
+
+        block = projection.snapshot()["block"]
+        self.assertGreater(len(long_text), 8000)
+        self.assertEqual(block["text"], long_text)
+        self.assertTrue(block["text"].endswith(" Кінець"))
+
+    def test_projection_fails_closed_before_exceeding_visible_text_budget(self) -> None:
+        document = BookDocument(
+            title="Bounded rendering",
+            blocks=[Paragraph(text="12345678901", block_id="oversize")],
+        )
+        projection = BookWebViewProjection(
+            BookReaderPresenter(BookReader(document), language=UILanguage.EN),
+            lambda *_: None,
+            language=UILanguage.EN,
+        )
+
+        with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 10):
+            with self.assertRaisesRegex(ValueError, "visible-text budget"):
+                projection.snapshot()
 
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())
