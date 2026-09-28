@@ -722,6 +722,56 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_language_survives_bridge_rebuild_after_render_rollback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-language-rollback-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    switched = app.browser_command(
+                        "training",
+                        "training.language",
+                        {"language": "en"},
+                    )
+                    self.assertEqual("render", switched["kind"])
+                    self.assertEqual(
+                        "en",
+                        app.training_workspace.snapshot()["document"]["lang"],
+                    )
+
+                    before = app.training_workspace.session.snapshot()
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated post-language render failure"),
+                    ):
+                        rejected = app.browser_command(
+                            "training",
+                            "training.submit",
+                            {"answer": "not-a-legal-move"},
+                        )
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(before, app.training_workspace.session.snapshot())
+                    rebuilt = app.training_workspace.snapshot()
+                    self.assertEqual("en", rebuilt["document"]["lang"])
+                    self.assertEqual("Training", rebuilt["heading"])
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_training_escaped_error_projection_failure_restores_session(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-double-failure-") as raw:
             root = Path(raw)
