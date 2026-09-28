@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
-from .bookdocument import Diagram, Exercise, Game, Heading, Note, Paragraph, Position, VariationTree
+from .bookdocument import Diagram, Exercise, Game, Heading, ListBlock, Note, Paragraph, Position, VariationTree
 from .bookreader import BookReader, ReadingLocation
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .gametree import PgnGame, VariationLine
@@ -461,6 +461,9 @@ class BookBlockView:
     heading_path: tuple[str, ...]
     source_anchor: str
     warning: str = ""
+    list_items: tuple[str, ...] = ()
+    list_ordered: bool = False
+    list_start: int | None = None
 
 
 class BookReaderPresenter:
@@ -487,6 +490,9 @@ class BookReaderPresenter:
         text = ""
         heading_level: int | None = None
         warning = ""
+        list_items: tuple[str, ...] = ()
+        list_ordered = False
+        list_start: int | None = None
         if isinstance(block, Heading):
             role = "heading"
             title = block.text
@@ -495,6 +501,11 @@ class BookReaderPresenter:
         elif isinstance(block, Paragraph):
             role = "paragraph"
             text = block.text
+        elif isinstance(block, ListBlock):
+            role = "list"
+            list_items = tuple(block.items)
+            list_ordered = block.ordered
+            list_start = block.start
         elif isinstance(block, Diagram):
             role = "img"
             title = block.caption or _localized(self._language, "Діаграма", "Diagram")
@@ -536,6 +547,9 @@ class BookReaderPresenter:
             heading_path=location.heading_path,
             source_anchor=_safe_source_label(location.source_anchor),
             warning=warning,
+            list_items=list_items,
+            list_ordered=list_ordered,
+            list_start=list_start,
         )
 
     def current(self) -> BookBlockView:

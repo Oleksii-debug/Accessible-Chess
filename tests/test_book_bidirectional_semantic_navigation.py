@@ -4,7 +4,7 @@ import unittest
 
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
-from acs.bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Paragraph, Position, VariationTree
+from acs.bookdocument import BookDocument, Diagram, Exercise, Game, Heading, ListBlock, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.full_product_actions import FULL_PRODUCT_ACTION_IDS
@@ -152,6 +152,42 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             presenter.current()
         self.assertEqual(reader.index, 0)
+
+    def test_list_block_preserves_native_list_semantics_in_webview_projection(self) -> None:
+        document = BookDocument(
+            title="Structured list",
+            blocks=[
+                ListBlock(
+                    items=["Перший пункт", "Другий пункт"],
+                    ordered=True,
+                    start=3,
+                    block_id="steps",
+                )
+            ],
+        )
+        presenter = BookReaderPresenter(BookReader(document), language=UILanguage.UA)
+        view = presenter.current()
+        self.assertEqual(view.role, "list")
+        self.assertEqual(view.list_items, ("Перший пункт", "Другий пункт"))
+        self.assertTrue(view.list_ordered)
+        self.assertEqual(view.list_start, 3)
+
+        projection = BookWebViewProjection(
+            presenter,
+            lambda *_: self.fail("list rendering must not dispatch domain mutation"),
+            language=UILanguage.UA,
+        )
+        block = projection.snapshot()["block"]
+        self.assertEqual(
+            block["list"],
+            {
+                "items": ("Перший пункт", "Другий пункт"),
+                "ordered": True,
+                "start": 3,
+            },
+        )
+        self.assertEqual(block["role"], "list")
+        self.assertEqual(block["text"], "")
 
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())

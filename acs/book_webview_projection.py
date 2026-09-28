@@ -152,8 +152,25 @@ class BookWebViewProjection:
         ):
             raise ValueError("book heading level is invalid")
         role = str(block.role)
-        if role not in {"heading", "paragraph", "img", "group", "tree", "note"}:
+        if role not in {"heading", "paragraph", "img", "group", "tree", "note", "list"}:
             raise ValueError("book block role is invalid")
+        if type(block.list_items) is not tuple or any(
+            type(item) is not str or not item.strip() for item in block.list_items
+        ):
+            raise ValueError("book list items are invalid")
+        if type(block.list_ordered) is not bool:
+            raise ValueError("book list ordered flag is invalid")
+        if block.list_start is not None and (
+            type(block.list_start) is not int or block.list_start < 1
+        ):
+            raise ValueError("book list start is invalid")
+        if block.list_start is not None and not block.list_ordered:
+            raise ValueError("book list start requires an ordered list")
+        if role == "list":
+            if not block.list_items:
+                raise ValueError("book list must contain items")
+        elif block.list_items or block.list_ordered or block.list_start is not None:
+            raise ValueError("non-list book block contains list metadata")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
         return {
@@ -167,6 +184,18 @@ class BookWebViewProjection:
                 "role": role,
                 "title": _safe_text(block.title, language=self._language, limit=360),
                 "text": _safe_text(block.text, language=self._language, limit=8000),
+                "list": (
+                    {
+                        "items": tuple(
+                            _safe_text(item, language=self._language, limit=8000)
+                            for item in block.list_items
+                        ),
+                        "ordered": block.list_ordered,
+                        "start": block.list_start,
+                    }
+                    if role == "list"
+                    else None
+                ),
                 "heading_level": block.heading_level,
                 # Raw FEN stays in Python/presenter and is never serialized to browser.
                 "has_position": block.position_fen is not None,
