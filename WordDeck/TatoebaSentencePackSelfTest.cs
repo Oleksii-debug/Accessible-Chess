@@ -61,10 +61,10 @@ internal static class TatoebaSentencePackSelfTest
         var pairs = new[]
         {
             new TatoebaSentencePair(101, "I improve skills.", 201, "Я покращую навички.", "Alice", "Olena"),
-            new TatoebaSentencePair(102, "We learn words.", 202, "Ми вивчаємо слова."),
+            new TatoebaSentencePair(102, "We learn words.", 202, "Ми вивчаємо слова.", "Bob", "Iryna"),
             new TatoebaSentencePair(103, "xylophone qwerty.", 203, "Ксилофон."),
-            new TatoebaSentencePair(104, "I like ice cream.", 204, "Я люблю морозиво."),
-            new TatoebaSentencePair(105, "I bank money.", 205, "Я кладу гроші до банку.")
+            new TatoebaSentencePair(104, "I like ice cream.", 204, "Я люблю морозиво.", "Carol", "Svitlana"),
+            new TatoebaSentencePair(105, "I bank money.", 205, "Я кладу гроші до банку.", "Dan", "Marta")
         };
 
         (SentencePack pack, SentencePackBuildReport report) = TatoebaSentencePackBuilder.Build(
@@ -92,6 +92,24 @@ internal static class TatoebaSentencePackSelfTest
         SentencePack reparsed = SentencePackJson.Parse(SentencePackJson.Serialize(pack));
         Require(reparsed.Sentences.Count == pack.Sentences.Count && reparsed.License == "CC BY 2.0 FR",
             "Built Tatoeba SentencePack did not survive JSON round-trip.");
+
+        ExpectInvalidBuild(
+            () => TatoebaSentencePackBuilder.Build(
+                new[] { new TatoebaSentencePair(106, "I improve skills.", 206, "Я покращую навички.") },
+                dictionary,
+                "tatoeba-attribution-missing",
+                "Synthetic attributed build rejection fixture",
+                "CC BY 2.0 FR"),
+            "attributed accepted sentence missing both author usernames");
+
+        (SentencePack cc0WithoutAuthors, _) = TatoebaSentencePackBuilder.Build(
+            new[] { new TatoebaSentencePair(107, "I improve skills.", 207, "Я покращую навички.") },
+            dictionary,
+            "tatoeba-cc0-no-authors",
+            "Synthetic CC0 build fixture",
+            "CC0 1.0");
+        Require(cc0WithoutAuthors.Sentences.Count == 1,
+            "CC0 SentencePack unexpectedly required per-side attribution usernames.");
     }
 
     private static void TestFinalOxford5000Integration()
@@ -206,6 +224,13 @@ internal static class TatoebaSentencePackSelfTest
         };
         if (license is not null) payload["license"] = license;
         File.WriteAllText(path, JsonSerializer.Serialize(payload));
+    }
+
+    private static void ExpectInvalidBuild(Action action, string description)
+    {
+        try { action(); }
+        catch (InvalidDataException) { return; }
+        throw new InvalidDataException($"Tatoeba builder accepted invalid input: {description}.");
     }
 
     private static void ExpectInvalidProvenance(Action action, string description)
