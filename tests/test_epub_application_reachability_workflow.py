@@ -34,28 +34,41 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
-    def test_epub_parser_and_semantic_oracles_are_locked_to_product(self) -> None:
+    def test_epub_parser_successor_is_exact_pair_and_application_oracle_stays_locked(self) -> None:
+        self.assertIn("parser_path='acs/book_epub_import.py'", self.workflow)
+        self.assertIn("parser_test_path='tests/test_v2_book_epub_import.py'", self.workflow)
+        self.assertIn("successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'", self.workflow)
+        self.assertIn("successor_parser_test='f2f9b2bf34b3cfebb40cca36f13f6ad315ced8c7'", self.workflow)
+        self.assertIn(
+            'test "$candidate_parser" = "$successor_parser"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_parser_test" = "$successor_parser_test"',
+            self.workflow,
+        )
+        self.assertIn("EPUB_XML_DECLARATION_SUCCESSOR=EXACT", self.workflow)
+        self.assertIn(
+            "EPUB parser/test drift requires an exact reviewed successor pair",
+            self.workflow,
+        )
+
         marker = "protected_paths=("
         start = self.workflow.index(marker)
         end = self.workflow.index("\n          )", start)
         protected_block = self.workflow[start:end]
-        for path in (
-            "acs/book_epub_import.py",
-            "tests/test_v2_book_epub_import.py",
-            "tests/test_version2_epub_application_reachability.py",
-        ):
-            with self.subTest(path=path):
-                self.assertIn(f"'{path}'", protected_block)
+        self.assertIn(
+            "'tests/test_version2_epub_application_reachability.py'",
+            protected_block,
+        )
+        self.assertNotIn("'acs/book_epub_import.py'", protected_block)
+        self.assertNotIn("'tests/test_v2_book_epub_import.py'", protected_block)
         self.assertIn(
             'product_blob="$(git rev-parse "$product:$path")"',
             self.workflow,
         )
         self.assertIn(
             'candidate_blob="$(git rev-parse "HEAD:$path")"',
-            self.workflow,
-        )
-        self.assertIn(
-            "EPUB authority drift requires a dedicated successor gate",
             self.workflow,
         )
 

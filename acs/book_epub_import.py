@@ -19,6 +19,7 @@ import stat
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 import zipfile
 
 from .book_html_import import (
@@ -93,6 +94,10 @@ class _Warnings:
         elif not self._suppressed:
             self.values.append("additional EPUB import warnings were suppressed")
             self._suppressed = True
+
+
+class _ForbiddenXmlDeclaration(Exception):
+    """Internal control-flow sentinel for DTD/entity rejection."""
 
 
 def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
@@ -249,12 +254,34 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
             f"EPUB {label} exceeds the supported size",
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
-    upper = data.upper()
-    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+
+    # Raw byte sentinels are encoding-dependent: UTF-16 encodes XML markup
+    # letters with interleaved NUL bytes, while ElementTree still auto-detects
+    # and expands internal entities. Run a bounded structural preflight through
+    # Expat's own XML encoding detection and reject declaration/entity callbacks
+    # before constructing the semantic ElementTree.
+    parser = expat.ParserCreate()
+
+    def reject_declaration(*_args: object) -> None:
+        raise _ForbiddenXmlDeclaration()
+
+    parser.StartDoctypeDeclHandler = reject_declaration
+    parser.EntityDeclHandler = reject_declaration
+    parser.UnparsedEntityDeclHandler = reject_declaration
+    parser.ExternalEntityRefHandler = reject_declaration
+    try:
+        parser.Parse(data, True)
+    except _ForbiddenXmlDeclaration as exc:
         raise _error(
             f"EPUB {label} contains unsupported XML declarations",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
-        )
+        ) from exc
+    except expat.ExpatError as exc:
+        raise _error(
+            f"EPUB {label} is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        ) from exc
+
     try:
         return ET.fromstring(data)
     except ET.ParseError as exc:

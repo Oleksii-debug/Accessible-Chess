@@ -51,20 +51,40 @@ jobs:
           test "$(git merge-base "$product" HEAD)" = "$product"
           git diff --check "$product" HEAD
 
-          # This workflow is inherited by later Product descendants that may
-          # legitimately change shared application/dialog composition. Keep the
-          # EPUB-exclusive parser authority byte-identical to current Product,
-          # then re-run the semantic reachability suite against the descendant.
+          # Parser changes require an atomic, exact reviewed successor pair.
+          # Once that pair is integrated into Product, ordinary descendants take
+          # the first branch and remain byte-locked to then-current Product.
+          parser_path='acs/book_epub_import.py'
+          parser_test_path='tests/test_v2_book_epub_import.py'
+          product_parser="$(git rev-parse "$product:$parser_path")"
+          product_parser_test="$(git rev-parse "$product:$parser_test_path")"
+          candidate_parser="$(git rev-parse "HEAD:$parser_path")"
+          candidate_parser_test="$(git rev-parse "HEAD:$parser_test_path")"
+          successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'
+          successor_parser_test='f2f9b2bf34b3cfebb40cca36f13f6ad315ced8c7'
+
+          if test "$candidate_parser" = "$product_parser" && \
+             test "$candidate_parser_test" = "$product_parser_test"; then
+            :
+          elif test "$candidate_parser" = "$successor_parser" && \
+               test "$candidate_parser_test" = "$successor_parser_test"; then
+            echo "EPUB_XML_DECLARATION_SUCCESSOR=EXACT"
+          else
+            printf 'EPUB parser/test drift requires an exact reviewed successor pair: parser=%s test=%s\n' \
+              "$candidate_parser" "$candidate_parser_test" >&2
+            exit 1
+          fi
+
+          # Shared application/dialog composition remains evolvable, but the
+          # independent whole-application EPUB reachability oracle stays immutable.
           protected_paths=(
-            'acs/book_epub_import.py'
-            'tests/test_v2_book_epub_import.py'
             'tests/test_version2_epub_application_reachability.py'
           )
           for path in "${protected_paths[@]}"; do
             product_blob="$(git rev-parse "$product:$path")"
             candidate_blob="$(git rev-parse "HEAD:$path")"
             test "$candidate_blob" = "$product_blob" || {
-              printf 'EPUB authority drift requires a dedicated successor gate: %s product=%s candidate=%s\n' \
+              printf 'EPUB application oracle drift requires a dedicated successor: %s product=%s candidate=%s\n' \
                 "$path" "$product_blob" "$candidate_blob" >&2
               exit 1
             }
