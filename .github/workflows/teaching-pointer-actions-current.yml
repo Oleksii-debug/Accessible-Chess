@@ -1,0 +1,75 @@
+name: Teaching Pointer Actions Current Product
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/teaching_pointer_actions.py'
+      - 'tests/test_teaching_pointer_actions.py'
+      - '.github/workflows/teaching-pointer-actions-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teaching-pointer-actions-current-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          # Event payload base SHAs can become stale after history-preserving
+          # Product reconvergence. Bind scope to the fetched canonical Product
+          # branch for every trigger mode and fail closed if Product advanced.
+          base="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/teaching-pointer-actions-current.yml' \
+            'acs/teaching_pointer_actions.py' \
+            'tests/test_teaching_pointer_actions.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected teaching-pointer scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile teaching pointer boundary
+        run: python -m py_compile acs/teaching_pointer_actions.py tests/test_teaching_pointer_actions.py
+
+      - name: Run focused teaching pointer regressions
+        run: >-
+          python -m unittest -v
+          tests.test_teaching_pointer_actions
+          tests.test_teaching_visual_board
+          tests.test_teaching_session
+
+      - name: Core selftest
+        run: python -m acs.selftest
