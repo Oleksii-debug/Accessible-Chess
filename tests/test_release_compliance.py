@@ -249,6 +249,25 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
                     includes=("../outside",),
                 )
 
+    def test_linked_ancestor_is_rejected_before_git_or_hashing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _includes, commit = self._fixture(root)
+            link = root / "linked-acs"
+            try:
+                link.symlink_to(root / "acs", target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlink creation unavailable on this runner: {exc}")
+
+            with self.assertRaises(EvidenceError):
+                generate(
+                    root=root,
+                    output_dir=root / "evidence",
+                    source_commit=commit,
+                    created=CREATED,
+                    includes=("linked-acs/core.py", "VERSION.txt"),
+                )
+
     def test_invalid_commit_or_naive_timestamp_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
