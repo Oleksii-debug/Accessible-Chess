@@ -84,10 +84,29 @@ class Version2BookWorkspaceTests(unittest.TestCase):
             ListBlock(items=["Центр", "Розвиток", "<script>bad()</script>"], ordered=True, start=4),
         ]))
         block = bridge.projection.snapshot()["block"]
-        self.assertEqual(block["list"], {"ordered": True, "start": 4, "items": ("Центр", "Розвиток", "<script>bad()</script>")})
-        self.assertIn("4. Центр", block["text"])
+        self.assertEqual(block["role"], "list")
+        self.assertEqual(
+            block["list"],
+            {
+                "ordered": True,
+                "start": 4,
+                "items": ("Центр", "Розвиток", "<script>bad()</script>"),
+            },
+        )
+        self.assertEqual(block["text"], "")
         action = next(a for a in bridge.projection.snapshot()["actions"] if a["command"] == "book.next")
         self.assertFalse(action["enabled"])
+
+    def test_v2_projection_fails_closed_if_live_document_changes_after_presenter_read(self):
+        document = BookDocument(title="Lists", blocks=[
+            ListBlock(items=["Оригінал"], ordered=False, block_id="list"),
+        ])
+        _, _, bridge, _ = self.compose(document)
+        view = bridge.projection._presenter.current()
+        document.blocks[0].items[0] = "Підміна"
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            bridge.projection._snapshot_from_block(view)
 
 
 if __name__ == "__main__":
