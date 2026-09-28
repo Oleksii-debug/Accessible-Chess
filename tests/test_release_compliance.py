@@ -82,6 +82,16 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
                     (second / name).read_bytes(),
                 )
 
+            for name in (
+                "accessible-chess.spdx.json",
+                "accessible-chess.provenance.json",
+            ):
+                payload = (first / name).read_bytes()
+                self.assertTrue(payload.endswith(b"\n"))
+                self.assertFalse(payload.endswith(b"\\n"))
+                parsed = json.loads(payload.decode("utf-8"))
+                self.assertIsInstance(parsed, dict)
+
             manifest_lines = (
                 first / "accessible-chess.evidence.sha256"
             ).read_text(encoding="utf-8").splitlines()
@@ -216,6 +226,19 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
                     created=CREATED,
                     includes=includes,
                 )
+
+    def test_canonical_inventory_line_uses_binary_separators_not_escape_text(self) -> None:
+        record = FileRecord(
+            path="acs/core.py",
+            size=10,
+            sha256="a" * 64,
+            media_type="text/x-python",
+        )
+        encoded = record.canonical_line().encode("utf-8")
+        self.assertEqual(3, encoded.count(b"\0"))
+        self.assertTrue(encoded.endswith(b"\n"))
+        self.assertNotIn(b"\\0", encoded)
+        self.assertNotIn(b"\\n", encoded)
 
     def test_inventory_digest_changes_when_file_identity_changes(self) -> None:
         base = [
