@@ -88,6 +88,7 @@ function find(root, tagName, text) {
 
 function trainingSnapshot() {
   return {
+    document: { lang: "en" },
     heading: "Training",
     title: "Opening line",
     progress: {
@@ -122,6 +123,7 @@ function trainingSnapshot() {
 
 function bookSnapshot(index, text) {
   return {
+    document: { lang: "uk" },
     heading: "Chess book reader",
     block: {
       dom_id: "book-block-" + String(index),
@@ -194,6 +196,9 @@ async function run() {
     "Action failed",
     []
   );
+  const trainingSection = find(trainingRoot, "SECTION");
+  check(trainingSection !== null && trainingSection.attributes.lang === "en",
+    "training local language is not exposed on the DOM subtree");
   const firstAnswer = trainingRoot.querySelector("#training-answer");
   check(firstAnswer !== null, "training answer input missing");
   check(document.activeElement === firstAnswer, "initial training focus missing");
@@ -245,6 +250,9 @@ async function run() {
     "book-block-2",
     "Action failed"
   );
+  const bookSection = find(bookRoot, "SECTION");
+  check(bookSection !== null && bookSection.attributes.lang === "uk",
+    "book local language is not exposed on the DOM subtree");
   check(document.activeElement === bookRoot.querySelector("#book-block-2"), "book focus missing");
   find(bookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();

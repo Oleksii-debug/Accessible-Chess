@@ -144,6 +144,18 @@
     main.appendChild(section);
   }
 
+  function applySnapshotLanguage(element, snapshot) {
+    const documentState = snapshot && snapshot.document && typeof snapshot.document === "object"
+      ? snapshot.document
+      : {};
+    const language = typeof documentState.lang === "string"
+      ? documentState.lang.trim().toLowerCase()
+      : "";
+    if (language === "en" || language === "uk") {
+      element.setAttribute("lang", language);
+    }
+  }
+
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("Book root must support replaceChildren");
@@ -154,6 +166,7 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
+    applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
@@ -287,6 +300,7 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
+    applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("h3", snapshot.title || ""));
 
