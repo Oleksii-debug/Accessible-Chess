@@ -72,16 +72,19 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         export_actions = (
             {
                 "action": "library.export_selected",
+                "dom_id": "library-export-selected",
                 "label": labels["selected"].format(count=count),
                 "enabled": count > 0,
             },
             {
                 "action": "library.export_filtered",
+                "dom_id": "library-export-filtered",
                 "label": labels["filtered"],
                 "enabled": bool(snapshot.get("rows")),
             },
             {
                 "action": "library.clear_export_selection",
+                "dom_id": "library-export-clear",
                 "label": labels["clear"],
                 "enabled": count > 0,
             },
