@@ -69,6 +69,11 @@
     if (!id) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
+    // Host status events can repeat a focus target that the initiating surface
+    // already restored after a synchronous native dialog. Avoid a second DOM
+    // focus transition (and duplicate screen-reader focus speech) while still
+    // reporting successful restoration.
+    if (documentRef.activeElement === target) return true;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
       target.setAttribute("tabindex", "-1");
     }
@@ -257,7 +262,8 @@
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
-    return actionId === "library.import" || actionId === "library.cancel_import";
+    return actionId === "library.import" || actionId === "library.cancel_import" ||
+      actionId === "library.export";
   }
 
   function refreshStage1Surface() {
@@ -314,12 +320,12 @@
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
         const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
         if (candidate) queuedFocusTarget = candidate;
+        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
+        if (!refreshRequired) return;
+        needsRefresh = true;
       });
       if (needsRefresh) {
         const repaintBarrier = orderedStage1Refreshes.length
@@ -330,6 +336,8 @@
         }).then(function () {
           if (queuedFocusTarget) focusById(queuedFocusTarget);
         }, function () {});
+      } else if (queuedFocusTarget) {
+        focusById(queuedFocusTarget);
       }
     }, function () {});
   }

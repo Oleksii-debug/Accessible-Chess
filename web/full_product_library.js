@@ -238,11 +238,21 @@
     toolbar.setAttribute("role", "toolbar");
     (Array.isArray(snapshot.actions) ? snapshot.actions : []).forEach(function (action) {
       const button = node("button", action.label || action.action || "");
+      const actionId = String(action.action || "");
+      const domId = String(action.dom_id || "");
       button.type = "button";
       button.disabled = !action.enabled;
-      button.dataset.action = String(action.action || "");
+      button.dataset.action = actionId;
+      if (/^[A-Za-z0-9_-]{1,160}$/.test(domId)) button.id = domId;
       button.addEventListener("click", function () {
-        invokeCommand(root, invoke, announce, snapshot, String(action.action || ""), {});
+        const completion = invokeCommand(root, invoke, announce, snapshot, actionId, {});
+        if (actionId === "library.export_selected" || actionId === "library.export_filtered") {
+          completion.then(function () {
+            if (root.contains(button) && typeof button.focus === "function") {
+              button.focus({ preventScroll: true });
+            }
+          });
+        }
       });
       toolbar.appendChild(button);
     });
