@@ -329,6 +329,10 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             "} else if (queuedFocusTarget) {\n        focusById(queuedFocusTarget);",
             source,
         )
+        self.assertIn(
+            'actionId === "library.export";',
+            source,
+        )
 
     def test_production_helper_exports_full_filtered_result_through_same_native_chain(self) -> None:
         pgn = """[Event "Filtered Cup"]
