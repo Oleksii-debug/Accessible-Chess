@@ -13,6 +13,7 @@ from acs.pgn_service import open_pgn
 from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
 from acs.version2_release_app import _build_version2_windows_file_runtime
+from acs.version2_profile import Version2NativeMenuController
 from acs.version2_windows_library_export import (
     LibraryExportHostEvent,
     LibraryExportHostEventKind,
@@ -621,6 +622,117 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
                 {"kind": "status", "payload": {"announcement": "Експорт завершено."}},
                 events,
             )
+        finally:
+            if runtime is not None:
+                self.assertTrue(runtime.shutdown())
+            database.close()
+
+
+    def test_production_native_menu_selected_export_reaches_runtime_and_restores_focus(self) -> None:
+        pgn = """[Event "Native menu export"]
+[Site "Bratislava"]
+[White "Menu"]
+[Black "Runtime"]
+[Result "*"]
+
+1. c4 e5 *
+"""
+
+        class Owner:
+            IsDisposed = False
+            Disposing = False
+            InvokeRequired = False
+
+            def BeginInvoke(self, delegate):  # noqa: N802
+                raise AssertionError("synchronous export must not post UI work")
+
+        class Dialogs:
+            def __init__(self, destination: Path) -> None:
+                self.destination = destination
+                self.calls: list[str] = []
+
+            def export_selection(self, suggested_filename: str = "selection.pgn") -> Path:
+                self.calls.append(suggested_filename)
+                return self.destination
+
+        database = AcsDatabase()
+        runtime = None
+        try:
+            report = database.import_pgn_text(
+                pgn,
+                source_name="native-menu-export.pgn",
+            )
+            game_id = report.game_ids[0]
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                destination = root / "native-menu-export.pgn"
+                application = Version2Application(
+                    database,
+                    progress_store=SimpleNamespace(path=root / "book-progress.json"),
+                    engine_assistance=object(),
+                    board_dispatch=Mock(),
+                    copy_text=lambda _value: None,
+                    language=UILanguage.EN,
+                )
+                application.library.projection.toggle_export_selection(game_id)
+                application.record_focus("library-export-selected")
+                dialogs = Dialogs(destination)
+                with patch(
+                    "acs.version2_windows_library_export.Version2OwnedWindowsPgnExportDialogs",
+                    return_value=dialogs,
+                ):
+                    runtime = _build_version2_windows_file_runtime(
+                        application=application,
+                        api=SimpleNamespace(v2_board_dispatch=Mock()),
+                        database_path=root / "library.acsdb",
+                        owner_control=Owner(),
+                        dialog_language_provider=lambda: application.shell.language,
+                    )
+                application.bind_files(runtime)
+                controller = Version2NativeMenuController(
+                    application.adapter,
+                    application.native_command,
+                    exit_callback=lambda: None,
+                    current_focus_provider=lambda: application._focus,
+                )
+                export_menu = next(
+                    menu for menu in controller.spec() if menu.menu_id == "export"
+                )
+                export_item = next(
+                    item
+                    for item in export_menu.items
+                    if getattr(item, "action_id", "") == "library.export"
+                )
+
+                command = controller.activate(export_item)
+                reopened = open_pgn(destination)
+                events = application.drain_events()
+
+            self.assertIsNotNone(command)
+            self.assertEqual(command.kind, "delegated")
+            self.assertEqual(command.payload["action_id"], "library.export")
+            self.assertEqual(dialogs.calls, ["library-export.pgn"])
+            self.assertEqual(len(reopened.games), 1)
+            self.assertEqual(reopened.games[0].tags["Event"], "Native menu export")
+            self.assertEqual(
+                events[0],
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Export completed.",
+                        "focus_target": "library-export-selected",
+                    },
+                },
+            )
+            self.assertEqual(
+                events[1],
+                {
+                    "kind": "delegated",
+                    "payload": {"action_id": "library.export"},
+                },
+            )
+            self.assertEqual(application._focus, "library-export-selected")
+            self.assertNotIn(str(destination), repr(events))
         finally:
             if runtime is not None:
                 self.assertTrue(runtime.shutdown())
