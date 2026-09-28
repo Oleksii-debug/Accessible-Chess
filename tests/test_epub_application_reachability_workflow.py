@@ -34,12 +34,18 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
-    def test_epub_exclusive_parser_authority_is_locked_to_product(self) -> None:
+    def test_epub_parser_and_semantic_oracles_are_locked_to_product(self) -> None:
         marker = "protected_paths=("
         start = self.workflow.index(marker)
         end = self.workflow.index("\n          )", start)
         protected_block = self.workflow[start:end]
-        self.assertIn("'acs/book_epub_import.py'", protected_block)
+        for path in (
+            "acs/book_epub_import.py",
+            "tests/test_v2_book_epub_import.py",
+            "tests/test_version2_epub_application_reachability.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f"'{path}'", protected_block)
         self.assertIn(
             'product_blob="$(git rev-parse "$product:$path")"',
             self.workflow,
