@@ -334,6 +334,10 @@ class BookReader:
         if len(snapshot) != len(_BOOK_READER_SNAPSHOT_FIELDS):
             raise ValueError("invalid BookReader snapshot field count")
         fields = set(snapshot)
+        if any(type(field) is not str for field in fields):
+            raise ValueError(
+                "invalid BookReader snapshot fields (field names must be strings)"
+            )
         if fields != _BOOK_READER_SNAPSHOT_FIELDS:
             missing = sorted(_BOOK_READER_SNAPSHOT_FIELDS - fields)
             unknown = sorted(fields - _BOOK_READER_SNAPSHOT_FIELDS)
