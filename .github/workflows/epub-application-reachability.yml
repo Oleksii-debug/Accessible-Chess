@@ -3,7 +3,6 @@ name: EPUB Application Reachability
 on:
   pull_request:
     branches:
-      - fix/book-progress-backup-recovery-20260927
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/book_epub_import.py'
