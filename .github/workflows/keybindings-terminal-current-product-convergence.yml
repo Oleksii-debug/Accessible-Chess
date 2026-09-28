@@ -29,6 +29,7 @@ on:
       - 'tests/test_full_product_education_keybindings.py'
       - 'tests/js/remappable_board_grid_controls_test.js'
       - 'tests/js/remappable_input_submit_keys_test.js'
+      - 'tests/js/p0g_event_aware_announcement_test.js'
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/library_surface_dom_test.js'
       - 'tests/js/version2_library_open_route_refresh_dom_test.js'
@@ -47,7 +48,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PRODUCT_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
+  EXPECTED_PRODUCT_SHA: 1612cc5788d553b7ebafa37decfab214e75cd1b6
 
 jobs:
   convergence:
@@ -102,6 +103,7 @@ jobs:
             'tests/js/pgn_surface_dom_test.js' \
             'tests/js/remappable_board_grid_controls_test.js' \
             'tests/js/remappable_input_submit_keys_test.js' \
+            'tests/js/p0g_event_aware_announcement_test.js' \
             'tests/test_full_product_education_keybindings.py' \
             'tests/test_full_product_library_keybindings.py' \
             'tests/test_full_product_native_menu.py' \
@@ -156,6 +158,7 @@ jobs:
           node --check web/full_product_education.js
           node --check tests/js/remappable_board_grid_controls_test.js
           node --check tests/js/remappable_input_submit_keys_test.js
+          node --check tests/js/p0g_event_aware_announcement_test.js
           node --check tests/js/pgn_surface_dom_test.js
           node --check tests/js/library_surface_dom_test.js
           node --check tests/js/version2_library_open_route_refresh_dom_test.js
@@ -181,6 +184,7 @@ jobs:
         run: |
           node tests/js/remappable_board_grid_controls_test.js
           node tests/js/remappable_input_submit_keys_test.js
+          node tests/js/p0g_event_aware_announcement_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/library_surface_dom_test.js
           node tests/js/version2_library_open_route_refresh_dom_test.js
