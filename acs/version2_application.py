@@ -409,6 +409,21 @@ class Version2Application:
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
         if action == "library.export" and not payload:
+            if not self.library.projection.export_game_ids:
+                message = (
+                    "Виберіть щонайменше одну партію в Бібліотеці перед експортом."
+                    if self.shell.language is UILanguage.UA
+                    else "Select at least one game in the Library before exporting."
+                )
+                event_payload = {"announcement": message}
+                if (
+                    type(self._focus) is str
+                    and len(self._focus) <= 160
+                    and all(char.isalnum() or char in "-_" for char in self._focus)
+                ):
+                    event_payload["focus_target"] = self._focus
+                self._events.append({"kind": "status", "payload": event_payload})
+                return None
             return self.library.projection.request_export_selected()
         if action == "book.open":
             if payload: raise ValueError("book file selection belongs to the host")
