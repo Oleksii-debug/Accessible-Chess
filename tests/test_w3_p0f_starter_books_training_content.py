@@ -177,6 +177,9 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     board_position_projector=lambda _fen: {"ok": True},
                 )
                 try:
+                    opened_books = app.browser_command("shell", "screen.books")
+                    self.assertEqual("route", opened_books["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
                     initial = app.snapshot()["books"]["starter_materials"]
                     booklet_items = [
                         item
@@ -259,6 +262,9 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     board_position_projector=lambda _fen: {"ok": True},
                 )
                 try:
+                    opened_books = app.browser_command("shell", "screen.books")
+                    self.assertEqual("route", opened_books["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
                     catalogue = app.snapshot()["books"]["starter_materials"]
                     booklet = next(
                         item
@@ -350,6 +356,11 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual("delegated", opened["kind"])
                     self.assertTrue(app.book_workflow.active)
                     self.assertEqual("board", app.shell.current_route.route_id)
+                    opened_events = app.drain_events()
+                    self.assertEqual(
+                        ["book-board"],
+                        [item["kind"] for item in opened_events],
+                    )
                     reader_before = app.reader.snapshot()
                     board_before = app.book_workflow.view()
 
