@@ -139,7 +139,17 @@ class BookReader:
 
     def _require_indexed_revision(self) -> None:
         """Reject durable target work after the indexed document changed in place."""
-        if self._document_revision_digest() != self._indexed_revision_digest:
+        try:
+            current_revision = self._document_revision_digest()
+        except Exception:
+            # Mutable authoring code can temporarily put BookDocument into an
+            # invalid state. Treat an uncanonicalizable live revision exactly as
+            # semantic drift instead of leaking parser/attribute failures through
+            # an otherwise fail-closed reader.
+            raise RuntimeError(
+                "BookDocument changed after BookReader creation; create a fresh reader for this revision"
+            ) from None
+        if current_revision != self._indexed_revision_digest:
             raise RuntimeError(
                 "BookDocument changed after BookReader creation; create a fresh reader for this revision"
             )

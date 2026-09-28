@@ -112,6 +112,27 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             reader.block_snapshot(1)
 
+    def test_navigation_fails_closed_if_live_document_becomes_invalid(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        before_index = reader.index
+
+        book.blocks[2].text = ""
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertEqual(reader.index, before_index)
+
+    def test_navigation_fails_closed_if_live_blocks_contain_invalid_object(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        before_index = reader.index
+
+        book.blocks.append(object())
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.navigation_availability()
+        self.assertEqual(reader.index, before_index)
+
     def test_navigation_fails_closed_if_document_becomes_empty(self):
         book = self.make_book()
         reader = BookReader(book)
