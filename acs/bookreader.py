@@ -196,6 +196,44 @@ class BookReader:
             cursor += direction
         raise LookupError("No matching semantic block in that direction")
 
+    def navigation_availability(self) -> dict[str, bool]:
+        """Return non-mutating semantic navigation reachability at the cursor.
+
+        Each side of the cursor is scanned at most once. WebView snapshots request
+        all semantic directions together, so six independent linear scans would
+        add avoidable keyboard-navigation latency for large books.
+        """
+        self._require_content()
+        availability = {
+            "previous": self._index > 0,
+            "next": self._index < len(self.document.blocks) - 1,
+            "previous_heading": False,
+            "next_heading": False,
+            "previous_position": False,
+            "next_position": False,
+            "previous_game": False,
+            "next_game": False,
+        }
+
+        for direction, prefix in ((-1, "previous"), (1, "next")):
+            cursor = self._index + direction
+            while 0 <= cursor < len(self.document.blocks):
+                block = self.document.blocks[cursor]
+                if isinstance(block, Heading):
+                    availability[f"{prefix}_heading"] = True
+                if isinstance(block, (Position, Diagram, Exercise, VariationTree)):
+                    availability[f"{prefix}_position"] = True
+                if isinstance(block, Game):
+                    availability[f"{prefix}_game"] = True
+                if (
+                    availability[f"{prefix}_heading"]
+                    and availability[f"{prefix}_position"]
+                    and availability[f"{prefix}_game"]
+                ):
+                    break
+                cursor += direction
+        return availability
+
     def next_heading(self) -> ReadingLocation:
         return self._next_matching(lambda block: isinstance(block, Heading), direction=1)
 
@@ -207,8 +245,16 @@ class BookReader:
             lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=1
         )
 
+    def previous_position(self) -> ReadingLocation:
+        return self._next_matching(
+            lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=-1
+        )
+
     def next_game(self) -> ReadingLocation:
         return self._next_matching(lambda block: isinstance(block, Game), direction=1)
+
+    def previous_game(self) -> ReadingLocation:
+        return self._next_matching(lambda block: isinstance(block, Game), direction=-1)
 
     def save_return_point(self, name: str = "default") -> ReadingLocation:
         self._require_content()

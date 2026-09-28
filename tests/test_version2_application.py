@@ -405,4 +405,30 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNone(self.app.session)
 
 
+    def test_library_open_game_cannot_replace_pgn_session_behind_modal_dialog(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        searched = self.app.browser_command("library", "library.search", {"player": "петренко"})
+        self.assertEqual("render", searched["kind"])
+
+        session_before = self.app.session
+        pgn_before = self.app.pgn
+        route_before = self.app.shell.current_route.route_id
+        opened_dialog = self.app.adapter.open_dialog(
+            "test-library-modal",
+            opener_focus_id="library-results",
+            initial_focus_id="test-library-modal-confirm",
+        )
+        self.assertEqual("dialog-open", opened_dialog.kind)
+
+        result = self.app.browser_command("library", "library.open_game")
+
+        self.assertEqual("error", result["kind"])
+        self.assertIs(session_before, self.app.session)
+        self.assertIs(pgn_before, self.app.pgn)
+        self.assertEqual(route_before, self.app.shell.current_route.route_id)
+        self.assertEqual("test-library-modal", self.app.shell.active_dialog_id)
+
+
 if __name__ == "__main__": unittest.main()

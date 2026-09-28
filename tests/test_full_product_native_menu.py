@@ -15,6 +15,7 @@ from acs.full_product_native_menu import (
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.full_product_webview_adapter import FullProductWebViewAdapter
 from acs.ui_native_menu import native_menu_attachment_state
+from acs.version2_profile import build_version2_action_registry, build_version2_menu_spec
 
 
 class EventHook:
@@ -169,6 +170,63 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
         self.assertEqual("&Файл", ua[0].label)
         self.assertEqual("&Учитель/Клас", ua[11].label)
+
+    def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        actions = {
+            item.action_id: item
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        for action_id in (
+            "book.previous_position",
+            "book.next_position",
+            "book.previous_game",
+            "book.next_game",
+        ):
+            with self.subTest(action_id=action_id):
+                self.assertIn(action_id, actions)
+
+        previous_position = controller.activate(actions["book.previous_position"])
+        previous_game = controller.activate(actions["book.previous_game"])
+        self.assertEqual("delegated", previous_position.kind)
+        self.assertEqual("delegated", previous_game.kind)
+        self.assertEqual(
+            [
+                ("book.previous_position", {}),
+                ("book.previous_game", {}),
+            ],
+            calls,
+        )
+        self.assertEqual([previous_position, previous_game], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_labels = {item.action_id: item.label for item in ua_books.items}
+        self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
+        self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
+
+    def test_shipping_version2_menu_inherits_reverse_book_navigation(self) -> None:
+        registry = build_version2_action_registry()
+        menus = build_version2_menu_spec(registry, language=UILanguage.EN)
+        books_menu = next(menu for menu in menus if menu.menu_id == "books")
+        action_ids = {
+            item.action_id
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        self.assertTrue(
+            {
+                "book.previous_position",
+                "book.next_position",
+                "book.previous_game",
+                "book.next_game",
+            }.issubset(action_ids)
+        )
 
     def test_native_and_webview_actions_share_router_and_focus_restoration(self) -> None:
         controller, calls, commands, exits = make_controller()
