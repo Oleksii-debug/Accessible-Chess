@@ -257,8 +257,7 @@
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
-    return actionId === "library.import" ||
-      actionId === "library.cancel_import" ||
+    return actionId === "library.import" || actionId === "library.cancel_import" ||
       actionId === "library.export";
   }
 
