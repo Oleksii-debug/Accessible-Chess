@@ -722,6 +722,66 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_transient_message_survives_rejected_and_failed_actions(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-message-rollback-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+
+                    seeded = app.browser_command("training", "training.reveal")
+                    self.assertEqual("render", seeded["kind"])
+                    message_before = app.training_workspace.snapshot()["message"]
+                    session_before = app.training_workspace.session.snapshot()
+                    revision_before = app.training_workspace._revision
+                    self.assertTrue(message_before)
+
+                    rejected = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"wrong": "field"},
+                    )
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated retry render failure"),
+                    ):
+                        retry_failed = app.browser_command("training", "training.retry")
+                    self.assertEqual("error", retry_failed["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated reveal render failure"),
+                    ):
+                        reveal_failed = app.browser_command("training", "training.reveal")
+                    self.assertEqual("error", reveal_failed["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_training_language_survives_bridge_rebuild_after_render_rollback(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-language-rollback-") as raw:
             root = Path(raw)
