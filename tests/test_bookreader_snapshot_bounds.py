@@ -79,6 +79,20 @@ class BookReaderSnapshotBoundsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fallback digest key exceeds 4096"):
             BookReader.restore_snapshot(self.make_book(), snapshot)
 
+    def test_snapshot_rejects_out_of_contract_in_memory_return_point_name(self):
+        reader = BookReader(self.make_book())
+        target = reader.snapshot()["current_target"]
+        reader._return_points = {"x" * 257: target}
+        with self.assertRaisesRegex(ValueError, "Return point name exceeds 256"):
+            reader.snapshot()
+
+    def test_snapshot_rejects_non_string_in_memory_return_point_name(self):
+        reader = BookReader(self.make_book())
+        target = reader.snapshot()["current_target"]
+        reader._return_points = {1: target}
+        with self.assertRaisesRegex(TypeError, "Return point name must be a string"):
+            reader.snapshot()
+
     def test_snapshot_rejects_out_of_contract_in_memory_return_point_count(self):
         reader = BookReader(self.make_book())
         target = reader.snapshot()["current_target"]
