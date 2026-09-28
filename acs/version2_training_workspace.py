@@ -63,8 +63,13 @@ class Version2BookTrainingWorkspace:
     def _store_for(self, material: BookTrainingMaterial) -> TrainingProgressStore:
         return TrainingProgressStore(self.progress_root / self._exercise_filename(material))
 
-    def _bridge_for(self, session: ExerciseSession) -> TrainingWebViewBridge:
-        presenter = TrainingPresenter(session, language=self.language)
+    def _bridge_for(
+        self,
+        session: ExerciseSession,
+        *,
+        message: str = "",
+    ) -> TrainingWebViewBridge:
+        presenter = TrainingPresenter(session, language=self.language, message=message)
         projection = TrainingWebViewProjection(
             presenter,
             language=self.language,
@@ -78,12 +83,14 @@ class Version2BookTrainingWorkspace:
     def _prepare(
         self,
         material: BookTrainingMaterial,
+        *,
+        message: str = "",
     ) -> tuple[ExerciseSession, TrainingWebViewBridge, TrainingProgressStore, str | None]:
         store = self._store_for(material)
         loaded = store.load(material.definition)
         session = ExerciseSession(material.definition) if loaded is None else loaded.session
         revision = None if loaded is None else loaded.revision
-        return session, self._bridge_for(session), store, revision
+        return session, self._bridge_for(session, message=message), store, revision
 
     @property
     def session(self) -> ExerciseSession:
@@ -91,9 +98,15 @@ class Version2BookTrainingWorkspace:
             raise RuntimeError("no Training exercise is active")
         return self._session
 
-    def start_current(self) -> TrainingWebViewBridge:
+    @property
+    def presenter_message(self) -> str:
+        if self.bridge is None:
+            raise RuntimeError("no Training exercise is active")
+        return self.bridge.projection.presenter_message
+
+    def start_current(self, *, message: str = "") -> TrainingWebViewBridge:
         material = build_current_book_training_material(self.reader)
-        session, bridge, store, revision = self._prepare(material)
+        session, bridge, store, revision = self._prepare(material, message=message)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
         return bridge
@@ -153,19 +166,49 @@ class Version2BookTrainingWorkspace:
             raise RuntimeError("no Training exercise is active")
         before = self.session.snapshot()
         revision = self._revision
-        event = bridge.dispatch(command, payload)
-        if event.kind == "error" or command == "training.continue":
+        before_language = bridge.projection.language
+        before_message = bridge.projection.presenter_message
+        try:
+            event = bridge.dispatch(command, payload)
+        except Exception:
+            if command != "training.continue":
+                # The bridge normally sanitizes projection failures. If the
+                # sanitizing error projection itself raises after a presenter or
+                # session mutation, restore the exact pre-command Training state
+                # before allowing the outer application boundary to sanitize it.
+                restored = ExerciseSession.restore(material.definition, before)
+                self._session = restored
+                self.language = before_language
+                self.bridge = self._bridge_for(restored, message=before_message)
+                self._revision = revision
+            raise
+        if command == "training.continue":
+            return event
+        if event.kind == "error":
+            # Projection/render failures can happen after submit/hint/reset or
+            # transient presenter state has already mutated. The bridge deliberately
+            # converts those exceptions to a generic error, so restore the complete
+            # pre-command Training surface instead of leaving memory ahead of disk.
+            restored = ExerciseSession.restore(material.definition, before)
+            self._session = restored
+            self.language = before_language
+            self.bridge = self._bridge_for(restored, message=before_message)
+            self._revision = revision
             return event
         try:
             self.save()
         except Exception:
             # A stale/busy durable write must not leave in-memory progress ahead
-            # of disk truth. Restore the exact pre-command canonical session.
+            # of disk truth. Restore the exact pre-command canonical session and
+            # presentation language.
             restored = ExerciseSession.restore(material.definition, before)
             self._session = restored
-            self.bridge = self._bridge_for(restored)
+            self.language = before_language
+            self.bridge = self._bridge_for(restored, message=before_message)
             self._revision = revision
             raise
+        if command == "training.language":
+            self.language = self.bridge.projection.language
         return event
 
     def snapshot(self) -> dict[str, object] | None:

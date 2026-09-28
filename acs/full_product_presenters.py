@@ -626,14 +626,22 @@ class TrainingPresenter:
         session: ExerciseSession,
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
     ) -> None:
+        if not isinstance(message, str):
+            raise TypeError("training presenter message must be text")
         self._session = session
         self._language = language
-        self._message = ""
+        self._message = message
 
     @property
     def session(self) -> ExerciseSession:
         return self._session
+
+    @property
+    def message(self) -> str:
+        """Return transient accessible feedback without duplicating session state."""
+        return self._message
 
     def set_language(self, language: UILanguage) -> None:
         self._language = language
@@ -718,5 +726,10 @@ class TrainingPresenter:
         snapshot: Mapping[str, object],
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
     ) -> "TrainingPresenter":
-        return cls(ExerciseSession.restore(definition, snapshot), language=language)
+        return cls(
+            ExerciseSession.restore(definition, snapshot),
+            language=language,
+            message=message,
+        )

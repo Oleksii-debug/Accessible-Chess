@@ -246,7 +246,16 @@ class Version2Application:
         if self.training_workspace is not None and self.training is not None:
             self.training_workspace.save()
 
-    def _restore_book_progress(self, snapshot, *, language, bookmark_name, restore_training=False):
+    def _restore_book_progress(
+        self,
+        snapshot,
+        *,
+        language,
+        bookmark_name,
+        restore_training=False,
+        training_language=None,
+        training_message="",
+    ):
         """Restore a failed Book progress transaction without partial UI state."""
         training_was_active = self.training_workspace is not None or self.training is not None
         restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
@@ -280,9 +289,13 @@ class Version2Application:
                 workspace = Version2BookTrainingWorkspace(
                     restored_reader,
                     progress_root=self.training_progress_root,
-                    language=self.shell.language,
+                    language=(
+                        self.shell.language
+                        if training_language is None
+                        else training_language
+                    ),
                 )
-                self.training = workspace.start_current()
+                self.training = workspace.start_current(message=training_message)
                 self.training_workspace = workspace
             except Exception:
                 # Secondary Training-state recovery failure must not mask the
@@ -329,14 +342,60 @@ class Version2Application:
         if self.training_workspace is None or self.training is None:
             raise ValueError("Training exercise is unavailable")
         before_reader = None
-        language = bookmark_name = None
+        language = bookmark_name = training_language = None
+        training_message = ""
         if command == "training.continue":
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
-        result = self.training_workspace.dispatch(command, payload)
+            training_language = self.training_workspace.language
+            training_message = self.training_workspace.presenter_message
+        try:
+            result = self.training_workspace.dispatch(command, payload)
+        except Exception:
+            if command == "training.continue":
+                # The strict Training bridge normally sanitizes callback/render
+                # failures into an error event. If even that error projection
+                # fails after continuation moved the canonical BookReader, keep
+                # the transaction atomic before the outer application boundary
+                # performs its own sanitization.
+                rollback_required = True
+                try:
+                    rollback_required = self.reader.snapshot() != before_reader
+                except Exception:
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                        training_language=training_language,
+                        training_message=training_message,
+                    )
+            raise
         self.training = self.training_workspace.bridge
-        if command == "training.continue" and result.kind != "error":
+        if command == "training.continue":
+            if result.kind == "error":
+                # The continuation callback can fail after moving the canonical
+                # BookReader and swapping the Training model (for example while
+                # rendering the next exercise). Keep the failed action atomic:
+                # restore the completed origin only when reader mutation happened.
+                rollback_required = True
+                try:
+                    rollback_required = self.reader.snapshot() != before_reader
+                except Exception:
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                        training_language=training_language,
+                        training_message=training_message,
+                    )
+                return result
             try:
                 self.save_book_progress()
             except Exception:
@@ -345,6 +404,8 @@ class Version2Application:
                     language=language,
                     bookmark_name=bookmark_name,
                     restore_training=True,
+                    training_language=training_language,
+                    training_message=training_message,
                 )
                 raise
         return result
