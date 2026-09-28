@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace WordDeck;
 
 internal static class SentencePackLicenseValidator
@@ -27,8 +29,12 @@ internal static class SentencePackLicenseValidator
 
         foreach (SentenceRecord sentence in pack.Sentences)
         {
-            if (string.IsNullOrWhiteSpace(sentence.SourceSentenceId) || string.IsNullOrWhiteSpace(sentence.TranslationSentenceId))
-                throw new InvalidDataException($"Tatoeba SentencePack record {sentence.Id} is missing upstream sentence identifiers.");
+            if (!IsPositiveTatoebaSentenceId(sentence.SourceSentenceId) ||
+                !IsPositiveTatoebaSentenceId(sentence.TranslationSentenceId))
+            {
+                throw new InvalidDataException(
+                    $"Tatoeba SentencePack record {sentence.Id} is missing a valid positive decimal upstream sentence identifier.");
+            }
         }
 
         if (!string.Equals(pack.License, TatoebaCcBy, StringComparison.Ordinal))
@@ -44,6 +50,11 @@ internal static class SentencePackLicenseValidator
             }
         }
     }
+
+    private static bool IsPositiveTatoebaSentenceId(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long parsed) &&
+        parsed > 0;
 
     private static bool HasSideAttribution(string source, string sideLabel, string sentenceId)
     {
