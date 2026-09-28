@@ -153,6 +153,18 @@ internal static class TatoebaSentencePackSelfTest
             WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash, "CC0 1.0");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "mismatched declared CC-BY license");
 
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate schema_version authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"unapproved\",\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate license_filter authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\",\"output_sha256\":\"{hash}\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate output_sha256 authority");
+
             File.WriteAllText(manifestPath, "{ broken json");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "malformed manifest JSON");
 
