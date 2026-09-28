@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -178,6 +179,7 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             database_path = root / "library.acsdb"
             source.write_text(PGN_TWO, encoding="utf-8")
             events = []
+            canonical_result_seen = threading.Event()
 
             def base_factory():
                 database = AcsDatabase(database_path)
@@ -188,6 +190,8 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
                 )
 
             def fail_observer(value):
+                if isinstance(value, LibraryImportResult):
+                    canonical_result_seen.set()
                 raise RuntimeError("UI observer deliberately unavailable")
 
             factory = Version2ObservedImportServicesFactory(
@@ -197,7 +201,19 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             )
             controller = self._controller(source, factory, events)
             controller("library.import", {})
-            self.assertTrue(controller.wait_for_import(10.0))
+            # The import itself is not a timing contract. Synchronize on the
+            # canonical result boundary, then bound only the worker cleanup that
+            # follows observer failure. This keeps Windows CI load from turning a
+            # slow but valid import into a false lifecycle failure.
+            self.assertTrue(
+                canonical_result_seen.wait(30.0),
+                "canonical Library import did not reach result publication",
+            )
+            self.assertTrue(
+                controller.wait_for_import(5.0),
+                "import worker did not close promptly after canonical result publication",
+            )
+            self.assertFalse(controller.import_running)
 
             with AcsDatabase(database_path) as database:
                 game_count = database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
