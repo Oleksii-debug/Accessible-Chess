@@ -6,6 +6,7 @@ on:
       - 'acs/position_editor.py'
       - 'acs/move_entry.py'
       - 'acs/position_text.py'
+      - 'acs/webapp.py'
       - 'tests/test_move_entry.py'
       - 'tests/test_position_editor.py'
       - 'tests/test_position_text_authority.py'
