@@ -179,6 +179,97 @@ async function exercise(invoke, expectedAnnouncement) {
   }
 }
 
+function clearSelectionSnapshot(selected) {
+  return {
+    heading: "Game library",
+    description: "Library",
+    filters_heading: "Filters",
+    filters: [],
+    search_label: "Search",
+    results_heading: "Results",
+    rows: [
+      {
+        game_id: 1,
+        dom_id: "library-game-1",
+        label: "Alpha — Beta",
+        selected: true,
+        source_label: "",
+        export_dom_id: "library-game-1-export",
+        export_label: "Include in export: Alpha — Beta",
+        export_selected: !!selected
+      }
+    ],
+    actions: [
+      {
+        action: "library.export_filtered",
+        dom_id: "library-export-filtered",
+        label: "Export filtered",
+        enabled: true
+      },
+      {
+        action: "library.clear_export_selection",
+        dom_id: "library-export-clear",
+        label: "Clear export selection",
+        enabled: !!selected
+      }
+    ],
+    import: null,
+    export_selection_heading: "Games to export",
+    message: "",
+    transport_error_message: "The action could not be completed."
+  };
+}
+
+async function exerciseClearSelectionFocus() {
+  const documentRef = new DocumentRef();
+  global.document = documentRef;
+  global.window = {};
+
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "full_product_library.js"),
+    "utf8"
+  );
+  vm.runInThisContext(source, { filename: "full_product_library.js" });
+
+  const root = new Element("main", documentRef);
+  window.AccessibleChessLibrarySurface.render(
+    root,
+    clearSelectionSnapshot(true),
+    async (command, payload) => {
+      assert.strictEqual(command, "library.clear_export_selection");
+      assert.deepStrictEqual(payload, {});
+      return {
+        kind: "render",
+        payload: {
+          snapshot: clearSelectionSnapshot(false),
+          announcement: "Export selection cleared.",
+          focus_target: "library-game-1-export"
+        }
+      };
+    },
+    function () {},
+    ""
+  );
+
+  const oldClear = root.querySelector("#library-export-clear");
+  assert.ok(oldClear, "clear-selection button must exist before the action");
+  oldClear.focus();
+  const beforeReplace = root.replaceCount;
+  oldClear.dispatch("click", {});
+  await flushMicrotasks();
+
+  const checkbox = root.querySelector("#library-game-1-export");
+  assert.ok(checkbox, "rerender must retain a focusable export checkbox");
+  assert.strictEqual(root.contains(oldClear), false, "old clear button must be detached by rerender");
+  assert.strictEqual(root.replaceCount, beforeReplace + 1, "clear selection must rerender once");
+  assert.strictEqual(
+    documentRef.activeElement,
+    checkbox,
+    "clear selection must restore focus into the surviving export-selection surface"
+  );
+  assert.strictEqual(checkbox.focusCount, 1, "post-clear focus must be restored exactly once");
+}
+
 (async () => {
   const calls = [];
   await exercise(async (command, payload) => {
@@ -186,6 +277,8 @@ async function exercise(invoke, expectedAnnouncement) {
     return { kind: "delegated", payload: {} };
   }, "");
   assert.deepStrictEqual(calls, [["library.export_filtered", {}]]);
+
+  await exerciseClearSelectionFocus();
 
   await exercise(
     async () => {
