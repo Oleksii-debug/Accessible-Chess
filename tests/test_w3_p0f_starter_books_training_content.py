@@ -190,7 +190,8 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     def mutate_after_prepare(self, material, *, message=""):
                         prepared = original_prepare(self, material, message=message)
                         block = self.reader.document.blocks[self.reader.index]
-                        self.assertIsInstance(block, Exercise)
+                        if not isinstance(block, Exercise):
+                            raise AssertionError("Training start did not target an Exercise")
                         drift["index"] = self.reader.index
                         drift["prompt"] = block.prompt
                         block.prompt = block.prompt + " [prepare drift]"
