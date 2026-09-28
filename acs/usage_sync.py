@@ -172,7 +172,7 @@ class UsageAnalyticsPolicy:
         object.__setattr__(self, "consent_state", consent)
 
     def allows_collection(self) -> bool:
-        if not self.analytics_enabled:
+        if not self.analytics_enabled or self.consent_state == "denied":
             return False
         if not self.is_minor:
             return True
@@ -312,10 +312,14 @@ class UsageEventQueue:
             raise ValueError("policy must be UsageAnalyticsPolicy")
         if not policy.allows_collection():
             return False
+        now = self._read_now()
+        event_time = _parse_utc(event.created_at_utc)
+        if event_time > now:
+            raise ValueError("usage event timestamp cannot be in the future")
         self.purge_expired(event.installation_id, policy)
         if policy.retention_days is not None:
-            cutoff = self._read_now() - timedelta(days=policy.retention_days)
-            if _parse_utc(event.created_at_utc) < cutoff:
+            cutoff = now - timedelta(days=policy.retention_days)
+            if event_time < cutoff:
                 return False
         counters_json = json.dumps(
             dict(event.counters), sort_keys=True, separators=(",", ":"), ensure_ascii=True
@@ -405,6 +409,8 @@ class UsageEventQueue:
             raise RuntimeError("aggregate usage sync provider failed") from None
         if isinstance(raw_acknowledged, (str, bytes)) or not isinstance(raw_acknowledged, Sequence):
             raise ValueError("sync adapter acknowledgements must be a sequence of event IDs")
+        if len(raw_acknowledged) > len(events):
+            raise ValueError("sync adapter acknowledged an event outside this batch")
         acknowledged = tuple(_normalize_event_id(value) for value in raw_acknowledged)
         pending_ids = {event.event_id for event in events}
         if len(set(acknowledged)) != len(acknowledged):

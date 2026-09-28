@@ -86,6 +86,15 @@ class UsageSyncTests(unittest.TestCase):
             self.assertFalse(
                 queue.enqueue(
                     queued,
+                    UsageAnalyticsPolicy(
+                        analytics_enabled=True,
+                        consent_state="denied",
+                    ),
+                )
+            )
+            self.assertFalse(
+                queue.enqueue(
+                    queued,
                     UsageAnalyticsPolicy(analytics_enabled=True, is_minor=True),
                 )
             )
@@ -200,6 +209,9 @@ class UsageSyncTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "outside this batch"):
                 queue.sync_pending(FakeUsageSync(("event-0", "foreign-event")), ENABLED, "install-1")
+            oversized = tuple(f"event-{index}" for index in range(251))
+            with self.assertRaisesRegex(ValueError, "outside this batch"):
+                queue.sync_pending(FakeUsageSync(oversized), ENABLED, "install-1")
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 queue.sync_pending(FakeUsageSync(("event-0", "event-0")), ENABLED, "install-1")
             with self.assertRaisesRegex(ValueError, "between 0 and 250"):
@@ -352,6 +364,23 @@ class UsageSyncTests(unittest.TestCase):
             self.assertEqual(q.sync_pending(port, ENABLED, "install-1"), 1)
             self.assertEqual([e.installation_id for e in port.calls[0]], ["install-1"])
             self.assertEqual([e.event_id for e in q.pending("install-2")], ["event-b"])
+
+    def test_future_timestamp_cannot_bypass_retention(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = make_queue(Path(tmp) / "usage-sync.sqlite")
+            policy = UsageAnalyticsPolicy(
+                analytics_enabled=True,
+                is_minor=True,
+                consent_state="granted",
+                retention_days=30,
+            )
+            future = event(
+                "future",
+                created_at_utc="2026-08-20T12:00:01Z",
+            )
+            with self.assertRaisesRegex(ValueError, "timestamp cannot be in the future"):
+                q.enqueue(future, policy)
+            self.assertEqual(q.pending("install-1"), ())
 
     def test_retention_rejects_expired_collection_and_purges_on_next_operation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
