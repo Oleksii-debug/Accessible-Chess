@@ -274,6 +274,20 @@ internal static class TatoebaSentencePackSelfTest
                 ValidPack(
                     "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #999 by Olena.")),
             "attribution bound to the wrong Ukrainian upstream id");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #not-a-number by Alice; Ukrainian sentence #201 by Olena.",
+                    sourceId: "not-a-number")),
+            "non-numeric Tatoeba source sentence id");
+
+        ExpectInvalidBuild(
+            () => SentencePackLicenseValidator.ValidateForInstallation(
+                ValidPack(
+                    "Tatoeba; English sentence #101 by Alice; Ukrainian sentence #0 by Olena.",
+                    translationId: "0")),
+            "non-positive Tatoeba translation sentence id");
     }
 
     private static string Hash(string path)
