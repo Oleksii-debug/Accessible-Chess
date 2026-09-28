@@ -253,14 +253,21 @@ class BookReader:
         if len(self._return_points) > _MAX_RETURN_POINTS:
             raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         current_target = None if self._index < 0 else self._durable_target_key()
-        referenced_targets = set(self._return_points.values())
+        validated_return_points: dict[str, str] = {}
+        for name, key in self._return_points.items():
+            validated_name = self._return_point_name(name)
+            validated_key = self._durable_target(
+                key,
+                name="Book reader return point target key",
+            )
+            self._book_index.resolve(validated_key)
+            validated_return_points[validated_name] = validated_key
+
+        referenced_targets = set(validated_return_points.values())
         if current_target is not None:
             referenced_targets.add(current_target)
         # Return points may predate later authoring/import mutations. Never publish
         # a durable snapshot containing an oversized, missing or ambiguous target.
-        for key in referenced_targets:
-            self._durable_target(key)
-            self._book_index.resolve(key)
         fallback_digests = {
             key: self._fallback_digest(key)
             for key in sorted(referenced_targets)
@@ -269,7 +276,7 @@ class BookReader:
         return {
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": current_target,
-            "return_points": dict(sorted(self._return_points.items())),
+            "return_points": dict(sorted(validated_return_points.items())),
             "fallback_digests": fallback_digests,
         }
 
