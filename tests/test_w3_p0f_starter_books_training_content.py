@@ -658,6 +658,70 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_render_errors_restore_session_before_persistence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-render-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+
+                    before_submit = app.training_workspace.session.snapshot()
+                    revision_before_submit = app.training_workspace._revision
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated submit render failure"),
+                    ):
+                        rejected_submit = app.browser_command(
+                            "training",
+                            "training.submit",
+                            {"answer": "not-a-legal-move"},
+                        )
+
+                    self.assertEqual("error", rejected_submit["kind"])
+                    self.assertEqual(before_submit, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before_submit, app.training_workspace._revision)
+
+                    progressed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": "not-a-legal-move"},
+                    )
+                    self.assertEqual("render", progressed["kind"])
+                    before_reset = app.training_workspace.session.snapshot()
+                    revision_before_reset = app.training_workspace._revision
+                    self.assertEqual(1, before_reset["attempts"])
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated reset render failure"),
+                    ):
+                        rejected_reset = app.browser_command(
+                            "training",
+                            "training.reset",
+                            {"confirmed": True},
+                        )
+
+                    self.assertEqual("error", rejected_reset["kind"])
+                    self.assertEqual(before_reset, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before_reset, app.training_workspace._revision)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_training_continue_book_progress_failure_restores_completed_origin(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-continue-save-") as raw:
             root = Path(raw)
