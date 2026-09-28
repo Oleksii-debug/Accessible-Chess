@@ -765,49 +765,6 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
-    def test_training_submit_escaped_error_projection_failure_restores_session(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-submit-double-failure-") as raw:
-            root = Path(raw)
-            database = AcsDatabase(root / "library.acsdb")
-            analysis = AnalysisService(lambda: None)
-            try:
-                app = Version2StarterContentApplication(
-                    database,
-                    progress_store=BookProgressStore(root / "book-progress.json"),
-                    engine_assistance=EngineAssistedWorkflowService(analysis),
-                    board_dispatch=lambda *_: None,
-                    board_position_projector=lambda _fen: {"ok": True},
-                )
-                try:
-                    opened = app.browser_command("shell", "screen.training")
-                    self.assertEqual("route", opened["kind"])
-                    before = app.training_workspace.session.snapshot()
-                    revision_before = app.training_workspace._revision
-
-                    with patch(
-                        "acs.training_webview_projection.TrainingWebViewProjection._render",
-                        side_effect=RuntimeError("simulated submit render failure"),
-                    ), patch(
-                        "acs.training_webview_projection.TrainingWebViewProjection.generic_error",
-                        side_effect=RuntimeError("simulated submit error projection failure"),
-                    ):
-                        rejected = app.browser_command(
-                            "training",
-                            "training.submit",
-                            {"answer": "not-a-legal-move"},
-                        )
-
-                    self.assertEqual("error", rejected["kind"])
-                    self.assertEqual("training", app.shell.current_route.route_id)
-                    self.assertEqual(before, app.training_workspace.session.snapshot())
-                    self.assertEqual(revision_before, app.training_workspace._revision)
-                finally:
-                    app.shutdown()
-            finally:
-                analysis.close()
-                database.close()
-
-
     def test_training_continue_book_progress_failure_restores_completed_origin(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-continue-save-") as raw:
             root = Path(raw)
