@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 from typing import Iterable, Sequence
 
@@ -96,6 +97,48 @@ def _safe_candidate(root: Path, relative: str) -> Path:
     except ValueError as exc:
         raise EvidenceError(f"path escapes repository root: {relative!r}") from exc
     return candidate
+
+
+def _git(root: Path, *args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        raise EvidenceError(f"git source-identity check failed: {detail.strip()}") from exc
+    return completed.stdout.strip()
+
+
+def _assert_git_source_identity(
+    root: Path,
+    *,
+    source_commit: str,
+    includes: Sequence[str],
+) -> None:
+    head = _git(root, "rev-parse", "--verify", "HEAD").lower()
+    if head != source_commit:
+        raise EvidenceError(
+            f"source commit mismatch: declared={source_commit} actual={head}"
+        )
+    status = _git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        *includes,
+    )
+    if status:
+        raise EvidenceError(
+            "scoped release inputs contain uncommitted changes; "
+            "provenance requires committed bytes"
+        )
 
 
 def _iter_regular_files(root: Path, candidate: Path) -> Iterable[Path]:
@@ -263,7 +306,11 @@ def build_provenance(
         "schema": SCHEMA_ID,
         "generator": TOOL_ID,
         "product": {"name": "Accessible Chess", "version": version},
-        "source": {"commit": source_commit},
+        "source": {
+            "commit": source_commit,
+            "git_head_verified": True,
+            "scoped_inputs_clean": True,
+        },
         "created": created,
         "scope": {
             "kind": "runtime-release-inputs",
@@ -292,6 +339,13 @@ def generate(
     root = root.resolve(strict=True)
     source_commit = _validate_commit(source_commit)
     created = _normalize_created(created)
+    for include in includes:
+        _safe_candidate(root, include)
+    _assert_git_source_identity(
+        root,
+        source_commit=source_commit,
+        includes=includes,
+    )
     version = read_version(root)
     records = collect_runtime_files(root, includes)
     spdx = build_spdx(
