@@ -313,6 +313,19 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
         )
 
+        fake._events.clear()
+        pgn_saved = SimpleNamespace(
+            kind=SimpleNamespace(value="pgn_saved"),
+            action_id="pgn.save",
+            focus_target="pgn-save-control",
+        )
+        Version2Application._file_event(fake, pgn_saved)
+        self.assertEqual(
+            fake._events,
+            [{"kind": "status", "payload": {"announcement": "PGN saved."}}],
+        )
+        self.assertNotIn("focus_target", fake._events[-1]["payload"])
+
 
     def test_release_bootstrap_restores_library_status_focus_without_repaint(self) -> None:
         source = (
