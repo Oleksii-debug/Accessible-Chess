@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 4c695cf / p0g 4c695cf / p0-document 4c695cf
+# exact-package-reconvergence: 1612cc5 / p0g 1612cc5 / p0-document 1612cc5
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,19 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PACKAGE_ANCHOR_SHA: 5b616a8878fa875be11aa1501113444c9c658a56
-  PRODUCT_PARENT_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
-  PREVIOUS_PACKAGE_SHA: 16f2dbee089420c45dd258f12007a995241cf1c3
-  PREVIOUS_WORKFLOW_BLOB_SHA: 9a26fa416655c4e4252d64efc071adec8b480a6a
+  PACKAGE_ANCHOR_SHA: e45fcdfc681e59890a0e440d1829ba107ec7ba67
+  PRODUCT_PARENT_SHA: 1612cc5788d553b7ebafa37decfab214e75cd1b6
+  PREVIOUS_PACKAGE_SHA: 115de0b7751ea95016a83bbdd9d8f5626a3fcaeb
+  PREVIOUS_WORKFLOW_BLOB_SHA: 8e74e49e3cabd7bbcadf3a25cd9975465d340ec9
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
+  P0G_QA_SHA: 1612cc5788d553b7ebafa37decfab214e75cd1b6
   P0G_PROBE_BLOB_SHA: 796d705c66b11f880b3173caddfb41e7af09de35
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
-  P0_DOCUMENT_PROBE_BLOB_SHA: 7afbbbdf66f4e2458a453cd40ad7a094e923544c
+  P0_DOCUMENT_QA_SHA: 1612cc5788d553b7ebafa37decfab214e75cd1b6
+  P0_DOCUMENT_PROBE_BLOB_SHA: caa925de5a3bf96a6c8ede67b590a865394fdd60
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -119,6 +119,11 @@ jobs:
           grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq "AssertProviderFocus \$roots 'move input copy dispatch after Ctrl+A' 'move-input'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$selected=[string]$target.GetText(-1)' .p0-packaged-document-copy-probe.ps1
+          if grep -Fq '$selected=([string]$target.GetText(-1)).Trim()' .p0-packaged-document-copy-probe.ps1; then
+            echo 'STALE_TRIMMED_EXACT_RANGE_EXPECTATION_SURVIVED' >&2
+            exit 1
+          fi
           grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
