@@ -6,8 +6,8 @@ at the proprietary source and publishes only canonical GameTree/ACSDB/PGN data.
 
 | Extension | Current state | Evidence-backed capability | Explicit boundary |
 |---|---|---|---|
-| `.cbh` | SUPPORTED WHEN CONFIGURED | Optional pinned `libcbh` external backend; classic same-stem family integrity; legal-move revalidation; tags, moves, variations and supported annotations to canonical GameTree; atomic ACSDB import with warning counts | GPL backend is not bundled; unsupported/corrupt records remain warnings or fail closed; no ChessBase writeback |
-| `.cbv` | SUPPORTED WHEN BOTH BACKENDS ARE CONFIGURED | Optional pinned `uncbv` extracts an immutable archive into a fresh bounded temporary directory; exactly one CBH family then follows the verified CBH → GameTree → ACSDB path; ACSDB provenance remains the original CBV SHA-256 | Unencrypted CBV only; GPL backends are not bundled; archive traversal, collisions, unexpected files, mutation and resource excess fail closed |
+| `.cbh` | SUPPORTED WHEN CONFIGURED | Optional pinned `libcbh` external backend; classic same-stem family integrity; legal-move revalidation; tags, moves, variations and supported annotations to canonical GameTree; atomic ACSDB import with warning counts | GPL backend is not bundled; unsupported/corrupt records remain warnings or fail closed; **Chess960 / Fischer Random is UNSUPPORTED by the current standard-chess canonical core and must fail closed or be explicitly loss-accounted without publication**; no ChessBase writeback |
+| `.cbv` | SUPPORTED WHEN BOTH BACKENDS ARE CONFIGURED | Optional pinned `uncbv` extracts an immutable archive into a fresh bounded temporary directory; exactly one CBH family then follows the verified CBH → GameTree → ACSDB path; ACSDB provenance remains the original CBV SHA-256 | Unencrypted CBV only; GPL backends are not bundled; the inherited CBH semantic boundary applies, including **Chess960 / Fischer Random UNSUPPORTED**; archive traversal, collisions, unexpected files, mutation and resource excess fail closed |
 | `.cbg` | COMPONENT ONLY | Consumed as the game/move/variation companion of a selected `.cbh` family and covered by family integrity evidence | Never imported standalone |
 | `.cbp` | COMPONENT ONLY | Consumed as player data by the configured CBH backend where present | Never imported standalone |
 | `.cbt` | COMPONENT ONLY | Consumed as tournament data by the configured CBH backend where present | Never imported standalone |
@@ -18,6 +18,21 @@ at the proprietary source and publishes only canonical GameTree/ACSDB/PGN data.
 | `.2cbh` | BLOCKED | Recognized and fingerprintable as a primary source | No fixture-backed semantic decoder |
 | `.cbone` | BLOCKED | Recognized and fingerprintable as a primary source | No fixture-backed semantic decoder |
 | `.cbz` | BLOCKED | Recognized by product research as an encrypted archive family | Password/decryption lifecycle is not implemented and no silent password handling is allowed |
+
+## Variant boundary
+
+The current canonical chess core is standard chess. Real mixed-CBH evidence contains
+both Standard and Chess960/Fischer Random records, including Shredder-FEN castling
+rights that the standard Board correctly rejects. Therefore Version 2 does not
+claim Chess960/Fischer Random support through `.cbh` or `.cbv`.
+
+`CHESS960_FISCHER_RANDOM=UNSUPPORTED`
+
+A configured decoder may accept Standard records, but any Chess960/Fischer Random
+record must be rejected before canonical publication or represented by explicit,
+bounded loss accounting. It must never be silently reinterpreted as Standard
+chess, inserted into ACSDB as a canonical Standard game, or used to broaden the
+`.cbh`/`.cbv` support claim.
 
 ## Security and evidence status
 

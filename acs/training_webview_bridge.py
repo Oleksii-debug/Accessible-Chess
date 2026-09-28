@@ -1,16 +1,24 @@
 """Strict browser-command bridge for the accessible Training WebView surface."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from .training_webview_projection import TrainingWebViewEvent, TrainingWebViewProjection
 
 
 class TrainingWebViewBridge:
-    def __init__(self, projection: TrainingWebViewProjection) -> None:
+    def __init__(
+        self,
+        projection: TrainingWebViewProjection,
+        *,
+        continue_callback: Callable[[], TrainingWebViewEvent] | None = None,
+    ) -> None:
         if not isinstance(projection, TrainingWebViewProjection):
             raise TypeError("projection must be TrainingWebViewProjection")
+        if continue_callback is not None and not callable(continue_callback):
+            raise TypeError("continue_callback must be callable or None")
         self._projection = projection
+        self._continue_callback = continue_callback
 
     @property
     def projection(self) -> TrainingWebViewProjection:
@@ -64,6 +72,11 @@ class TrainingWebViewBridge:
             if callback is not None:
                 self._exact(data, set())
                 return callback()
+            if command_id == "training.continue":
+                self._exact(data, set())
+                if self._continue_callback is None:
+                    raise ValueError("training continuation is unavailable")
+                return self._continue_callback()
             if command_id == "training.reset":
                 self._exact(data, {"confirmed"})
                 return self._projection.reset(confirmed=data["confirmed"])

@@ -18,9 +18,9 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterable
+from typing import Iterable, TextIO
 
-from .gametree import PgnGame, parse_games, serialize_games
+from .gametree import PgnGame, parse_games, serialize_game
 from .import_contract import (
     ImportQuality,
     ImportReport,
@@ -28,9 +28,23 @@ from .import_contract import (
     SourceFingerprint,
     fingerprint,
 )
+from .pgn_roundtrip import PgnRoundTripError, PgnRoundTripErrorCode, parse_pgn_text
 
 
 MAX_PGN_SOURCE_BYTES = 64 * 1024 * 1024
+
+_RESOURCE_LIMIT_CODES = frozenset(
+    {
+        PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+        PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+        PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+        PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+    }
+)
 
 
 class PgnFileError(RuntimeError):
@@ -183,12 +197,35 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     return before, text, decode_replaced
 
 
+def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
+    """Prefer canonical D06 recovery normalization without narrowing inspection.
+
+    The historical structural parser is intentionally permissive so damaged
+    sources can still be inspected and classified. The canonical D06 parser
+    additionally normalizes supported symbolic annotations such as ``c4?!``
+    into SAN ``c4`` plus NAG ``?!`` before an editable workspace sees them.
+
+    Use canonical recovery whenever it accepts the source. A semantic recovery
+    rejection may fall back to the historical structural parser so damaged
+    inspection remains available. Canonical resource-limit rejections are never
+    eligible for fallback: doing so would bypass the bounded D06 input contract.
+    Filesystem, decoding and publication semantics remain outside this helper.
+    """
+
+    try:
+        return parse_pgn_text(text, strict=False)
+    except PgnRoundTripError as exc:
+        if exc.code in _RESOURCE_LIMIT_CODES:
+            raise
+        return tuple(parse_games(text))
+
+
 def open_pgn(path: str | Path) -> PgnOpenResult:
     """Open a PGN without mutating it and preserve recursive GameTree content."""
 
     source_path = Path(path)
     source, text, decode_replaced = _read_text_snapshot(source_path)
-    games = tuple(parse_games(text))
+    games = _parse_file_games(text)
     warnings: list[str] = []
     if decode_replaced:
         warnings.append(
@@ -321,6 +358,20 @@ def _publish_expected_hash(
             _cleanup_redundant_link_after_commit(snapshot)
 
 
+def _write_games_incrementally(handle: TextIO, games: Iterable[PgnGame]) -> None:
+    """Write canonical multi-game PGN without materializing the collection/text."""
+
+    first = True
+    for game in games:
+        block = serialize_game(game).rstrip()
+        if not first:
+            handle.write("\n\n")
+        handle.write(block)
+        first = False
+    if not first:
+        handle.write("\n")
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
@@ -329,6 +380,12 @@ def save_pgn_atomic(
     expected_sha256: str | None = None,
 ) -> SourceFingerprint:
     """Serialize GameTree content and commit one complete PGN file safely.
+
+    Games are consumed and serialized one at a time into the unpublished
+    temporary file. This preserves canonical ``serialize_games`` byte layout
+    without holding the complete collection or complete PGN text in memory.
+    Publication remains atomic: iterator/serialization failure leaves the
+    destination unchanged and the temporary file is removed.
 
     ``overwrite=False`` uses an atomic no-clobber hard-link publication in the
     destination directory. ``expected_sha256`` uses a recoverable pre-commit
@@ -346,7 +403,6 @@ def save_pgn_atomic(
     if expected_sha256 is not None and current_sha != expected_sha256:
         raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
 
-    payload = serialize_games(tuple(games))
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_export_indirection(destination)
 
@@ -362,7 +418,7 @@ def save_pgn_atomic(
             delete=False,
         ) as handle:
             tmp_path = Path(handle.name)
-            handle.write(payload)
+            _write_games_incrementally(handle, games)
             handle.flush()
             os.fsync(handle.fileno())
 

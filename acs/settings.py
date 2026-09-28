@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -24,6 +25,66 @@ _ALLOWED_TICK_POLICY = {"off", "my_turn", "both"}
 
 class SettingsError(ValueError):
     pass
+
+
+class _SettingsSaveLock:
+    """Serialize canonical Settings.save() with the Version 2 upgrade lock.
+
+    The upgrade coordinator owns ``.v2-upgrade.lock`` for its complete
+    snapshot/migrate/verify transaction. Canonical settings writes use the same
+    byte-range/advisory lock so their atomic pathname replacement cannot race
+    the upgrader's final publication window. Contention fails closed: the
+    caller can retry after upgrade completion, but no successful Settings.save
+    is silently overwritten.
+    """
+
+    def __init__(self, settings_path: Path) -> None:
+        self.path = settings_path.parent / ".v2-upgrade.lock"
+        self.handle = None
+
+    def __enter__(self) -> "_SettingsSaveLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("a+b")
+        if self.handle.seek(0, os.SEEK_END) == 0:
+            self.handle.write(b"\0")
+            self.handle.flush()
+        self.handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(
+                    self.handle.fileno(),
+                    fcntl.LOCK_EX | fcntl.LOCK_NB,
+                )
+        except (OSError, BlockingIOError) as exc:
+            self.handle.close()
+            self.handle = None
+            raise SettingsError(
+                "settings are temporarily locked for Version 2 upgrade"
+            ) from exc
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self.handle is None:
+            return
+        try:
+            self.handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.handle.close()
+            self.handle = None
 
 
 def _validated_value(key: str, value: Any) -> Any:
@@ -177,7 +238,8 @@ class Settings:
         return warnings
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(self.export_json() + "\n", encoding="utf-8")
-        tmp.replace(self.path)
+        with _SettingsSaveLock(self.path):
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            tmp.write_text(self.export_json() + "\n", encoding="utf-8")
+            tmp.replace(self.path)

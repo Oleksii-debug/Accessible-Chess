@@ -1,0 +1,83 @@
+name: D06 PGN Incremental Export
+
+on:
+  push:
+    branches:
+      - work/v2-a1-pgn-streaming-export-20260831
+  pull_request:
+    paths:
+      - 'acs/pgn_service.py'
+      - 'tests/test_v2_pgn_streaming_export.py'
+      - '.github/workflows/d06-pgn-streaming-export.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-pgn-streaming-export-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V2_AUTHORITY: 575ec0088982d2f90adb47c040a5714d68186b0e
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove authority ancestry and exact format-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$V2_AUTHORITY" HEAD
+          test "$(git merge-base "$V2_AUTHORITY" HEAD)" = "$V2_AUTHORITY"
+          git diff --check "$V2_AUTHORITY" HEAD
+          changed="$(git diff --name-only "$V2_AUTHORITY" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d06-pgn-streaming-export.yml' \
+            'acs/pgn_service.py' \
+            'tests/test_v2_pgn_streaming_export.py' | sort)"
+          test "$changed" = "$expected"
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1|release_preflight|stage1_release'; then
+            echo 'Stage1 or release contamination detected' >&2
+            exit 1
+          fi
+
+      - name: Compile D06 export surface
+        run: python -m py_compile acs/pgn_service.py tests/test_v2_pgn_streaming_export.py
+
+      - name: Incremental export regression
+        run: python -m unittest -v tests.test_v2_pgn_streaming_export
+
+      - name: Existing PGN publication and resource regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_service
+          tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_path_security
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_postcommit_cleanup_atomicity
+          tests.test_dev4_pgn_resource_security

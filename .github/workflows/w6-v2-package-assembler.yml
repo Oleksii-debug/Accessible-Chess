@@ -1,0 +1,119 @@
+name: W6 V2 Package Assembler Current Runtime
+
+on:
+  push:
+    branches:
+      - work/w6-v2-package-assembler-current-preflight-20260910
+      - fix/w6-v2-package-assembler-current-composition-20260912
+  pull_request:
+    paths:
+      - 'acs/version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_assembler.py'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-package-assembler-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
+  CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
+  CURRENT_PREFLIGHT_BLOB: 66161cf84caa4729b4f11c5ef72f97a5d3f0cfdb
+  CURRENT_ASSEMBLER_TEST_BLOB: b68b6751c0fea5599f9b9fab211dd75c48951a3d
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact current assembler identity and convergence-safe scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
+          git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+
+          changed="$(git diff --name-only "$CURRENT_ASSEMBLER_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-package-assembler.yml' \
+            'acs/version2_package_assembler.py' \
+            'tests/test_version2_package_assembler.py' | sort)"
+
+          if [ "$changed" = "$expected" ]; then
+            echo 'W6_ASSEMBLER_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
+          else
+            # After this assembler lineage is composed into the Full Product,
+            # later accepted runtime/preflight/content changes are expected.
+            # Fail closed on the release components this gate actually owns
+            # instead of requiring the whole Product to equal an old ancestor.
+            test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$CURRENT_PREFLIGHT_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_TEST_BLOB"
+            echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
+          fi
+
+      - name: Compile assembler and canonical preflight
+        run: >-
+          python -m compileall -q
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
+
+      - name: Direct fresh temp sibling oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import tempfile
+          from unittest.mock import patch
+
+          from acs.version2_package_assembler import assemble_version2_package_tree
+          from tests.test_version2_package_assembler import Version2PackageAssemblerTests, _SHA
+
+          real_mkdtemp = tempfile.mkdtemp
+          observed = []
+
+          def record_mkdtemp(*args, **kwargs):
+              observed.append((kwargs.get("prefix"), kwargs.get("dir")))
+              return real_mkdtemp(*args, **kwargs)
+
+          with tempfile.TemporaryDirectory() as td:
+              root = Path(td)
+              product, notices = Version2PackageAssemblerTests()._sources(root)
+              output = root / "candidate"
+              with patch("acs.version2_package_assembler.tempfile.mkdtemp", side_effect=record_mkdtemp):
+                  assemble_version2_package_tree(product, notices, output, integration_sha=_SHA)
+              assert observed == [(".candidate.assemble-", root)], observed
+              assert output.is_dir()
+              assert not any(root.glob(".candidate.assemble-*"))
+          print("DIRECT FRESH TEMP SIBLING PASS")
+          PY
+
+      - name: Deterministic assembler plus current canonical preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources

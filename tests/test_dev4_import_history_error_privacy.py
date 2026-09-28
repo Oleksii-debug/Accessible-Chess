@@ -25,7 +25,7 @@ class Dev4ImportHistoryErrorPrivacyTests(unittest.TestCase):
         raw_error = RuntimeError(f"decoder failed at {private_path}; {secret_detail}")
 
         with AcsDatabase(":memory:") as database:
-            with mock.patch("acs.acsdb.parse_games", side_effect=raw_error):
+            with mock.patch("acs.acsdb.parse_pgn_text", side_effect=raw_error):
                 with self.assertRaises(RuntimeError):
                     database.import_pgn_text(
                         '[Event "Safe visible name"]\n[Result "*"]\n\n*\n',

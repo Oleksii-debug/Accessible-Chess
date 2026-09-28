@@ -12,6 +12,13 @@ WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV = "WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER"
 FORCE_RENDERER_ACCESSIBILITY = "--force-renderer-accessibility"
 _PATCH_MARKER = "_acs_stage1_accessibility_host_patched"
 _HANDLER_MARKER = "_acs_stage1_accessibility_host_handlers"
+WINDOWS_FORMS_ACCESSIBILITY_SWITCHES = (
+    "Switch.UseLegacyAccessibilityFeatures",
+    "Switch.UseLegacyAccessibilityFeatures.2",
+    "Switch.UseLegacyAccessibilityFeatures.3",
+    "Switch.UseLegacyAccessibilityFeatures.4",
+    "Switch.UseLegacyAccessibilityFeatures.5",
+)
 
 # WebView2 inherits this environment variable before the packaged application
 # creates its Edge environment. Accessibility-related or cosmetic flags may be
@@ -40,6 +47,38 @@ _DEBUGGER_ENV_VARS = (
     WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER_ENV,
     WEBVIEW2_PIPE_FOR_SCRIPT_DEBUGGER_ENV,
 )
+
+
+def enable_windows_forms_modern_accessibility(app_context: Any | None = None) -> bool:
+    """Select the modern WinForms accessibility provider before Forms is loaded.
+
+    ``ToolStripMenuItem`` exposes the native ExpandCollapse UIA pattern only when
+    WinForms is allowed to use its modern accessibility provider.  These process
+    switches must be set before importing pywebview's WinForms Edge host.  The
+    caller therefore fails closed if the real AppContext cannot be configured.
+
+    ``app_context`` is an injection seam for deterministic unit tests; shipping
+    callers leave it unset and resolve ``System.AppContext`` through pythonnet.
+    """
+
+    context = app_context
+    if context is None:
+        try:
+            import clr  # type: ignore  # noqa: F401
+            from System import AppContext  # type: ignore
+        except Exception:
+            return False
+        context = AppContext
+
+    setter = getattr(context, "SetSwitch", None)
+    if not callable(setter):
+        return False
+    try:
+        for switch in WINDOWS_FORMS_ACCESSIBILITY_SWITCHES:
+            setter(switch, False)
+    except Exception:
+        return False
+    return True
 
 
 def _unquote_token(token: str) -> str:
@@ -213,6 +252,11 @@ def repair_edgechromium_accessibility_host(edge_instance: Any) -> dict[str, bool
 def install_pywebview_accessibility_host_patch(edge_module: Any | None = None) -> bool:
     """Patch pywebview's EdgeChromium ready boundary before any window exists."""
     if edge_module is None:
+        # This must precede importing pywebview's WinForms backend.  Once
+        # System.Windows.Forms has initialized, changing these process switches is
+        # too late to select the modern ToolStrip accessibility provider.
+        if not enable_windows_forms_modern_accessibility():
+            return False
         import webview.platforms.edgechromium as edge_module  # type: ignore
 
     edge_class = getattr(edge_module, "EdgeChrome", None)

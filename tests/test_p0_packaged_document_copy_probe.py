@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PROBE = ROOT / "scripts" / "p0_packaged_document_copy_probe.ps1"
+
+
+class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = PROBE.read_text(encoding="utf-8")
+
+    def test_probe_binds_claimed_sha_to_release_manifest_and_launched_exe_checksum(self) -> None:
+        self.assertIn("function AssertExactPackageBinding", self.text)
+        self.assertIn("RELEASE_MANIFEST.json", self.text)
+        self.assertIn("SHA256SUMS.txt", self.text)
+        self.assertIn("integration_sha mismatch", self.text)
+        self.assertIn("AccessibleChess/AccessibleChess\\.exe", self.text)
+        self.assertIn("Get-FileHash -LiteralPath $ExePath -Algorithm SHA256", self.text)
+        self.assertIn("AssertExactPackageBinding $root $ProductSha $exe", self.text)
+        self.assertIn("manifest_product_sha_verified=$true", self.text)
+        self.assertIn("executable_checksum_verified=$true", self.text)
+        self.assertLess(
+            self.text.index("AssertExactPackageBinding $root $ProductSha $exe"),
+            self.text.index("Start-Process -FilePath $exe"),
+        )
+
+    def test_probe_has_one_package_binding_and_one_executable_control_flow(self) -> None:
+        self.assertEqual(1, self.text.count("function AssertExactPackageBinding"))
+        self.assertEqual(1, self.text.count("AssertExactPackageBinding $root $ProductSha $exe"))
+        self.assertEqual(
+            1,
+            self.text.count("$process=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru"),
+        )
+        self.assertEqual(1, self.text.count("manifest_product_sha_verified=$true"))
+        self.assertEqual(1, self.text.count("executable_checksum_verified=$true"))
+        self.assertNotIn("40}  $focused=", self.text)
+
+    def test_probe_uses_retained_provider_roots_not_desktop_document_search(self) -> None:
+        self.assertIn("ProviderRoots($Report)", self.text)
+        self.assertIn("AutomationElement]::FromHandle", self.text)
+        self.assertIn("ControlViewWalker", self.text)
+        self.assertIn("source_root_connected", self.text)
+        self.assertIn("provider_subtree_seen", self.text)
+        self.assertNotIn("RootElement]::FindAll", self.text)
+        self.assertNotIn("$desktop.FindAll", self.text)
+
+    def test_probe_requires_one_usable_connected_document_not_just_the_first(self) -> None:
+        self.assertIn("$usableDocuments=@()", self.text)
+        self.assertIn("foreach($candidate in $documents)", self.text)
+        self.assertIn("$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)", self.text)
+        self.assertIn("$candidatePattern.SupportedTextSelection", self.text)
+        self.assertIn("$candidateRange.FindText('Інформація про гру'", self.text)
+        self.assertIn("$candidateRange.FindText('Game information'", self.text)
+        self.assertIn("none exposes selectable stable static text", self.text)
+        self.assertIn("if($usableDocuments.Count -ne 1)", self.text)
+        self.assertIn("Ambiguous selectable Accessible Chess Documents", self.text)
+        self.assertIn("expected exactly one stable packaged document provider", self.text)
+        self.assertIn("document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'", self.text)
+        self.assertNotIn("$document=$documents[0]", self.text)
+        self.assertNotIn("$document=$candidate", self.text)
+
+    def test_probe_retains_real_textpattern_selection_and_native_copy(self) -> None:
+        self.assertIn("TextPattern]::Pattern", self.text)
+        self.assertIn("function AssertVisibleTextRange", self.text)
+        self.assertIn("$Range.GetBoundingRectangles()", self.text)
+        self.assertIn("$target.ScrollIntoView($true)", self.text)
+        self.assertIn("$null=AssertVisibleTextRange $target", self.text)
+        self.assertIn("static_text_visible_rectangle=$true", self.text)
+        self.assertLess(
+            self.text.index("$null=AssertVisibleTextRange $target"),
+            self.text.index("$target.Select()"),
+        )
+        self.assertIn("$target.Select()", self.text)
+        self.assertIn("$textPattern.GetSelection()", self.text)
+        self.assertIn("$activeSelection.CompareEndpoints(", self.text)
+        self.assertIn("TextPatternRangeEndpoint]::Start", self.text)
+        self.assertIn("TextPatternRangeEndpoint]::End", self.text)
+        self.assertIn("textpattern_target_selected=$true", self.text)
+        self.assertIn(
+            "textpattern_selection_equality='UIA exact range endpoints and case-sensitive text equality'",
+            self.text,
+        )
+        self.assertLess(
+            self.text.index("$target.Select()"),
+            self.text.index("$textPattern.GetSelection()"),
+        )
+        self.assertLess(
+            self.text.index("$textPattern.GetSelection()"),
+            self.text.index("Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'"),
+        )
+        self.assertIn("AccessibleChessCopyKeys]::Ctrl([byte]0x43)", self.text)
+        self.assertIn("WaitClipboard $selected", self.text)
+        self.assertIn("move-input", self.text)
+        self.assertIn("ValuePattern]::Pattern", self.text)
+        self.assertIn("WaitClipboard 'e2e4'", self.text)
+
+    def test_probe_fails_closed_if_native_copy_focus_leaves_connected_provider_roots(self) -> None:
+        self.assertIn("function AssertProviderFocus", self.text)
+        self.assertIn("AutomationElement]::FocusedElement", self.text)
+        self.assertIn("$focusedRuntime=RuntimeId $focused", self.text)
+        self.assertIn("focused element has no stable UIA runtime identity", self.text)
+        self.assertIn("foreach($candidate in @(ControlElements $Roots))", self.text)
+        self.assertIn("native keyboard focus escaped connected packaged provider roots", self.text)
+        self.assertIn("Accessible Chess Document could not receive focus for native Ctrl+C", self.text)
+        self.assertIn("Static document copy focus landed in an edit control", self.text)
+        self.assertIn("AssertProviderFocus $roots 'static document copy'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'static document copy dispatch'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'move input copy' 'move-input'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'move input copy dispatch' 'move-input'", self.text)
+        self.assertIn("native_copy_focus_verified=$true", self.text)
+        self.assertIn("move_input_focus_verified=$true", self.text)
+        self.assertIn("focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'", self.text)
+        self.assertNotIn("function AssertAppFocus", self.text)
+        self.assertNotIn("[int]$focused.Current.ProcessId -ne [int]$Process.Id", self.text)
+        self.assertNotIn("try {$document.SetFocus()} catch {}", self.text)
+
+    def test_native_copy_is_bound_to_foreground_packaged_process(self) -> None:
+        self.assertIn("GetForegroundWindow", self.text)
+        self.assertIn("GetWindowThreadProcessId", self.text)
+        self.assertIn("function ActivateProduct($Shell,$Process,[string]$Phase)", self.text)
+        self.assertIn("if(-not $Shell.AppActivate($Process.Id))", self.text)
+        self.assertIn("function AssertProductForeground($Process,[string]$Phase)", self.text)
+        self.assertIn("foreground_product_verified=$true", self.text)
+        self.assertNotIn("$null=$shell.AppActivate($process.Id)", self.text)
+
+        static_assert = self.text.index("AssertProductForeground $process 'static document copy dispatch'")
+        static_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)")
+        self.assertLess(static_assert, static_copy)
+
+        edit_assert = self.text.index("AssertProductForeground $process 'move input copy dispatch'")
+        edit_select = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x41)")
+        edit_reassert = self.text.index("AssertProductForeground $process 'move input copy dispatch after Ctrl+A'")
+        edit_focus_reassert = self.text.index(
+            "AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'"
+        )
+        edit_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", static_copy + 1)
+        self.assertLess(edit_assert, edit_select)
+        self.assertLess(edit_select, edit_reassert)
+        self.assertLess(edit_reassert, edit_focus_reassert)
+        self.assertLess(edit_focus_reassert, edit_copy)
+
+    def test_probe_preserves_exact_textpattern_range_whitespace_for_native_copy(self) -> None:
+        self.assertIn("$selected=[string]$target.GetText(-1)", self.text)
+        self.assertIn("if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}", self.text)
+        self.assertNotIn("$selected=([string]$target.GetText(-1)).Trim()", self.text)
+        self.assertIn("$targetText=[string]$target.GetText(-1)", self.text)
+        self.assertIn("if($activeSelectedText -cne $targetText)", self.text)
+        self.assertIn("WaitClipboard $selected", self.text)
+        self.assertLess(
+            self.text.index("$selected=[string]$target.GetText(-1)"),
+            self.text.index("$target.Select()"),
+        )
+        self.assertLess(
+            self.text.index("$target.Select()"),
+            self.text.index("WaitClipboard $selected"),
+        )
+
+    def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
+        self.assertIn("if($last -ceq $Expected){return $last}", self.text)
+        self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
+        self.assertIn("clipboard_equality='case-sensitive exact string equality'", self.text)
+
+    def test_probe_records_document_provider_identity_without_claiming_nvda(self) -> None:
+        self.assertIn("document_process_id=[int]$document.Current.ProcessId", self.text)
+        self.assertIn("launched_process_id=$process.Id", self.text)
+        self.assertIn("human_tested=$false", self.text)
+        self.assertIn("nvda_verified=$false", self.text)
+
+    def test_probe_is_bounded_and_rejects_local_paths(self) -> None:
+        self.assertIn("TimeoutSeconds = 45", self.text)
+        self.assertIn("packaged-v2-document-copy-summary.json", self.text)
+        self.assertIn("Local path leaked into document-copy evidence", self.text)
+        self.assertIn("$bounded.Contains(':\\')", self.text)
+        self.assertIn("(?i)/home/|/Users/|/tmp/", self.text)
+        self.assertNotIn("[A-Z]:\\\\", self.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

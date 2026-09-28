@@ -10,20 +10,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-import re
 from typing import Any
 
 from .full_product_presenters import LibraryPresenter, LibraryView, SurfaceStatus
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .library_import_service import LibraryImportProgress, LibraryImportResult
+from .presentation_privacy import redact_local_paths
 from .search_service import GameSearchQuery
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
-
-_WINDOWS_LOCAL_PATH = re.compile(r"(?i)(?<![\w])([a-z]:[\\/][^\r\n\t]*)")
-_POSIX_LOCAL_PATH = re.compile(
-    r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var/tmp|private/tmp)/[^\r\n\t ]*)"
-)
 
 _LABELS = {
     UILanguage.UA: {
@@ -93,6 +88,7 @@ _IMPORT_LABELS = {
         "cancelling": "Скасування імпорту…",
         "completed": "Імпортовано партій: {count}. Попереджень: {warnings}.",
         "cancelled": "Імпорт скасовано. Часткові партії не збережено.",
+        "empty": "У джерелі немає партій для імпорту.",
     },
     UILanguage.EN: {
         "heading": "Import into library",
@@ -106,6 +102,7 @@ _IMPORT_LABELS = {
         "cancelling": "Cancelling import…",
         "completed": "Imported {count} games. Warnings: {warnings}.",
         "cancelled": "Import cancelled. No partial games were saved.",
+        "empty": "The source contains no games to import.",
     },
 }
 
@@ -116,9 +113,7 @@ def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> s
     if not isinstance(value, str):
         raise TypeError("library presentation text must be text")
     text = value.replace("\x00", "").strip()
-    replacement = _LABELS[language]["local_path"]
-    text = _WINDOWS_LOCAL_PATH.sub(replacement, text)
-    text = _POSIX_LOCAL_PATH.sub(replacement, text)
+    text = redact_local_paths(text, _LABELS[language]["local_path"])
     return text[:limit]
 
 
@@ -139,6 +134,7 @@ class LibraryImportPhase(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     ERROR = "error"
+    EMPTY = "empty"
 
 
 class LibraryImportWebViewProjection:
@@ -181,6 +177,8 @@ class LibraryImportWebViewProjection:
         if self._phase is LibraryImportPhase.IDLE:
             return labels["idle"]
         if self._phase is LibraryImportPhase.RUNNING:
+            if self._total_games == 0:
+                return labels["started"]
             return labels["running"].format(
                 processed=self._processed_games,
                 total=self._total_games,
@@ -194,6 +192,8 @@ class LibraryImportWebViewProjection:
             )
         if self._phase is LibraryImportPhase.CANCELLED:
             return labels["cancelled"]
+        if self._phase is LibraryImportPhase.EMPTY:
+            return labels["empty"]
         return self._message or concise_user_error("", language=self._language)
 
     def snapshot(self) -> dict[str, object]:
@@ -212,8 +212,12 @@ class LibraryImportWebViewProjection:
             "description": labels["description"],
             "processed_games": self._processed_games,
             "total_games": self._total_games,
-            "progress_label": self._status_message(),
-            "message": self._message,
+            "progress_label": _scrub_visible_text(
+                self._status_message(), language=self._language, limit=500
+            ),
+            "message": _scrub_visible_text(
+                self._message, language=self._language, limit=500
+            ),
             "actions": (
                 {
                     "action": "library.import",
@@ -257,6 +261,11 @@ class LibraryImportWebViewProjection:
             raise TypeError("total_games must be an integer")
         if total_games < 1:
             raise ValueError("total_games must be positive")
+        if self._phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING} and self._total_games == 0:
+            # The host may start parsing before the canonical game count exists.
+            # A later exact denominator must not undo an already requested cancel.
+            self._total_games = total_games
+            return self._render(announce=False)
         if self._phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
             raise RuntimeError("library import is already active")
         self._phase = LibraryImportPhase.RUNNING
@@ -266,6 +275,34 @@ class LibraryImportWebViewProjection:
         self._attempt_id = None
         self._message = ""
         return self._render(announce=True, focus_target="library-import-cancel")
+
+    def prepare(self) -> LibraryWebViewEvent:
+        """Observe host parsing with an unknown count; invent no D07 identity."""
+        if self._phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+            raise RuntimeError("library import is already active")
+        self._phase = LibraryImportPhase.RUNNING
+        self._processed_games = self._total_games = self._warning_count = 0
+        self._attempt_id = None
+        self._message = ""
+        return self._render(announce=True, focus_target="library-import-cancel")
+
+    def host_cancelling(self) -> LibraryWebViewEvent:
+        """Observe a native host cancel without issuing another cancel command."""
+        if self._phase not in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+            raise RuntimeError("library import is not active")
+        changed = self._phase is LibraryImportPhase.RUNNING
+        self._phase = LibraryImportPhase.CANCELLING
+        return self._render(announce=changed)
+
+    def empty(self) -> LibraryWebViewEvent:
+        """Terminal zero-game source; no synthetic successful import result."""
+        if self._phase not in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+            raise RuntimeError("library import is not active")
+        if self._processed_games or self._total_games or self._attempt_id is not None:
+            raise ValueError("an observed non-empty import cannot become empty")
+        self._phase = LibraryImportPhase.EMPTY
+        self._message = ""
+        return self._render(announce=True, focus_target="library-import-file")
 
     def progress(self, progress: LibraryImportProgress) -> LibraryWebViewEvent:
         if not isinstance(progress, LibraryImportProgress):
@@ -289,7 +326,7 @@ class LibraryImportWebViewProjection:
         if self._phase is not LibraryImportPhase.RUNNING:
             raise RuntimeError("library import cannot be cancelled")
         self._dispatch("library.cancel_import", {})
-        self._phase = LibraryImportPhase.CANCELLING
+        self.host_cancelling()
         return self._render(announce=True, focus_target="library-import-cancel")
 
     def complete(self, result: LibraryImportResult) -> LibraryWebViewEvent:
@@ -592,5 +629,11 @@ class LibraryWebViewProjection:
         except Exception as exc:
             return LibraryWebViewEvent(
                 "error",
-                {"message": concise_user_error(exc, language=self._language)},
+                {
+                    "message": _scrub_visible_text(
+                        concise_user_error(exc, language=self._language),
+                        language=self._language,
+                        limit=500,
+                    )
+                },
             )

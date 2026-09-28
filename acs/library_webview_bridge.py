@@ -107,6 +107,12 @@ class LibraryWebViewBridge:
             limit=self._limit(data.get("limit")),
         ).normalized()
 
+    def _export_method(self, name: str):
+        method = getattr(self._projection, name, None)
+        if not callable(method):
+            raise ValueError("Library export projection is unavailable")
+        return method
+
     def dispatch(self, command: object, payload: Mapping[str, object] | None = None) -> LibraryWebViewEvent:
         try:
             if not isinstance(command, str) or not command.strip() or len(command.strip()) > 64:
@@ -130,6 +136,21 @@ class LibraryWebViewBridge:
                 if type(delta) is not int or delta not in {-1, 1}:
                     raise ValueError("invalid selection delta")
                 return self._projection.move_selection(delta)
+            if command_id == "library.toggle_export_selection":
+                self._exact(data, {"game_id"})
+                game_id = self._positive_int(data["game_id"], "game_id")
+                if game_id is None:
+                    raise ValueError("game id required")
+                return self._export_method("toggle_export_selection")(game_id)
+            if command_id == "library.clear_export_selection":
+                self._exact(data, set())
+                return self._export_method("clear_export_selection")()
+            if command_id == "library.export_selected":
+                self._exact(data, set())
+                return self._export_method("request_export_selected")()
+            if command_id == "library.export_filtered":
+                self._exact(data, set())
+                return self._export_method("request_export_filtered")()
             if command_id == "library.previous_page":
                 self._exact(data, set())
                 return self._projection.previous_page()

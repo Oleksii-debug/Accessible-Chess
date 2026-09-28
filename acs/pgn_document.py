@@ -79,6 +79,12 @@ _STANDARD_TAGS = {
     "Result": "*",
 }
 
+# These two tags jointly define chess state, not ordinary descriptive metadata.
+# Allowing the generic tag editor to change only one of them can convert a
+# valid custom-start game into a different standard-start game.  The canonical
+# Position workflow owns atomic start-position changes.
+_POSITION_TAGS = frozenset(("SetUp", "FEN"))
+
 
 def _error(message: str, code: PgnDocumentErrorCode) -> PgnDocumentError:
     return PgnDocumentError(message, code=code)
@@ -94,6 +100,55 @@ def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
     values["Result"] = result
     # PgnWorkspace performs the canonical strict validation of tag names/values.
     return PgnGame(tags=values, line=VariationLine(result=result))
+
+
+def _recover_malformed_result_placeholder(game: PgnGame) -> str | None:
+    """Canonicalize one unambiguous malformed result placeholder for recovery.
+
+    The structural parser deliberately preserves unknown movetext as SAN-like
+    data so inspection is loss-aware.  A damaged source can therefore encode an
+    invalid Result tag value twice: once in the header and once as the entire
+    movetext.  When the parser has already proved both an invalid header result
+    and a missing termination marker, and the duplicated token is the *only*
+    movetext content, it is safe to recover that token as a malformed result
+    placeholder rather than a chess move.
+
+    This is a recovery-only grammar/provenance rule.  It does not accept the
+    token in strict PGN, does not validate chess legality, and callers still
+    preserve the original source by requiring Save As.
+    """
+
+    header_result = game.tags.get("Result")
+    if header_result is None or header_result in RESULTS:
+        return None
+
+    invalid_header_warning = f"invalid header Result {header_result}"
+    if invalid_header_warning not in game.warnings:
+        return None
+    if not any(
+        warning.startswith("missing movetext game termination marker;")
+        for warning in game.warnings
+    ):
+        return None
+
+    line = game.line
+    if line.leading_comments or line.trailing_comments or len(line.moves) != 1:
+        return None
+    node = line.moves[0]
+    if (
+        node.san != header_result
+        or node.move_number is not None
+        or node.nags
+        or node.comments_before
+        or node.comments_after
+        or node.variations
+    ):
+        return None
+
+    line.moves.clear()
+    line.result = "*"
+    game.tags["Result"] = "*"
+    return f"recovered malformed result token {header_result} as *"
 
 
 class PgnDocumentSession:
@@ -141,6 +196,9 @@ class PgnDocumentSession:
         warnings = list(opened.global_warnings)
         recovered_games = deepcopy(opened.games)
         for index, game in enumerate(recovered_games, start=1):
+            recovery_warning = _recover_malformed_result_placeholder(game)
+            if recovery_warning is not None:
+                game.warnings.append(recovery_warning)
             warnings.extend(f"Game {index}: {warning}" for warning in game.warnings)
             # Parser warnings are provenance about the damaged source, not
             # serializable GameTree content.  Keep them on the document view
@@ -203,6 +261,21 @@ class PgnDocumentSession:
                 "PGN content changed; exact saved context is stale",
                 PgnDocumentErrorCode.CONTEXT_STALE,
             )
+
+        # Validate the complete return point against a detached canonical
+        # workspace before mutating the live session.  Calling select_game()
+        # first would otherwise switch games/reset the cursor even when the
+        # subsequent cursor validation rejects a forged or damaged context.
+        probe = PgnWorkspace(self._workspace.games())
+        try:
+            probe.select_game(context.selected_game_index)
+            probe.set_cursor(context.cursor)
+        except (TypeError, ValueError) as exc:
+            raise _error(
+                "saved PGN context is not valid for the current document",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            ) from exc
+
         self._workspace.select_game(context.selected_game_index)
         return self._workspace.set_cursor(context.cursor)
 
@@ -251,6 +324,11 @@ class PgnDocumentSession:
             raise _error("PGN tag name must be non-empty text", PgnDocumentErrorCode.INVALID_TAG)
         if not isinstance(value, str):
             raise _error("PGN tag value must be text", PgnDocumentErrorCode.INVALID_TAG)
+        if name in _POSITION_TAGS:
+            raise _error(
+                "PGN start position must be changed through the position workflow",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
         if name == "Result":
             return self.set_result(value)
 
@@ -269,6 +347,11 @@ class PgnDocumentSession:
     def delete_tag(self, name: object) -> PgnWorkspaceView:
         if not isinstance(name, str) or not name or name == "Result":
             raise _error("PGN tag cannot be removed", PgnDocumentErrorCode.INVALID_TAG)
+        if name in _POSITION_TAGS:
+            raise _error(
+                "PGN start position must be changed through the position workflow",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
         old = self._workspace.view()
         games = list(self._workspace.games())
         games[old.selected_game_index].tags.pop(name, None)
