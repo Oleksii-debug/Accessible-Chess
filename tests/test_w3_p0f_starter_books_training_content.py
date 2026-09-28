@@ -865,6 +865,21 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         control_error["payload"]["message"],
                         failed_language["payload"]["message"],
                     )
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated native Training render failure"),
+                    ):
+                        native_failed = app.adapter.activate_action("training.hint")
+                    self.assertEqual("error", native_failed.kind)
+                    self.assertEqual(
+                        control_error["payload"]["message"],
+                        native_failed.payload["message"],
+                    )
+                    self.assertEqual(
+                        "en",
+                        app.training_workspace.snapshot()["document"]["lang"],
+                    )
                 finally:
                     app.shutdown()
             finally:
