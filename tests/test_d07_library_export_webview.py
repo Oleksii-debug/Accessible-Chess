@@ -66,6 +66,25 @@ class LibraryExportWebViewTests(unittest.TestCase):
         bridge.dispatch("library.search", {"event": "Event", "limit": 2})
         return service, presenter, projection, bridge, calls
 
+    def test_export_actions_publish_stable_focusable_dom_ids(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        actions = {
+            action["action"]: action
+            for action in projection.snapshot()["actions"]
+        }
+        self.assertEqual(
+            actions["library.export_selected"]["dom_id"],
+            "library-export-selected",
+        )
+        self.assertEqual(
+            actions["library.export_filtered"]["dom_id"],
+            "library-export-filtered",
+        )
+        self.assertEqual(
+            actions["library.clear_export_selection"]["dom_id"],
+            "library-export-clear",
+        )
+
     def test_export_checkboxes_are_distinct_from_current_open_selection(self) -> None:
         _service, _presenter, projection, bridge, _calls = self.build()
         initial = projection.snapshot()
@@ -137,6 +156,10 @@ class LibraryExportWebViewTests(unittest.TestCase):
         }
         self.assertFalse(actions["library.export_selected"]["enabled"])
         self.assertTrue(actions["library.export_filtered"]["enabled"])
+        self.assertEqual(
+            cleared.payload["focus_target"],
+            cleared.payload["snapshot"]["rows"][0]["export_dom_id"],
+        )
 
 
 class LibraryExportWebAssetTests(unittest.TestCase):
@@ -152,6 +175,15 @@ class LibraryExportWebAssetTests(unittest.TestCase):
         self.assertIn('checkbox.type = "checkbox"', self.source)
         self.assertIn('"library.toggle_export_selection"', self.source)
         self.assertNotIn('aria-live", "polite"', self.source)
+
+    def test_native_export_completion_restores_exact_action_button_without_repaint(self) -> None:
+        self.assertIn('const actionId = String(action.action || "");', self.source)
+        self.assertIn('const domId = String(action.dom_id || "");', self.source)
+        self.assertIn('button.id = domId;', self.source)
+        self.assertIn('actionId === "library.export_selected"', self.source)
+        self.assertIn('actionId === "library.export_filtered"', self.source)
+        self.assertIn('root.contains(button)', self.source)
+        self.assertIn('button.focus({ preventScroll: true });', self.source)
 
     def test_export_controls_do_not_capture_global_keyboard_or_accept_paths(self) -> None:
         self.assertNotIn('document.addEventListener("keydown"', self.source)
