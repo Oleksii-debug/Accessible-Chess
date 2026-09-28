@@ -389,13 +389,9 @@ class BookBoardWorkflow:
                     "book reading location changed while opening the board",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 )
-            try:
-                self._reader.save_return_point(self._RETURN_POINT)
-            except Exception as exc:
-                raise self._error(
-                    "book return point could not be saved",
-                    BookBoardWorkflowCode.RETURN_FAILED,
-                ) from exc
+            # Board review is read-only with respect to durable BookReader
+            # progress. The exact origin already belongs to the transient session;
+            # do not publish an implementation-only return point into BookReader.
             self._session = candidate
             self._revision += 1
             return self._view_locked()
@@ -559,21 +555,30 @@ class BookBoardWorkflow:
         """Restore the exact durable BookReader origin and close the board session."""
 
         with self._lock:
-            self._require_session()
+            session = self._require_session()
+            origin = session.origin
             try:
-                restored = self._reader.restore_return_point(self._RETURN_POINT)
+                current = self._reader.location()
             except Exception as exc:
-                # Keep the session alive if its Book revision changed; silently
-                # dropping it would destroy the user's only deterministic return.
+                # Keep the session alive if the Book revision became unreadable;
+                # silently dropping it would destroy the deterministic return.
                 raise self._error(
                     "original book reading location is unavailable",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 ) from exc
+            if current != origin:
+                # Board review never owns BookReader navigation. Any cursor drift
+                # while the transient review is active is external corruption and
+                # must fail closed rather than rewriting durable reader progress.
+                raise self._error(
+                    "book reading location changed during board review",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                )
             self._session = None
             self._revision += 1
         # Suppress any in-flight assisted result after the Board context closes.
         self._engine.invalidate()
-        return restored
+        return origin
 
     @staticmethod
     def _command(value: BookBoardCommand | str) -> BookBoardCommand:

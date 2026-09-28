@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -176,6 +177,9 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     board_position_projector=lambda _fen: {"ok": True},
                 )
                 try:
+                    opened_books = app.browser_command("shell", "screen.books")
+                    self.assertEqual("route", opened_books["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
                     initial = app.snapshot()["books"]["starter_materials"]
                     booklet_items = [
                         item
@@ -237,6 +241,613 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual("Exercise", app.reader.location().kind)
                     self.assertIsNotNone(app.training_workspace)
                     self.assertIsNotNone(app.training)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_hidden_books_surface_cannot_replace_starter_material(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-hidden-books-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened_books = app.browser_command("shell", "screen.books")
+                    self.assertEqual("route", opened_books["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    booklet = next(
+                        item
+                        for item in catalogue["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    )
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    before_reader = app.reader.snapshot()
+                    before_material = catalogue["current_id"]
+
+                    routed = app.browser_command("shell", "screen.library")
+                    self.assertEqual("route", routed["kind"])
+                    self.assertEqual("library", app.shell.current_route.route_id)
+
+                    rejected = app.browser_command(
+                        "books",
+                        "book.open_starter_material",
+                        {"material_id": booklet["material_id"]},
+                    )
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("library", app.shell.current_route.route_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+                    self.assertEqual(before_reader, app.reader.snapshot())
+                    self.assertEqual(
+                        before_material,
+                        app.snapshot()["books"]["starter_materials"]["current_id"],
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_native_training_route_starts_real_workspace_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-native-training-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    self.assertIsNone(app.training_workspace)
+                    command = app.adapter.activate_action("screen.training")
+                    self.assertEqual("route", command.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+
+                    self.assertTrue(app.native_command(command))
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertIsNotNone(app.training_workspace)
+                    self.assertIsNotNone(app.training)
+                    self.assertEqual("Exercise", app.reader.location().kind)
+                    events = app.drain_events()
+                    self.assertEqual("route", events[-1]["kind"])
+                    self.assertEqual("training", events[-1]["payload"]["route_id"])
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_training_cannot_retarget_reader_while_book_board_owns_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-board-training-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    moved = app.browser_command("books", "book.next_position")
+                    self.assertEqual("render", moved["kind"])
+                    opened = app.browser_command("books", "book.open_position")
+                    self.assertEqual("delegated", opened["kind"])
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                    opened_events = app.drain_events()
+                    self.assertEqual(
+                        ["book-board"],
+                        [item["kind"] for item in opened_events],
+                    )
+                    reader_before = app.reader.snapshot()
+                    board_before = app.book_workflow.view()
+
+                    rejected = app.browser_command("shell", "screen.training")
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(board_before, app.book_workflow.view())
+                    self.assertIsNone(app.training_workspace)
+
+                    command = app.adapter.activate_action("screen.training")
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertFalse(app.native_command(command))
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(board_before, app.book_workflow.view())
+                    self.assertIsNone(app.training_workspace)
+                    events = app.drain_events()
+                    self.assertEqual(["route", "error"], [item["kind"] for item in events])
+                    self.assertEqual("board", events[0]["payload"]["route_id"])
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_modal_dialog_blocks_hidden_starter_and_training_preflight_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-modal-fence-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    booklet = next(
+                        item
+                        for item in catalogue["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    )
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    before_reader = app.reader.snapshot()
+                    before_material = catalogue["current_id"]
+
+                    opened_dialog = app.adapter.open_dialog(
+                        "test-modal",
+                        opener_focus_id="book-reader",
+                        initial_focus_id="test-modal-confirm",
+                    )
+                    self.assertEqual("dialog-open", opened_dialog.kind)
+                    self.assertEqual("test-modal", app.shell.active_dialog_id)
+
+                    rejected_material = app.browser_command(
+                        "books",
+                        "book.open_starter_material",
+                        {"material_id": booklet["material_id"]},
+                    )
+                    rejected_training = app.browser_command("shell", "screen.training")
+
+                    self.assertEqual("error", rejected_material["kind"])
+                    self.assertEqual("error", rejected_training["kind"])
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    self.assertEqual("test-modal", app.shell.active_dialog_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+                    self.assertEqual(before_reader, app.reader.snapshot())
+                    self.assertEqual(
+                        before_material,
+                        app.snapshot()["books"]["starter_materials"]["current_id"],
+                    )
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_auto_seek_save_failure_restores_exact_reader_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-save-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    before = app.reader.snapshot()
+                    before_key = app.book_key
+                    self.assertNotEqual("Exercise", app.reader.location().kind)
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated progress write failure"),
+                    ):
+                        browser_result = app.browser_command("shell", "screen.training")
+
+                    self.assertEqual("error", browser_result["kind"])
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before, app.reader.snapshot())
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+
+                    command = app.adapter.activate_action("screen.training")
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated progress write failure"),
+                    ):
+                        self.assertFalse(app.native_command(command))
+
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before, app.reader.snapshot())
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_native_book_open_cannot_replace_reader_behind_modal_dialog(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-modal-open-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    replacement = root / "replacement.md"
+                    replacement.write_text("# Replacement\n\nHidden replacement body.\n", encoding="utf-8")
+                    picker_calls = []
+                    app.open_book_dialog = lambda: picker_calls.append(True) or replacement
+                    before_key = app.book_key
+                    before_title = app.reader.document.title
+                    before_reader = app.reader.snapshot()
+
+                    app.adapter.open_dialog(
+                        "test-modal-open",
+                        opener_focus_id="book-reader",
+                        initial_focus_id="test-modal-open-confirm",
+                    )
+                    result = app.adapter.activate_action("book.open")
+
+                    self.assertEqual("error", result.kind)
+                    self.assertEqual([], picker_calls)
+                    self.assertEqual("test-modal-open", app.shell.active_dialog_id)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_title, app.reader.document.title)
+                    self.assertEqual(before_reader, app.reader.snapshot())
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_hidden_training_surface_cannot_mutate_training_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-hidden-training-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertIsNotNone(app.training_workspace)
+                    before = app.training_workspace.snapshot()
+
+                    routed = app.browser_command("shell", "screen.library")
+                    self.assertEqual("route", routed["kind"])
+                    self.assertEqual("library", app.shell.current_route.route_id)
+
+                    with patch.object(
+                        app.training_workspace,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "hidden Training commands must be rejected before workspace dispatch"
+                        ),
+                    ) as dispatch:
+                        browser_result = app.browser_command("training", "training.hint")
+                        native_result = app.adapter.activate_action("training.hint")
+
+                    self.assertEqual("error", browser_result["kind"])
+                    self.assertEqual("error", native_result.kind)
+                    dispatch.assert_not_called()
+                    self.assertEqual(before, app.training_workspace.snapshot())
+                    self.assertEqual("library", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_modal_dialog_blocks_book_board_open_mutation_and_return(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-modal-board-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    moved = app.browser_command("books", "book.next_position")
+                    self.assertEqual("render", moved["kind"])
+                    reader_before = app.reader.snapshot()
+
+                    app.adapter.open_dialog(
+                        "test-book-open-modal",
+                        opener_focus_id="book-reader",
+                        initial_focus_id="test-book-open-modal-confirm",
+                    )
+                    with patch.object(
+                        app.book_workflow,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "modal Book Board open must be rejected before workflow dispatch"
+                        ),
+                    ) as dispatch:
+                        rejected_open = app.browser_command("books", "book.open_position")
+                    self.assertEqual("error", rejected_open["kind"])
+                    dispatch.assert_not_called()
+                    self.assertFalse(app.book_workflow.active)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    app.adapter.close_dialog("test-book-open-modal")
+
+                    opened = app.browser_command("books", "book.open_position")
+                    self.assertEqual("delegated", opened["kind"])
+                    self.assertTrue(app.book_workflow.active)
+                    board_before = app.book_workflow.view()
+                    app.adapter.open_dialog(
+                        "test-book-return-modal",
+                        opener_focus_id="board-launcher",
+                        initial_focus_id="test-book-return-modal-confirm",
+                    )
+                    with patch.object(
+                        app.book_workflow,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "modal Book Board return must be rejected before workflow dispatch"
+                        ),
+                    ) as dispatch:
+                        rejected_return = app.browser_command("review", "book.return")
+                    self.assertEqual("error", rejected_return["kind"])
+                    dispatch.assert_not_called()
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual(board_before, app.book_workflow.view())
+                    self.assertEqual("board", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_continue_book_progress_failure_restores_completed_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-continue-save-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    completed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    self.assertEqual("render", completed["kind"])
+                    self.assertTrue(app.training_workspace.session.completed)
+                    reader_before = app.reader.snapshot()
+                    training_before = app.training_workspace.snapshot()
+                    key_before = app.book_key
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated Book progress failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertTrue(app.training_workspace.session.completed)
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated Book progress failure"),
+                    ):
+                        native = app.adapter.activate_action("training.continue")
+                    self.assertEqual("error", native.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_continue_secondary_restore_failure_recovers_to_books(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-secondary-restore-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    reader_before = app.reader.snapshot()
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=OSError("simulated Book progress failure"),
+                    ), patch(
+                        "acs.version2_application.Version2BookTrainingWorkspace.start_current",
+                        side_effect=ValueError("simulated Training restore failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    events = app.drain_events()
+                    self.assertTrue(
+                        any(
+                            item["kind"] == "route"
+                            and item["payload"].get("route_id") == "books"
+                            for item in events
+                        )
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_modal_dialog_blocks_training_mutations_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-modal-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    before = app.training_workspace.snapshot()
+                    dialog = app.adapter.open_dialog(
+                        "training-modal",
+                        opener_focus_id="training-answer",
+                        initial_focus_id="training-modal-confirm",
+                    )
+                    self.assertEqual("dialog-open", dialog.kind)
+
+                    with patch.object(
+                        app.training_workspace,
+                        "dispatch",
+                        side_effect=AssertionError(
+                            "modal Training commands must be rejected before workspace dispatch"
+                        ),
+                    ) as dispatch:
+                        browser_result = app.browser_command("training", "training.hint")
+                        native_result = app.adapter.activate_action("training.hint")
+
+                    self.assertEqual("error", browser_result["kind"])
+                    self.assertEqual("error", native_result.kind)
+                    dispatch.assert_not_called()
+                    self.assertEqual(before, app.training_workspace.snapshot())
+                    self.assertEqual("training-modal", app.shell.active_dialog_id)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_active_book_board_blocks_native_picker_before_selection(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-board-picker-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    self.assertEqual(
+                        "render",
+                        app.browser_command("books", "book.next_position")["kind"],
+                    )
+                    self.assertEqual(
+                        "delegated",
+                        app.browser_command("books", "book.open_position")["kind"],
+                    )
+                    self.assertTrue(app.book_workflow.active)
+                    picker_calls = []
+                    app.open_book_dialog = lambda: picker_calls.append(True) or None
+
+                    result = app.adapter.activate_action("book.open")
+
+                    self.assertEqual("error", result.kind)
+                    self.assertEqual([], picker_calls)
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual("board", app.shell.current_route.route_id)
                 finally:
                     app.shutdown()
             finally:
