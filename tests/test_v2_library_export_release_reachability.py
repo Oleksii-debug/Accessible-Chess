@@ -340,7 +340,7 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
         )
         self.assertLess(candidate, dispatch)
         self.assertIn(
-            "} else if (queuedFocusTarget) {\n        focusById(queuedFocusTarget);",
+            "} else if (queuedFocusTarget) {\n        restoreQueuedFocus(queuedFocusTarget);",
             source,
         )
         self.assertIn(
