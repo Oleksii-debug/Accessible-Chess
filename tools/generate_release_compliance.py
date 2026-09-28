@@ -18,7 +18,7 @@ import sys
 from typing import Iterable, Sequence
 
 TOOL_ID = "accessible-chess-release-evidence/1"
-SCHEMA_ID = "https://accessible-chess.example/schema/release-provenance-v1"
+SCHEMA_ID = "accessible-chess.release-provenance.v1"
 DEFAULT_INCLUDES = (
     "acs",
     "web",
@@ -232,7 +232,7 @@ def build_spdx(
                 "name": "Accessible Chess",
                 "versionInfo": version,
                 "downloadLocation": "NOASSERTION",
-                "filesAnalyzed": True,
+                "filesAnalyzed": False,
                 "licenseConcluded": "NOASSERTION",
                 "licenseDeclared": "NOASSERTION",
                 "copyrightText": "NOASSERTION",
