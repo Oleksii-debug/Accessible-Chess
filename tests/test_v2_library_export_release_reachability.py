@@ -253,9 +253,16 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
         Version2Application._file_event(fake, exported)
         self.assertEqual(
             fake._events,
-            [{"kind": "status", "payload": {"announcement": "Експорт завершено."}}],
+            [
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Експорт завершено.",
+                        "focus_target": "library-results",
+                    },
+                }
+            ],
         )
-        self.assertNotIn("library-results", repr(fake._events))
 
         fake._events.clear()
         fake.shell.language = UILanguage.EN
@@ -266,9 +273,47 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
         Version2Application._file_event(fake, cancelled)
         self.assertEqual(
             fake._events,
-            [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
+            [
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Cancelled.",
+                        "focus_target": "library-results",
+                    },
+                }
+            ],
         )
 
+        fake._events.clear()
+        failed = LibraryExportHostEvent(
+            LibraryExportHostEventKind.FAILED,
+            focus_target="library-export-filtered",
+            error_code="library_export_failed",
+        )
+        Version2Application._file_event(fake, failed)
+        self.assertEqual(fake._events[-1]["kind"], "error")
+        self.assertEqual(
+            fake._events[-1]["payload"]["focus_target"],
+            "library-export-filtered",
+        )
+        self.assertNotIn("library_export_failed", repr(fake._events[-1]))
+
+
+    def test_release_bootstrap_restores_library_status_focus_without_repaint(self) -> None:
+        source = (
+            Path(__file__).parents[1] / "web" / "version2_release_bootstrap.js"
+        ).read_text(encoding="utf-8")
+        candidate = source.index(
+            'const candidate = typeof payload.focus_target === "string"'
+        )
+        dispatch = source.index(
+            "const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);"
+        )
+        self.assertLess(candidate, dispatch)
+        self.assertIn(
+            "} else if (queuedFocusTarget) {\n        focusById(queuedFocusTarget);",
+            source,
+        )
 
     def test_production_helper_exports_full_filtered_result_through_same_native_chain(self) -> None:
         pgn = """[Event "Filtered Cup"]
@@ -637,7 +682,13 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
                 ["Browser Filter", "Browser Filter"],
             )
             self.assertIn(
-                {"kind": "status", "payload": {"announcement": "Export completed."}},
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Export completed.",
+                        "focus_target": "library-search-event",
+                    },
+                },
                 events,
             )
             self.assertEqual(application._focus, "library-search-event")
