@@ -77,6 +77,41 @@ class BookReaderTests(unittest.TestCase):
             reader.go_to(0)
         self.assertEqual(reader.index, 3)
 
+    def test_location_stays_on_one_indexed_revision_if_live_document_changes_after_validation(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        original_check = reader._require_indexed_revision
+        mutated = False
+
+        def mutate_after_check():
+            nonlocal mutated
+            original_check()
+            if not mutated:
+                book.blocks[2].text = "Concurrent chapter"
+                mutated = True
+
+        reader._require_indexed_revision = mutate_after_check
+        location = reader.location()
+        self.assertEqual(location.block_id, "diagram")
+        self.assertEqual(location.heading_path, ("Part I", "Chapter"))
+        self.assertEqual(location.position_fen, WHITE_FEN)
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+
+    def test_block_snapshot_is_detached_and_fails_closed_after_live_revision_changes(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        block = reader.block_snapshot(1)
+        self.assertEqual(block.text, "Intro")
+        block.text = "Caller mutation"
+        self.assertEqual(reader.block_snapshot(1).text, "Intro")
+
+        book.blocks[1].text = "Live mutation"
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.block_snapshot(1)
+
     def test_navigation_fails_closed_if_document_becomes_empty(self):
         book = self.make_book()
         reader = BookReader(book)
