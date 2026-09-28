@@ -110,16 +110,19 @@ class BookBoardWorkflowTests(unittest.TestCase):
 
         progress_during = reader.snapshot()
         self.assertEqual(
-            progress_during["current_target"], progress_before["current_target"]
-        )
-        self.assertEqual(
-            progress_during["return_points"]["user-bookmark"],
-            progress_before["return_points"]["user-bookmark"],
+            progress_during,
+            progress_before,
+            "read-only Book Board review must not publish transient origin state",
         )
 
         restored = workflow.return_to_book()
         self.assertEqual(restored, origin)
         self.assertEqual(reader.location(), origin)
+        self.assertEqual(
+            reader.snapshot(),
+            progress_before,
+            "returning from Book Board must preserve exact durable reader progress",
+        )
         self.assertFalse(workflow.active)
 
     def test_corrupted_book_fen_fails_closed_before_progress_mutation(self) -> None:
