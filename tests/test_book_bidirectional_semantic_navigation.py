@@ -137,6 +137,22 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertTrue(availability["next_game"])
         self.assertLessEqual(counted.reads, 2 * (len(counted) - 1))
 
+    def test_presenter_never_rereads_live_block_after_location_validation(self) -> None:
+        document = self.make_document()
+        reader = BookReader(document)
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+        original_location = reader.location
+
+        def location_then_mutate():
+            location = original_location()
+            document.blocks[0].text = "Concurrent replacement"
+            return location
+
+        reader.location = location_then_mutate
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            presenter.current()
+        self.assertEqual(reader.index, 0)
+
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())
         presenter = BookReaderPresenter(reader, language=UILanguage.EN)
