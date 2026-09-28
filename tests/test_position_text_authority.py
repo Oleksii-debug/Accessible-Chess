@@ -58,6 +58,21 @@ class PositionTextAuthorityTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), before)
         self.assertEqual(result["announcement"], "Потрібні секції W: і B:")
 
+    def test_stage1_english_user_flow_reports_english_position_error(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+        result = api.set_position_text("junk W: K e1 B: K e8", "w")
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(
+            result["announcement"],
+            "position text must contain W: and B: sections",
+        )
+
+    def test_legacy_direct_adapter_defaults_to_ukrainian_errors(self):
+        with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):
+            parse_position_text("broken position")
+
     def test_stage1_user_flow_accepts_canonical_position(self):
         api = AccessibleChessAPI(lang="uk")
         result = api.set_position_text("W: K e1 Q d1 B: K e8", "b")
