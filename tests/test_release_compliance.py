@@ -120,9 +120,16 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
             self.assertEqual("NOASSERTION", package["licenseConcluded"])
             self.assertEqual("NOASSERTION", package["licenseDeclared"])
             self.assertEqual("NOASSERTION", package["copyrightText"])
+            self.assertFalse(package["filesAnalyzed"])
+            self.assertTrue(
+                spdx["documentNamespace"].startswith(
+                    "https://github.com/Oleksii-debug/Accessible-Chess/spdx/"
+                )
+            )
             self.assertTrue(spdx["files"])
             for item in spdx["files"]:
                 self.assertEqual("NOASSERTION", item["licenseConcluded"])
+                self.assertEqual(["NOASSERTION"], item["licenseInfoInFiles"])
                 self.assertEqual("NOASSERTION", item["copyrightText"])
 
     def test_verification_fails_closed_after_runtime_input_changes(self) -> None:
