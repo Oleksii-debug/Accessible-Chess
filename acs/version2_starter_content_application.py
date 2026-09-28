@@ -253,6 +253,9 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
     def _start_training_from_current_book(self):
         """Make the existing Training route useful without manual block hunting."""
 
+        # Do not move or replace the reader while Book Board owns its origin.
+        if self.book_workflow is not None and self.book_workflow.active:
+            return False
         if self.reader is None or not self.reader.document.exercises():
             self._install_starter_course()
         if self.reader is None:
@@ -269,8 +272,22 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             )
             if exercise_index is None:
                 return False
+            before = self.reader.snapshot()
+            language = self.books.projection.language
+            bookmark_name = self.books.projection.bookmark_name
             self.reader.go_to(exercise_index)
-            self.save_book_progress()
+            try:
+                self.save_book_progress()
+            except Exception:
+                # Training auto-seek is a durable Book progress mutation. If its
+                # atomic write fails, restore the exact pre-command reader/UI
+                # instead of leaving memory ahead of restart state.
+                self._restore_book_progress(
+                    before,
+                    language=language,
+                    bookmark_name=bookmark_name,
+                )
+                raise
 
         return super()._start_training_from_current_book()
 
@@ -278,6 +295,13 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._assert_thread()
         if area == "books" and command == "book.open_starter_material":
             try:
+                # The Books WebView may remain alive while another shell route is
+                # visible. Reject stale/hidden catalogue activation before it can
+                # replace the canonical reader or publish a new Books route.
+                if self.shell.current_route.route_id != "books":
+                    raise ValueError("starter material requires the visible Books route")
+                if self.shell.active_dialog_id is not None:
+                    raise ValueError("close the active dialog before replacing the starter material")
                 if not isinstance(payload, Mapping) or set(payload) != {"material_id"}:
                     raise ValueError("starter material request is invalid")
                 return self._open_starter_material(payload["material_id"])
