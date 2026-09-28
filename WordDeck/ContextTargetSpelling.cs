@@ -24,7 +24,7 @@ internal sealed record ContextTargetSpellingResult(
 
 internal static class ContextPhysicalTargetForm
 {
-    private const string WordBoundaryClass = "A-Za-z'’‘`\\-‐‑‒–—";
+    private const string WordBoundaryClass = @"\\p{L}\\p{M}\\p{N}\'’‘`\\-‐‑‒–—";
 
     public static string CanonicalDisplay(string value)
     {
