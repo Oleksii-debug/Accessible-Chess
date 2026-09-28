@@ -246,7 +246,15 @@ class Version2Application:
         if self.training_workspace is not None and self.training is not None:
             self.training_workspace.save()
 
-    def _restore_book_progress(self, snapshot, *, language, bookmark_name, restore_training=False):
+    def _restore_book_progress(
+        self,
+        snapshot,
+        *,
+        language,
+        bookmark_name,
+        restore_training=False,
+        training_language=None,
+    ):
         """Restore a failed Book progress transaction without partial UI state."""
         training_was_active = self.training_workspace is not None or self.training is not None
         restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
@@ -280,7 +288,11 @@ class Version2Application:
                 workspace = Version2BookTrainingWorkspace(
                     restored_reader,
                     progress_root=self.training_progress_root,
-                    language=self.shell.language,
+                    language=(
+                        self.shell.language
+                        if training_language is None
+                        else training_language
+                    ),
                 )
                 self.training = workspace.start_current()
                 self.training_workspace = workspace
@@ -329,11 +341,12 @@ class Version2Application:
         if self.training_workspace is None or self.training is None:
             raise ValueError("Training exercise is unavailable")
         before_reader = None
-        language = bookmark_name = None
+        language = bookmark_name = training_language = None
         if command == "training.continue":
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
+            training_language = self.training_workspace.language
         try:
             result = self.training_workspace.dispatch(command, payload)
         except Exception:
@@ -354,6 +367,7 @@ class Version2Application:
                         language=language,
                         bookmark_name=bookmark_name,
                         restore_training=True,
+                        training_language=training_language,
                     )
             raise
         self.training = self.training_workspace.bridge
@@ -374,6 +388,7 @@ class Version2Application:
                         language=language,
                         bookmark_name=bookmark_name,
                         restore_training=True,
+                        training_language=training_language,
                     )
                 return result
             try:
@@ -384,6 +399,7 @@ class Version2Application:
                     language=language,
                     bookmark_name=bookmark_name,
                     restore_training=True,
+                    training_language=training_language,
                 )
                 raise
         return result
