@@ -21,29 +21,33 @@ class PositionTextAuthorityTests(unittest.TestCase):
         )
 
     def test_leading_garbage_is_rejected_instead_of_partially_parsed(self):
-        with self.assertRaisesRegex(ValueError, "W: and B:"):
+        with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):
             parse_position_text("garbage W: K e1 B: K e8")
 
-    def test_duplicate_square_is_rejected_consistently(self):
+    def test_duplicate_square_is_rejected_by_both_entry_points(self):
         text = "W: K e1 Q d1 B: K e8 Q d1"
         with self.assertRaisesRegex(ValueError, "more than once"):
             parse_piece_coordinate_position(text)
-        with self.assertRaisesRegex(ValueError, "more than once"):
+        with self.assertRaisesRegex(ValueError, "Поле d1 вказане двічі"):
             parse_position_text(text)
 
-    def test_invalid_square_uses_position_representation_validation(self):
+    def test_invalid_square_uses_canonical_representation_validation(self):
         text = "W: K e1 Q z9 B: K e8"
         with self.assertRaises(PositionValidationError):
             parse_piece_coordinate_position(text)
-        with self.assertRaises(PositionValidationError):
+        with self.assertRaisesRegex(ValueError, "Неправильне поле: 'z9'"):
             parse_position_text(text)
 
-    def test_king_cardinality_is_identical_for_both_entry_points(self):
+    def test_king_cardinality_is_rejected_by_both_entry_points(self):
         text = "W: Q d1 B: K e8"
         with self.assertRaisesRegex(ValueError, "exactly one"):
             parse_piece_coordinate_position(text)
-        with self.assertRaisesRegex(ValueError, "exactly one"):
+        with self.assertRaisesRegex(ValueError, "Потрібно рівно по одному королю"):
             parse_position_text(text)
+
+    def test_legacy_unknown_piece_diagnostic_remains_localized(self):
+        with self.assertRaisesRegex(ValueError, "Невідома фігура: X"):
+            parse_position_text("W: K e1 X d1 B: K e8")
 
 
 if __name__ == "__main__":
