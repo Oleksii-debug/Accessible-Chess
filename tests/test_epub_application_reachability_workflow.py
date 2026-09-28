@@ -38,7 +38,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         self.assertIn("parser_path='acs/book_epub_import.py'", self.workflow)
         self.assertIn("parser_test_path='tests/test_v2_book_epub_import.py'", self.workflow)
         self.assertIn("successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'", self.workflow)
-        self.assertIn("successor_parser_test='f2f9b2bf34b3cfebb40cca36f13f6ad315ced8c7'", self.workflow)
+        self.assertIn("successor_parser_test='dce2f3042a254e2b6130ebbb2762c87acb9358bb'", self.workflow)
         self.assertIn(
             'test "$candidate_parser" = "$successor_parser"',
             self.workflow,

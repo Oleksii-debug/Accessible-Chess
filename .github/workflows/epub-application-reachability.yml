@@ -61,7 +61,7 @@ jobs:
           candidate_parser="$(git rev-parse "HEAD:$parser_path")"
           candidate_parser_test="$(git rev-parse "HEAD:$parser_test_path")"
           successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'
-          successor_parser_test='f2f9b2bf34b3cfebb40cca36f13f6ad315ced8c7'
+          successor_parser_test='dce2f3042a254e2b6130ebbb2762c87acb9358bb'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then
