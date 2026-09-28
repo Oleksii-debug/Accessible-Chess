@@ -16,6 +16,7 @@ import stat
 import tempfile
 import wave
 import zipfile
+import xml.etree.ElementTree as ET
 
 from .acsdb import ACSDB_SCHEMA_VERSION
 from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
@@ -33,6 +34,15 @@ MANIFEST_NAME = "RELEASE_MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS.txt"
 V2_PACKAGE_MANIFEST_SCHEMA_VERSION = 1
 V2_PACKAGE_PROFILE = "version2-default"
+
+_WINFORMS_ACCESSIBILITY_SWITCHES = (
+    "Switch.UseLegacyAccessibilityFeatures",
+    "Switch.UseLegacyAccessibilityFeatures.2",
+    "Switch.UseLegacyAccessibilityFeatures.3",
+    "Switch.UseLegacyAccessibilityFeatures.4",
+    "Switch.UseLegacyAccessibilityFeatures.5",
+)
+_MAX_APPCONFIG_BYTES = 64 * 1024
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -707,17 +717,112 @@ def _validate_stockfish_source_archive(
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
 
+def validate_winforms_accessibility_app_config(path: Path) -> None:
+    """Require the packaged WinForms accessibility switches to remain enabled."""
+
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
+    if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
+        _fail("WinForms accessibility app-config size is invalid")
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeError as exc:
+        _fail(f"WinForms accessibility app-config must be UTF-8: {type(exc).__name__}")
+
+    # ElementTree receives decoded text below, so it does not enforce that an
+    # XML encoding declaration agrees with the actual packaged bytes.  A .NET
+    # config loader reads the file as bytes and does honor that declaration.
+    # Reject contradictory declarations here so preflight cannot approve UTF-8
+    # bytes that claim to be UTF-16 (or another encoding) at runtime.
+    declaration = re.match(r"\A<\?xml\s+[^?]*\?>", text, flags=re.IGNORECASE)
+    if declaration is not None:
+        declared_encoding = re.search(
+            r"\bencoding\s*=\s*(['\"])([^'\"]+)\1",
+            declaration.group(0),
+            flags=re.IGNORECASE,
+        )
+        if (
+            declared_encoding is not None
+            and declared_encoding.group(2).casefold() != "utf-8"
+        ):
+            _fail(
+                "WinForms accessibility app-config XML declaration must declare UTF-8"
+            )
+
+    upper = text.upper()
+    if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
+        _fail("WinForms accessibility app-config must not contain DTD or entities")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        _fail(f"WinForms accessibility app-config is invalid XML: {type(exc).__name__}")
+    if root.tag != "configuration":
+        _fail("WinForms accessibility app-config root is invalid")
+
+    runtime_nodes = root.findall("runtime")
+    if len(runtime_nodes) != 1:
+        _fail("WinForms accessibility app-config must contain exactly one runtime element")
+    runtime = runtime_nodes[0]
+    switch_nodes = runtime.findall("AppContextSwitchOverrides")
+    if len(switch_nodes) != 1:
+        _fail(
+            "WinForms accessibility app-config must contain exactly one "
+            "AppContextSwitchOverrides element"
+        )
+    node = switch_nodes[0]
+    if (
+        (runtime.text is not None and runtime.text.strip())
+        or any(child.tail is not None and child.tail.strip() for child in runtime)
+    ):
+        _fail(
+            "WinForms accessibility app-config runtime must not contain mixed text"
+        )
+    if set(node.attrib) != {"value"}:
+        _fail("WinForms accessibility app-config switch attributes are invalid")
+    if list(node) or (node.text is not None and node.text.strip()):
+        _fail(
+            "WinForms accessibility app-config AppContextSwitchOverrides "
+            "must not contain child content"
+        )
+    value = node.attrib.get("value", "")
+    parsed: dict[str, str] = {}
+    for raw_entry in value.split(";"):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            _fail("WinForms accessibility app-config switch entry is invalid")
+        name, setting = (part.strip() for part in entry.split("=", 1))
+        if not name or name in parsed:
+            _fail("WinForms accessibility app-config switch names must be unique")
+        parsed[name] = setting.casefold()
+
+    expected_switches = set(_WINFORMS_ACCESSIBILITY_SWITCHES)
+    actual_switches = set(parsed)
+    missing = sorted(expected_switches - actual_switches)
+    if missing:
+        _fail("WinForms accessibility app-config is missing required accessibility switches")
+    unexpected = sorted(actual_switches - expected_switches)
+    if unexpected:
+        _fail("WinForms accessibility app-config contains unexpected accessibility switches")
+    if any(parsed[name] != "false" for name in _WINFORMS_ACCESSIBILITY_SWITCHES):
+        _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
     limits: PackageLimits,
 ) -> None:
-    _require_package_file(
+    app_config = _require_package_file(
         root,
         inventory,
         _REQUIRED_WINFORMS_APPCONFIG,
         label="WinForms accessibility app-config",
     )
+    validate_winforms_accessibility_app_config(app_config)
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
             root,
