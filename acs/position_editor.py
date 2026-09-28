@@ -160,14 +160,12 @@ class PositionState:
             file_index = 0
             previous_was_digit = False
             for token in rank_text:
-                if token.isdigit():
+                if token in "12345678":
                     if previous_was_digit:
                         raise PositionValidationError(
                             "FEN rank must not contain adjacent empty-square counts"
                         )
                     count = int(token)
-                    if not 1 <= count <= 8:
-                        raise PositionValidationError("FEN empty-square count must be 1..8")
                     file_index += count
                     previous_was_digit = True
                 elif token in VALID_PIECES:
