@@ -558,28 +558,28 @@ class BookBoardWorkflow:
             session = self._require_session()
             origin = session.origin
             try:
-                # Validate the immutable BookReader index before trusting a
-                # location-only equality check. An in-place document mutation can
-                # preserve the same ReadingLocation fields while invalidating the
-                # semantic index revision; snapshot() is the canonical fail-closed
-                # revision boundary for durable reader state.
+                # Validate the immutable BookReader index before restoring the
+                # transient Board origin. An in-place document mutation can keep
+                # the same numeric index while changing its semantic identity;
+                # snapshot() is the canonical fail-closed revision boundary.
                 self._reader.snapshot()
                 current = self._reader.location()
+                if current == origin:
+                    restored = current
+                else:
+                    # Board review does not publish a durable return point, but
+                    # an external/presentation cursor move must still be recoverable
+                    # to the exact semantic origin captured by this transient session.
+                    restored = self._reader.go_to(origin.index)
+                    if restored != origin:
+                        raise LookupError("book Board origin no longer matches")
             except Exception as exc:
-                # Keep the session alive if the Book revision became unreadable;
-                # silently dropping it would destroy the deterministic return.
+                # Keep the session alive if the Book revision/origin became
+                # unreadable; silently dropping it would destroy deterministic return.
                 raise self._error(
                     "original book reading location is unavailable",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 ) from exc
-            if current != origin:
-                # Board review never owns BookReader navigation. Any cursor drift
-                # while the transient review is active is external corruption and
-                # must fail closed rather than rewriting durable reader progress.
-                raise self._error(
-                    "book reading location changed during board review",
-                    BookBoardWorkflowCode.RETURN_FAILED,
-                )
             self._session = None
             self._revision += 1
         # Suppress any in-flight assisted result after the Board context closes.
