@@ -615,6 +615,34 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 self.assertEqual("book-progress-modal", app.shell.active_dialog_id)
 
 
+    def test_native_board_open_progress_failure_does_not_publish_partial_review(self) -> None:
+        """Native/NVDA open must not leave a transient BookBoard after save failure."""
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                before_reader = app.reader.snapshot()
+                durable_before = self._durable_snapshot(app, progress)
+                before_route = app.shell.current_route.route_id
+
+                with patch.object(
+                    progress,
+                    "save",
+                    side_effect=OSError("simulated native board-open progress failure"),
+                ):
+                    result = app.adapter.activate_action("book.open_position")
+
+                self.assertEqual(result.kind, "error")
+                self.assertFalse(app.book_workflow.active)
+                self.assertEqual(app.shell.current_route.route_id, before_route)
+                self.assertEqual(before_route, "books")
+                self.assertEqual(app.reader.snapshot(), before_reader)
+                self.assertEqual(self._durable_snapshot(app, progress), durable_before)
+                self.assertNotIn("simulated", str(result.payload.get("message", "")))
+
+
     def test_native_return_progress_failure_is_sanitized_and_keeps_exact_origin(self) -> None:
         """Native/NVDA Book return must share the browser return durability boundary."""
         with tempfile.TemporaryDirectory() as root_text:
