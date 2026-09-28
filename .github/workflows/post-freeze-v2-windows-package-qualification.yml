@@ -19,6 +19,8 @@ env:
   PRODUCT_PARENT_SHA: 1612cc5788d553b7ebafa37decfab214e75cd1b6
   PREVIOUS_PACKAGE_SHA: 115de0b7751ea95016a83bbdd9d8f5626a3fcaeb
   PREVIOUS_WORKFLOW_BLOB_SHA: 8e74e49e3cabd7bbcadf3a25cd9975465d340ec9
+  EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
+  EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
@@ -62,6 +64,7 @@ jobs:
           git cat-file -e "$PACKAGE_ANCHOR_SHA^{commit}"
           git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
           git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
+          git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
           git cat-file -e "$P0G_QA_SHA^{commit}"
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^1")" = "$PRODUCT_PARENT_SHA"
@@ -82,6 +85,8 @@ jobs:
           test "$config_blob" = "$WINFORMS_ACCESSIBILITY_CONFIG_BLOB"
           previous_blob="$(git rev-parse "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH")"
           test "$previous_blob" = "$PREVIOUS_WORKFLOW_BLOB_SHA"
+          executor_template_blob="$(git rev-parse "$EXECUTOR_TEMPLATE_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$executor_template_blob" = "$EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA"
           authority_blob="$(git rev-parse "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH")"
           test "$authority_blob" = "$PRIOR_WORKFLOW_BLOB_SHA"
           p0g_probe_blob="$(git rev-parse "$P0G_QA_SHA:$P0G_PROBE_PATH")"
@@ -89,15 +94,18 @@ jobs:
           document_probe_blob="$(git rev-parse "$P0_DOCUMENT_QA_SHA:$P0_DOCUMENT_PROBE_PATH")"
           test "$document_probe_blob" = "$P0_DOCUMENT_PROBE_BLOB_SHA"
           git show "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH" > .previous-package-qualification.yml
+          git show "$EXECUTOR_TEMPLATE_SHA:$QUALIFICATION_SOURCE_PATH" > .executor-template-package.yml
           git show "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH" > .package-qualification-source.yml
           git show "$P0G_QA_SHA:$P0G_PROBE_PATH" > .p0g-packaged-hotkey-result-probe.ps1
           git show "$P0_DOCUMENT_QA_SHA:$P0_DOCUMENT_PROBE_PATH" > .p0-packaged-document-copy-probe.ps1
           test -s .previous-package-qualification.yml
+          test -s .executor-template-package.yml
           test -s .package-qualification-source.yml
           test -s .p0g-packaged-hotkey-result-probe.ps1
           test -s .p0-packaged-document-copy-probe.ps1
-          grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .previous-package-qualification.yml
-          grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .previous-package-qualification.yml
+          test "$(grep -Fc '      - name: Materialize exact inherited qualification executor' .executor-template-package.yml)" = '1'
+          grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .executor-template-package.yml
+          grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .executor-template-package.yml
           grep -Fq 'Prove fresh-extracted native MenuBar profile through process-scoped UIA' .package-qualification-source.yml
           grep -Fq '$top.Count -ne 13' .package-qualification-source.yml
           grep -Fq 'training_top_menu_expected=$false' .package-qualification-source.yml
@@ -133,6 +141,8 @@ jobs:
           echo "PACKAGE_ANCHOR_SHA=$PACKAGE_ANCHOR_SHA"
           echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
           echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
+          echo "EXECUTOR_TEMPLATE_SHA=$EXECUTOR_TEMPLATE_SHA"
+          echo "EXECUTOR_TEMPLATE_WORKFLOW_BLOB=$executor_template_blob"
           echo "WINFORMS_ACCESSIBILITY_CONFIG_BLOB=$config_blob"
           echo "P0G_QA_SHA=$P0G_QA_SHA"
           echo "P0G_PROBE_BLOB=$p0g_probe_blob"
@@ -182,14 +192,14 @@ jobs:
           print('INHERITED_STANDALONE_APPCONFIG_BIND=PASS')
           PY
 
-      - name: Execute exact previous topology-aware pre-artifact executor with restored pins
+      - name: Execute pinned immutable qualification template with current probes
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           @'
           from pathlib import Path
 
-          source = Path('.previous-package-qualification.yml').read_text(encoding='utf-8')
+          source = Path('.executor-template-package.yml').read_text(encoding='utf-8')
           wanted = 'Materialize exact inherited qualification executor'
           lines = source.splitlines()
           starts = [i for i, line in enumerate(lines) if line.startswith('      - name: ')]
@@ -214,7 +224,7 @@ jobs:
                       break
               break
           if run is None:
-              raise SystemExit(f'Previous package step not found: {wanted}')
+              raise SystemExit(f'Pinned executor template step not found: {wanted}')
           required = (
               "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'",
               'connected provider roots from strict stage1_uia_topology_v5',
@@ -223,14 +233,14 @@ jobs:
           )
           for token in required:
               if token not in run:
-                  raise SystemExit(f'Previous topology-aware executor drifted: missing {token!r}')
+                  raise SystemExit(f'Pinned topology-aware executor template drifted: missing {token!r}')
           start_token = 'DOCUMENT_OVERRIDE = r"""'
           start = run.find(start_token)
           if start < 0:
-              raise SystemExit('Previous document override start marker missing')
+              raise SystemExit('Pinned executor document override start marker missing')
           end = run.find('\n"""', start + len(start_token))
           if end < 0:
-              raise SystemExit('Previous document override end marker missing')
+              raise SystemExit('Pinned executor document override end marker missing')
           end += len('\n"""')
           replacement = '''DOCUMENT_OVERRIDE = r"""$ErrorActionPreference='Stop'
           if(-not (Test-Path -LiteralPath 'fresh-extraction\\AccessibleChess' -PathType Container)){throw 'Fresh extracted Product missing before hardened document-copy proof'}
@@ -254,12 +264,12 @@ jobs:
               raise SystemExit('Stale trimmed clipboard comparison survived document override replacement')
           if run.count('PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS') != 1:
               raise SystemExit('Hardened document override replacement count mismatch')
-          Path('.previous-materialize-and-pre.ps1').write_text(run, encoding='utf-8', newline='\n')
-          '@ | Set-Content -LiteralPath .extract-previous-package-pre.py -Encoding utf8
-          python .extract-previous-package-pre.py
-          if($LASTEXITCODE -ne 0){throw 'Exact previous package executor extraction failed'}
-          & pwsh -NoLogo -NoProfile -File .previous-materialize-and-pre.ps1
-          if($LASTEXITCODE -ne 0){throw 'Inherited topology-aware pre-artifact qualification failed'}
+          Path('.pinned-materialize-and-pre.ps1').write_text(run, encoding='utf-8', newline='\n')
+          '@ | Set-Content -LiteralPath .extract-pinned-package-pre.py -Encoding utf8
+          python .extract-pinned-package-pre.py
+          if($LASTEXITCODE -ne 0){throw 'Pinned package executor extraction failed'}
+          & pwsh -NoLogo -NoProfile -File .pinned-materialize-and-pre.ps1
+          if($LASTEXITCODE -ne 0){throw 'Pinned topology-aware pre-artifact qualification failed'}
 
       - name: Prove packaged P0-G Alt+1 Alt+2 accessible results
         shell: pwsh
