@@ -263,6 +263,20 @@ def plan_prepared_position_deployment(
     )
 
 
+def assert_prepared_position_deployment_retry(
+    existing: PreparedPositionDeploymentBatch,
+    candidate: PreparedPositionDeploymentBatch,
+) -> None:
+    """Require a repeated batch identity to preserve its exact canonical payload."""
+
+    if type(existing) is not PreparedPositionDeploymentBatch or type(candidate) is not PreparedPositionDeploymentBatch:
+        raise PreparedPositionDeploymentError("deployment retry requires canonical batches")
+    if existing.batch_id != candidate.batch_id:
+        raise PreparedPositionDeploymentError("deployment retry batch id mismatch")
+    if existing.digest != candidate.digest:
+        raise PreparedPositionDeploymentError("deployment batch id was reused with changed payload")
+
+
 def assert_prepared_position_deployment_scope(
     batch: PreparedPositionDeploymentBatch,
     lesson_session: LessonSession,
@@ -499,6 +513,7 @@ __all__ = [
     "PreparedPositionAssignment",
     "PreparedPositionDeploymentBatch",
     "PreparedPositionDeploymentError",
+    "assert_prepared_position_deployment_retry",
     "assert_prepared_position_deployment_scope",
     "plan_prepared_position_deployment",
     "resolve_prepared_position_source",
