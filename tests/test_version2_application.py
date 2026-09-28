@@ -103,6 +103,24 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.browser_command("books", "book.next_game")
         return book, self.app.reader.location()
 
+    def test_book_registry_linear_actions_reach_canonical_reader(self):
+        book = self.root / "linear-reading.md"
+        book.write_text("# Розділ\n\nПерший абзац.\n\nДругий абзац.\n", encoding="utf-8")
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(self.app.browser_command("shell", "book.open")["kind"], "delegated")
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+        origin = self.app.reader.location()
+        forward = self.app.router.dispatch("book.next_block")
+        self.assertFalse(forward.handled_by_shell)
+        self.assertEqual(forward.value.kind, "render")
+        self.assertEqual(self.app.reader.index, origin.index + 1)
+
+        backward = self.app.router.dispatch("book.previous_block")
+        self.assertFalse(backward.handled_by_shell)
+        self.assertEqual(backward.value.kind, "render")
+        self.assertEqual(self.app.reader.location(), origin)
+
     def test_book_native_open_board_exact_return_and_persistent_resume(self):
         book, origin = self._open_book_game()
         self.projected_positions.clear()
