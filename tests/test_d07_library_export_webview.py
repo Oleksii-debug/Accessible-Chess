@@ -156,6 +156,10 @@ class LibraryExportWebViewTests(unittest.TestCase):
         }
         self.assertFalse(actions["library.export_selected"]["enabled"])
         self.assertTrue(actions["library.export_filtered"]["enabled"])
+        self.assertEqual(
+            cleared.payload["focus_target"],
+            cleared.payload["snapshot"]["rows"][0]["export_dom_id"],
+        )
 
 
 class LibraryExportWebAssetTests(unittest.TestCase):
