@@ -15,6 +15,7 @@ on:
       - 'tests/test_d07_library_export_webview.py'
       - 'tests/test_v2_library_export_release_reachability.py'
       - 'tests/test_v2_native_dialog_language.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
       - 'tests/test_w3_library_dirty_replace_confirmation.py'
       - '.github/workflows/v2-library-export-release-reachability.yml'
   push:
@@ -70,6 +71,7 @@ jobs:
             'tests/test_d07_library_export_webview.py' \
             'tests/test_v2_library_export_release_reachability.py' \
             'tests/test_v2_native_dialog_language.py' \
+            'tests/test_version2_release_accessibility_contract.py' \
             'tests/test_w3_library_dirty_replace_confirmation.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
@@ -92,6 +94,7 @@ jobs:
           tests/test_d07_library_export_webview.py
           tests/test_v2_library_export_release_reachability.py
           tests/test_v2_native_dialog_language.py
+          tests/test_version2_release_accessibility_contract.py
           tests/test_w3_library_dirty_replace_confirmation.py
 
       - name: Validate Library WebView script syntax
@@ -110,6 +113,7 @@ jobs:
           tests.test_v2_library_export_release_reachability
           tests.test_v2_windows_library_export
           tests.test_version2_release_app
+          tests.test_version2_release_accessibility_contract
           tests.test_d07_library_export_service
           tests.test_d07_library_export_webview
           tests.test_d07_library_export_reachability
