@@ -8,10 +8,7 @@ from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
-_POSITION_SECTIONS_RE = re.compile(
-    r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
-)
-
+_POSITION_SECTIONS_RE = re.compile(\n    r"(?is)^\\s*W\\s*:\\s*(?P<white>.*?)\\s*\\bB\\s*:\\s*(?P<black>.*?)\\s*$"\n)\n
 
 class PositionValidationError(ValueError):
     """Raised when a position/FEN cannot be represented safely."""
@@ -158,18 +155,13 @@ class PositionState:
         for fen_rank, rank_text in enumerate(rank_fields):
             board_rank = 7 - fen_rank
             file_index = 0
-            previous_was_digit = False
             for token in rank_text:
-                if token in "12345678":
-                    if previous_was_digit:
-                        raise PositionValidationError(
-                            "FEN rank must not contain adjacent empty-square counts"
-                        )
+                if token.isdigit():
                     count = int(token)
+                    if not 1 <= count <= 8:
+                        raise PositionValidationError("FEN empty-square count must be 1..8")
                     file_index += count
-                    previous_was_digit = True
                 elif token in VALID_PIECES:
-                    previous_was_digit = False
                     if file_index >= 8:
                         raise PositionValidationError("FEN rank contains more than 8 squares")
                     pieces[board_rank * 8 + file_index] = token
@@ -179,8 +171,11 @@ class PositionState:
             if file_index != 8:
                 raise PositionValidationError("each FEN rank must expand to exactly 8 squares")
 
-        halfmove = _parse_fen_counter(halfmove_text, "halfmove clock")
-        fullmove = _parse_fen_counter(fullmove_text, "fullmove number")
+        try:
+            halfmove = int(halfmove_text)
+            fullmove = int(fullmove_text)
+        except ValueError as exc:
+            raise PositionValidationError("FEN move counters must be integers") from exc
 
         return cls(
             tuple(pieces),
@@ -198,6 +193,7 @@ def standard_position() -> PositionState:
 
 def empty_position(*, turn: str = "w") -> PositionState:
     return PositionState((None,) * 64, turn=turn)
+
 
 
 def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionState:
@@ -255,7 +251,6 @@ def _fill_coordinate_section(
         result = result.with_piece(square, piece if white else piece.lower())
     return result
 
-
 def _square_index(square: str) -> int:
     try:
         return parse_square(square)
@@ -280,21 +275,9 @@ def _validate_castling(value: str) -> None:
         raise PositionValidationError("castling rights must not contain duplicates")
 
 
-def _parse_fen_counter(value: str, field_name: str) -> int:
-    if not value or not value.isascii() or not value.isdecimal():
-        raise PositionValidationError(
-            f"FEN {field_name} must be an ASCII decimal integer"
-        )
-    return int(value)
-
-
 def _validate_en_passant(value: str, turn: str) -> None:
     if value == "-":
         return
-    if value != value.strip() or value != value.lower():
-        raise PositionValidationError(
-            "en-passant square must use canonical lowercase algebraic text"
-        )
     _square_index(value)
     rank = value[1]
     expected = "6" if turn == "w" else "3"
