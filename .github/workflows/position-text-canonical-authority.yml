@@ -37,6 +37,7 @@ jobs:
           acs/position_editor.py
           acs/move_entry.py
           acs/position_text.py
+          acs/webapp.py
           tests/test_position_text_authority.py
       - name: Run canonical position regression set
         run: >-
