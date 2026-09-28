@@ -334,7 +334,28 @@ class Version2Application:
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
-        result = self.training_workspace.dispatch(command, payload)
+        try:
+            result = self.training_workspace.dispatch(command, payload)
+        except Exception:
+            if command == "training.continue":
+                # The strict Training bridge normally sanitizes callback/render
+                # failures into an error event. If even that error projection
+                # fails after continuation moved the canonical BookReader, keep
+                # the transaction atomic before the outer application boundary
+                # performs its own sanitization.
+                rollback_required = True
+                try:
+                    rollback_required = self.reader.snapshot() != before_reader
+                except Exception:
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                    )
+            raise
         self.training = self.training_workspace.bridge
         if command == "training.continue":
             if result.kind == "error":
