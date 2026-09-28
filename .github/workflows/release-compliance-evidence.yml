@@ -44,11 +44,11 @@ jobs:
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
-          git diff --check
 
           if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
             test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
             base='${{ github.event.pull_request.base.sha }}'
+            git diff --check "$base...HEAD"
             mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
             expected_paths=(
               '.github/workflows/release-compliance-evidence.yml'
@@ -63,6 +63,8 @@ jobs:
               printf '  %s\n' "${actual[@]}" >&2
               exit 1
             fi
+          else
+            git diff --check HEAD^
           fi
 
       - name: Compile and run focused regressions
