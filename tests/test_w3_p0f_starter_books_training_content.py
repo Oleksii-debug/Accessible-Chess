@@ -793,6 +793,93 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_completed_training_rejects_disabled_actions_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-completed-fence-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    completed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    self.assertEqual("render", completed["kind"])
+                    self.assertTrue(app.training_workspace.session.completed)
+                    completed_actions = {
+                        item["command"]: item
+                        for item in app.training_workspace.snapshot()["actions"]
+                    }
+                    for command in ("training.hint", "training.reveal", "training.retry"):
+                        self.assertFalse(completed_actions[command]["enabled"])
+
+                    session_before = app.training_workspace.session.snapshot()
+                    surface_before = app.training_workspace.snapshot()
+                    revision_before = app.training_workspace._revision
+
+                    with patch.object(
+                        app.training_workspace._store,
+                        "save",
+                        side_effect=AssertionError(
+                            "disabled completed Training actions must not persist"
+                        ),
+                    ) as save:
+                        for command in ("training.hint", "training.reveal", "training.retry"):
+                            with self.subTest(browser=command):
+                                rejected = app.browser_command("training", command)
+                                self.assertEqual("error", rejected["kind"])
+                                self.assertEqual(
+                                    session_before,
+                                    app.training_workspace.session.snapshot(),
+                                )
+                                self.assertEqual(
+                                    surface_before,
+                                    app.training_workspace.snapshot(),
+                                )
+                                self.assertEqual(
+                                    revision_before,
+                                    app.training_workspace._revision,
+                                )
+
+                        for action in (
+                            "training.hint",
+                            "training.reveal_solution",
+                            "training.retry",
+                        ):
+                            with self.subTest(native=action):
+                                rejected = app.adapter.activate_action(action)
+                                self.assertEqual("error", rejected.kind)
+                                self.assertEqual(
+                                    session_before,
+                                    app.training_workspace.session.snapshot(),
+                                )
+                                self.assertEqual(
+                                    surface_before,
+                                    app.training_workspace.snapshot(),
+                                )
+                                self.assertEqual(
+                                    revision_before,
+                                    app.training_workspace._revision,
+                                )
+                    save.assert_not_called()
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_training_language_survives_bridge_rebuild_after_render_rollback(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-language-rollback-") as raw:
             root = Path(raw)

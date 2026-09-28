@@ -164,6 +164,15 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
+        if (
+            self.session.completed
+            and command in {"training.hint", "training.reveal", "training.retry"}
+        ):
+            # These controls are explicitly disabled in the canonical snapshot
+            # after completion. Enforce the same boundary server-side so stale
+            # DOM/native-menu activation cannot mutate transient feedback or
+            # trigger a needless persistence write behind a disabled control.
+            return bridge.projection.generic_error()
         before = self.session.snapshot()
         revision = self._revision
         before_language = bridge.projection.language
