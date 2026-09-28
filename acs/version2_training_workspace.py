@@ -112,6 +112,9 @@ class Version2BookTrainingWorkspace:
         # BookDocument cannot change between the reader check and publication.
         self.reader.block_snapshot(location.index)
         session, bridge, store, revision = self._prepare(material, message=message)
+        # Durable Training load is an external I/O boundary. Revalidate once more
+        # immediately before publishing the prepared session/bridge.
+        self.reader.block_snapshot(location.index)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
         return bridge
