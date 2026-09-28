@@ -13,6 +13,10 @@ on:
       - work/full-product-teacher-education-reachability-20260911
       - work/books-bidirectional-semantic-navigation-20260927
     paths:
+      - acs/full_product_presenters.py
+      - acs/training_webview_projection.py
+      - acs/version2_application.py
+      - acs/version2_training_workspace.py
       - acs/starter_books_training_content.py
       - acs/starter_books_training_release.py
       - acs/starter_books_training_runtime.py
