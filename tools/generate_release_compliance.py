@@ -198,6 +198,7 @@ def build_spdx(
                 "fileName": f"./{record.path}",
                 "checksums": [{"algorithm": "SHA256", "checksumValue": record.sha256}],
                 "licenseConcluded": "NOASSERTION",
+                "licenseInfoInFiles": ["NOASSERTION"],
                 "copyrightText": "NOASSERTION",
             }
         )
@@ -214,8 +215,8 @@ def build_spdx(
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": f"Accessible Chess {version} runtime inventory",
         "documentNamespace": (
-            "https://accessible-chess.example/spdx/"
-            f"{source_commit}/accessible-chess-{version}"
+            "https://github.com/Oleksii-debug/Accessible-Chess/spdx/"
+            f"{source_commit}/{inventory_digest(records)}"
         ),
         "creationInfo": {
             "created": created,
