@@ -23,6 +23,7 @@ from acs.starter_books_training_release import (
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
 from acs.version2_starter_content_application import Version2StarterContentApplication
+from acs.version2_training_workspace import Version2BookTrainingWorkspace
 
 
 EXPECTED_BOOKLETS = 24
@@ -158,6 +159,65 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             finally:
                 analysis.close()
                 database.close()
+
+    def test_training_start_revalidates_after_durable_prepare(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-start-revision-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    exercise_index = next(
+                        index
+                        for index, block in enumerate(app.reader.document.blocks)
+                        if isinstance(block, Exercise)
+                    )
+                    app.reader.go_to(exercise_index)
+                    workspace = Version2BookTrainingWorkspace(
+                        app.reader,
+                        progress_root=root / "training-start-progress",
+                    )
+                    original_prepare = Version2BookTrainingWorkspace._prepare
+                    drift = {}
+
+                    def mutate_after_prepare(self, material, *, message=""):
+                        prepared = original_prepare(self, material, message=message)
+                        block = self.reader.document.blocks[self.reader.index]
+                        self.assertIsInstance(block, Exercise)
+                        drift["index"] = self.reader.index
+                        drift["prompt"] = block.prompt
+                        block.prompt = block.prompt + " [prepare drift]"
+                        return prepared
+
+                    with patch.object(
+                        Version2BookTrainingWorkspace,
+                        "_prepare",
+                        mutate_after_prepare,
+                    ):
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "changed after BookReader creation",
+                        ):
+                            workspace.start_current()
+
+                    self.assertTrue(drift)
+                    app.reader.document.blocks[drift["index"]].prompt = drift["prompt"]
+                    self.assertEqual(exercise_index, app.reader.location().index)
+                    self.assertIsNone(workspace.material)
+                    self.assertIsNone(workspace.bridge)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
 
     def test_training_continue_fails_closed_on_live_book_revision_drift(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-revision-") as raw:
