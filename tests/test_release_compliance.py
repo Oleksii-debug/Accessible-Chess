@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -14,38 +15,58 @@ from tools.generate_release_compliance import (
 )
 
 
-COMMIT = "0123456789abcdef0123456789abcdef01234567"
 CREATED = "2026-09-28T17:24:25Z"
 
 
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+
+
 class ReleaseComplianceEvidenceTests(unittest.TestCase):
-    def _fixture(self, root: Path) -> tuple[str, ...]:
+    def _fixture(self, root: Path) -> tuple[tuple[str, ...], str]:
         (root / "VERSION.txt").write_text("2.0-test\n", encoding="utf-8")
         (root / "acs").mkdir()
         (root / "acs" / "core.py").write_text("VALUE = 1\n", encoding="utf-8")
         (root / "web").mkdir()
         (root / "web" / "app.js").write_text("const value = 1;\n", encoding="utf-8")
         (root / "launcher.py").write_text("print('ok')\n", encoding="utf-8")
-        return ("acs", "web", "launcher.py", "VERSION.txt")
+        includes = ("acs", "web", "launcher.py", "VERSION.txt")
+
+        _git(root, "init", "--quiet")
+        _git(root, "config", "core.autocrlf", "false")
+        _git(root, "config", "user.name", "Accessible Chess Test")
+        _git(root, "config", "user.email", "test@example.invalid")
+        _git(root, "add", "--", *includes)
+        _git(root, "commit", "--quiet", "-m", "fixture")
+        commit = _git(root, "rev-parse", "HEAD")
+        self.assertEqual(40, len(commit))
+        return includes, commit
 
     def test_generation_is_byte_deterministic_and_verifiable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            includes = self._fixture(root)
+            includes, commit = self._fixture(root)
             first = root / "evidence-a"
             second = root / "evidence-b"
 
             generate(
                 root=root,
                 output_dir=first,
-                source_commit=COMMIT,
+                source_commit=commit,
                 created=CREATED,
                 includes=includes,
             )
             generate(
                 root=root,
                 output_dir=second,
-                source_commit=COMMIT,
+                source_commit=commit,
                 created=CREATED,
                 includes=includes,
             )
@@ -62,20 +83,20 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
             verify(
                 root=root,
                 evidence_dir=first,
-                source_commit=COMMIT,
+                source_commit=commit,
                 created=CREATED,
                 includes=includes,
             )
 
-    def test_provenance_uses_relative_paths_and_never_overclaims_release_acceptance(self) -> None:
+    def test_provenance_binds_clean_git_head_and_uses_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            includes = self._fixture(root)
+            includes, commit = self._fixture(root)
             evidence = root / "evidence"
             generate(
                 root=root,
                 output_dir=evidence,
-                source_commit=COMMIT,
+                source_commit=commit,
                 created=CREATED,
                 includes=includes,
             )
@@ -85,12 +106,18 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(COMMIT, provenance["source"]["commit"])
+            self.assertEqual(commit, provenance["source"]["commit"])
+            self.assertTrue(provenance["source"]["git_head_verified"])
+            self.assertTrue(provenance["source"]["scoped_inputs_clean"])
             self.assertEqual("2026-09-28T17:24:25Z", provenance["created"])
             self.assertFalse(provenance["claims"]["human_tested"])
             self.assertFalse(provenance["claims"]["nvda_verified"])
             self.assertFalse(provenance["claims"]["final_windows_zip"])
             self.assertFalse(provenance["claims"]["license_inference_performed"])
+
+            media_types = {item["path"]: item["media_type"] for item in provenance["files"]}
+            self.assertEqual("text/x-python", media_types["acs/core.py"])
+            self.assertEqual("text/javascript", media_types["web/app.js"])
             for item in provenance["files"]:
                 path = item["path"]
                 self.assertFalse(Path(path).is_absolute())
@@ -100,12 +127,12 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
     def test_spdx_uses_noassertion_instead_of_inventing_license_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            includes = self._fixture(root)
+            includes, commit = self._fixture(root)
             evidence = root / "evidence"
             generate(
                 root=root,
                 output_dir=evidence,
-                source_commit=COMMIT,
+                source_commit=commit,
                 created=CREATED,
                 includes=includes,
             )
@@ -135,12 +162,12 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
     def test_verification_fails_closed_after_runtime_input_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            includes = self._fixture(root)
+            includes, commit = self._fixture(root)
             evidence = root / "evidence"
             generate(
                 root=root,
                 output_dir=evidence,
-                source_commit=COMMIT,
+                source_commit=commit,
                 created=CREATED,
                 includes=includes,
             )
@@ -150,7 +177,21 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
                 verify(
                     root=root,
                     evidence_dir=evidence,
-                    source_commit=COMMIT,
+                    source_commit=commit,
+                    created=CREATED,
+                    includes=includes,
+                )
+
+    def test_declared_commit_must_equal_actual_git_head(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            includes, commit = self._fixture(root)
+            wrong = ("0" if commit[0] != "0" else "1") + commit[1:]
+            with self.assertRaises(EvidenceError):
+                generate(
+                    root=root,
+                    output_dir=root / "evidence",
+                    source_commit=wrong,
                     created=CREATED,
                     includes=includes,
                 )
@@ -177,12 +218,12 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
     def test_include_path_traversal_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            self._fixture(root)
+            _includes, commit = self._fixture(root)
             with self.assertRaises(EvidenceError):
                 generate(
                     root=root,
                     output_dir=root / "evidence",
-                    source_commit=COMMIT,
+                    source_commit=commit,
                     created=CREATED,
                     includes=("../outside",),
                 )
@@ -190,7 +231,7 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
     def test_invalid_commit_or_naive_timestamp_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            includes = self._fixture(root)
+            includes, commit = self._fixture(root)
 
             with self.assertRaises(EvidenceError):
                 generate(
@@ -205,7 +246,7 @@ class ReleaseComplianceEvidenceTests(unittest.TestCase):
                 generate(
                     root=root,
                     output_dir=root / "bad-time",
-                    source_commit=COMMIT,
+                    source_commit=commit,
                     created="2026-09-28T17:24:25",
                     includes=includes,
                 )
