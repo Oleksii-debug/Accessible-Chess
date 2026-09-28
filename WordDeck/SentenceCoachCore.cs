@@ -211,7 +211,7 @@ internal sealed class SentenceRecord
 
 internal static partial class SentenceTokenizer
 {
-    [GeneratedRegex("[A-Za-z]+(?:['’][A-Za-z]+)?", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\p{L}[\p{L}\p{M}]*(?:['’]\p{L}[\p{L}\p{M}]*)?", RegexOptions.CultureInvariant)]
     private static partial Regex EnglishTokenRegex();
 
     public static IReadOnlyList<string> Tokenize(string text)
