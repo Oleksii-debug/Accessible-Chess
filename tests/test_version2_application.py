@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -120,6 +121,29 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(backward.handled_by_shell)
         self.assertEqual(backward.value.kind, "render")
         self.assertEqual(self.app.reader.location(), origin)
+
+    def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
+        book = self.root / "render-failure.md"
+        book.write_text("Коротко\n\n12345678901\n", encoding="utf-8")
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(
+            self.app.browser_command("shell", "book.open")["kind"],
+            "delegated",
+        )
+        before = self.app.reader.snapshot()
+        key = self.app.book_key
+
+        with patch(
+            "acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS",
+            10,
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertEqual(self.app.reader.snapshot(), before)
+        self.assertEqual(self.app.reader.index, 0)
+        restored = self.app.progress_store.restore(key, self.app.reader.document)
+        self.assertEqual(restored.snapshot(), before)
 
     def test_book_native_open_board_exact_return_and_persistent_resume(self):
         book, origin = self._open_book_game()
