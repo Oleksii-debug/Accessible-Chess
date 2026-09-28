@@ -29,6 +29,10 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         self.assertNotIn("expected_paths=(", self.workflow)
         self.assertNotIn('test "${actual[*]}" = "${wanted[*]}"', self.workflow)
         self.assertNotIn("STACKED_RECOVERY_PARENT", self.workflow)
+        self.assertNotIn(
+            "fix/book-progress-backup-recovery-20260927",
+            self.workflow,
+        )
 
     def test_epub_exclusive_parser_authority_is_locked_to_product(self) -> None:
         marker = "protected_paths=("
