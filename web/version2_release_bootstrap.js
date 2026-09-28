@@ -314,12 +314,12 @@
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
         const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
         if (candidate) queuedFocusTarget = candidate;
+        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
+        if (!refreshRequired) return;
+        needsRefresh = true;
       });
       if (needsRefresh) {
         const repaintBarrier = orderedStage1Refreshes.length
@@ -330,6 +330,8 @@
         }).then(function () {
           if (queuedFocusTarget) focusById(queuedFocusTarget);
         }, function () {});
+      } else if (queuedFocusTarget) {
+        focusById(queuedFocusTarget);
       }
     }, function () {});
   }
