@@ -1,14 +1,12 @@
 from .position_editor import parse_piece_coordinate_position
 
 
-def _legacy_message(exc: ValueError) -> str:
-    """Preserve the existing Ukrainian text-adapter diagnostics.
-
-    Parsing semantics live in position_editor; this adapter only translates
-    canonical validation failures for the legacy Stage1 user-facing surface.
-    """
+def _localized_message(exc: ValueError, language: str) -> str:
+    """Translate canonical parser errors at the legacy presentation boundary."""
 
     message = str(exc)
+    if language != "uk":
+        return message
     if message == "position text must contain W: and B: sections":
         return "Потрібні секції W: і B:"
     if message == "each piece must be followed by a square, for example N f3":
@@ -25,15 +23,18 @@ def _legacy_message(exc: ValueError) -> str:
     return message
 
 
-def parse_position_text(text, turn="w"):
+def parse_position_text(text, turn="w", *, language="uk"):
     """Parse canonical W:/B: piece-coordinate text into a FEN.
 
     Coordinate grammar and structural validation are owned by the canonical
     position-editor parser. This function remains only as the legacy
-    FEN-returning and localized-error adapter.
+    FEN-returning and localized-error adapter. The default language preserves
+    the pre-existing direct-call Ukrainian diagnostics.
     """
 
+    if language not in {"uk", "en"}:
+        raise ValueError("language must be 'uk' or 'en'")
     try:
         return parse_piece_coordinate_position(text, turn=turn).to_fen()
     except ValueError as exc:
-        raise ValueError(_legacy_message(exc)) from exc
+        raise ValueError(_localized_message(exc, language)) from exc
