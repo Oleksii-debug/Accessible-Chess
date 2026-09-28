@@ -57,6 +57,8 @@ jobs:
           # then re-run the semantic reachability suite against the descendant.
           protected_paths=(
             'acs/book_epub_import.py'
+            'tests/test_v2_book_epub_import.py'
+            'tests/test_version2_epub_application_reachability.py'
           )
           for path in "${protected_paths[@]}"; do
             product_blob="$(git rev-parse "$product:$path")"
