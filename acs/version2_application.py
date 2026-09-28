@@ -89,6 +89,11 @@ class Version2Application:
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
         self._events = deque(maxlen=64)
+        # The Book Board adapter treats event sinks as observers and therefore
+        # swallows sink exceptions. Book-return persistence is stronger than an
+        # observer: remember a failed required write so the action boundary can
+        # fail closed after the synchronous delegate call.
+        self._book_persistence_event_failed = False
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
@@ -404,7 +409,11 @@ class Version2Application:
         # has projected the canonical BookBoard FEN into the real release board.
         if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
             self.shell.open_route("books")
-            self.save_book_progress()
+            try:
+                self.save_book_progress()
+            except Exception:
+                self._book_persistence_event_failed = True
+                raise
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
 
@@ -538,7 +547,12 @@ class Version2Application:
                 before_reader = self.reader.snapshot() if opening_board else None
                 before_language = self.books.projection.language if opening_board else None
                 before_bookmark = self.books.projection.bookmark_name if opening_board else None
+                self._book_persistence_event_failed = False
                 result = self.book_delegate(action, payload)
+                if self._book_persistence_event_failed or result.kind is BookBoardUiEventKind.FAILED:
+                    raise ValueError(
+                        concise_user_error("", language=self.shell.language)
+                    )
                 if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED and opening_board:
                         try:
@@ -549,7 +563,9 @@ class Version2Application:
                                 language=before_language,
                                 bookmark_name=before_bookmark,
                             )
-                            raise
+                            raise ValueError(
+                                concise_user_error("", language=self.shell.language)
+                            ) from None
                     try:
                         self._project_board_position(self.book_delegate.view().current_fen)
                     except Exception:
