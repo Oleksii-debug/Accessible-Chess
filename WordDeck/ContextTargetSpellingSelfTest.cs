@@ -23,7 +23,8 @@ internal static class ContextTargetSpellingSelfTest
         TestRepeatedTargetOccurrenceFailsClosed();
         TestMorphologyFailsClosed();
         TestAmbiguousStableIdentityFailsClosed();
-        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, exact hyphenation, repeated-target rejection, multiword order, homograph identity and morphology fail-closed verified.");
+        TestUnicodeLexicalBoundariesFailClosed();
+        Console.WriteLine("Context target-spelling self-test PASS: target-only answers, 1/2/3 stable IDs, Unicode lexical boundaries, exact hyphenation, repeated-target rejection, multiword order, homograph identity and morphology fail-closed verified.");
     }
 
     private static void TestSingleTargetExactPhysicalForm()
@@ -179,6 +180,45 @@ internal static class ContextTargetSpellingSelfTest
                        ex.Message.Contains("canonical progress", StringComparison.OrdinalIgnoreCase);
         }
         Check(rejected, "Target spelling allowed an unresolved same-written-form Oxford stable ID to own progress.");
+    }
+
+    private static void TestUnicodeLexicalBoundariesFailClosed()
+    {
+        DictionaryPackage dictionary = FixtureDictionary();
+        var lexicon = new ContextTargetLexicon(dictionary);
+
+        foreach ((string sentenceId, string english) in new[]
+        {
+            ("s-unicode-boundary-accented", "The caféimprove sign is misleading"),
+            ("s-unicode-boundary-cyrillic", "The тестimprove label is synthetic"),
+            ("s-unicode-boundary-digit", "Version ²improve is not a standalone target")
+        })
+        {
+            ContextPracticeCard card = Card(
+                sentenceId,
+                "Синтетична перевірка межі слова",
+                english,
+                new[] { "ox-improve" },
+                new[] { "improve" });
+
+            bool rejected = false;
+            try { _ = ContextTargetSpellingService.Build(card, "ox-improve", lexicon, dictionary); }
+            catch (InvalidDataException ex)
+            {
+                rejected = ex.Message.Contains("exact physical dictionary form", StringComparison.OrdinalIgnoreCase);
+            }
+            Check(rejected, $"Unicode letter/digit adjacency in '{english}' was treated as a standalone target occurrence.");
+        }
+
+        ContextPracticeCard valid = Card(
+            "s-unicode-boundary-valid",
+            "Кафе допомагає студентам покращувати навички",
+            "The café can improve skills",
+            new[] { "ox-improve" },
+            new[] { "improve" });
+        ContextTargetSpellingExercise exercise = ContextTargetSpellingService.Build(valid, "ox-improve", lexicon, dictionary);
+        Check(exercise.Prompt.EnglishCloze == "The café can [blank] skills",
+            "Unicode letters elsewhere in the sentence blocked a genuine standalone target occurrence.");
     }
 
     private static DictionaryPackage FixtureDictionary(bool includeAmbiguousImprove = false)
