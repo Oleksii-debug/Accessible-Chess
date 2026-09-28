@@ -67,6 +67,8 @@ function snapshot(route) {
 
 const windowObject = {
   document: documentRef,
+  accessibleChessKeymapAction: (event, context) =>
+    context === "library_results" && event.key === "Enter" ? "library.open_game" : "",
   setTimeout: (callback) => { callback(); return 1; },
   setInterval: (callback) => { intervalCallback = callback; return 1; },
   pywebview: { api: {

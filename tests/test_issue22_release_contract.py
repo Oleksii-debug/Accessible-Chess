@@ -32,8 +32,9 @@ class Issue22ReleaseContractTests(unittest.TestCase):
         self.assertIn("const r=await apiAction('make_move',v)", HTML)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", HTML)
         self.assertIn("else{input.focus();input.select()}", HTML)
-        self.assertIn("el('move-input').addEventListener('keydown'", HTML)
-        self.assertIn("if(e.key==='Enter')", HTML)
+        self.assertIn("el('move-input').addEventListener('keydown',async e=>{const a=await resolveBinding(eventChord(e),'move_entry','move-entry');if(a&&a.actionId==='move.submit'){e.preventDefault();executeAction(a.actionId)}})", HTML)
+        self.assertIn("'move.submit':()=>submitMove()", HTML)
+        self.assertNotIn("if(e.key==='Enter')", HTML)
 
     def test_real_move_entry_e4_changes_core_state(self):
         with TemporaryDirectory() as temp:
