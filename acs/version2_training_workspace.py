@@ -105,7 +105,12 @@ class Version2BookTrainingWorkspace:
         return self.bridge.projection.presenter_message
 
     def start_current(self, *, message: str = "") -> TrainingWebViewBridge:
+        location = self.reader.location()
         material = build_current_book_training_material(self.reader)
+        # BookReader is bound to one immutable indexed revision. Revalidate the
+        # live authoring document after Training material derivation so a mutable
+        # BookDocument cannot change between the reader check and publication.
+        self.reader.block_snapshot(location.index)
         session, bridge, store, revision = self._prepare(material, message=message)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
@@ -123,8 +128,14 @@ class Version2BookTrainingWorkspace:
         if material is None:
             raise RuntimeError("no Training exercise is active")
         current = resolve_book_training_origin(self.reader.document, material.origin)
-        for index in range(current.index + 1, len(self.reader.document.blocks)):
-            if not isinstance(self.reader.document.blocks[index], Exercise):
+        # resolve_book_training_origin() operates on BookDocument for provenance
+        # compatibility. Immediately cross-check through BookReader's detached
+        # indexed revision before scanning or publishing any successor.
+        self.reader.block_snapshot(current.index)
+        upper_bound = len(self.reader.document.blocks)
+        for index in range(current.index + 1, upper_bound):
+            block = self.reader.block_snapshot(index)
+            if not isinstance(block, Exercise):
                 continue
             try:
                 candidate = build_book_training_material(self.reader.document, index)
@@ -132,7 +143,14 @@ class Version2BookTrainingWorkspace:
                 # Keep malformed authored chess content readable as a Book block,
                 # but never advertise or fabricate it as a Training exercise.
                 continue
+            # The material builder consumes the mutable BookDocument. Revalidate
+            # the whole indexed revision after derivation so a concurrent/in-place
+            # authoring mutation cannot become the next Training publication.
+            self.reader.block_snapshot(index)
             return index, candidate
+        # Also validate an empty/exhausted scan: the live list could have changed
+        # after upper_bound was read and otherwise be misreported as "no next".
+        self.reader.block_snapshot(current.index)
         raise LookupError("no next valid Training exercise")
 
     def has_next(self) -> bool:
