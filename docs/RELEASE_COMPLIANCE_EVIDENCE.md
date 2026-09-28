@@ -7,11 +7,12 @@ This workline is intentionally separate from the active P0 Windows/NVDA release 
 `tools/generate_release_compliance.py` produces two deterministic files from one exact repository commit:
 
 - `accessible-chess.spdx.json` — an SPDX 2.3 file-level inventory of the declared runtime/release-input scope;
-- `accessible-chess.provenance.json` — exact source commit, product version, declared scope, per-file SHA-256 hashes, and a digest over the canonical inventory.
+- `accessible-chess.provenance.json` — exact source commit, product version, declared scope, per-file SHA-256 hashes, and a digest over the canonical inventory;
+- `accessible-chess.evidence.sha256` — deterministic SHA-256 manifest binding the two JSON evidence files for later byte readback.
 
 The default scope is the shipping application/runtime material currently owned by this lane: `acs/`, `web/`, `packaging/`, both V2 launchers, `VERSION.txt`, and the shipped Ukrainian/English hotkey references.
 
-The generator rejects missing inputs, path traversal, symlinks, malformed source commit identity, and timezone-free timestamps. Verification regenerates the evidence from the exact source tree and requires byte-for-byte equality.
+The generator rejects missing inputs, path traversal, symlinks, malformed or non-current source commit identity, scoped uncommitted runtime bytes, and timezone-free timestamps. Verification regenerates the evidence from the exact clean Git source tree and requires byte-for-byte equality, including the checksum manifest.
 
 ## Claims deliberately not made
 
