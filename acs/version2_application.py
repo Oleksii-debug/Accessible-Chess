@@ -334,13 +334,23 @@ class Version2Application:
         self.training_workspace, self.training = workspace, bridge
         return True
 
+    def _training_error_message(self) -> str:
+        """Return one localized safe Training failure for browser/native ingress."""
+        language = self.shell.language
+        if (
+            self.shell.current_route.route_id == "training"
+            and self.training_workspace is not None
+        ):
+            language = self.training_workspace.language
+        return concise_user_error("", language=language)
+
     def _dispatch_training_surface_command(self, command, payload=None):
         if self.shell.current_route.route_id != "training":
-            raise ValueError("Training command requires the visible Training route")
+            raise ValueError(self._training_error_message())
         if self.shell.active_dialog_id is not None:
-            raise ValueError("close the active dialog before changing Training state")
+            raise ValueError(self._training_error_message())
         if self.training_workspace is None or self.training is None:
-            raise ValueError("Training exercise is unavailable")
+            raise ValueError(self._training_error_message())
         before_reader = None
         language = bookmark_name = training_language = None
         training_message = ""
@@ -670,13 +680,7 @@ class Version2Application:
                 # to that dialog. Keep the native fail-closed response aligned with
                 # the currently visible Training language instead of leaking a
                 # hard-coded English implementation message to NVDA.
-                language = self.shell.language
-                if (
-                    self.shell.current_route.route_id == "training"
-                    and self.training_workspace is not None
-                ):
-                    language = self.training_workspace.language
-                raise ValueError(concise_user_error("", language=language)) from None
+                raise ValueError(self._training_error_message()) from None
             command = "training.reveal" if action == "training.reveal_solution" else action
             result = self._dispatch_training_surface_command(command, payload)
             if result.kind == "error":
@@ -725,7 +729,13 @@ class Version2Application:
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
             if area == "training":
-                return asdict(self._dispatch_training_surface_command(command, payload))
+                try:
+                    return asdict(self._dispatch_training_surface_command(command, payload))
+                except Exception:
+                    return {
+                        "kind": "error",
+                        "payload": {"message": self._training_error_message()},
+                    }
             if area == "books":
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)

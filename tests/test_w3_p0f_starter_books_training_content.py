@@ -581,6 +581,14 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
 
                     self.assertEqual("error", browser_result["kind"])
                     self.assertEqual("error", native_result.kind)
+                    self.assertEqual(
+                        app._error()["payload"]["message"],
+                        browser_result["payload"]["message"],
+                    )
+                    self.assertEqual(
+                        browser_result["payload"]["message"],
+                        native_result.payload["message"],
+                    )
                     dispatch.assert_not_called()
                     self.assertEqual(before, app.training_workspace.snapshot())
                     self.assertEqual("library", app.shell.current_route.route_id)
@@ -1413,6 +1421,13 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 try:
                     opened = app.browser_command("shell", "screen.training")
                     self.assertEqual("route", opened["kind"])
+                    switched = app.browser_command(
+                        "training",
+                        "training.language",
+                        {"language": "en"},
+                    )
+                    self.assertEqual("render", switched["kind"])
+                    training_error = app.training_workspace.bridge.projection.generic_error()
                     before = app.training_workspace.snapshot()
                     dialog = app.adapter.open_dialog(
                         "training-modal",
@@ -1433,6 +1448,14 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
 
                     self.assertEqual("error", browser_result["kind"])
                     self.assertEqual("error", native_result.kind)
+                    self.assertEqual(
+                        training_error.payload["message"],
+                        browser_result["payload"]["message"],
+                    )
+                    self.assertEqual(
+                        browser_result["payload"]["message"],
+                        native_result.payload["message"],
+                    )
                     dispatch.assert_not_called()
                     self.assertEqual(before, app.training_workspace.snapshot())
                     self.assertEqual("training-modal", app.shell.active_dialog_id)
