@@ -180,6 +180,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
             if item.kind is NativeMenuItemKind.ACTION
         }
         for action_id in (
+            "book.previous_block",
+            "book.next_block",
             "book.previous_position",
             "book.next_position",
             "book.previous_game",
@@ -207,6 +209,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         ua_books = next(menu for menu in ua if menu.menu_id == "books")
         ua_labels = {item.action_id: item.label for item in ua_books.items}
+        self.assertEqual("Попередній блок", ua_labels["book.previous_block"])
+        self.assertEqual("Наступний блок", ua_labels["book.next_block"])
         self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
         self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
 
@@ -221,6 +225,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
         }
         self.assertTrue(
             {
+                "book.previous_block",
+                "book.next_block",
                 "book.previous_position",
                 "book.next_position",
                 "book.previous_game",
