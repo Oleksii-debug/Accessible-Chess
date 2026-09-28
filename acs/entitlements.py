@@ -35,8 +35,95 @@ class FeatureId(str, Enum):
     TRAINING_LOCAL = "training.local"
     SETTINGS_PROFILES = "settings.profiles"
 
+    # Accessibility and user-data safety are product invariants, not premium features.
+    ACCESSIBILITY_CORE = "accessibility.core"
+    DATA_RECOVERY = "data.recovery"
+    CHESS_LOCAL = "chess.local"
+    PGN_BASIC = "pgn.basic"
+    ENGINE_BASIC = "engine.basic"
+
+    # Provider-neutral commercial capability IDs. These are policy labels only;
+    # no billing or network implementation belongs in the chess/application core.
+    ANALYSIS_ADVANCED = "analysis.advanced"
+    LIBRARY_ADVANCED = "library.advanced"
+    DATABASE_LARGE = "database.large"
+    BOOKS_TRAINING_FULL = "books.training.full"
+    CHESSBASE_IMPORT = "chessbase.import"
+    AUTOMATION_ADVANCED = "automation.advanced"
+    TEACHER_LOCAL = "teacher.local"
+    CLASSROOM_LOCAL = "classroom.local"
+    ASSIGNMENTS = "assignments"
+    STUDENT_PROGRESS = "student.progress"
+    LESSON_AUTHORING = "lesson.authoring"
+    CLOUD_SYNC = "cloud.sync"
+    REMOTE_LESSON = "remote.lesson"
+    CLASSROOM_REMOTE = "classroom.remote"
+    ORGANIZATION_ADMIN = "organization.admin"
+    ORGANIZATION_SEATS = "organization.seats"
+    HOSTED_CONTENT = "hosted.content"
+
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
+
+# Pricing policy and safety escape hatches are intentionally distinct.
+#
+# NON_PAYWALLED_LOCAL_FEATURE_IDS defines the useful local floor that a future
+# paid policy must grant without charging for accessibility itself. These
+# features still respect security states such as UPDATE_REQUIRED or REVOKED.
+NON_PAYWALLED_LOCAL_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.ACCESSIBILITY_CORE.value,
+        FeatureId.DATA_EXPORT.value,
+        FeatureId.DATA_RECOVERY.value,
+        FeatureId.CHESS_LOCAL.value,
+        FeatureId.PGN_BASIC.value,
+        FeatureId.ENGINE_BASIC.value,
+    }
+)
+
+# These capabilities must remain available even when entitlement data is
+# unavailable/expired/revoked or a security update is required, so the user can
+# understand the state and take/recover their own local data. This is deliberately
+# narrower than the free local product floor.
+ALWAYS_AVAILABLE_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.ACCESSIBILITY_CORE.value,
+        FeatureId.DATA_EXPORT.value,
+        FeatureId.DATA_RECOVERY.value,
+    }
+)
+
+PROFESSIONAL_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.ANALYSIS_ADVANCED.value,
+        FeatureId.LIBRARY_ADVANCED.value,
+        FeatureId.DATABASE_LARGE.value,
+        FeatureId.BOOKS_TRAINING_FULL.value,
+        FeatureId.CHESSBASE_IMPORT.value,
+        FeatureId.AUTOMATION_ADVANCED.value,
+    }
+)
+
+COACH_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.TEACHER_LOCAL.value,
+        FeatureId.CLASSROOM_LOCAL.value,
+        FeatureId.ASSIGNMENTS.value,
+        FeatureId.STUDENT_PROGRESS.value,
+        FeatureId.LESSON_AUTHORING.value,
+    }
+)
+
+ORGANIZATION_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.CLOUD_SYNC.value,
+        FeatureId.REMOTE_LESSON.value,
+        FeatureId.CLASSROOM_REMOTE.value,
+        FeatureId.ORGANIZATION_ADMIN.value,
+        FeatureId.ORGANIZATION_SEATS.value,
+        FeatureId.HOSTED_CONTENT.value,
+    }
+)
 
 
 ACTIVE_STATES = frozenset(
@@ -217,7 +304,22 @@ class FeatureGate:
         feature = _normalize_feature_id(feature_id)
         current_time = _utc_now(now)
 
+        if feature in ALWAYS_AVAILABLE_FEATURE_IDS:
+            return AccessDecision(
+                True,
+                snapshot.state if snapshot is not None else EntitlementState.EXPIRED,
+                "always_available_safety",
+                feature,
+            )
+
         if snapshot is None:
+            if feature in NON_PAYWALLED_LOCAL_FEATURE_IDS:
+                return AccessDecision(
+                    True,
+                    EntitlementState.EXPIRED,
+                    "non_paywalled_local",
+                    feature,
+                )
             return AccessDecision(
                 False,
                 EntitlementState.EXPIRED,
@@ -246,6 +348,14 @@ class FeatureGate:
 
         if snapshot.state is EntitlementState.REVOKED:
             return AccessDecision(False, snapshot.state, "revoked", feature)
+
+        if feature in NON_PAYWALLED_LOCAL_FEATURE_IDS:
+            return AccessDecision(
+                True,
+                snapshot.state,
+                "non_paywalled_local",
+                feature,
+            )
 
         entitled = feature in snapshot.feature_ids or "*" in snapshot.feature_ids
         if not entitled:

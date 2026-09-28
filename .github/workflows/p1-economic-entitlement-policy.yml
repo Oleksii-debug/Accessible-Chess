@@ -1,0 +1,92 @@
+name: P1 Economic Entitlement Policy
+
+on:
+  push:
+    branches:
+      - work/economic-entitlement-policy-20260924
+  pull_request:
+    paths:
+      - 'acs/entitlements.py'
+      - 'tests/test_entitlements.py'
+      - 'docs/COMMERCIAL_ENTITLEMENT_POLICY.md'
+      - 'docs/ECONOMIC_MODEL_UA.md'
+      - '.github/workflows/p1-economic-entitlement-policy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p1-economic-entitlement-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_FULL_PRODUCT_BASE: 603caba648a8452e3db1e514019713bdefd1516f
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove bounded policy scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$CURRENT_FULL_PRODUCT_BASE"
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/p1-economic-entitlement-policy.yml' \
+            'acs/entitlements.py' \
+            'docs/COMMERCIAL_ENTITLEMENT_POLICY.md' \
+            'docs/ECONOMIC_MODEL_UA.md' \
+            'tests/test_entitlements.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected economic entitlement scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile entitlement boundary
+        run: python -m compileall -q acs/entitlements.py tests/test_entitlements.py
+
+      - name: Focused entitlement regressions
+        run: python -m unittest -v tests.test_entitlements
+
+      - name: Focused pytest parity
+        run: python -m pytest -q tests/test_entitlements.py
+
+      - name: Full repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest on Windows
+        if: matrix.os == 'windows-2025'
+        run: python -m pytest -q tests
