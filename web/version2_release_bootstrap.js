@@ -81,6 +81,17 @@
     return documentRef.activeElement === target;
   }
 
+  function restoreQueuedFocus(id) {
+    if (!id) return false;
+    const active = documentRef.activeElement;
+    // A host event can carry the focus token sampled before an asynchronous
+    // browser focus-record call completed. Never steal focus from a different
+    // still-visible V2 control the user has already reached; only recover when
+    // focus is genuinely outside the active product surface.
+    if (active && workspace.contains(active) && !hiddenByAncestor(active)) return true;
+    return focusById(id);
+  }
+
   function restoreStage1Focus(routeId, requestedFocus) {
     if (focusById(requestedFocus)) return true;
     return focusById(stage1Focus[routeId] || "");
@@ -334,7 +345,7 @@
         repaintBarrier.then(function () {
           return refresh(true);
         }).then(function () {
-          if (queuedFocusTarget) focusById(queuedFocusTarget);
+          if (queuedFocusTarget) restoreQueuedFocus(queuedFocusTarget);
         }, function () {});
       } else if (queuedFocusTarget) {
         focusById(queuedFocusTarget);
