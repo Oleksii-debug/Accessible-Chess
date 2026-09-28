@@ -97,6 +97,7 @@ jobs:
           names = (
               "accessible-chess.spdx.json",
               "accessible-chess.provenance.json",
+              "accessible-chess.evidence.sha256",
           )
           for name in names:
               a = (left / name).read_bytes()
