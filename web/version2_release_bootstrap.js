@@ -348,7 +348,7 @@
           if (queuedFocusTarget) restoreQueuedFocus(queuedFocusTarget);
         }, function () {});
       } else if (queuedFocusTarget) {
-        focusById(queuedFocusTarget);
+        restoreQueuedFocus(queuedFocusTarget);
       }
     }, function () {});
   }
