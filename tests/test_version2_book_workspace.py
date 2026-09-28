@@ -42,13 +42,16 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         origin = reader.go_to(1)
         action = next(a for a in bridge.projection.snapshot()["actions"] if a["command"] == "book.open_position")
         self.assertTrue(action["enabled"], "Game must be reachable even without a literal FEN")
-        self.assertEqual(bridge.dispatch("book.open_position").kind, "delegated")
+        opened = bridge.dispatch("book.open_position")
+        self.assertEqual(opened.kind, "delegated")
+        self.assertEqual(opened.payload["announcement"], "Позицію відкрито на дошці.")
         self.assertTrue(workflow.active)
         workflow.dispatch("book_board.next_move")
         self.assertNotEqual(workflow.board_snapshot().fen(), Board.START)
         reader.go_to(2)
         returned = bridge.dispatch("book.return_from_board")
         self.assertEqual(returned.kind, "render")
+        self.assertEqual(returned.payload["announcement"], "Повернуто до місця читання.")
         self.assertEqual(reader.location(), origin)
         self.assertFalse(workflow.active)
         self.assertEqual(returned.payload["focus_target"], "book-block-1")
@@ -59,6 +62,29 @@ class Version2BookWorkspaceTests(unittest.TestCase):
             store = BookProgressStore(Path(folder) / "progress.json")
             store.save("book:example", reader)
             self.assertEqual(store.restore("book:example", document).location(), origin)
+
+    def test_board_open_and_return_announcements_follow_live_language(self):
+        for language, opened_text, returned_text in (
+            ("uk", "Позицію відкрито на дошці.", "Повернуто до місця читання."),
+            ("en", "Position opened on the board.", "Returned to the reading location."),
+        ):
+            with self.subTest(language=language):
+                reader, workflow, bridge, _ = self.compose(
+                    BookDocument(title="Study", blocks=[Position(fen=Board.START)])
+                )
+                language_event = bridge.dispatch("book.language", {"language": language})
+                self.assertEqual(language_event.kind, "render")
+
+                opened = bridge.dispatch("book.open_position")
+                self.assertEqual(opened.kind, "delegated")
+                self.assertEqual(opened.payload["announcement"], opened_text)
+                self.assertTrue(workflow.active)
+
+                returned = bridge.dispatch("book.return_from_board")
+                self.assertEqual(returned.kind, "render")
+                self.assertEqual(returned.payload["announcement"], returned_text)
+                self.assertFalse(workflow.active)
+                self.assertEqual(reader.index, 0)
 
     def test_failed_content_open_never_announces_success_or_changes_reader(self):
         reader, workflow, bridge, _ = self.compose(BookDocument(title="Broken", blocks=[

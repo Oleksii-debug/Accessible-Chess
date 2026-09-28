@@ -126,6 +126,12 @@ class BookWebViewProjection:
         """Return the transient bookmark input value for transaction rollback."""
         return self._last_bookmark
 
+    def _result_announcement(self, key: str) -> str:
+        """Return one localized deterministic success result for the Books surface."""
+        if key not in {"saved", "restored", "opened", "returned"}:
+            raise ValueError("unsupported book result announcement")
+        return _LABELS[self._language][key]
+
     def restore_bookmark_name(self, name: object) -> None:
         """Restore previously validated transient bookmark input state."""
         self._last_bookmark = _bookmark_name(name)
@@ -272,13 +278,13 @@ class BookWebViewProjection:
         token = _bookmark_name(name)
         block = self._presenter.bookmark(token)
         self._last_bookmark = token
-        return self._render(block, announcement=_LABELS[self._language]["saved"])
+        return self._render(block, announcement=self._result_announcement("saved"))
 
     def restore_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
         block = self._presenter.restore_bookmark(token)
         self._last_bookmark = token
-        return self._render(block, announcement=_LABELS[self._language]["restored"])
+        return self._render(block, announcement=self._result_announcement("restored"))
 
     def open_position(self) -> BookWebViewEvent:
         # Presenter supplies FEN directly to the canonical dispatcher. Discard the
@@ -286,12 +292,12 @@ class BookWebViewProjection:
         self._presenter.open_current_position(self._dispatch)
         return BookWebViewEvent(
             "delegated",
-            {"action": "book.open_position", "announcement": _LABELS[self._language]["opened"]},
+            {"action": "book.open_position", "announcement": self._result_announcement("opened")},
         )
 
     def return_from_board(self) -> BookWebViewEvent:
         block = self._presenter.return_from_board()
-        return self._render(block, announcement=_LABELS[self._language]["returned"])
+        return self._render(block, announcement=self._result_announcement("returned"))
 
     def generic_error(self) -> BookWebViewEvent:
         return BookWebViewEvent(

@@ -65,12 +65,21 @@ class Version2BookWebViewProjection(BookWebViewProjection):
     def open_position(self) -> BookWebViewEvent:
         if not self._workflow_action("book.open_position", BookBoardUiEventKind.BOARD_OPENED):
             return self.generic_error()
-        return BookWebViewEvent("delegated", {"action": "book.open_position"})
+        return BookWebViewEvent(
+            "delegated",
+            {
+                "action": "book.open_position",
+                "announcement": self._result_announcement("opened"),
+            },
+        )
 
     def return_from_board(self) -> BookWebViewEvent:
         if not self._workflow_action("book.return", BookBoardUiEventKind.RETURNED_TO_BOOK):
             return self.generic_error()
-        return self._render(self._presenter.current())
+        return self._render(
+            self._presenter.current(),
+            announcement=self._result_announcement("returned"),
+        )
 
 
 def build_version2_book_webview(reader, workflow, dispatch, *, language=UILanguage.UA) -> BookWebViewBridge:

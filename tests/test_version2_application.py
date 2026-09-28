@@ -124,7 +124,9 @@ class Version2ApplicationTests(unittest.TestCase):
     def test_book_native_open_board_exact_return_and_persistent_resume(self):
         book, origin = self._open_book_game()
         self.projected_positions.clear()
-        self.assertEqual(self.app.browser_command("books", "book.open_position")["kind"], "delegated")
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertEqual(opened["payload"]["announcement"], "Позицію відкрито на дошці.")
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual(self.projected_positions[-1], Board.START)
 
@@ -134,7 +136,9 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.projected_positions[-1], expected.fen())
         self.assertEqual(self.app.book_delegate.board_snapshot().fen(), expected.fen())
 
-        self.assertEqual(self.app.browser_command("books", "book.return_from_board")["kind"], "render")
+        returned = self.app.browser_command("books", "book.return_from_board")
+        self.assertEqual(returned["kind"], "render")
+        self.assertEqual(returned["payload"]["announcement"], "Повернуто до місця читання.")
         self.assertEqual(self.app.reader.location(), origin)
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
@@ -391,6 +395,7 @@ class Version2ApplicationTests(unittest.TestCase):
         result = self.app.browser_command("books", "book.open_position")
 
         self.assertEqual(result["kind"], "error")
+        self.assertNotIn("announcement", result["payload"])
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.reader.location(), origin)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
