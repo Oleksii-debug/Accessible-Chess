@@ -666,7 +666,17 @@ class Version2Application:
             return result
         if action.startswith("training."):
             if action == "training.reset":
-                raise ValueError("Training reset requires explicit WebView confirmation")
+                # Reset remains WebView-only because explicit confirmation belongs
+                # to that dialog. Keep the native fail-closed response aligned with
+                # the currently visible Training language instead of leaking a
+                # hard-coded English implementation message to NVDA.
+                language = self.shell.language
+                if (
+                    self.shell.current_route.route_id == "training"
+                    and self.training_workspace is not None
+                ):
+                    language = self.training_workspace.language
+                raise ValueError(concise_user_error("", language=language)) from None
             command = "training.reveal" if action == "training.reveal_solution" else action
             result = self._dispatch_training_surface_command(command, payload)
             if result.kind == "error":

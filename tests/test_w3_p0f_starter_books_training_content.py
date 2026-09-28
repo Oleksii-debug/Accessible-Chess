@@ -880,6 +880,22 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         "en",
                         app.training_workspace.snapshot()["document"]["lang"],
                     )
+
+                    reset_before = app.training_workspace.session.snapshot()
+                    native_reset = app.adapter.activate_action("training.reset")
+                    self.assertEqual("error", native_reset.kind)
+                    self.assertEqual(
+                        control_error["payload"]["message"],
+                        native_reset.payload["message"],
+                    )
+                    self.assertEqual(
+                        reset_before,
+                        app.training_workspace.session.snapshot(),
+                    )
+                    self.assertEqual(
+                        "en",
+                        app.training_workspace.snapshot()["document"]["lang"],
+                    )
                 finally:
                     app.shutdown()
             finally:
