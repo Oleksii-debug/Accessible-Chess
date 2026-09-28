@@ -143,6 +143,51 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
+        _book, origin = self._open_book_game()
+        self.app.drain_events()
+
+        opened = self.app.adapter.activate_action(
+            "book.open_position",
+            current_focus_id="book-block-2",
+        )
+        self.assertEqual(opened.kind, "delegated")
+        self.app.native_command(opened)
+        open_events = self.app.drain_events()
+        open_result = next(
+            event
+            for event in open_events
+            if event["kind"] == "delegated"
+            and event["payload"].get("action_id") == "book.open_position"
+        )
+        self.assertEqual(
+            open_result["payload"]["announcement"],
+            "Позицію відкрито на дошці.",
+        )
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+
+        returned = self.app.adapter.activate_action(
+            "book.return",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual(returned.kind, "delegated")
+        self.app.native_command(returned)
+        return_events = self.app.drain_events()
+        return_result = next(
+            event
+            for event in return_events
+            if event["kind"] == "delegated"
+            and event["payload"].get("action_id") == "book.return"
+        )
+        self.assertEqual(
+            return_result["payload"]["announcement"],
+            "Повернуто до місця читання.",
+        )
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+
     def _restarted_application(self, store):
         restarted = Version2Application(
             self.database,

@@ -688,7 +688,24 @@ class Version2Application:
                     )
                 self._events.append(self._error())
                 return False
-        self._events.append(asdict(value))
+        event = asdict(value)
+        if value.kind == "delegated" and self.books is not None:
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                action_id = payload.get("action_id")
+                announcement_key = {
+                    "book.open_position": "opened",
+                    "book.return": "returned",
+                }.get(action_id)
+                if announcement_key is not None:
+                    # FullProductWebViewAdapter intentionally drops trusted domain
+                    # DTOs at this browser boundary. Reattach only the bounded,
+                    # already-localized Book transition result through the one
+                    # existing V2 event queue after successful delegation.
+                    payload["announcement"] = self.books.projection._result_announcement(
+                        announcement_key
+                    )
+        self._events.append(event)
         return True
 
     def record_focus(self, token):
