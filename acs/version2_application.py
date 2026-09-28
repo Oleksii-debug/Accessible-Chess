@@ -336,7 +336,25 @@ class Version2Application:
             bookmark_name = self.books.projection.bookmark_name
         result = self.training_workspace.dispatch(command, payload)
         self.training = self.training_workspace.bridge
-        if command == "training.continue" and result.kind != "error":
+        if command == "training.continue":
+            if result.kind == "error":
+                # The continuation callback can fail after moving the canonical
+                # BookReader and swapping the Training model (for example while
+                # rendering the next exercise). Keep the failed action atomic:
+                # restore the completed origin only when reader mutation happened.
+                rollback_required = True
+                try:
+                    rollback_required = self.reader.snapshot() != before_reader
+                except Exception:
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                    )
+                return result
             try:
                 self.save_book_progress()
             except Exception:
