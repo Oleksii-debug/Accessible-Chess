@@ -168,6 +168,13 @@ internal static class TatoebaSentencePackSelfTest
             WriteManifest(manifestPath, "unapproved-license-filter", hash);
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "unknown license filter");
 
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash, "CC BY 2.0 FR");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "CC0 filter with contradictory declared license");
+
+            WriteManifest(manifestPath, "CC0 1.0 on BOTH sentence sides", hash, "CC0 1.0");
+            Require(TatoebaImportProvenance.Resolve(pairPath).VerifiedCc0Manifest,
+                "Matching explicit CC0 license declaration was incorrectly rejected.");
+
             WriteManifest(manifestPath, "CC BY 2.0 FR with BOTH sentence-owner usernames retained", hash, "CC0 1.0");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "mismatched declared CC-BY license");
 
