@@ -194,7 +194,9 @@ internal static class ContextTargetSpellingSelfTest
             ("s-unicode-boundary-cyrillic-before", "The тестimprove label is synthetic"),
             ("s-unicode-boundary-cyrillic-after", "The improveтест label is synthetic"),
             ("s-unicode-boundary-digit-before", "Version ²improve is not a standalone target"),
-            ("s-unicode-boundary-digit-after", "Version improve² is not a standalone target")
+            ("s-unicode-boundary-digit-after", "Version improve² is not a standalone target"),
+            ("s-unicode-boundary-connector-before", "The tag_improve label is synthetic"),
+            ("s-unicode-boundary-connector-after", "The improve_tag label is synthetic")
         })
         {
             ContextPracticeCard card = Card(
