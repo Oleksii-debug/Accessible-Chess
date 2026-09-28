@@ -6,32 +6,20 @@ It never creates the legacy presenter's independent Board return point.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import replace
 from typing import Any
 
 from .book_board_workflow import BookBoardWorkflow
 from .book_webview_bridge import BookWebViewBridge
 from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
-from .bookdocument import Diagram, Exercise, Game, ListBlock, Position, VariationTree
-from .bookreader import BookReader, ReadingLocation
+from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
+from .bookreader import BookReader
 from .full_product_presenters import BookReaderPresenter
 from .full_product_ui_shell import UILanguage
 from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
 
 
 class Version2BookReaderPresenter(BookReaderPresenter):
-    """Render the canonical List block introduced by the accepted Books core."""
-
-    def _block_view(self, location: ReadingLocation):
-        view = super()._block_view(location)
-        block = self._reader.document.blocks[location.index]
-        if isinstance(block, ListBlock):
-            text = "\n".join(
-                f"{index + (block.start or 1)}. {item}" if block.ordered else item
-                for index, item in enumerate(block.items)
-            )
-            return replace(view, role="group", text=text)
-        return view
+    """V2 presentation reuses the canonical BookReader semantic block projection."""
 
 
 class Version2BookWebViewProjection(BookWebViewProjection):
@@ -51,7 +39,9 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _snapshot_from_block(self, block):
         snapshot = super()._snapshot_from_block(block)
-        semantic = self._reader.document.blocks[block.index]
+        # Reuse the reader-owned detached revision. Never re-read the live mutable
+        # BookDocument after the presenter has validated a ReadingLocation.
+        semantic = self._reader.block_snapshot(block.index)
         can_open = isinstance(semantic, (Position, Diagram, Exercise, Game, VariationTree))
         actions = []
         for original in snapshot["actions"]:
@@ -61,18 +51,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 action["label"] = "Відкрити на шахівниці" if self.language is UILanguage.UA else "Open on board"
             elif action["command"] == "book.return_from_board":
                 action["enabled"] = self._workflow.active
-            elif action["command"] == "book.next":
-                action["enabled"] = block.index + 1 < len(self._reader.document.blocks)
             actions.append(action)
         snapshot["actions"] = tuple(actions)
-        if isinstance(semantic, ListBlock):
-            # Native list semantics are rendered by the shared Book surface.
-            from .book_webview_projection import _safe_text
-            snapshot["block"]["list"] = {
-                "ordered": semantic.ordered,
-                "start": semantic.start or 1,
-                "items": tuple(_safe_text(item, language=self.language, limit=8000) for item in semantic.items),
-            }
         return snapshot
 
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
