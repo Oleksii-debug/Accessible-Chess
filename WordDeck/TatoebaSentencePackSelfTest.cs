@@ -165,6 +165,19 @@ internal static class TatoebaSentencePackSelfTest
                 $"{{\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\",\"output_sha256\":\"{hash}\"}}");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate output_sha256 authority");
 
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"CC BY 2.0 FR with BOTH sentence-owner usernames retained\",\"output_sha256\":\"{hash}\",\"license\":\"CC0 1.0\",\"license\":\"CC BY 2.0 FR\"}}");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "duplicate declared license authority");
+
+            File.WriteAllText(manifestPath,
+                $"{{\"schema_version\":1,\"license_filter\":\"CC0 1.0 on BOTH sentence sides\",\"output_sha256\":\"{hash}\",\"future_note\":\"unique extension metadata\"}}");
+            TatoebaImportMetadata withExtension = TatoebaImportProvenance.Resolve(pairPath);
+            Require(withExtension.VerifiedCc0Manifest,
+                "A unique unknown manifest extension property was incorrectly rejected.");
+
+            File.WriteAllText(manifestPath, "[]");
+            ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "non-object manifest root");
+
             File.WriteAllText(manifestPath, "{ broken json");
             ExpectInvalidProvenance(() => TatoebaImportProvenance.Resolve(pairPath), "malformed manifest JSON");
 
