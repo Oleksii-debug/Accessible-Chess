@@ -61,6 +61,12 @@ class BookReader:
         return self._index
 
     def _require_content(self) -> None:
+        # Every public reading/navigation path must stay bound to the exact
+        # semantic revision captured by the immutable BookIndex.  Checking only
+        # durable-progress operations allowed ordinary location/navigation to
+        # read a later in-place BookDocument revision while targets still came
+        # from the older index, creating split-brain reading semantics.
+        self._require_indexed_revision()
         if not self.document.blocks:
             raise LookupError("BookDocument has no readable blocks")
 
