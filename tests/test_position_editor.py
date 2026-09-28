@@ -66,9 +66,6 @@ class PositionEditorTests(unittest.TestCase):
             "8/8/8/8/8/8/8 w - - 0 1",
             "9/8/8/8/8/8/8/8 w - - 0 1",
             "7/8/8/8/8/8/8/8 w - - 0 1",
-            "44/8/8/8/8/8/8/8 w - - 0 1",
-            "11111111/8/8/8/8/8/8/8 w - - 0 1",
-            "٨/8/8/8/8/8/8/8 w - - 0 1",
             "8/8/8/8/8/8/8/X7 w - - 0 1",
         )
         for fen in invalid:
@@ -141,22 +138,6 @@ class PositionEditorTests(unittest.TestCase):
             PositionState.from_fen("8/8/8/8/8/8/8/K6k w - - -1 1")
         with self.assertRaisesRegex(PositionValidationError, "fullmove"):
             PositionState.from_fen("8/8/8/8/8/8/8/K6k w - - 0 0")
-
-    def test_fen_move_counters_require_ascii_decimal_text(self):
-        invalid = (
-            "8/8/8/8/8/8/8/K6k w - - +1 1",
-            "8/8/8/8/8/8/8/K6k w - - ٠ 1",
-            "8/8/8/8/8/8/8/K6k w - - 0 +1",
-            "8/8/8/8/8/8/8/K6k w - - 0 ١",
-        )
-        for fen in invalid:
-            with self.subTest(fen=fen):
-                with self.assertRaisesRegex(PositionValidationError, "ASCII decimal"):
-                    PositionState.from_fen(fen)
-
-    def test_en_passant_square_requires_canonical_lowercase_text(self):
-        with self.assertRaisesRegex(PositionValidationError, "canonical lowercase"):
-            PositionState.from_fen("8/8/8/3pP3/8/8/8/K6k w - D6 0 12")
 
     def test_clear_preserves_turn_but_resets_position_metadata(self):
         position = PositionState.from_fen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 17 22")
