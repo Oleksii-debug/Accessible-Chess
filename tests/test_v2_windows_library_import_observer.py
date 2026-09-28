@@ -83,7 +83,6 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             progress_values = []
             results = []
             events = []
-            canonical_result_seen = threading.Event()
 
             def base_factory():
                 database = AcsDatabase(database_path)
@@ -180,6 +179,7 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             database_path = root / "library.acsdb"
             source.write_text(PGN_TWO, encoding="utf-8")
             events = []
+            canonical_result_seen = threading.Event()
 
             def base_factory():
                 database = AcsDatabase(database_path)
