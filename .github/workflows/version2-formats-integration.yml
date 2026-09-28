@@ -66,6 +66,7 @@ on:
       - 'tests/test_v2_library_integrity_repair.py'
       - 'tests/test_v2_library_search_service_v4.py'
       - 'tests/test_version2_formats_integration.py'
+      - 'tests/test_version2_formats_canonical_nullmove_gate.py'
       - 'tools/optional/LIBCBH_BACKEND.md'
       - 'tools/optional/UNCBV_BACKEND.md'
       - 'tools/optional/libcbh_json_bridge.cpp'
@@ -84,6 +85,8 @@ concurrency:
 env:
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  CANONICAL_NULLMOVE_CHESSCORE_BLOB: 8351a91b40bc344e512688c481c762ee0c5b0454
+  CANONICAL_NULLMOVE_DECODER_BLOB: 25073fa9f06d195ad0dbb06c40599cd99359a188
 
 jobs:
   combined-formats:
@@ -127,14 +130,31 @@ jobs:
           git diff --check "$BASE_SHA" HEAD
 
           changed="$(git diff --name-only "$BASE_SHA" HEAD | sort)"
-          protected="$(printf '%s\n' "$changed" | grep -E '^(acs/chesscore\.py|acs/stage1_release_ui\.py|acs/stage1_release_ui_core\.py|acs/webapp_keymap_core\.py|web/stage1_board_actions\.js|web/stage1_release_bootstrap\.js|tools/qa/|.*windows-stage1.*|.*release_preflight.*)' || true)"
-          if [ -n "$protected" ]; then
-            printf 'Formats candidate mutates protected release seam relative to live base %s:\n%s\n' "$BASE_SHA" "$protected" >&2
+          protected_other="$(printf '%s\n' "$changed" | grep -E '^(acs/stage1_release_ui\.py|acs/stage1_release_ui_core\.py|acs/webapp_keymap_core\.py|web/stage1_board_actions\.js|web/stage1_release_bootstrap\.js|tools/qa/|.*windows-stage1.*|.*release_preflight.*)' || true)"
+          if [ -n "$protected_other" ]; then
+            printf 'Formats candidate mutates protected release seam relative to live base %s:\n%s\n' "$BASE_SHA" "$protected_other" >&2
             exit 1
           fi
 
+          base_chesscore_blob="$(git rev-parse "$BASE_SHA:acs/chesscore.py")"
+          head_chesscore_blob="$(git rev-parse "HEAD:acs/chesscore.py")"
+          if [ "$head_chesscore_blob" != "$base_chesscore_blob" ]; then
+            test "$head_chesscore_blob" = "$CANONICAL_NULLMOVE_CHESSCORE_BLOB" || {
+              printf 'Unreviewed chesscore drift in Formats candidate: base=%s head=%s\n' \
+                "$base_chesscore_blob" "$head_chesscore_blob" >&2
+              exit 1
+            }
+            head_decoder_blob="$(git rev-parse "HEAD:acs/chessbase_decoder.py")"
+            test "$head_decoder_blob" = "$CANONICAL_NULLMOVE_DECODER_BLOB" || {
+              printf 'Canonical null-move chesscore requires exact reviewed ChessBase decoder: expected=%s head=%s\n' \
+                "$CANONICAL_NULLMOVE_DECODER_BLOB" "$head_decoder_blob" >&2
+              exit 1
+            }
+            printf 'FORMATS_ACCEPTED_CANONICAL_NULLMOVE=%s/%s\n' \
+              "$head_chesscore_blob" "$head_decoder_blob"
+          fi
+
           for path in \
-            acs/chesscore.py \
             acs/stage1_release_ui.py \
             acs/stage1_release_ui_core.py \
             acs/webapp_keymap_core.py \
@@ -163,6 +183,7 @@ jobs:
       - name: Version 2 semantic format journeys
         run: >-
           python -m unittest -v
+          tests.test_version2_formats_canonical_nullmove_gate
           tests.test_version2_formats_integration
           tests.test_cbv_extractor
           tests.test_cbv_uncbv_external_fixture
