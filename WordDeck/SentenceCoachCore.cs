@@ -214,10 +214,22 @@ internal static partial class SentenceTokenizer
     [GeneratedRegex("[A-Za-z]+(?:['’][A-Za-z]+)?", RegexOptions.CultureInvariant)]
     private static partial Regex EnglishTokenRegex();
 
+    [GeneratedRegex(@"\p{L}[\p{L}\p{M}]*(?:['’]\p{L}[\p{L}\p{M}]*)?", RegexOptions.CultureInvariant)]
+    private static partial Regex EnglishSpellingTokenRegex();
+
     public static IReadOnlyList<string> Tokenize(string text)
     {
         string normalizedText = NormalizeText(text ?? string.Empty);
         return EnglishTokenRegex().Matches(normalizedText)
+            .Select(match => NormalizeToken(match.Value))
+            .Where(token => token.Length > 0)
+            .ToList();
+    }
+
+    public static IReadOnlyList<string> TokenizeForSpelling(string text)
+    {
+        string normalizedText = NormalizeText(text ?? string.Empty);
+        return EnglishSpellingTokenRegex().Matches(normalizedText)
             .Select(match => NormalizeToken(match.Value))
             .Where(token => token.Length > 0)
             .ToList();
@@ -258,11 +270,11 @@ internal static class SentenceAnswerEvaluator
 {
     public static SentenceAnswerResult Evaluate(string requiredEnglish, string typedEnglish)
     {
-        List<string> required = SentenceTokenizer.Tokenize(requiredEnglish).ToList();
+        List<string> required = SentenceTokenizer.TokenizeForSpelling(requiredEnglish).ToList();
         List<string> typed;
         try
         {
-            typed = SentenceTokenizer.Tokenize(typedEnglish).ToList();
+            typed = SentenceTokenizer.TokenizeForSpelling(typedEnglish).ToList();
         }
         catch (InvalidDataException)
         {
