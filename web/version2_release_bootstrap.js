@@ -69,6 +69,11 @@
     if (!id) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
+    // Host status events can repeat a focus target that the initiating surface
+    // already restored after a synchronous native dialog. Avoid a second DOM
+    // focus transition (and duplicate screen-reader focus speech) while still
+    // reporting successful restoration.
+    if (documentRef.activeElement === target) return true;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
       target.setAttribute("tabindex", "-1");
     }

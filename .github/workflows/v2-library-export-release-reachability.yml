@@ -11,6 +11,7 @@ on:
       - 'web/full_product_library.js'
       - 'web/version2_release_bootstrap.js'
       - 'tests/js/library_export_focus_restore_test.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_d07_library_export_webview.py'
       - 'tests/test_v2_library_export_release_reachability.py'
       - 'tests/test_v2_native_dialog_language.py'
@@ -65,6 +66,7 @@ jobs:
             'web/full_product_library.js' \
             'web/version2_release_bootstrap.js' \
             'tests/js/library_export_focus_restore_test.js' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
             'tests/test_d07_library_export_webview.py' \
             'tests/test_v2_library_export_release_reachability.py' \
             'tests/test_v2_native_dialog_language.py' \
@@ -97,8 +99,10 @@ jobs:
           node --check web/full_product_library.js &&
           node --check web/version2_release_bootstrap.js
 
-      - name: Execute Library native-dialog focus regression
-        run: node tests/js/library_export_focus_restore_test.js
+      - name: Execute Library native-dialog focus regressions
+        run: >-
+          node tests/js/library_export_focus_restore_test.js &&
+          node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Run focused Library export reachability regressions
         run: >-

@@ -14,6 +14,7 @@ class FakeElement {
     this.textContent = "";
     this.hidden = false;
     this.tabIndex = 0;
+    this.focusCount = 0;
   }
 
   appendChild(child) {
@@ -51,6 +52,7 @@ class FakeElement {
   }
 
   focus() {
+    this.focusCount += 1;
     documentRef.activeElement = this;
   }
 
@@ -288,6 +290,41 @@ async function clickRoute(routeId) {
   check(snapshotCalls === beforeStatusSnapshotCalls, "status-only event triggered a full V2 snapshot rerender");
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
+
+  // Browser-triggered Library export restores its own invoking control after
+  // the synchronous native Save dialog. The later host status event carries
+  // the same focus target for native-menu parity; consuming it must not call
+  // focus() a second time or NVDA can announce the same control twice.
+  const beforeIdempotentFocus = libraryInput.focusCount;
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(documentRef.activeElement === libraryInput, "idempotent host focus event lost the active Library control");
+  check(libraryInput.focusCount === beforeIdempotentFocus, "host focus event focused an already-active Library control twice");
+
+  // The same host focus token must still restore focus when it is genuinely
+  // elsewhere, preserving native-menu and failure/cancel recovery semantics.
+  boardLauncher.focus();
+  const beforeRequiredRestore = libraryInput.focusCount;
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Cancelled.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(documentRef.activeElement === libraryInput, "host focus event did not restore a genuinely lost Library focus");
+  check(libraryInput.focusCount === beforeRequiredRestore + 1, "host focus restoration did not occur exactly once");
 
   currentRoute = "board";
   eventQueue = [
