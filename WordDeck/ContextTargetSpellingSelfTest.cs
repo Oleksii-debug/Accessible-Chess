@@ -189,9 +189,12 @@ internal static class ContextTargetSpellingSelfTest
 
         foreach ((string sentenceId, string english) in new[]
         {
-            ("s-unicode-boundary-accented", "The caféimprove sign is misleading"),
-            ("s-unicode-boundary-cyrillic", "The тестimprove label is synthetic"),
-            ("s-unicode-boundary-digit", "Version ²improve is not a standalone target")
+            ("s-unicode-boundary-accented-before", "The caféimprove sign is misleading"),
+            ("s-unicode-boundary-accented-after", "The improveé sign is synthetic"),
+            ("s-unicode-boundary-cyrillic-before", "The тестimprove label is synthetic"),
+            ("s-unicode-boundary-cyrillic-after", "The improveтест label is synthetic"),
+            ("s-unicode-boundary-digit-before", "Version ²improve is not a standalone target"),
+            ("s-unicode-boundary-digit-after", "Version improve² is not a standalone target")
         })
         {
             ContextPracticeCard card = Card(
