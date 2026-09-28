@@ -558,6 +558,12 @@ class BookBoardWorkflow:
             session = self._require_session()
             origin = session.origin
             try:
+                # Validate the immutable BookReader index before trusting a
+                # location-only equality check. An in-place document mutation can
+                # preserve the same ReadingLocation fields while invalidating the
+                # semantic index revision; snapshot() is the canonical fail-closed
+                # revision boundary for durable reader state.
+                self._reader.snapshot()
                 current = self._reader.location()
             except Exception as exc:
                 # Keep the session alive if the Book revision became unreadable;
