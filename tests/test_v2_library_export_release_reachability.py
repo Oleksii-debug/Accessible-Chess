@@ -629,64 +629,74 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
 
 
     def test_production_native_menu_empty_export_selection_is_accessibly_rejected(self) -> None:
-        database = AcsDatabase()
-        try:
-            application = Version2Application(
-                database,
-                progress_store=SimpleNamespace(path=Path("book-progress.json")),
-                engine_assistance=object(),
-                board_dispatch=Mock(),
-                copy_text=lambda _value: None,
-                language=UILanguage.EN,
-            )
-            application.record_focus("library-search-player")
-            controller = Version2NativeMenuController(
-                application.adapter,
-                application.native_command,
-                exit_callback=lambda: None,
-                current_focus_provider=lambda: application._focus,
-            )
-            export_menu = next(
-                menu for menu in controller.spec() if menu.menu_id == "export"
-            )
-            export_item = next(
-                item
-                for item in export_menu.items
-                if getattr(item, "action_id", "") == "library.export"
-            )
+        cases = (
+            (
+                UILanguage.UA,
+                "Виберіть щонайменше одну партію в Бібліотеці перед експортом.",
+            ),
+            (
+                UILanguage.EN,
+                "Select at least one game in the Library before exporting.",
+            ),
+        )
+        for language, expected_message in cases:
+            with self.subTest(language=language):
+                database = AcsDatabase()
+                try:
+                    application = Version2Application(
+                        database,
+                        progress_store=SimpleNamespace(path=Path("book-progress.json")),
+                        engine_assistance=object(),
+                        board_dispatch=Mock(),
+                        copy_text=lambda _value: None,
+                        language=language,
+                    )
+                    application.record_focus("library-search-player")
+                    controller = Version2NativeMenuController(
+                        application.adapter,
+                        application.native_command,
+                        exit_callback=lambda: None,
+                        current_focus_provider=lambda: application._focus,
+                    )
+                    export_menu = next(
+                        menu for menu in controller.spec() if menu.menu_id == "export"
+                    )
+                    export_item = next(
+                        item
+                        for item in export_menu.items
+                        if getattr(item, "action_id", "") == "library.export"
+                    )
 
-            with patch.object(
-                application.library.projection,
-                "request_export_selected",
-                side_effect=AssertionError(
-                    "empty native export must fail before building an export request"
-                ),
-            ):
-                command = controller.activate(export_item)
+                    with patch.object(
+                        application.library.projection,
+                        "request_export_selected",
+                        side_effect=AssertionError(
+                            "empty native export must fail before building an export request"
+                        ),
+                    ):
+                        command = controller.activate(export_item)
 
-            events = application.drain_events()
-            self.assertIsNotNone(command)
-            self.assertEqual(command.kind, "delegated")
-            self.assertEqual(
-                events,
-                (
-                    {
-                        "kind": "status",
-                        "payload": {
-                            "announcement": (
-                                "Select at least one game in the Library before exporting."
-                            ),
-                            "focus_target": "library-search-player",
-                        },
-                    },
-                    {
-                        "kind": "delegated",
-                        "payload": {"action_id": "library.export"},
-                    },
-                ),
-            )
-        finally:
-            database.close()
+                    events = application.drain_events()
+                    self.assertIsNotNone(command)
+                    self.assertEqual(command.kind, "delegated")
+                    self.assertEqual(
+                        events,
+                        (
+                            {
+                                "kind": "status",
+                                "payload": {
+                                    "announcement": expected_message,
+                                    "focus_target": "library-search-player",
+                                },
+                            },
+                            {
+                                "kind": "delegated",
+                                "payload": {"action_id": "library.export"},
+                            },
+                        ),
+                    )
+                finally:
+                    database.close()
 
     def test_production_native_menu_selected_export_reaches_runtime_and_restores_focus(self) -> None:
         pgn = """[Event "Native menu export"]
