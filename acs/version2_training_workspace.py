@@ -154,7 +154,20 @@ class Version2BookTrainingWorkspace:
         before = self.session.snapshot()
         revision = self._revision
         before_language = bridge.projection.language
-        event = bridge.dispatch(command, payload)
+        try:
+            event = bridge.dispatch(command, payload)
+        except Exception:
+            if command != "training.continue":
+                # The bridge normally sanitizes projection failures. If the
+                # sanitizing error projection itself raises after a presenter or
+                # session mutation, restore the exact pre-command Training state
+                # before allowing the outer application boundary to sanitize it.
+                restored = ExerciseSession.restore(material.definition, before)
+                self._session = restored
+                self.language = before_language
+                self.bridge = self._bridge_for(restored)
+                self._revision = revision
+            raise
         if command == "training.continue":
             return event
         if event.kind == "error":
