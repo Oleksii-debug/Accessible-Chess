@@ -481,7 +481,7 @@ class BookReaderPresenter:
         self._language = language
 
     def _block_view(self, location: ReadingLocation) -> BookBlockView:
-        block = self._reader.document.blocks[location.index]
+        block = self._reader.block_snapshot(location.index)
         role = "group"
         title = ""
         text = ""
