@@ -10,7 +10,17 @@ from typing import Any, Mapping
 
 STATS_SCHEMA_VERSION = 1
 _MAX_COUNTER = 2**63 - 1
+_MAX_STATS_FILE_BYTES = 64 * 1024
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
+
+
+def _no_duplicate_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("statistics payload contains duplicate fields")
+        result[key] = value
+    return result
 
 
 def normalize_installation_id(value: object) -> str:
@@ -180,7 +190,14 @@ class UsageStatisticsStore:
         if not self.path.exists():
             return UsageStatisticsSnapshot(normalized)
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            with self.path.open("rb") as handle:
+                encoded = handle.read(_MAX_STATS_FILE_BYTES + 1)
+            if len(encoded) > _MAX_STATS_FILE_BYTES:
+                raise ValueError("statistics payload exceeds the supported size")
+            raw = json.loads(
+                encoded.decode("utf-8", errors="strict"),
+                object_pairs_hook=_no_duplicate_object,
+            )
             if not isinstance(raw, Mapping):
                 raise ValueError("statistics payload must be an object")
             snapshot = UsageStatisticsSnapshot.from_dict(raw)

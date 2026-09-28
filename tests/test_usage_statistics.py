@@ -73,6 +73,25 @@ class UsageStatisticsTests(unittest.TestCase):
             self.assertEqual(recovered, UsageStatisticsSnapshot("install-1"))
             self.assertTrue(store.recovered_invalid_data)
 
+    def test_oversized_or_duplicate_key_payload_recovers_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+
+            path.write_bytes(b"{" + b"x" * (64 * 1024) + b"}")
+            recovered = store.load("install-1")
+            self.assertEqual(recovered, UsageStatisticsSnapshot("install-1"))
+            self.assertTrue(store.recovered_invalid_data)
+
+            path.write_text(
+                '{"schema_version":1,"installation_id":"install-1",'
+                '"installation_id":"install-1"}',
+                encoding="utf-8",
+            )
+            recovered = store.load("install-1")
+            self.assertEqual(recovered, UsageStatisticsSnapshot("install-1"))
+            self.assertTrue(store.recovered_invalid_data)
+
     def test_identifiers_counters_and_overflow_are_bounded(self) -> None:
         for invalid in (None, True, 1):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
