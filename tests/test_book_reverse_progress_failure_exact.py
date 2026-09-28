@@ -615,5 +615,40 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
                 self.assertEqual("book-progress-modal", app.shell.active_dialog_id)
 
 
+    def test_native_return_progress_failure_is_sanitized_and_keeps_exact_origin(self) -> None:
+        """Native/NVDA Book return must share the browser return durability boundary."""
+        with tempfile.TemporaryDirectory() as root_text:
+            with self._app(Path(root_text)) as (app, progress):
+                self.assertEqual(
+                    app.browser_command("books", "book.next_position")["kind"],
+                    "render",
+                )
+                origin = app.reader.snapshot()
+                durable_before = self._durable_snapshot(app, progress)
+
+                opened = app.browser_command("books", "book.open_position")
+                self.assertEqual(opened["kind"], "delegated")
+                self.assertTrue(app.book_workflow.active)
+
+                # Move inside the transient Board review so return has real
+                # review state to discard before the required progress write.
+                app.router.dispatch("book.board_next_move")
+                self.assertTrue(app.book_workflow.active)
+
+                with patch.object(
+                    progress,
+                    "save",
+                    side_effect=OSError("simulated native return progress failure"),
+                ):
+                    result = app.adapter.activate_action("book.return")
+
+                self.assertEqual(result.kind, "error")
+                self.assertFalse(app.book_workflow.active)
+                self.assertEqual(app.shell.current_route.route_id, "books")
+                self.assertEqual(app.reader.snapshot(), origin)
+                self.assertEqual(self._durable_snapshot(app, progress), durable_before)
+                self.assertNotIn("simulated", str(result.payload.get("message", "")))
+
+
 if __name__ == "__main__":
     unittest.main()
