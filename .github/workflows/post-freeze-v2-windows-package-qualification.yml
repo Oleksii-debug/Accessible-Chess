@@ -1,4 +1,4 @@
-# exact-package-reconvergence: e61b570 / p0g 4a5f329 / p0-document 7cdf07b
+# exact-package-reconvergence: 4c695cf / p0g 4c695cf / p0-document 4c695cf
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,19 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PACKAGE_ANCHOR_SHA: 7fc52aa6c3f13835e3381c61dc9d19e840e00426
-  PRODUCT_PARENT_SHA: e61b570761207ecd1db0322bfc80c3e302b63e2f
-  PREVIOUS_PACKAGE_SHA: 59370728a303bd04016f07ac97beb905cc2b198d
-  PREVIOUS_WORKFLOW_BLOB_SHA: 51c061298cdcec6afc32505a0d876c64b9acb446
+  PACKAGE_ANCHOR_SHA: 5b616a8878fa875be11aa1501113444c9c658a56
+  PRODUCT_PARENT_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
+  PREVIOUS_PACKAGE_SHA: 16f2dbee089420c45dd258f12007a995241cf1c3
+  PREVIOUS_WORKFLOW_BLOB_SHA: 9a26fa416655c4e4252d64efc071adec8b480a6a
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 4a5f329e6ded11316b21cdd29d2be29d40571583
+  P0G_QA_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
   P0G_PROBE_BLOB_SHA: 796d705c66b11f880b3173caddfb41e7af09de35
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 7cdf07b2a5f7fd19c14b9ddd11cc2421e9772d49
-  P0_DOCUMENT_PROBE_BLOB_SHA: 6b6c3c7c37a3089c7bbf2f3ded6ad731998395ca
+  P0_DOCUMENT_QA_SHA: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
+  P0_DOCUMENT_PROBE_BLOB_SHA: 7afbbbdf66f4e2458a453cd40ad7a094e923544c
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -98,7 +98,9 @@ jobs:
           test -s .p0-packaged-document-copy-probe.ps1
           grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .previous-package-qualification.yml
           grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .previous-package-qualification.yml
-          grep -Fq "MENUBAR_OVERRIDE = r\"\"\"" .previous-package-qualification.yml
+          grep -Fq 'Prove fresh-extracted native MenuBar profile through process-scoped UIA' .package-qualification-source.yml
+          grep -Fq '$top.Count -ne 13' .package-qualification-source.yml
+          grep -Fq 'training_top_menu_expected=$false' .package-qualification-source.yml
           grep -Fq 'function EnsureEngineEnabled($EngineToggle)' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'function FindVariationButton($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
           grep -Fq 'function SelectedVariation($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
