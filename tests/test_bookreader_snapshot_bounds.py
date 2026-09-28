@@ -106,6 +106,15 @@ class BookReaderSnapshotBoundsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "field count"):
             BookReader.restore_snapshot(self.make_book(), snapshot)
 
+    def test_restore_rejects_non_string_snapshot_fields_deterministically(self):
+        snapshot = self.valid_snapshot()
+        snapshot.pop("return_points")
+        snapshot.pop("fallback_digests")
+        snapshot["unexpected"] = {}
+        snapshot[1] = {}
+        with self.assertRaisesRegex(ValueError, "field names must be strings"):
+            BookReader.restore_snapshot(self.make_book(), snapshot)
+
 
 if __name__ == "__main__":
     unittest.main()
