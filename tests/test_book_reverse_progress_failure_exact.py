@@ -648,7 +648,7 @@ class BookReverseProgressFailureExactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root_text:
             with self._app(Path(root_text)) as (app, progress):
                 self.assertEqual(
-                    app.browser_command("books", "book.next_position")["kind"],
+                    app.browser_command("books", "book.next_game")["kind"],
                     "render",
                 )
                 origin = app.reader.snapshot()
