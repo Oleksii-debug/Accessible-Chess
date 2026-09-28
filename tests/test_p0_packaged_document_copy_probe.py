@@ -143,6 +143,22 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertLess(edit_reassert, edit_focus_reassert)
         self.assertLess(edit_focus_reassert, edit_copy)
 
+    def test_probe_preserves_exact_textpattern_range_whitespace_for_native_copy(self) -> None:
+        self.assertIn("$selected=[string]$target.GetText(-1)", self.text)
+        self.assertIn("if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}", self.text)
+        self.assertNotIn("$selected=([string]$target.GetText(-1)).Trim()", self.text)
+        self.assertIn("$targetText=[string]$target.GetText(-1)", self.text)
+        self.assertIn("if($activeSelectedText -cne $targetText)", self.text)
+        self.assertIn("WaitClipboard $selected", self.text)
+        self.assertLess(
+            self.text.index("$selected=[string]$target.GetText(-1)"),
+            self.text.index("$target.Select()"),
+        )
+        self.assertLess(
+            self.text.index("$target.Select()"),
+            self.text.index("WaitClipboard $selected"),
+        )
+
     def test_probe_requires_case_sensitive_exact_clipboard_equality(self) -> None:
         self.assertIn("if($last -ceq $Expected){return $last}", self.text)
         self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
