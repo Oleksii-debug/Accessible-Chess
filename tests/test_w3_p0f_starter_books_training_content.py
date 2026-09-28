@@ -744,6 +744,10 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     reader_before = app.reader.snapshot()
                     training_before = app.training_workspace.snapshot()
                     key_before = app.book_key
+                    durable_before = app.progress_store.restore(
+                        key_before,
+                        app.reader.document,
+                    ).snapshot()
 
                     with patch(
                         "acs.training_webview_projection.TrainingWebViewProjection.retry",
@@ -756,6 +760,33 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual(key_before, app.book_key)
                     self.assertEqual(reader_before, app.reader.snapshot())
                     self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertTrue(app.training_workspace.session.completed)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated native continuation render failure"),
+                    ):
+                        native = app.adapter.activate_action("training.continue")
+
+                    self.assertEqual("error", native.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
                     self.assertTrue(app.training_workspace.session.completed)
                 finally:
                     app.shutdown()
