@@ -121,6 +121,27 @@ class UsageSyncTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             UsageAnalyticsPolicy(retention_days=3651)
 
+    def test_policy_subclass_cannot_override_collection_or_sync_boundary(self) -> None:
+        class BypassPolicy(UsageAnalyticsPolicy):
+            def allows_collection(self) -> bool:
+                return True
+
+            def allows_sync(self) -> bool:
+                return True
+
+        bypass = BypassPolicy()
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
+            queued = event()
+            with self.assertRaisesRegex(ValueError, "policy must be UsageAnalyticsPolicy"):
+                queue.enqueue(queued, bypass)
+            self.assertEqual(queue.pending("install-1"), ())
+
+            self.assertTrue(queue.enqueue(queued, ENABLED))
+            with self.assertRaisesRegex(ValueError, "policy must be UsageAnalyticsPolicy"):
+                queue.sync_pending(FakeUsageSync(), bypass, "install-1")
+            self.assertEqual(queue.pending("install-1"), (queued,))
+
     def test_same_event_id_cannot_silently_overwrite_different_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             queue = make_queue(Path(tmp) / "usage-sync.sqlite")

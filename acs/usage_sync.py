@@ -308,7 +308,7 @@ class UsageEventQueue:
     def enqueue(self, event: UsageEvent, policy: UsageAnalyticsPolicy) -> bool:
         if type(event) is not UsageEvent:
             raise ValueError("event must be UsageEvent")
-        if not isinstance(policy, UsageAnalyticsPolicy):
+        if type(policy) is not UsageAnalyticsPolicy:
             raise ValueError("policy must be UsageAnalyticsPolicy")
         if not policy.allows_collection():
             return False
@@ -391,7 +391,7 @@ class UsageEventQueue:
         limit: int = 100,
     ) -> int:
         normalized = normalize_installation_id(installation_id)
-        if not isinstance(policy, UsageAnalyticsPolicy):
+        if type(policy) is not UsageAnalyticsPolicy:
             raise ValueError("policy must be UsageAnalyticsPolicy")
         if not policy.allows_sync():
             return 0
