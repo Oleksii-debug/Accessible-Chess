@@ -7,9 +7,11 @@ on:
       - fix/p0f-w3-semantic-post-integration-20260912
       - fix/p0f-starter-structured-diagrams-variations-20260912
       - fix/p0f-starter-material-discovery-20260912
+      - work/books-bidirectional-semantic-navigation-20260927
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - work/books-bidirectional-semantic-navigation-20260927
     paths:
       - acs/starter_books_training_content.py
       - acs/starter_books_training_release.py
