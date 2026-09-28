@@ -117,6 +117,11 @@ class TrainingWebViewProjection:
     def language(self) -> UILanguage:
         return self._language
 
+    @property
+    def presenter_message(self) -> str:
+        """Exact transient presenter feedback for local transactional rollback."""
+        return self._presenter.message
+
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
         if isinstance(language, str):
             try:

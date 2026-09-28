@@ -658,6 +658,234 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_render_errors_restore_session_before_persistence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-render-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+
+                    before_submit = app.training_workspace.session.snapshot()
+                    revision_before_submit = app.training_workspace._revision
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated submit render failure"),
+                    ):
+                        rejected_submit = app.browser_command(
+                            "training",
+                            "training.submit",
+                            {"answer": "not-a-legal-move"},
+                        )
+
+                    self.assertEqual("error", rejected_submit["kind"])
+                    self.assertEqual(before_submit, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before_submit, app.training_workspace._revision)
+
+                    progressed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": "not-a-legal-move"},
+                    )
+                    self.assertEqual("render", progressed["kind"])
+                    before_reset = app.training_workspace.session.snapshot()
+                    revision_before_reset = app.training_workspace._revision
+                    self.assertEqual(1, before_reset["attempts"])
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated reset render failure"),
+                    ):
+                        rejected_reset = app.browser_command(
+                            "training",
+                            "training.reset",
+                            {"confirmed": True},
+                        )
+
+                    self.assertEqual("error", rejected_reset["kind"])
+                    self.assertEqual(before_reset, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before_reset, app.training_workspace._revision)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_transient_message_survives_rejected_and_failed_actions(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-message-rollback-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+
+                    seeded = app.browser_command("training", "training.reveal")
+                    self.assertEqual("render", seeded["kind"])
+                    message_before = app.training_workspace.snapshot()["message"]
+                    session_before = app.training_workspace.session.snapshot()
+                    revision_before = app.training_workspace._revision
+                    self.assertTrue(message_before)
+
+                    rejected = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"wrong": "field"},
+                    )
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated retry render failure"),
+                    ):
+                        retry_failed = app.browser_command("training", "training.retry")
+                    self.assertEqual("error", retry_failed["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated reveal render failure"),
+                    ):
+                        reveal_failed = app.browser_command("training", "training.reveal")
+                    self.assertEqual("error", reveal_failed["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+
+                    with patch.object(
+                        app.training_workspace._store,
+                        "save",
+                        side_effect=OSError("simulated Training progress write failure"),
+                    ):
+                        save_failed = app.browser_command("training", "training.retry")
+                    self.assertEqual("error", save_failed["kind"])
+                    self.assertEqual(message_before, app.training_workspace.snapshot()["message"])
+                    self.assertEqual(session_before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_language_survives_bridge_rebuild_after_render_rollback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-language-rollback-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    switched = app.browser_command(
+                        "training",
+                        "training.language",
+                        {"language": "en"},
+                    )
+                    self.assertEqual("render", switched["kind"])
+                    self.assertEqual(
+                        "en",
+                        app.training_workspace.snapshot()["document"]["lang"],
+                    )
+
+                    before = app.training_workspace.session.snapshot()
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated post-language render failure"),
+                    ):
+                        rejected = app.browser_command(
+                            "training",
+                            "training.submit",
+                            {"answer": "not-a-legal-move"},
+                        )
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(before, app.training_workspace.session.snapshot())
+                    rebuilt = app.training_workspace.snapshot()
+                    self.assertEqual("en", rebuilt["document"]["lang"])
+                    self.assertEqual("Training", rebuilt["heading"])
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_escaped_error_projection_failure_restores_session(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-double-failure-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    before = app.training_workspace.session.snapshot()
+                    revision_before = app.training_workspace._revision
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection._render",
+                        side_effect=RuntimeError("simulated submit render failure"),
+                    ), patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.generic_error",
+                        side_effect=RuntimeError("simulated error projection failure"),
+                    ):
+                        rejected = app.browser_command(
+                            "training",
+                            "training.submit",
+                            {"answer": "not-a-legal-move"},
+                        )
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(before, app.training_workspace.session.snapshot())
+                    self.assertEqual(revision_before, app.training_workspace._revision)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_training_continue_book_progress_failure_restores_completed_origin(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-continue-save-") as raw:
             root = Path(raw)
@@ -710,6 +938,245 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual("training", app.shell.current_route.route_id)
                     self.assertEqual(reader_before, app.reader.snapshot())
                     self.assertEqual(training_before, app.training_workspace.snapshot())
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_continue_render_error_restores_completed_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-continue-render-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    switched = app.browser_command(
+                        "training",
+                        "training.language",
+                        {"language": "en"},
+                    )
+                    self.assertEqual("render", switched["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    completed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    self.assertEqual("render", completed["kind"])
+                    self.assertTrue(app.training_workspace.session.completed)
+                    reader_before = app.reader.snapshot()
+                    training_before = app.training_workspace.snapshot()
+                    key_before = app.book_key
+                    durable_before = app.progress_store.restore(
+                        key_before,
+                        app.reader.document,
+                    ).snapshot()
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated next exercise render failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertTrue(app.training_workspace.session.completed)
+                    self.assertEqual(
+                        "en",
+                        app.training_workspace.snapshot()["document"]["lang"],
+                    )
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated native continuation render failure"),
+                    ):
+                        native = app.adapter.activate_action("training.continue")
+
+                    self.assertEqual("error", native.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertTrue(app.training_workspace.session.completed)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_continue_render_error_secondary_restore_failure_recovers_to_books(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-render-secondary-restore-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    completed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    self.assertEqual("render", completed["kind"])
+                    self.assertTrue(app.training_workspace.session.completed)
+                    reader_before = app.reader.snapshot()
+                    key_before = app.book_key
+                    durable_before = app.progress_store.restore(
+                        key_before,
+                        app.reader.document,
+                    ).snapshot()
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated next exercise render failure"),
+                    ), patch(
+                        "acs.version2_application.Version2BookTrainingWorkspace.start_current",
+                        side_effect=ValueError("simulated Training restore failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertIsNone(app.training_workspace)
+                    self.assertIsNone(app.training)
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                    events = app.drain_events()
+                    self.assertTrue(
+                        any(
+                            item["kind"] == "route"
+                            and item["payload"].get("route_id") == "books"
+                            for item in events
+                        )
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+    def test_training_continue_escaped_error_projection_failure_restores_completed_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-render-double-failure-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    opened = app.browser_command("shell", "screen.training")
+                    self.assertEqual("route", opened["kind"])
+                    current = app.training_workspace.material.definition.steps[0]
+                    completed = app.browser_command(
+                        "training",
+                        "training.submit",
+                        {"answer": next(iter(current.accepted_moves))},
+                    )
+                    self.assertEqual("render", completed["kind"])
+                    self.assertTrue(app.training_workspace.session.completed)
+                    reader_before = app.reader.snapshot()
+                    training_before = app.training_workspace.snapshot()
+                    key_before = app.book_key
+                    durable_before = app.progress_store.restore(
+                        key_before,
+                        app.reader.document,
+                    ).snapshot()
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated next exercise render failure"),
+                    ), patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.generic_error",
+                        side_effect=RuntimeError("simulated error projection failure"),
+                    ):
+                        rejected = app.browser_command("training", "training.continue")
+
+                    self.assertEqual("error", rejected["kind"])
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertTrue(app.training_workspace.session.completed)
+
+                    with patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                        side_effect=RuntimeError("simulated native next exercise render failure"),
+                    ), patch(
+                        "acs.training_webview_projection.TrainingWebViewProjection.generic_error",
+                        side_effect=RuntimeError("simulated native error projection failure"),
+                    ):
+                        native = app.adapter.activate_action("training.continue")
+
+                    self.assertEqual("error", native.kind)
+                    self.assertEqual("training", app.shell.current_route.route_id)
+                    self.assertEqual(key_before, app.book_key)
+                    self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertEqual(
+                        durable_before,
+                        app.progress_store.restore(
+                            key_before,
+                            app.reader.document,
+                        ).snapshot(),
+                    )
+                    self.assertTrue(app.training_workspace.session.completed)
                 finally:
                     app.shutdown()
             finally:
