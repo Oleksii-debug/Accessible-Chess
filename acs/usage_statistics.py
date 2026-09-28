@@ -14,7 +14,9 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 
 
 def normalize_installation_id(value: object) -> str:
-    normalized = str(value).strip().lower()
+    if type(value) is not str:
+        raise ValueError("installation_id must be a bounded opaque identifier")
+    normalized = value.strip().lower()
     if not _ID_RE.fullmatch(normalized):
         raise ValueError("installation_id must be a bounded opaque identifier")
     return normalized
@@ -115,6 +117,8 @@ class AggregateUsageStatistics:
     """Aggregate counters only; never accepts chess/document/communication payloads."""
 
     def __init__(self, snapshot: UsageStatisticsSnapshot) -> None:
+        if type(snapshot) is not UsageStatisticsSnapshot:
+            raise ValueError("snapshot must be UsageStatisticsSnapshot")
         self._snapshot = snapshot
 
     @property
@@ -188,6 +192,8 @@ class UsageStatisticsStore:
             return UsageStatisticsSnapshot(normalized)
 
     def save(self, snapshot: UsageStatisticsSnapshot) -> None:
+        if type(snapshot) is not UsageStatisticsSnapshot:
+            raise ValueError("snapshot must be UsageStatisticsSnapshot")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         encoded = json.dumps(

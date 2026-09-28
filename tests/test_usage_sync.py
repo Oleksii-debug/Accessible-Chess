@@ -112,6 +112,8 @@ class UsageSyncTests(unittest.TestCase):
     def test_policy_is_strict_and_fail_closed(self) -> None:
         with self.assertRaises(ValueError):
             UsageAnalyticsPolicy(analytics_enabled=1)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(ValueError, "consent state must be text"):
+            UsageAnalyticsPolicy(consent_state=True)  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
             UsageAnalyticsPolicy(consent_state="maybe")
         with self.assertRaises(ValueError):
@@ -245,6 +247,71 @@ class UsageSyncTests(unittest.TestCase):
                 counters=[],  # type: ignore[arg-type]
                 created_at_utc="2026-08-16T10:00:00Z",
             )
+
+    def test_event_identity_and_counter_payload_are_fail_closed_after_validation(self) -> None:
+        with self.assertRaisesRegex(ValueError, "event_id must be"):
+            UsageEvent(
+                event_id=1,  # type: ignore[arg-type]
+                installation_id="install-1",
+                kind="feature",
+                counters={"feature_uses": 1},
+                created_at_utc="2026-08-16T10:00:00Z",
+            )
+        with self.assertRaisesRegex(ValueError, "installation_id must be"):
+            UsageEvent(
+                event_id="event-1",
+                installation_id=True,  # type: ignore[arg-type]
+                kind="feature",
+                counters={"feature_uses": 1},
+                created_at_utc="2026-08-16T10:00:00Z",
+            )
+        with self.assertRaisesRegex(ValueError, "event kind must be text"):
+            UsageEvent(
+                event_id="event-1",
+                installation_id="install-1",
+                kind=1,  # type: ignore[arg-type]
+                counters={"feature_uses": 1},
+                created_at_utc="2026-08-16T10:00:00Z",
+            )
+        with self.assertRaisesRegex(ValueError, "UTC timestamp"):
+            UsageEvent(
+                event_id="event-1",
+                installation_id="install-1",
+                kind="feature",
+                counters={"feature_uses": 1},
+                created_at_utc=1,  # type: ignore[arg-type]
+            )
+        with self.assertRaisesRegex(ValueError, "event_id must be"):
+            UsageEvent.create(
+                "install-1",
+                "feature",
+                {"feature_uses": 1},
+                "2026-08-16T10:00:00Z",
+                event_id="",
+            )
+        with self.assertRaisesRegex(ValueError, "counter names must be unique"):
+            UsageEvent(
+                event_id="event-1",
+                installation_id="install-1",
+                kind="feature",
+                counters={"FEATURE_USES": 1, "feature_uses": 2},
+                created_at_utc="2026-08-16T10:00:00Z",
+            )
+
+        validated = event()
+        with self.assertRaises(TypeError):
+            validated.counters["pgn"] = 1  # type: ignore[index]
+        self.assertEqual(dict(validated.counters), {"feature_uses": 1})
+
+    def test_sync_rejects_non_text_acknowledgement_even_if_coercion_would_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = make_queue(Path(tmp) / "usage-sync.sqlite")
+            queued = event("1")
+            self.assertTrue(queue.enqueue(queued, ENABLED))
+            port = FakeUsageSync((1,))  # type: ignore[arg-type]
+            with self.assertRaisesRegex(ValueError, "event_id must be"):
+                queue.sync_pending(port, ENABLED, "install-1")
+            self.assertEqual(queue.pending("install-1"), (queued,))
 
     def test_sync_is_installation_scoped_and_never_batches_another_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

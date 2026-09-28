@@ -74,6 +74,9 @@ class UsageStatisticsTests(unittest.TestCase):
             self.assertTrue(store.recovered_invalid_data)
 
     def test_identifiers_counters_and_overflow_are_bounded(self) -> None:
+        for invalid in (None, True, 1):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                UsageStatisticsSnapshot(invalid)  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
             UsageStatisticsSnapshot("../profile")
         with self.assertRaises(ValueError):
@@ -85,6 +88,21 @@ class UsageStatisticsTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "overflow"):
             stats.record_feature_use()
+
+    def test_statistics_objects_are_closed_world_at_runtime_boundaries(self) -> None:
+        class ForeignSnapshot:
+            def as_dict(self) -> dict[str, object]:
+                return {"installation_id": "install-1", "pgn": "SECRET"}
+
+        with self.assertRaisesRegex(ValueError, "snapshot must be UsageStatisticsSnapshot"):
+            AggregateUsageStatistics(ForeignSnapshot())  # type: ignore[arg-type]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+            with self.assertRaisesRegex(ValueError, "snapshot must be UsageStatisticsSnapshot"):
+                store.save(ForeignSnapshot())  # type: ignore[arg-type]
+            self.assertFalse(path.exists())
 
 
 if __name__ == "__main__":

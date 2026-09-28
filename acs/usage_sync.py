@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
 from .usage_statistics import normalize_installation_id
@@ -42,14 +43,18 @@ _ALLOWED_COUNTERS = frozenset(
 
 
 def _normalize_event_id(value: object) -> str:
-    normalized = str(value).strip().lower()
+    if type(value) is not str:
+        raise ValueError("event_id must be a bounded opaque identifier")
+    normalized = value.strip().lower()
     if not _EVENT_ID_RE.fullmatch(normalized):
         raise ValueError("event_id must be a bounded opaque identifier")
     return normalized
 
 
 def _parse_utc(value: object) -> datetime:
-    text = str(value).strip()
+    if type(value) is not str:
+        raise ValueError("created_at_utc must be a bounded UTC timestamp ending in Z")
+    text = value.strip()
     if len(text) > 32 or not text.endswith("Z"):
         raise ValueError("created_at_utc must be a bounded UTC timestamp ending in Z")
     try:
@@ -75,7 +80,9 @@ class UsageEvent:
             raise ValueError("unsupported usage sync schema")
         event_id = _normalize_event_id(self.event_id)
         installation_id = normalize_installation_id(self.installation_id)
-        kind = str(self.kind).strip().lower()
+        if type(self.kind) is not str:
+            raise ValueError("aggregate event kind must be text")
+        kind = self.kind.strip().lower()
         if kind not in _ALLOWED_EVENT_KINDS:
             raise ValueError("unsupported aggregate event kind")
         parsed_time = _parse_utc(self.created_at_utc)
@@ -84,9 +91,13 @@ class UsageEvent:
             raise ValueError("aggregate counters must be a mapping")
         normalized: dict[str, int] = {}
         for key, raw_value in self.counters.items():
-            name = str(key).strip().lower()
+            if type(key) is not str:
+                raise ValueError("aggregate counter names must be text")
+            name = key.strip().lower()
             if name not in _ALLOWED_COUNTERS:
                 raise ValueError(f"counter is not allowed in aggregate usage statistics: {name}")
+            if name in normalized:
+                raise ValueError("aggregate counter names must be unique after normalization")
             if isinstance(raw_value, bool) or not isinstance(raw_value, int):
                 raise ValueError(f"{name} must be a non-negative integer")
             if raw_value < 0 or raw_value > _MAX_COUNTER:
@@ -98,7 +109,7 @@ class UsageEvent:
         object.__setattr__(self, "event_id", event_id)
         object.__setattr__(self, "installation_id", installation_id)
         object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "counters", normalized)
+        object.__setattr__(self, "counters", MappingProxyType(normalized))
         object.__setattr__(
             self,
             "created_at_utc",
@@ -117,7 +128,7 @@ class UsageEvent:
         event_id: str | None = None,
     ) -> "UsageEvent":
         return cls(
-            event_id=event_id or uuid.uuid4().hex,
+            event_id=uuid.uuid4().hex if event_id is None else event_id,
             installation_id=installation_id,
             kind=kind,
             counters=counters,
@@ -147,7 +158,9 @@ class UsageAnalyticsPolicy:
     def __post_init__(self) -> None:
         if type(self.analytics_enabled) is not bool or type(self.is_minor) is not bool:
             raise ValueError("analytics policy flags must be booleans")
-        consent = str(self.consent_state).strip().lower()
+        if type(self.consent_state) is not str:
+            raise ValueError("analytics consent state must be text")
+        consent = self.consent_state.strip().lower()
         if consent not in {"unknown", "granted", "denied"}:
             raise ValueError("unsupported analytics consent state")
         retention = self.retention_days
@@ -279,7 +292,7 @@ class UsageEventQueue:
         policy: UsageAnalyticsPolicy,
     ) -> int:
         normalized = normalize_installation_id(installation_id)
-        if not isinstance(policy, UsageAnalyticsPolicy):
+        if type(policy) is not UsageAnalyticsPolicy:
             raise ValueError("policy must be UsageAnalyticsPolicy")
         if policy.retention_days is None:
             return 0
@@ -293,7 +306,7 @@ class UsageEventQueue:
             return int(cursor.rowcount)
 
     def enqueue(self, event: UsageEvent, policy: UsageAnalyticsPolicy) -> bool:
-        if not isinstance(event, UsageEvent):
+        if type(event) is not UsageEvent:
             raise ValueError("event must be UsageEvent")
         if not isinstance(policy, UsageAnalyticsPolicy):
             raise ValueError("policy must be UsageAnalyticsPolicy")
