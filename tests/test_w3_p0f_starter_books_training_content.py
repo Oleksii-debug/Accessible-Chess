@@ -890,6 +890,12 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 try:
                     opened = app.browser_command("shell", "screen.training")
                     self.assertEqual("route", opened["kind"])
+                    switched = app.browser_command(
+                        "training",
+                        "training.language",
+                        {"language": "en"},
+                    )
+                    self.assertEqual("render", switched["kind"])
                     current = app.training_workspace.material.definition.steps[0]
                     completed = app.browser_command(
                         "training",
@@ -925,6 +931,10 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         ).snapshot(),
                     )
                     self.assertTrue(app.training_workspace.session.completed)
+                    self.assertEqual(
+                        "en",
+                        app.training_workspace.snapshot()["document"]["lang"],
+                    )
 
                     with patch(
                         "acs.training_webview_projection.TrainingWebViewProjection.retry",
