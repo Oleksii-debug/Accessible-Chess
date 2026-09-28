@@ -87,13 +87,31 @@ def _validate_commit(value: str) -> str:
     return commit
 
 
+def _is_linklike(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction and is_junction())
+
+
 def _safe_candidate(root: Path, relative: str) -> Path:
     rel_path = Path(relative)
     if rel_path.is_absolute() or ".." in rel_path.parts:
         raise EvidenceError(f"unsafe include path: {relative!r}")
     candidate = root / rel_path
+    cursor = root
+    for part in rel_path.parts:
+        cursor = cursor / part
+        if _is_linklike(cursor):
+            raise EvidenceError(
+                f"symlinks/junctions are not allowed in release evidence: {cursor}"
+            )
     try:
-        candidate.relative_to(root)
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise EvidenceError(f"required release input is missing: {candidate}") from exc
+    try:
+        resolved.relative_to(root)
     except ValueError as exc:
         raise EvidenceError(f"path escapes repository root: {relative!r}") from exc
     return candidate
@@ -142,8 +160,8 @@ def _assert_git_source_identity(
 
 
 def _iter_regular_files(root: Path, candidate: Path) -> Iterable[Path]:
-    if candidate.is_symlink():
-        raise EvidenceError(f"symlinks are not allowed in release evidence: {candidate}")
+    if _is_linklike(candidate):
+        raise EvidenceError(f"symlinks/junctions are not allowed in release evidence: {candidate}")
     if not candidate.exists():
         raise EvidenceError(f"required release input is missing: {candidate}")
     if candidate.is_file():
@@ -152,8 +170,12 @@ def _iter_regular_files(root: Path, candidate: Path) -> Iterable[Path]:
     if not candidate.is_dir():
         raise EvidenceError(f"unsupported release input type: {candidate}")
     for path in sorted(candidate.rglob("*"), key=lambda item: item.as_posix()):
-        if path.is_symlink():
-            raise EvidenceError(f"symlinks are not allowed in release evidence: {path}")
+        if _is_linklike(path):
+            raise EvidenceError(f"symlinks/junctions are not allowed in release evidence: {path}")
+        try:
+            path.resolve(strict=True).relative_to(root)
+        except (OSError, ValueError) as exc:
+            raise EvidenceError(f"release input escapes repository root: {path}") from exc
         if path.is_dir():
             continue
         if not path.is_file():
