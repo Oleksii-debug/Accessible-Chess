@@ -1,0 +1,80 @@
+name: V2 BookReader Semantic Integrity
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+      - fix/bookreader-stale-navigation-20260929
+    paths:
+      - 'acs/bookreader.py'
+      - 'tests/test_bookreader.py'
+      - 'tests/test_bookreader_snapshot_bounds.py'
+      - '.github/workflows/v2-bookreader-semantic-integrity.yml'
+  push:
+    branches:
+      - fix/bookreader-snapshot-bounds-successor-20260929
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-bookreader-semantic-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact checkout and bounded ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+          else
+            base="$(git rev-parse HEAD^)"
+          fi
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+
+          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
+          while IFS= read -r path; do
+            case "$path" in
+              acs/bookreader.py|tests/test_bookreader.py|tests/test_bookreader_snapshot_bounds.py|.github/workflows/v2-bookreader-semantic-integrity.yml) ;;
+              *) echo "Unexpected changed path: $path" >&2; exit 1 ;;
+            esac
+          done <<< "$changed"
+
+      - name: Compile BookReader surfaces
+        run: >-
+          python -m py_compile
+          acs/bookreader.py
+          tests/test_bookreader.py
+          tests/test_bookreader_snapshot_bounds.py
+
+      - name: Run focused semantic reading regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader
+          tests.test_bookreader_snapshot_bounds
+          tests.test_v2_accessible_book_core
+          tests.test_version2_book_workspace
