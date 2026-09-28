@@ -61,6 +61,29 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             reader.go_to(99)
 
+    def test_navigation_fails_closed_after_document_revision_changes(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        book.blocks[2].text = "Changed chapter"
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.next_heading()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.navigation_availability()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.go_to(0)
+        self.assertEqual(reader.index, 3)
+
+    def test_navigation_fails_closed_if_document_becomes_empty(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        book.blocks.clear()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+
     def test_empty_book_is_explicit_not_silent(self):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
