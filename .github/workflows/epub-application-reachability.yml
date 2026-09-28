@@ -3,11 +3,13 @@ name: EPUB Application Reachability
 on:
   pull_request:
     branches:
-      - fix/book-progress-backup-recovery-20260927
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/book_epub_import.py'
       - 'acs/version2_application.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'tests/test_epub_application_reachability_workflow.py'
+      - 'tests/test_v2_book_epub_import.py'
       - 'tests/test_v2_native_dialog_language.py'
       - 'tests/test_version2_epub_application_reachability.py'
       - '.github/workflows/epub-application-reachability.yml'
@@ -34,72 +36,42 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact integration topology and bounded scope
+      - name: Prove current Product ancestry and protect EPUB authority
         shell: bash
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
 
-          stacked_branch='fix/book-progress-backup-recovery-20260927'
           product_branch='work/full-product-teacher-education-reachability-20260911'
-          minimum_recovery_owner='508bb18db2b12407388be06c577d2eb6e48a38ae'
-          base_ref='${{ github.event.pull_request.base.ref || '' }}'
+          git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+          product="$(git rev-parse "refs/remotes/origin/$product_branch")"
 
-          case "$base_ref" in
-            "$stacked_branch")
-              git fetch --no-tags origin "+refs/heads/$stacked_branch:refs/remotes/origin/$stacked_branch"
-              upstream="$(git rev-parse "refs/remotes/origin/$stacked_branch")"
-              mode='STACKED_RECOVERY_PARENT'
-              ;;
-            "$product_branch")
-              git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
-              upstream="$(git rev-parse "refs/remotes/origin/$product_branch")"
-              git merge-base --is-ancestor "$minimum_recovery_owner" "$upstream"
-              mode='CURRENT_FULL_PRODUCT'
-              ;;
-            "")
-              # workflow_dispatch has no pull_request.base.ref. Select only an
-              # explicit current authority that is already in this exact head.
-              git fetch --no-tags origin \
-                "+refs/heads/$stacked_branch:refs/remotes/origin/$stacked_branch" \
-                "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
-              stacked="$(git rev-parse "refs/remotes/origin/$stacked_branch")"
-              product="$(git rev-parse "refs/remotes/origin/$product_branch")"
-              if git merge-base --is-ancestor "$stacked" HEAD; then
-                upstream="$stacked"
-                mode='STACKED_RECOVERY_PARENT_DISPATCH'
-              elif git merge-base --is-ancestor "$product" HEAD \
-                   && git merge-base --is-ancestor "$minimum_recovery_owner" "$product"; then
-                upstream="$product"
-                mode='CURRENT_FULL_PRODUCT_DISPATCH'
-              else
-                echo "dispatch head is not based on an allowed current EPUB authority" >&2
-                exit 1
-              fi
-              ;;
-            *)
-              echo "unsupported EPUB reachability base: $base_ref" >&2
-              exit 1
-              ;;
-          esac
+          git merge-base --is-ancestor "$product" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
 
-          git merge-base --is-ancestor "$upstream" HEAD
-          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
-          git diff --check "$upstream" HEAD
-          echo "EPUB_REACHABILITY_TOPOLOGY=$mode"
-          echo "EPUB_REACHABILITY_UPSTREAM=$upstream"
-
-          mapfile -t actual < <(git diff --name-only "$upstream" HEAD | LC_ALL=C sort)
-          expected_paths=(
-            '.github/workflows/epub-application-reachability.yml'
-            'acs/version2_application.py'
-            'acs/version2_windows_native_dialog_ownership.py'
-            'tests/test_v2_native_dialog_language.py'
+          # This workflow is inherited by later Product descendants that may
+          # legitimately change shared application/dialog composition. Keep the
+          # EPUB-exclusive parser authority byte-identical to current Product,
+          # then re-run the semantic reachability suite against the descendant.
+          protected_paths=(
+            'acs/book_epub_import.py'
+            'tests/test_v2_book_epub_import.py'
             'tests/test_version2_epub_application_reachability.py'
           )
-          mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
-          test "${actual[*]}" = "${wanted[*]}"
+          for path in "${protected_paths[@]}"; do
+            product_blob="$(git rev-parse "$product:$path")"
+            candidate_blob="$(git rev-parse "HEAD:$path")"
+            test "$candidate_blob" = "$product_blob" || {
+              printf 'EPUB authority drift requires a dedicated successor gate: %s product=%s candidate=%s\n' \
+                "$path" "$product_blob" "$candidate_blob" >&2
+              exit 1
+            }
+          done
+
+          echo "EPUB_REACHABILITY_TOPOLOGY=CURRENT_FULL_PRODUCT_DESCENDANT"
+          echo "EPUB_REACHABILITY_UPSTREAM=$product"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -108,14 +80,18 @@ jobs:
       - name: Compile changed Python
         run: >-
           python -m py_compile
+          acs/book_epub_import.py
           acs/version2_application.py
           acs/version2_windows_native_dialog_ownership.py
+          tests/test_epub_application_reachability_workflow.py
+          tests/test_v2_book_epub_import.py
           tests/test_v2_native_dialog_language.py
           tests/test_version2_epub_application_reachability.py
 
       - name: Run EPUB reachability and adjacent semantic regressions
         run: >-
           python -m unittest -v
+          tests.test_epub_application_reachability_workflow
           tests.test_version2_epub_application_reachability
           tests.test_v2_book_epub_import
           tests.test_v2_native_dialog_language
