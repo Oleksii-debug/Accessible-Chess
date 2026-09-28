@@ -244,6 +244,10 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
         fake = SimpleNamespace(
             _events=[],
             shell=SimpleNamespace(language=UILanguage.UA),
+            _error=lambda: {
+                "kind": "error",
+                "payload": {"message": "The action could not be completed."},
+            },
         )
         exported = LibraryExportHostEvent(
             LibraryExportHostEventKind.EXPORTED,
@@ -297,6 +301,17 @@ class Version2LibraryExportReleaseReachabilityTests(unittest.TestCase):
             "library-export-filtered",
         )
         self.assertNotIn("library_export_failed", repr(fake._events[-1]))
+
+        fake._events.clear()
+        invalid_focus = LibraryExportHostEvent(
+            LibraryExportHostEventKind.DIALOG_CANCELLED,
+            focus_target="not a valid dom id",
+        )
+        Version2Application._file_event(fake, invalid_focus)
+        self.assertEqual(
+            fake._events,
+            [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
+        )
 
 
     def test_release_bootstrap_restores_library_status_focus_without_repaint(self) -> None:
