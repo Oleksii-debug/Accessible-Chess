@@ -3,6 +3,7 @@ import unittest
 from acs.move_entry import parse_piece_coordinate_position
 from acs.position_editor import PositionValidationError
 from acs.position_text import parse_position_text
+from acs.webapp import AccessibleChessAPI
 
 
 class PositionTextAuthorityTests(unittest.TestCase):
@@ -48,6 +49,23 @@ class PositionTextAuthorityTests(unittest.TestCase):
     def test_legacy_unknown_piece_diagnostic_remains_localized(self):
         with self.assertRaisesRegex(ValueError, "Невідома фігура: X"):
             parse_position_text("W: K e1 X d1 B: K e8")
+
+    def test_stage1_user_flow_rejects_partial_parse_without_mutating_board(self):
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        result = api.set_position_text("junk W: K e1 B: K e8", "w")
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(result["announcement"], "Потрібні секції W: і B:")
+
+    def test_stage1_user_flow_accepts_canonical_position(self):
+        api = AccessibleChessAPI(lang="uk")
+        result = api.set_position_text("W: K e1 Q d1 B: K e8", "b")
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            api.board.fen(),
+            "4k3/8/8/8/8/8/8/3QK3 b - - 0 1",
+        )
 
 
 if __name__ == "__main__":
