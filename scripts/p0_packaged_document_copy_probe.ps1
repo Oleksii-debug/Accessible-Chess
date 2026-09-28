@@ -291,8 +291,8 @@ try {
   $textPattern=$usableDocuments[0].text_pattern
   $target=$usableDocuments[0].target
 
-  $selected=([string]$target.GetText(-1)).Trim()
-  if(-not $selected){throw 'Static TextPattern target is empty'}
+  $selected=[string]$target.GetText(-1)
+  if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}
   $enclosing=$target.GetEnclosingElement()
   if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
     throw 'Static text proof accidentally targeted an edit control'
