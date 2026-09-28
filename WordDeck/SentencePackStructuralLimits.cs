@@ -43,6 +43,12 @@ internal static class SentencePackStructuralLimits
                 RequireLength(lemma, MaxTokenOrFlagChars, $"Sentence {sentence.Id} lemma");
             foreach (string target in sentence.TargetEntryIds)
                 RequireLength(target, MaxIdentifierChars, $"Sentence {sentence.Id} target stable id");
+            foreach (string entryLevelId in sentence.EntryLevels.Keys)
+                RequireLength(entryLevelId, MaxIdentifierChars, $"Sentence {sentence.Id} entry-level stable id");
+            if (sentence.SourceSentenceId is not null)
+                RequireLength(sentence.SourceSentenceId, MaxIdentifierChars, $"Sentence {sentence.Id} upstream source sentence id");
+            if (sentence.TranslationSentenceId is not null)
+                RequireLength(sentence.TranslationSentenceId, MaxIdentifierChars, $"Sentence {sentence.Id} upstream translation sentence id");
             foreach (string flag in sentence.QualityFlags)
                 RequireLength(flag, MaxTokenOrFlagChars, $"Sentence {sentence.Id} quality flag");
         }
