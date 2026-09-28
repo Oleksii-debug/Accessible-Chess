@@ -388,6 +388,26 @@ class Version2Application:
             bookmark_name = self.books.projection.bookmark_name
             result = self.books.dispatch(command, payload)
             if result.kind == "error":
+                # Projection can fail after canonical reader/bookmark state moved.
+                # Restore the exact pre-command state only when mutation occurred;
+                # invalid payloads that failed before mutation keep reader identity.
+                rollback_required = True
+                try:
+                    rollback_required = (
+                        self.reader.snapshot() != before
+                        or self.books.projection.language != language
+                        or self.books.projection.bookmark_name != bookmark_name
+                    )
+                except Exception:
+                    # Uninspectable post-error state is unsafe; fail closed through
+                    # the existing exact snapshot restoration path.
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                    )
                 return result
             try:
                 self.save_book_progress()
