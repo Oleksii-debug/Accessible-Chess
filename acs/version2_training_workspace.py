@@ -63,8 +63,13 @@ class Version2BookTrainingWorkspace:
     def _store_for(self, material: BookTrainingMaterial) -> TrainingProgressStore:
         return TrainingProgressStore(self.progress_root / self._exercise_filename(material))
 
-    def _bridge_for(self, session: ExerciseSession) -> TrainingWebViewBridge:
-        presenter = TrainingPresenter(session, language=self.language)
+    def _bridge_for(
+        self,
+        session: ExerciseSession,
+        *,
+        message: str = "",
+    ) -> TrainingWebViewBridge:
+        presenter = TrainingPresenter(session, language=self.language, message=message)
         projection = TrainingWebViewProjection(
             presenter,
             language=self.language,
@@ -154,6 +159,7 @@ class Version2BookTrainingWorkspace:
         before = self.session.snapshot()
         revision = self._revision
         before_language = bridge.projection.language
+        before_message = bridge.projection.presenter_message
         try:
             event = bridge.dispatch(command, payload)
         except Exception:
@@ -165,7 +171,7 @@ class Version2BookTrainingWorkspace:
                 restored = ExerciseSession.restore(material.definition, before)
                 self._session = restored
                 self.language = before_language
-                self.bridge = self._bridge_for(restored)
+                self.bridge = self._bridge_for(restored, message=before_message)
                 self._revision = revision
             raise
         if command == "training.continue":
@@ -178,7 +184,7 @@ class Version2BookTrainingWorkspace:
             restored = ExerciseSession.restore(material.definition, before)
             self._session = restored
             self.language = before_language
-            self.bridge = self._bridge_for(restored)
+            self.bridge = self._bridge_for(restored, message=before_message)
             self._revision = revision
             return event
         try:
@@ -190,7 +196,7 @@ class Version2BookTrainingWorkspace:
             restored = ExerciseSession.restore(material.definition, before)
             self._session = restored
             self.language = before_language
-            self.bridge = self._bridge_for(restored)
+            self.bridge = self._bridge_for(restored, message=before_message)
             self._revision = revision
             raise
         if command == "training.language":
