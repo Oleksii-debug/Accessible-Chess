@@ -159,6 +159,65 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_training_continue_fails_closed_on_live_book_revision_drift(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-revision-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    self.assertTrue(app._start_training_from_current_book())
+                    workspace = app.training_workspace
+                    self.assertIsNotNone(workspace)
+                    answer = next(iter(workspace.material.definition.steps[0].accepted_moves))
+                    workspace.session.submit(answer)
+                    self.assertTrue(workspace.session.completed)
+
+                    before_index = app.reader.index
+                    before_material = workspace.material
+                    before_bridge = workspace.bridge
+                    drift = {}
+
+                    def mutate_during_material_build(document, target):
+                        candidate = build_book_training_material(document, target)
+                        if not drift:
+                            block = document.blocks[target]
+                            self.assertIsInstance(block, Exercise)
+                            drift["index"] = target
+                            drift["prompt"] = block.prompt
+                            block.prompt = block.prompt + " [concurrent drift]"
+                        return candidate
+
+                    with patch(
+                        "acs.version2_training_workspace.build_book_training_material",
+                        side_effect=mutate_during_material_build,
+                    ):
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "changed after BookReader creation",
+                        ):
+                            workspace.continue_next()
+
+                    self.assertTrue(drift)
+                    document = app.reader.document
+                    document.blocks[drift["index"]].prompt = drift["prompt"]
+                    self.assertEqual(before_index, app.reader.location().index)
+                    self.assertIs(before_material, workspace.material)
+                    self.assertIs(before_bridge, workspace.bridge)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_all_24_booklets_are_discoverable_openable_and_keep_isolated_progress(self) -> None:
         manifest = starter_release_manifest()
         expected_titles = {
