@@ -395,6 +395,27 @@ class Version2FormatsIntegrationTests(unittest.TestCase):
         self.assertNotIn("private-account", str(caught.exception))
         self._assert_zero_publication()
 
+    def test_library_pre_attempt_cancel_remains_cancel_and_publishes_nothing(self) -> None:
+        checks = 0
+
+        def cancel_in_storage_pre_attempt_poll() -> bool:
+            nonlocal checks
+            checks += 1
+            return checks == 3
+
+        with mock.patch(
+            "acs.chessbase_decoder._run_backend",
+            return_value=_payload([_game(0, [_move(12, 28)])]),
+        ):
+            with self.assertRaises(LibraryImportCancelledError):
+                self.service.import_database(
+                    self.source,
+                    cancel_check=cancel_in_storage_pre_attempt_poll,
+                )
+
+        self.assertEqual(checks, 3)
+        self._assert_zero_publication()
+
     def test_source_warning_validation_is_fail_closed_before_attempt(self) -> None:
         game = parse_games('[Event "Safe"]\n[Result "*"]\n\n1. e4 *\n')[0]
         importer = LibraryImportService(self.database)
