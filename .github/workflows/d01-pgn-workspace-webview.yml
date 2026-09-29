@@ -172,7 +172,7 @@ jobs:
           # Preserve current Product document-copy successors and the keybinding semantic-document successor.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|ccb62014c8a2ee05eccf03facc02ba23ae1b1ea8|4b1de037c1d5f80f77674f6975990ad05eb0516e|b02e8fb54c3ca97ab09bd258869d43a6017fe78e) ;;
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|ccb62014c8a2ee05eccf03facc02ba23ae1b1ea8|4b1de037c1d5f80f77674f6975990ad05eb0516e|b02e8fb54c3ca97ab09bd258869d43a6017fe78e|05e4380133334377bfed232ba4aafb5a2d9106cc) ;;
             *) printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2; exit 1 ;;
           esac
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
