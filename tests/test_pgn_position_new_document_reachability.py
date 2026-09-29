@@ -43,18 +43,18 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         )
         self.addCleanup(self.app.shutdown)
 
-    def test_action_is_global_remappable_and_has_no_forced_default_hotkey(self) -> None:
+    def test_action_is_board_scoped_remappable_and_has_no_forced_default_hotkey(self) -> None:
         registry = build_version2_action_registry()
         definition = registry.definition("pgn.new_from_position")
 
-        self.assertIs(definition.context, BindingContext.GLOBAL)
+        self.assertIs(definition.context, BindingContext.BOARD)
         self.assertIsNone(registry.get_binding("pgn.new_from_position"))
 
         registry.set_binding("pgn.new_from_position", "Ctrl+Alt+N")
         resolved = registry.resolve_binding(BindingContext.BOARD, "Ctrl+Alt+N")
         self.assertIsNotNone(resolved)
         self.assertEqual(resolved.action_id, "pgn.new_from_position")
-        self.assertIs(resolved.context, BindingContext.GLOBAL)
+        self.assertIs(resolved.context, BindingContext.BOARD)
 
     def test_native_position_menu_exposes_localized_action(self) -> None:
         registry = build_version2_action_registry()
@@ -101,6 +101,7 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
     def test_dirty_replacement_confirmation_is_required_once_and_cancel_is_atomic(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Unsaved existing"})
         self.app.set_document(existing)
+        self.app.shell.open_route("board")
         before_text = existing.copy_pgn()
         calls = []
 
@@ -121,6 +122,7 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
     def test_dirty_replacement_confirmation_accepts_and_swaps_once(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Unsaved existing"})
         self.app.set_document(existing)
+        self.app.shell.open_route("board")
         calls = []
 
         def accept() -> bool:
@@ -138,6 +140,7 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
     def test_invalid_position_provider_never_replaces_document(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Keep me"})
         self.app.set_document(existing)
+        self.app.shell.open_route("board")
         self.app.confirm_document_replace = lambda: True
         self.app._board_position_provider = lambda: CUSTOM_FEN
 
@@ -150,6 +153,7 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
     def test_provider_failure_never_replaces_document(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Keep me"})
         self.app.set_document(existing)
+        self.app.shell.open_route("board")
         self.app.confirm_document_replace = lambda: True
 
         def fail():
@@ -161,6 +165,18 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
             self.app.router.dispatch("pgn.new_from_position")
 
         self.assertIs(self.app.session, existing)
+
+    def test_hidden_board_route_is_rejected_before_provider_acquisition(self) -> None:
+        calls = []
+        self.app._board_position_provider = lambda: calls.append(True) or self.current_position
+        self.app.shell.open_route("library")
+
+        with self.assertRaisesRegex(ValueError, "visible Board"):
+            self.app.router.dispatch("pgn.new_from_position")
+
+        self.assertEqual(calls, [])
+        self.assertIsNone(self.app.session)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
 
     def test_modal_focus_blocks_document_publication(self) -> None:
         dialog = self.app.adapter.open_dialog(
