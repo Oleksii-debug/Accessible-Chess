@@ -376,7 +376,36 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertEqual(application.training_workspace.language, UILanguage.UA)
                 self.assertEqual(application.training.projection.language, UILanguage.UA)
                 self._assert_all_snapshot_languages(application, "uk")
-                self.assertFalse(application.drain_events())
+                events = application.drain_events()
+                self.assertEqual(events, ({"kind": "language", "payload": {}},))
+            finally:
+                self._close_real_application(api, application, analysis)
+
+    def test_host_refresh_failure_never_commits_or_rewrites_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            native_refresh = mock.Mock(side_effect=[False, True])
+            api.bind_version2_language_refresh(native_refresh)
+            settings.save = mock.Mock(
+                side_effect=[None, OSError("simulated rollback write failure")]
+            )
+            try:
+                result = api.set_language("en")
+
+                self.assertFalse(result["ok"])
+                settings.save.assert_not_called()
+                self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
+                self.assertEqual(settings.get("language"), "uk")
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self._assert_all_snapshot_languages(application, "uk")
+                self.assertEqual(native_refresh.call_count, 2)
+                events = application.drain_events()
+                self.assertEqual(events, ({"kind": "language", "payload": {}},))
             finally:
                 self._close_real_application(api, application, analysis)
 

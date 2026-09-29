@@ -161,15 +161,6 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if isinstance(data, dict):
             data["language"] = language
 
-    @classmethod
-    def _rollback_settings_language(cls, settings: Any, language: str) -> None:
-        if settings is None:
-            return
-        try:
-            settings.set("language", language)
-        except Exception:
-            cls._restore_settings_language_memory(settings, language)
-
     def _language_error(self, language: str) -> dict[str, Any]:
         return self._error(
             "Language could not be changed."
@@ -178,7 +169,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         )
 
     def set_language(self, lang: str) -> dict[str, Any]:
-        """Persist first, then atomically converge every live V2 presentation surface."""
+        """Converge reversible live surfaces before the one durable Settings commit."""
 
         if type(lang) is not str:
             return super().set_language(lang)
@@ -189,22 +180,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         previous = self.lang
         settings = getattr(self, "_settings", None)
         application = self._version2_application
-
-        if settings is not None:
-            try:
-                settings.set("language", target)
-            except Exception:
-                self._restore_settings_language_memory(settings, previous)
-                return self._language_error(previous)
+        refresh_queued = False
 
         try:
             result = super().set_language(target)
         except Exception:
-            self._rollback_settings_language(settings, previous)
             return self._language_error(previous)
-
         if not result.get("ok"):
-            self._rollback_settings_language(settings, previous)
             return result
 
         try:
@@ -216,6 +198,19 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     raise RuntimeError("Version 2 native menu language refresh failed")
             if application is not None:
                 self._queue_version2_language_refresh(application)
+                refresh_queued = True
+
+            # This is the final fallible commit point. Nothing after a successful
+            # Settings.set() may require a compensating durable write.
+            if settings is not None:
+                try:
+                    settings.set("language", target)
+                except Exception:
+                    # Settings.set() updates memory before save(), so restore the
+                    # in-memory value. The durable file was never intentionally
+                    # rewritten to the previous value: rollback remains write-free.
+                    self._restore_settings_language_memory(settings, previous)
+                    raise
         except Exception:
             try:
                 super().set_language(previous)
@@ -231,8 +226,10 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     self._version2_language_refresh()
                 except Exception:
                     pass
-            self._rollback_settings_language(settings, previous)
-            if application is not None:
+            # One empty language event simply asks the WebView to re-read current
+            # state. If the target event was already staged before persistence
+            # failed, reuse it; otherwise publish one rollback refresh.
+            if application is not None and not refresh_queued:
                 try:
                     self._queue_version2_language_refresh(application)
                 except Exception:
