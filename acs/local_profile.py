@@ -24,6 +24,10 @@ class LocalProfileError(ValueError):
     """Base error for local-profile persistence and validation failures."""
 
 
+class UnsafeLocalProfilePath(LocalProfileError):
+    """The profile or recovery path is unsafe for local identity persistence."""
+
+
 class UnsupportedLocalProfileSchema(LocalProfileError):
     """The profile uses a newer schema and must not be silently downgraded."""
 
@@ -185,7 +189,7 @@ class LocalProfileStore:
     @staticmethod
     def _read_bounded(path: Path) -> bytes:
         if path.is_symlink():
-            raise LocalProfileError("profile path must not be a symbolic link")
+            raise UnsafeLocalProfilePath("profile path must not be a symbolic link")
         try:
             with path.open("rb") as handle:
                 data = handle.read(MAX_PROFILE_BYTES + 1)
@@ -209,8 +213,9 @@ class LocalProfileStore:
         if primary_exists:
             try:
                 return self._read_profile(self.path)
-            except UnsupportedLocalProfileSchema:
-                # Never mask/downgrade a future primary with an older backup.
+            except (UnsafeLocalProfilePath, UnsupportedLocalProfileSchema):
+                # Unsafe paths and future schemas are authority failures, not
+                # ordinary corruption eligible for recovery fallback.
                 raise
             except LocalProfileError as exc:
                 primary_error = exc
@@ -218,7 +223,7 @@ class LocalProfileStore:
         if backup_exists:
             try:
                 return self._read_profile(self.backup_path)
-            except UnsupportedLocalProfileSchema:
+            except (UnsafeLocalProfilePath, UnsupportedLocalProfileSchema):
                 raise
             except LocalProfileError as backup_error:
                 raise LocalProfileError("local profile and recovery copy are unreadable") from backup_error
@@ -256,7 +261,7 @@ class LocalProfileStore:
         if primary_exists:
             try:
                 return self._read_profile(self.path)
-            except UnsupportedLocalProfileSchema:
+            except (UnsafeLocalProfilePath, UnsupportedLocalProfileSchema):
                 raise
             except LocalProfileError:
                 pass
@@ -276,8 +281,8 @@ class LocalProfileStore:
         return published
 
     def _assert_safe_target(self, path: Path) -> None:
-        if path.exists() and path.is_symlink():
-            raise LocalProfileError("profile path must not be a symbolic link")
+        if path.is_symlink():
+            raise UnsafeLocalProfilePath("profile path must not be a symbolic link")
 
     def _atomic_replace_bytes(self, target: Path, payload: bytes) -> None:
         self._assert_safe_target(target)
@@ -333,7 +338,7 @@ class LocalProfileStore:
         try:
             primary_bytes = self._read_bounded(self.path)
             durable = parse_local_profile_bytes(primary_bytes)
-        except UnsupportedLocalProfileSchema:
+        except (UnsafeLocalProfilePath, UnsupportedLocalProfileSchema):
             raise
         except LocalProfileError as primary_error:
             # Preserve a known-good recovery copy, but never overwrite corrupt primary state.
