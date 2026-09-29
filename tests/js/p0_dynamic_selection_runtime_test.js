@@ -354,6 +354,36 @@ function selectSubstring(root, text) {
   assert.strictEqual(selection.toString(), text, "test selection setup failed");
 }
 
+function selectSubstringOccurrence(root, text, occurrence) {
+  let remaining = Math.max(0, Number(occurrence) || 0);
+  let chosenNode = null;
+  let chosenStart = -1;
+  for (const node of textNodes(root)) {
+    let start = 0;
+    while (start <= node.data.length) {
+      const match = node.data.indexOf(text, start);
+      if (match < 0) break;
+      if (remaining === 0) {
+        chosenNode = node;
+        chosenStart = match;
+        break;
+      }
+      remaining -= 1;
+      start = match + 1;
+    }
+    if (chosenNode) break;
+  }
+  assert.ok(chosenNode, "selection occurrence not found: " + text + " #" + occurrence);
+  const range = new FakeRange();
+  range.root = nearestSemanticRoot(chosenNode);
+  range.setStart(chosenNode, chosenStart);
+  range.setEnd(chosenNode, chosenStart + text.length);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  if (listeners.selectionchange) listeners.selectionchange();
+  assert.strictEqual(selection.toString(), text, "occurrence selection setup failed");
+}
+
 function selectSubstringBackward(root, text) {
   const node = textNodes(root).find(item => item.data.includes(text));
   assert.ok(node, "selection text not found: " + text);
@@ -416,6 +446,30 @@ function proveV2BootstrapBackwardSelectionHelpers() {
   );
   selection.setBaseAndExtent = nativeSetBaseAndExtent;
 
+  const duplicateInitial =
+    "FIRST target alpha " + "x".repeat(120) + " SECOND-CONTEXT target omega";
+  const duplicateUpdated =
+    "FIRST target alpha " + "y".repeat(320) + " SECOND-CONTEXT target omega";
+  content.textContent = duplicateInitial;
+  selectSubstringOccurrence(workspace, "target", 1);
+  const duplicateSnapshot = helpers.captureWorkspaceSelection();
+  const replacementText = new FakeTextNode(duplicateUpdated);
+  replacementText.parentNode = content;
+  content.children = [replacementText];
+  selection.removeAllRanges();
+  assert.strictEqual(
+    helpers.restoreWorkspaceSelection(duplicateSnapshot, "library"),
+    true,
+    "V2 bootstrap failed to restore duplicate selected text"
+  );
+  assert.strictEqual(selection.toString(), "target", "V2 bootstrap restored the wrong duplicate text");
+  assert.strictEqual(
+    selection.anchorOffset,
+    duplicateUpdated.lastIndexOf("target"),
+    "V2 bootstrap restored the nearer but semantically wrong duplicate occurrence"
+  );
+
+  console.log("P0_V2_BOOTSTRAP_DUPLICATE_CONTEXT_SURVIVES=PASS");
   console.log("P0_V2_BOOTSTRAP_BACKWARD_SELECTION_SURVIVES=PASS");
   console.log("P0_V2_BOOTSTRAP_BACKWARD_FALLBACK_SURVIVES=PASS");
 }
@@ -480,6 +534,26 @@ function createStage1Control(id, tagName) {
   control.id = id;
   main.appendChild(control);
   return control;
+}
+
+function proveDuplicateSelectionContextRetention() {
+  currentRoute = null;
+  workspace.hidden = true;
+  const duplicate = createStage1Control("duplicate-selection-context", "p");
+  const initial =
+    "FIRST target alpha " + "x".repeat(120) + " SECOND-CONTEXT target omega";
+  const updated =
+    "FIRST target alpha " + "y".repeat(320) + " SECOND-CONTEXT target omega";
+  duplicate.textContent = initial;
+  selectSubstringOccurrence(duplicate, "target", 1);
+  duplicate.textContent = updated;
+  assert.strictEqual(selection.toString(), "target", "canonical runtime lost duplicate selected text");
+  assert.strictEqual(
+    selection.anchorOffset,
+    updated.lastIndexOf("target"),
+    "canonical runtime restored the nearer but semantically wrong duplicate occurrence"
+  );
+  console.log("P0_DUPLICATE_SELECTION_CONTEXT_SURVIVES=PASS");
 }
 
 function proveStage1AnalysisListRerender() {
@@ -673,6 +747,7 @@ function provePgnLocalRerender() {
 (async function run() {
   await proveStage1RefreshAnalysis();
   proveStage1AnalysisListRerender();
+  proveDuplicateSelectionContextRetention();
   proveV2BootstrapBackwardSelectionHelpers();
   proveNavigationLocalRerender();
   provePgnLocalRerender();
