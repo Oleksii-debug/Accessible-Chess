@@ -188,7 +188,7 @@ class PackagedSoundResolverTests(unittest.TestCase):
 
             second = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
             self.assertNotEqual(first, second)
-            self.assertTrue(first.is_file())
+            self.assertFalse(first.exists())
             self.assertTrue(second.is_file())
 
     def test_scaled_cache_prunes_superseded_variant_for_same_event_and_volume(self):
