@@ -32,6 +32,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
         profile: LocalProfile | None,
         *,
         announcement: str = "",
+        recovery_required: bool = False,
     ) -> dict[str, object]:
         if profile is None:
             return {
@@ -39,6 +40,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
                 "exists": False,
                 "displayName": "",
                 "generatedAlias": False,
+                "recoveryRequired": recovery_required,
                 "announcement": announcement,
             }
         # profile_id is intentionally not exposed to browser presentation.
@@ -48,6 +50,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
             "displayName": profile.display_name,
             "generatedAlias": profile.generated_alias,
             "revision": profile.revision,
+            "recoveryRequired": recovery_required,
             "announcement": announcement,
         }
 
@@ -59,13 +62,19 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
 
     def _profile_snapshot_ui(self) -> dict[str, object]:
         try:
-            return self._profile_payload(self._profile_store().load())
+            store = self._profile_store()
+            profile = store.load()
+            return self._profile_payload(
+                profile,
+                recovery_required=store.recovery_required(),
+            )
         except LocalProfileError:
             return {
                 "ok": False,
                 "exists": False,
                 "displayName": "",
                 "generatedAlias": False,
+                "recoveryRequired": False,
                 "announcement": self._profile_error_message(),
             }
 
@@ -104,6 +113,29 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
 
     def profile_create(self, display_name: str, skip: bool = False) -> dict[str, object]:
         return self._invoke_ui(lambda: self._profile_create_ui(display_name, skip))
+
+    def _profile_repair_ui(self) -> dict[str, object]:
+        try:
+            store = self._profile_store()
+            if not store.recovery_required():
+                return self._profile_payload(store.load())
+            profile = store.repair_from_backup()
+        except LocalProfileError:
+            return {
+                "ok": False,
+                "exists": True,
+                "recoveryRequired": True,
+                "announcement": self._profile_error_message(),
+            }
+        announcement = (
+            "Local profile recovered from the verified backup."
+            if self.lang == "en"
+            else "Локальний профіль відновлено з перевіреної резервної копії."
+        )
+        return self._profile_payload(profile, announcement=announcement)
+
+    def profile_repair(self) -> dict[str, object]:
+        return self._invoke_ui(self._profile_repair_ui)
 
     def _profile_rename_ui(self, display_name: object) -> dict[str, object]:
         if not isinstance(display_name, str):
