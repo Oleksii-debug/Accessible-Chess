@@ -271,7 +271,16 @@ class BookBoardWorkflow:
         *,
         game_source: BookGameSource | str,
     ) -> _BookBoardSession:
-        block = self._reader.document.blocks[origin.index]
+        try:
+            # Consume the immutable BookReader revision, never the mutable live
+            # BookDocument.  A concurrent authoring mutation after origin capture
+            # must fail before alternate chess/content bytes are resolved.
+            block = self._reader.block_snapshot(origin.index)
+        except (RuntimeError, LookupError, IndexError) as exc:
+            raise self._error(
+                "book reading revision changed while opening the board",
+                BookBoardWorkflowCode.RETURN_FAILED,
+            ) from exc
         if isinstance(block, Game):
             try:
                 resolved = resolve_book_game(
@@ -384,7 +393,14 @@ class BookBoardWorkflow:
             candidate = self._build_session(origin, game_source=game_source)
             # The reader is externally owned.  Reject a concurrent cursor move
             # rather than returning to a different location later.
-            if self._reader.location() != origin:
+            try:
+                current = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while opening the board",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
+            if current != origin:
                 raise self._error(
                     "book reading location changed while opening the board",
                     BookBoardWorkflowCode.RETURN_FAILED,
