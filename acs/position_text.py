@@ -7,6 +7,8 @@ def _localized_message(exc: ValueError, language: str) -> str:
     message = str(exc)
     if language != "uk":
         return message
+    if message == "position text must be text":
+        return "Текст позиції має бути текстовим значенням"
     if message == "position text must contain W: and B: sections":
         return "Потрібні секції W: і B:"
     if message == "each piece must be followed by a square, for example N f3":
