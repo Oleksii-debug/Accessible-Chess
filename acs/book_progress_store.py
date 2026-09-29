@@ -836,7 +836,7 @@ class BookProgressStore:
         *,
         expected_backup_revision: str | None = None,
     ) -> bool:
-        """Explicitly replace a corrupt primary with its previous valid snapshot.
+        """Explicitly replace a missing/corrupt primary with a valid prior snapshot.
 
         If an expected backup revision is supplied, only those exact previously
         validated backup bytes may be published. Calls without a revision retain
@@ -870,13 +870,11 @@ class BookProgressStore:
 
             backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
                 self.backup_path,
-                missing_ok=False,
+                missing_ok=primary_missing,
             )
-            assert (
-                backup_payload is not None
-                and backup_raw is not None
-                and backup_revision is not None
-            )
+            if backup_payload is None:
+                return False
+            assert backup_raw is not None and backup_revision is not None
             if (
                 expected_backup_revision is not None
                 and backup_revision != expected_backup_revision
