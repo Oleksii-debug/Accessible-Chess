@@ -39,6 +39,7 @@ class FakeElement {
   }
 
   focus() {
+    if (this.disabled) return;
     document.activeElement = this;
   }
 
@@ -86,8 +87,11 @@ function find(root, tagName, text) {
   }) || null;
 }
 
-function trainingSnapshot() {
+function trainingSnapshot(completed, canContinue) {
+  completed = completed === true;
+  canContinue = canContinue === true;
   return {
+    document: { lang: "en" },
     heading: "Training",
     title: "Opening line",
     progress: {
@@ -101,13 +105,14 @@ function trainingSnapshot() {
       mistakes: 0,
       hints_label: "Hints",
       hints_used: 0,
-      completed: false
+      completed: completed
     },
     message: "",
-    answer: { label: "Your move", max_length: 128, submit_label: "Check", disabled: false },
+    answer: { label: "Your move", max_length: 128, submit_label: "Check", disabled: completed },
     actions: [
-      { command: "training.hint", label: "Hint", enabled: true },
-      { command: "training.retry", label: "Retry", enabled: true },
+      { command: "training.hint", label: "Hint", enabled: !completed },
+      { command: "training.retry", label: "Retry", enabled: !completed },
+      { command: "training.continue", label: "Continue", enabled: completed && canContinue },
       { command: "training.reset.request", label: "Reset", enabled: true }
     ],
     reset_dialog: {
@@ -122,6 +127,7 @@ function trainingSnapshot() {
 
 function bookSnapshot(index, text) {
   return {
+    document: { lang: "uk" },
     heading: "Chess book reader",
     block: {
       dom_id: "book-block-" + String(index),
@@ -194,6 +200,9 @@ async function run() {
     "Action failed",
     []
   );
+  const trainingSection = find(trainingRoot, "SECTION");
+  check(trainingSection !== null && trainingSection.attributes.lang === "en",
+    "training local language is not exposed on the DOM subtree");
   const firstAnswer = trainingRoot.querySelector("#training-answer");
   check(firstAnswer !== null, "training answer input missing");
   check(document.activeElement === firstAnswer, "initial training focus missing");
@@ -214,6 +223,57 @@ async function run() {
   check(accepted, "correct answer was not sent to the host");
   check(correctAnswer.value === "", "accepted answer was not cleared");
   check(document.activeElement === correctAnswer, "accepted-answer focus was not restored");
+
+  window.AccessibleChessTrainingSurface.render(
+    trainingRoot,
+    trainingSnapshot(),
+    trainingInvoke,
+    announce,
+    "training-solution",
+    "Action failed",
+    ["e4", "Nf3"]
+  );
+  const solutionSection = trainingRoot.querySelector("#training-solution");
+  const solutionHeading = trainingRoot.querySelector("#training-solution-heading");
+  check(solutionSection !== null, "revealed Training solution section missing");
+  check(solutionHeading !== null && solutionHeading.textContent === "Solution",
+    "revealed Training solution heading missing");
+  check(solutionSection.attributes["aria-labelledby"] === "training-solution-heading",
+    "revealed Training solution lacks an accessible name");
+  check(document.activeElement === solutionSection,
+    "revealed Training solution did not receive focus");
+
+  window.AccessibleChessTrainingSurface.render(
+    trainingRoot,
+    trainingSnapshot(true, true),
+    trainingInvoke,
+    announce,
+    "training-action-continue",
+    "Action failed",
+    []
+  );
+  const completedAnswer = trainingRoot.querySelector("#training-answer");
+  const continueAction = trainingRoot.querySelector("#training-action-continue");
+  check(completedAnswer.disabled, "completed training answer must be disabled");
+  check(continueAction !== null && !continueAction.disabled,
+    "completed training Continue action must be focusable when available");
+  check(document.activeElement === continueAction,
+    "completed training did not move focus to Continue");
+
+  window.AccessibleChessTrainingSurface.render(
+    trainingRoot,
+    trainingSnapshot(true, false),
+    trainingInvoke,
+    announce,
+    "training-action-reset",
+    "Action failed",
+    []
+  );
+  const resetAction = trainingRoot.querySelector("#training-action-reset");
+  check(resetAction !== null && !resetAction.disabled,
+    "completed training Reset action must remain focusable without a successor");
+  check(document.activeElement === resetAction,
+    "completed training without successor did not move focus to Reset");
 
   const reset = find(trainingRoot, "BUTTON", "Reset");
   reset.focus();
@@ -245,6 +305,9 @@ async function run() {
     "book-block-2",
     "Action failed"
   );
+  const bookSection = find(bookRoot, "SECTION");
+  check(bookSection !== null && bookSection.attributes.lang === "uk",
+    "book local language is not exposed on the DOM subtree");
   check(document.activeElement === bookRoot.querySelector("#book-block-2"), "book focus missing");
   find(bookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();
