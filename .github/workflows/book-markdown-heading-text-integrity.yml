@@ -49,6 +49,7 @@ jobs:
           changed="$(git diff --name-only "$PRODUCT_BASE_SHA" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/book-markdown-heading-text-integrity.yml' \
+            '.github/workflows/v2-markdown-semantic-lists-convergence.yml' \
             'acs/book_text_import.py' \
             'tests/test_v2_book_text_import.py' | sort)"
           test "$changed" = "$expected"
