@@ -85,7 +85,11 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)", self.text)
         self.assertIn("$candidatePattern.SupportedTextSelection", self.text)
         self.assertIn("$candidateElements=ControlElements @($candidate)", self.text)
-        self.assertIn("foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів'))", self.text)
+        self.assertIn("foreach($phrase in @('Розділи','Sections','Accessible Chess','Інформація про гру','Game information','Список ходів'))", self.text)
+        self.assertLess(
+            self.text.index("'Розділи','Sections'"),
+            self.text.index("'Accessible Chess','Інформація про гру'"),
+        )
         self.assertIn("$name -ceq $phrase", self.text)
         self.assertIn("$type -eq 'ControlType.Header'", self.text)
         self.assertIn("$type -eq 'ControlType.Text'", self.text)

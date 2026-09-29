@@ -319,7 +319,7 @@ try {
       $candidateTarget=$null
       $candidatePhrase=''
       $candidateTargetType=''
-      foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів')){
+      foreach($phrase in @('Розділи','Sections','Accessible Chess','Інформація про гру','Game information','Список ходів')){
         $namedTargets=@($candidateElements | Where-Object {
           try {
             $type=[string]$_.Current.ControlType.ProgrammaticName
