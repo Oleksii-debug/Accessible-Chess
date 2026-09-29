@@ -5,6 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_FULL_PRODUCT_BASE = "codex/v2-runtime-completion-20260907"
 
 REQUIRED_QA_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
@@ -35,6 +36,7 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
     def test_current_w4_release_base_is_explicitly_admitted(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml").read_text(encoding="utf-8")
         self.assertIn("release/w4-v2-current-p0-candidate-20260926", workflow)
+        self.assertIn(CANONICAL_FULL_PRODUCT_BASE, workflow)
         self.assertNotIn("base='*'", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
