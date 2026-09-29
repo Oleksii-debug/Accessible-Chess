@@ -78,6 +78,7 @@ jobs:
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
@@ -89,11 +90,16 @@ jobs:
           fi
 
           scope_base="${PR_BASE_SHA:-}"
-          if [ -n "$scope_base" ]; then
-            git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"
-          else
-            scope_base="$(git rev-parse HEAD^)"
+          if [ -z "$scope_base" ]; then
+            push_base="${PUSH_BASE_SHA:-}"
+            zero_sha='0000000000000000000000000000000000000000'
+            if [ -n "$push_base" ] && [ "$push_base" != "$zero_sha" ]; then
+              scope_base="$push_base"
+            else
+              scope_base="$(git rev-parse HEAD^)"
+            fi
           fi
+          git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"
           git cat-file -e "$scope_base^{commit}"
           git merge-base --is-ancestor "$scope_base" HEAD
           test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
