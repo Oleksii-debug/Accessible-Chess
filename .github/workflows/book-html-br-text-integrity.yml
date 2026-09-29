@@ -30,7 +30,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
       BOOK_SHA256: 397cd3d816b6e685d30d3d7cfb36627cff415c754cc8f4e455c24da652d3c21e
     steps:
@@ -51,7 +50,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            upstream="$PR_BASE_SHA"
+            git fetch --no-tags origin \
+              "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            upstream="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
           else
             upstream="$(git rev-parse HEAD^)"
           fi
