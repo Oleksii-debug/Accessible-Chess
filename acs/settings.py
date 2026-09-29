@@ -43,13 +43,13 @@ class _SettingsSaveLock:
         self.handle = None
 
     def __enter__(self) -> "_SettingsSaveLock":
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
-        if self.handle.seek(0, os.SEEK_END) == 0:
-            self.handle.write(b"\0")
-            self.handle.flush()
-        self.handle.seek(0)
         try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.handle = self.path.open("a+b")
+            if self.handle.seek(0, os.SEEK_END) == 0:
+                self.handle.write(b"\0")
+                self.handle.flush()
+            self.handle.seek(0)
             if os.name == "nt":
                 import msvcrt
 
@@ -62,10 +62,15 @@ class _SettingsSaveLock:
                     fcntl.LOCK_EX | fcntl.LOCK_NB,
                 )
         except (OSError, BlockingIOError) as exc:
-            self.handle.close()
+            handle = self.handle
             self.handle = None
+            if handle is not None:
+                try:
+                    handle.close()
+                except Exception:
+                    pass
             raise SettingsError(
-                "settings are temporarily locked for Version 2 upgrade"
+                "settings are temporarily unavailable for Version 2 persistence"
             ) from exc
         return self
 
