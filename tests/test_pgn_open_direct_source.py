@@ -17,6 +17,17 @@ _SAMPLE_PGN = """[Event "Direct"]
 
 
 class PgnOpenDirectSourceTests(unittest.TestCase):
+    def test_direct_source_read_does_not_use_following_path_open(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pgn"
+            source.write_text(_SAMPLE_PGN, encoding="utf-8", newline="")
+
+            with patch.object(Path, "open", side_effect=AssertionError("Path.open must not be used")):
+                opened = open_pgn(source)
+
+            self.assertEqual(opened.total_games, 1)
+            self.assertEqual(opened.games[0].tags["Event"], "Direct")
+
     def test_reparse_source_is_rejected_before_fingerprint_or_read(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.pgn"
