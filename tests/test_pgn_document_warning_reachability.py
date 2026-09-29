@@ -195,6 +195,60 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
                 api.close_analysis()
                 database.close()
 
+    def test_failed_release_language_refresh_rolls_back_warning_redaction(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            settings = Settings(root / "settings.json")
+            settings.set("language", "en")
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            api = Version2ReleaseAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                settings=settings,
+                lang="en",
+            )
+            refresh_results = iter((False, True))
+            refresh_calls: list[bool] = []
+
+            def refresh_native_menu() -> bool:
+                result = next(refresh_results)
+                refresh_calls.append(result)
+                return result
+
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_args: None,
+                    language=UILanguage.EN,
+                )
+                app.set_document(self._warning_session())
+                api.bind_version2_application(app)
+                api.bind_version2_language_refresh(refresh_native_menu)
+
+                result = api.set_language("uk")
+                snapshot = app.snapshot()["pgn"]
+                warning = snapshot["game"]["warnings"][0]
+
+                self.assertFalse(result["ok"])
+                self.assertEqual("en", Settings(root / "settings.json").get("language"))
+                self.assertEqual(UILanguage.EN, app.pgn.projection.language)
+                self.assertEqual("PGN warnings", snapshot["game"]["warnings_heading"])
+                self.assertIn("[local path hidden]", warning)
+                self.assertNotIn("[локальний шлях приховано]", warning)
+                self.assertNotIn("Users", warning)
+                self.assertNotIn("/home/", warning)
+                self.assertEqual([False, True], refresh_calls)
+                self.assertEqual(
+                    ({"kind": "language", "payload": {}},),
+                    app.drain_events(),
+                )
+            finally:
+                analysis.close()
+                api.close_analysis()
+                database.close()
+
     def test_clean_document_does_not_invent_warning(self) -> None:
         session = PgnDocumentSession.from_text(PGN)
         projection = PgnDocumentWebViewProjection(
