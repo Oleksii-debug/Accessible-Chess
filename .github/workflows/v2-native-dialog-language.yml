@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v2-native-dialog-language-current-\${{ github.workflow }}-\${{ github.ref }}
+  group: v2-native-dialog-language-current-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -30,13 +30,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2025]
-    runs-on: \${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Preserve exact Git bytes
         shell: bash
@@ -57,7 +57,7 @@ jobs:
       - name: Bind current-product PR base or verify direct runtime mode
         shell: bash
         env:
-          PR_BASE_SHA: \${{ github.event.pull_request.base.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test -f acs/version2_release_app.py
@@ -68,7 +68,7 @@ jobs:
           test -f tests/test_v2_native_dialog_language.py
           test -f tests/test_v2_native_dialog_language_workflow.py
 
-          base="\${PR_BASE_SHA:-}"
+          base="${PR_BASE_SHA:-}"
           if test -n "$base"; then
             git cat-file -e "$base^{commit}"
             git merge-base --is-ancestor "$base" HEAD
