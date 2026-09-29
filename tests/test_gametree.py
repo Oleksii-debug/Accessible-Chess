@@ -65,6 +65,12 @@ class GameTreeTests(unittest.TestCase):
             serialize_games([invalid])
         self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
 
+        invalid.line.moves[0].move_number = "1."
+        invalid.line.moves[0].san = "1.."
+        with self.assertRaises(GameTreeSerializationError) as caught:
+            serialize_games([invalid])
+        self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
+
     def test_multi_game_collection_stays_separate(self):
         text = '''[Event "G1"]
 [Result "1-0"]
