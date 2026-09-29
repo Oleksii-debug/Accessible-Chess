@@ -155,11 +155,17 @@ class D06PgnRoundTripTests(unittest.TestCase):
         serialized = serialize_pgn_text(games)
         self.assertEqual(parse_pgn_text(serialized), games)
 
-        self.assert_code(
-            PgnRoundTripErrorCode.MALFORMED_PGN,
-            parse_pgn_text,
-            '[Result "*"]\n\n... e4 *',
-        )
+        for damaged in (
+            '... e4 *',
+            '1 . . e4 *',
+            '1 {between integer and periods} .. e4 *',
+        ):
+            with self.subTest(damaged=damaged):
+                self.assert_code(
+                    PgnRoundTripErrorCode.MALFORMED_PGN,
+                    parse_pgn_text,
+                    f'[Result "*"]\n\n{damaged}',
+                )
 
     def test_recovery_mode_remains_available_for_read_only_damaged_inspection(self):
         games = parse_pgn_text(
