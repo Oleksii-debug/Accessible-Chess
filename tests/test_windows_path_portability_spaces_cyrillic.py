@@ -152,6 +152,9 @@ class WindowsPathPortabilitySpacesCyrillicTests(unittest.TestCase):
                 source_sha256=opened.source.sha256,
             )
             self.assertEqual(imported.game_count, 2)
+            stored_source = database.get_source(imported.source_id)
+            self.assertEqual(stored_source["source_name"], source.name)
+            self.assertNotIn(str(self.root), stored_source["source_name"])
 
             exporter = LibraryExportService(database)
             export_root = self.root / "Експорт бібліотеки"
@@ -260,6 +263,17 @@ class WindowsPathPortabilitySpacesCyrillicTests(unittest.TestCase):
         rendered = json.dumps(restarted_epub.snapshot(), ensure_ascii=False)
         self.assertNotIn(str(self.root), rendered)
         self.assertNotIn(str(epub_source), rendered)
+        progress_bytes = progress.path.read_text(encoding="utf-8")
+        self.assertNotIn(str(self.root), progress_bytes)
+        self.assertNotIn(str(text_source), progress_bytes)
+        self.assertNotIn(str(epub_source), progress_bytes)
+
+        unsupported = self.root / "Книги" / "непідтримувана книга.bad"
+        unsupported.write_text("not a supported book format", encoding="utf-8")
+        with self.assertRaises(ValueError) as caught:
+            restarted_epub.open_book(unsupported)
+        self.assertEqual(str(caught.exception), "unsupported book source")
+        self.assertNotIn(str(self.root), str(caught.exception))
 
     def test_local_path_failures_are_redacted_by_shared_presentation_authority(self) -> None:
         destination = self.root / "Партії" / "вже існує.pgn"
