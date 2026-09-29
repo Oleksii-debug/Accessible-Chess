@@ -59,6 +59,17 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("write_version2_package_zip", self.text)
         self.assertIn("validate_version2_package_tree", self.text)
 
+    def test_winforms_accessibility_config_is_bound_before_payload_preparation(self) -> None:
+        source = self.text.index("test -f product-source/packaging/AccessibleChess.exe.config")
+        include = self.text.index(
+            "--include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config"
+        )
+        byte_proof = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
+        prepare = self.text.index("Prepare release payload and inject qualified P0-F package content")
+        self.assertLess(source, include)
+        self.assertLess(include, byte_proof)
+        self.assertLess(byte_proof, prepare)
+
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
         self.assertIn("STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139", self.text)
