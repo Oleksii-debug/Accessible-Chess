@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 import tempfile
 from pathlib import Path
 import unittest
@@ -15,7 +16,7 @@ from acs.book_text_import import (
     import_text_book,
 )
 from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph, Position
-from acs.bookreader import BookReader
+from acs.bookreader import BOOK_READER_SNAPSHOT_SCHEMA_VERSION, BookReader
 from acs.chesscore import Board
 from acs.gametree import serialize_game
 
@@ -141,6 +142,36 @@ Before ![Board](board.png) after.
 
         self.assertEqual(restored.location(), target)
         self.assertEqual(reopened.document.blocks[target_index].text, "after.")
+
+    def test_markdown_repairs_restore_legacy_progress_targets(self) -> None:
+        source = """# C#
+
+Before ![Board](board.png) after.
+"""
+        result = import_text_book(
+            source,
+            source_name="legacy-targets.md",
+            source_format="markdown",
+        )
+
+        def legacy_id(kind: str, payload: str) -> str:
+            digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
+            return f"markdown-{digest}-1"
+
+        legacy_heading = legacy_id("Heading", "1\0C")
+        legacy_paragraph = legacy_id("Paragraph", "Before  after.")
+        snapshot = {
+            "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+            "current_target": f"block:{legacy_paragraph}",
+            "return_points": {"heading": f"block:{legacy_heading}"},
+            "fallback_digests": {},
+        }
+
+        restored = BookReader.restore_snapshot(result.document, snapshot)
+        current = restored.location()
+        self.assertEqual(result.document.blocks[current.index].text, "Before")
+        heading = restored.restore_return_point("heading")
+        self.assertEqual(result.document.blocks[heading.index].text, "C#")
 
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
