@@ -113,6 +113,69 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
             ],
         )
 
+    def test_markdown_escaped_and_literal_image_syntax_stays_readable(self) -> None:
+        cases = (
+            (r"Before \\![Board](board.png) after.", "escaped"),
+            ("Before `![Board](board.png)` after.", "inline-code"),
+            ("Before `![Board](board.png) after.", "unclosed-code"),
+        )
+        for source, label in cases:
+            with self.subTest(label=label):
+                result = import_text_book(
+                    source,
+                    source_name=f"{label}.md",
+                    source_format="markdown",
+                )
+                image_notes = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Note) and block.note_type == "image"
+                ]
+                paragraphs = [
+                    block.text
+                    for block in result.document.blocks
+                    if isinstance(block, Paragraph)
+                ]
+                self.assertEqual(image_notes, [])
+                self.assertEqual(paragraphs, [source])
+
+    def test_markdown_inline_code_does_not_hide_real_image_after_code_span(self) -> None:
+        source = "Before `![Literal](literal.png)` then ![Real](real.png) after."
+        result = import_text_book(
+            source,
+            source_name="mixed-literal-image.md",
+            source_format="markdown",
+        )
+
+        semantic = []
+        for block in result.document.blocks:
+            if isinstance(block, Note) and block.note_type == "image":
+                semantic.append(("image", block.text))
+            elif isinstance(block, Paragraph):
+                semantic.append(("paragraph", block.text))
+        self.assertEqual(
+            semantic,
+            [
+                ("paragraph", "Before `![Literal](literal.png)` then"),
+                ("image", "Real"),
+                ("paragraph", "after."),
+            ],
+        )
+
+    def test_markdown_even_backslash_parity_keeps_unescaped_image_semantics(self) -> None:
+        source = r"Prefix \\![Board](board.png) suffix."
+        result = import_text_book(
+            source,
+            source_name="backslash-parity.md",
+            source_format="markdown",
+        )
+        image_notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(image_notes, ["Board"])
+
     def test_markdown_inline_image_order_progress_reopens_same_semantic_block(self) -> None:
         source = """# Images
 

@@ -353,6 +353,46 @@ _LIST_RE = re.compile(
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
 
+
+def _iter_semantic_images(line: str):
+    """Yield unescaped inline images outside conservative backtick literals.
+
+    This is deliberately a bounded, single-pass recognizer rather than a second
+    Markdown parser. Escaped punctuation and backtick-delimited text stay
+    readable source text. If a backtick run is never closed, the rest of the
+    line is conservatively treated as literal instead of inventing semantics.
+    """
+
+    index = 0
+    code_ticks = 0
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if char == "\\":
+            index = min(length, index + 2)
+            continue
+        if char == "`":
+            end = index + 1
+            while end < length and line[end] == "`":
+                end += 1
+            run_length = end - index
+            if code_ticks == 0:
+                code_ticks = run_length
+            elif run_length == code_ticks:
+                code_ticks = 0
+            index = end
+            continue
+        if code_ticks:
+            index += 1
+            continue
+        match = _IMAGE_RE.match(line, index)
+        if match is not None:
+            yield match
+            index = match.end()
+            continue
+        index += 1
+
+
 def _is_fence_close(line: str, marker: str) -> bool:
     leading_spaces = len(line) - len(line.lstrip(" "))
     if leading_spaces > 3:
@@ -473,18 +513,19 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        first_image = _IMAGE_RE.search(line)
+        image_matches = _iter_semantic_images(line)
+        first_image = next(image_matches, None)
         if first_image is not None:
             flush()
-            # Before this source-order repair, all image Notes were appended first
-            # and one combined Paragraph containing the non-image prose was appended
-            # last. Preserve that old Paragraph target on the first successor prose
-            # fragment so already-saved BookReader progress for the same book_key
-            # restores deterministically after the parser correction.
+            # Before this source-order repair, all regex-shaped image Notes were
+            # appended first and one combined Paragraph containing the remaining
+            # prose was appended last. Keep that historical Paragraph identity
+            # while recognizing only unescaped images outside literal code now.
             legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
             legacy_identity_available = legacy_paragraph_identity is not None
             cursor = 0
-            for match in _IMAGE_RE.finditer(line):
+            match = first_image
+            while match is not None:
                 leading = line[cursor:match.start()].strip()
                 if leading:
                     builder.paragraph(
@@ -501,6 +542,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
                 if alt:
                     builder.image_note(alt, number)
                 cursor = match.end()
+                match = next(image_matches, None)
             trailing = line[cursor:].strip()
             if trailing:
                 builder.paragraph(
