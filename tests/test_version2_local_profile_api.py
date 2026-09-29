@@ -74,6 +74,40 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             self.assertFalse(attempted["ok"])
             self.assertEqual(profile_path.read_text(encoding="utf-8"), "{broken")
 
+    def test_backup_fallback_requires_explicit_repair_before_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LocalProfileStore(root / "profile.json")
+            original = store.create("First")
+            current = store.rename(original, "Second")
+            self.assertEqual(current.display_name, "Second")
+            profile_path = root / "profile.json"
+            profile_path.write_text("{broken", encoding="utf-8")
+
+            api = Version2ProfileAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                profile_store=store,
+            )
+            fallback = api.profile_snapshot()
+            self.assertTrue(fallback["ok"])
+            self.assertTrue(fallback["exists"])
+            self.assertTrue(fallback["recoveryRequired"])
+            self.assertEqual(fallback["displayName"], "First")
+
+            rejected = api.profile_rename("Third")
+            self.assertFalse(rejected["ok"])
+            self.assertEqual(profile_path.read_text(encoding="utf-8"), "{broken")
+
+            repaired = api.profile_repair()
+            self.assertTrue(repaired["ok"])
+            self.assertFalse(repaired["recoveryRequired"])
+            self.assertEqual(repaired["displayName"], "First")
+            self.assertEqual(store.load().profile_id, original.profile_id)
+
+            renamed = api.profile_rename("Third")
+            self.assertTrue(renamed["ok"])
+            self.assertEqual(renamed["displayName"], "Third")
+
     def test_blank_explicit_name_is_rejected_but_skip_is_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
