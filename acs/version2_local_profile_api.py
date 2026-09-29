@@ -32,6 +32,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
         profile: LocalProfile | None,
         *,
         announcement: str = "",
+        recovery_required: bool = False,
     ) -> dict[str, object]:
         if profile is None:
             return {
@@ -39,6 +40,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
                 "exists": False,
                 "displayName": "",
                 "generatedAlias": False,
+                "recoveryRequired": False,
                 "announcement": announcement,
             }
         # profile_id is intentionally not exposed to browser presentation.
@@ -47,6 +49,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
             "exists": True,
             "displayName": profile.display_name,
             "generatedAlias": profile.generated_alias,
+            "recoveryRequired": recovery_required,
             "revision": profile.revision,
             "announcement": announcement,
         }
@@ -59,13 +62,26 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
 
     def _profile_snapshot_ui(self) -> dict[str, object]:
         try:
-            return self._profile_payload(self._profile_store().load())
+            store = self._profile_store()
+            profile = store.load()
+            recovery_required = False
+            if profile is not None:
+                primary_exists = store.path.exists() or store.path.is_symlink()
+                if not primary_exists:
+                    recovery_required = True
+                else:
+                    try:
+                        store._read_profile(store.path)
+                    except LocalProfileError:
+                        recovery_required = True
+            return self._profile_payload(profile, recovery_required=recovery_required)
         except LocalProfileError:
             return {
                 "ok": False,
                 "exists": False,
                 "displayName": "",
                 "generatedAlias": False,
+                "recoveryRequired": False,
                 "announcement": self._profile_error_message(),
             }
 
