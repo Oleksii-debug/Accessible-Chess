@@ -3,10 +3,7 @@ name: Version 2 Windows NVDA UI
 on:
   push:
     branches:
-      - work/v2-windows-nvda-ui-20260828
-  pull_request:
-    branches:
-      - work/version2-integration-formats-20260827
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_windows_file_workflows.py'
       - 'acs/version2_windows_pgn_export.py'
@@ -14,15 +11,49 @@ on:
       - 'acs/version2_windows_import_ui_pump.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_pgn_streaming_host.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
       - 'tests/test_v2_windows_pgn_export.py'
       - 'tests/test_v2_windows_import_event_mailbox.py'
       - 'tests/test_v2_windows_import_ui_pump.py'
       - 'tests/test_v2_windows_native_dialog_ownership.py'
       - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_pgn_streaming_host_lifecycle.py'
+      - 'tests/test_version2_release_ui.py'
+      - 'tests/test_version2_release_app.py'
+      - 'tests/test_v2_windows_nvda_ui_workflow.py'
+      - '.github/workflows/v2-windows-nvda-ui.yml'
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_pgn_export.py'
+      - 'acs/version2_windows_import_event_mailbox.py'
+      - 'acs/version2_windows_import_ui_pump.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_pgn_streaming_host.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_v2_windows_nvda_file_workflows.py'
+      - 'tests/test_v2_windows_pgn_export.py'
+      - 'tests/test_v2_windows_import_event_mailbox.py'
+      - 'tests/test_v2_windows_import_ui_pump.py'
+      - 'tests/test_v2_windows_native_dialog_ownership.py'
+      - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_pgn_streaming_host_lifecycle.py'
+      - 'tests/test_version2_release_ui.py'
+      - 'tests/test_version2_release_app.py'
+      - 'tests/test_v2_windows_nvda_ui_workflow.py'
       - '.github/workflows/v2-windows-nvda-ui.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
 
@@ -30,8 +61,6 @@ concurrency:
   group: v2-windows-nvda-ui-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  V2_UI_BASE: 575ec0088982d2f90adb47c040a5714d68186b0e
 
 jobs:
   file-workflow-accessibility:
@@ -68,50 +97,25 @@ jobs:
             python -m pip install -q pythonnet==3.0.5
           fi
 
-      - name: Prove exact Version 2 UI ancestry scope and Stage 1 isolation
+      - name: Bind exact current-product candidate geometry
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$V2_UI_BASE" HEAD
-          test "$(git merge-base "$V2_UI_BASE" HEAD)" = "$V2_UI_BASE"
-          git diff --check "$V2_UI_BASE" HEAD
-          changed="$(git diff --name-only "$V2_UI_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-windows-nvda-ui.yml' \
-            'acs/version2_windows_file_workflows.py' \
-            'acs/version2_windows_host_runtime.py' \
-            'acs/version2_windows_import_event_mailbox.py' \
-            'acs/version2_windows_import_ui_pump.py' \
-            'acs/version2_windows_native_dialog_ownership.py' \
-            'acs/version2_windows_pgn_export.py' \
-            'tests/test_v2_windows_host_runtime.py' \
-            'tests/test_v2_windows_import_event_mailbox.py' \
-            'tests/test_v2_windows_import_ui_pump.py' \
-            'tests/test_v2_windows_native_dialog_ownership.py' \
-            'tests/test_v2_windows_nvda_file_workflows.py' \
-            'tests/test_v2_windows_pgn_export.py' | sort)"
-          test "$changed" = "$expected"
-          git diff --quiet "$V2_UI_BASE" HEAD -- \
-            acs/chesscore.py \
-            acs/gametree.py \
-            acs/pgn_document.py \
-            acs/pgn_service.py \
-            acs/pgn_workspace.py \
-            acs/pgn_workspace_webview_adapter.py \
-            acs/full_product_actions.py \
-            acs/acsdb.py \
-            acs/library_import_service.py \
-            acs/library_webview_bridge.py \
-            acs/library_webview_projection.py \
-            acs/chessbase_decoder.py \
-            acs/chessbase_library_import.py \
-            acs/cbv_extractor.py \
-            acs/full_product_native_menu.py \
-            acs/stage1_release_ui.py \
-            acs/stage1_release_ui_core.py \
-            web/stage1_release_bootstrap.js \
-            web/stage1_board_actions.js \
-            tools/qa
+          base="${PR_BASE_SHA:-}"
+          if test -n "$base"; then
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            test "$(git merge-base "$base" HEAD)" = "$base"
+            git diff --check "$base" HEAD
+            echo "WINDOWS_NVDA_UI_PRODUCT_PARENT=$base"
+          else
+            parent="$(git rev-parse HEAD^)"
+            git cat-file -e "$parent^{commit}"
+            git diff --check "$parent" HEAD
+            echo "WINDOWS_NVDA_UI_HEAD=$(git rev-parse HEAD)"
+          fi
 
       - name: Compile host composition and tests
         run: >-
@@ -124,6 +128,10 @@ jobs:
           acs/version2_windows_pgn_export.py
           tests/test_v2_windows_nvda_file_workflows.py
           tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_pgn_streaming_host_lifecycle.py
+          tests/test_v2_windows_nvda_ui_workflow.py
+          tests/test_version2_release_ui.py
+          tests/test_version2_release_app.py
           tests/test_v2_windows_import_event_mailbox.py
           tests/test_v2_windows_import_ui_pump.py
           tests/test_v2_windows_native_dialog_ownership.py
@@ -134,6 +142,10 @@ jobs:
           python -m unittest -v
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_pgn_streaming_host_lifecycle
+          tests.test_v2_windows_nvda_ui_workflow
+          tests.test_version2_release_ui
+          tests.test_version2_release_app
           tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_native_dialog_ownership
