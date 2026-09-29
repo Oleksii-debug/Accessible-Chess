@@ -107,6 +107,26 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertNotIn("Whiteto", "\n".join(headings))
         self.assertNotIn("lineSecond", "\n".join(paragraphs))
 
+    def test_table_cells_do_not_collapse_inside_row_text(self) -> None:
+        result = import_html_book(
+            "<html><body><table><tr><td>e4</td><td>e5</td></tr></table></body></html>",
+            source_name="table-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(paragraphs, ["e4 e5"])
+        self.assertNotIn("e4e5", paragraphs)
+
+    def test_nested_block_close_preserves_resumed_reading_text_boundary(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Alpha<div>Beta</div>Gamma</p></body></html>",
+            source_name="nested-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(paragraphs, ["Alpha Beta Gamma"])
+        self.assertNotIn("BetaGamma", paragraphs[0])
+
     def test_br_preserves_list_item_boundaries(self) -> None:
         result = import_html_book(
             "<html><body><ul><li>White<br>to move</li><li>Black<br/>to move</li></ul></body></html>",
