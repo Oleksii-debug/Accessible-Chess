@@ -107,7 +107,7 @@ class Version2CompositionStartupCleanupTests(unittest.TestCase):
                 mock.patch.object(release_app, "Settings", return_value=settings),
                 mock.patch.object(release_app, "SoundRuntime", return_value=sound_runtime),
                 mock.patch.object(release_app, "GameSoundRuntime", return_value=game_sounds),
-                mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
+                mock.patch.object(release_app, "Version2ProfileAccessibleChessAPI", return_value=api),
                 mock.patch.object(release_app, "AcsDatabase", side_effect=OSError("database init failed")),
             ):
                 with self.assertRaisesRegex(OSError, "database init failed"):
