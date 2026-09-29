@@ -95,6 +95,21 @@ class BookDocumentTests(unittest.TestCase):
         self.assertIs(book.blocks[0], paragraph)
         self.assertEqual(book.as_dict()["blocks"][0]["text"], "Readable text")
 
+    def test_structure_validation_rejects_mutated_live_block_fields_stably(self):
+        heading = Heading(text="Heading", level=1, block_id="h1")
+        book = BookDocument("Book", blocks=[heading])
+
+        heading.block_id = []  # type: ignore[assignment]
+        with self.assertRaises(BookDocumentError) as identity:
+            book.validate_structure()
+        self.assertEqual(identity.exception.code, BookDocumentErrorCode.INVALID_FIELD)
+
+        heading.block_id = "h1"
+        heading.level = "2"  # type: ignore[assignment]
+        with self.assertRaises(BookDocumentError) as level:
+            book.validate_structure()
+        self.assertEqual(level.exception.code, BookDocumentErrorCode.INVALID_FIELD)
+
     def test_diagram_requires_accessibility_warning_when_alt_missing(self):
         book = BookDocument("Book")
         book.append(Diagram(fen=FEN, caption="Diagram"))
