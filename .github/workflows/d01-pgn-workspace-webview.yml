@@ -19,6 +19,7 @@ on:
       - 'tests/test_dev1_pgn_webview_atomicity.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_v2_pgn_webview_path_privacy.py'
       - 'tests/test_v2_board_analysis_hotkey_feedback.py'
       - 'web/full_product_pgn.js'
       - 'web/index.html'
@@ -215,6 +216,7 @@ jobs:
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
+          tests/test_v2_pgn_webview_path_privacy.py=cf810ffa1db7e0d5a223159b2c3aa14486881f87
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
@@ -223,7 +225,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|c974a86cff676fb394500e347a727a405fb15126)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -244,7 +246,7 @@ jobs:
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_board_analysis_hotkey_feedback.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_pgn_webview_path_privacy.py tests/test_v2_board_analysis_hotkey_feedback.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
@@ -256,6 +258,7 @@ jobs:
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_v2_pgn_webview_path_privacy
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_webview_adapter
           tests.test_gametree
