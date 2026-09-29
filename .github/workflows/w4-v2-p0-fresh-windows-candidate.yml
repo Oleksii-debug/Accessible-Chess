@@ -94,6 +94,7 @@ jobs:
           test -f product-source/acs/version2_release_payload.py
           test -f product-source/acs/version2_package_assembler.py
           test -f product-source/acs/version2_package_preflight.py
+          test -f product-source/packaging/AccessibleChess.exe.config
           test -f product-source/scripts/run_p0_packaged_acceptance.ps1
           test -f product-source/tools/p0f_lawful_starter_bundle.py
           git -C product-source diff --check
@@ -174,16 +175,23 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $report=Join-Path $env:RUNNER_TEMP 'nuitka-compilation-report.xml'
-          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
           if($LASTEXITCODE -ne 0){throw 'NUITKA_BUILD_TOOLCHAIN_FAILURE'}
           $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
           $exe=Join-Path $dist 'AccessibleChess.exe'
           if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AccessibleChess.exe missing'}
+          $config=(Resolve-Path 'packaging\AccessibleChess.exe.config').Path
+          $distConfig=Join-Path $dist 'AccessibleChess.exe.config'
+          if(-not (Test-Path -LiteralPath $distConfig -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}
+          $sourceConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $config).Hash
+          $distConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $distConfig).Hash
+          if($sourceConfigHash -ne $distConfigHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
           $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'})
           if($leaks.Count -ne 0){throw 'RAW_PYTHON_SOURCE_OR_BYTECODE_LEAK'}
           $reports=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Name -match '(?i)(nuitka.*report|compilation[-_ ]?report)'})
           if($reports.Count -ne 0){throw 'COMPILATION_REPORT_LEAK'}
           Write-Host "STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host "STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$($distConfigHash.ToLowerInvariant())"
           Write-Host 'STANDALONE_BUILD=PASS'
 
       - name: Build deterministic nine-event sound input with provenance

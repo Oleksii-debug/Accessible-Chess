@@ -45,6 +45,14 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
     def test_build_reuses_qualified_nuitka_and_v2_release_authorities(self) -> None:
         self.assertIn("NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29", self.text)
         self.assertIn("python -m nuitka --standalone", self.text)
+        self.assertIn(
+            "--include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config",
+            self.text,
+        )
+        self.assertIn("test -f product-source/packaging/AccessibleChess.exe.config", self.text)
+        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING", self.text)
+        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
+        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS", self.text)
         self.assertIn("run_accessible_chess_v2.py", self.text)
         self.assertIn("prepare_version2_release_payload", self.text)
         self.assertIn("assemble_version2_package_tree", self.text)
