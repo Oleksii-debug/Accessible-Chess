@@ -31,7 +31,12 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
         self.assertNotIn("work/v2-book-board-workflow-20260831", self.workflow)
 
     def test_historical_fixed_base_is_removed(self) -> None:
-        self.assertNotIn("BASE_SHA:", self.workflow)
+        legacy_base_keys = [
+            line
+            for line in self.workflow.splitlines()
+            if line.strip().startswith("BASE_SHA:")
+        ]
+        self.assertEqual(legacy_base_keys, [])
         self.assertNotIn("f4594e48a7689ca5cc6c5a9ca467adbbc98c95f3", self.workflow)
         self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", self.workflow)
         self.assertIn('base="${PR_BASE_SHA:-}"'.replace("\\$", "$"), self.workflow)
