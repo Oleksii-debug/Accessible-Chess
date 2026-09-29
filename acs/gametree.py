@@ -762,7 +762,7 @@ def _validate_line_for_serialization(
             or not MOVE_NUMBER_TOKEN_RE.fullmatch(node.move_number)
         ):
             raise GameTreeSerializationError(
-                "move_number must be a canonical PGN move-number token",
+                "move_number must be a representable PGN import move-number token",
                 code=GameTreeErrorCode.INVALID_MOVE,
             )
         _validate_nags(node.nags)
