@@ -226,8 +226,8 @@ class BookHtmlImportTests(unittest.TestCase):
 
     def test_mismatched_suppressed_markup_reports_possible_reading_text_loss(self) -> None:
         result = import_html_book(
-            "<html><body><p>Before.</p><template><script>Hidden.</template>"
-            "<p>Ambiguous middle.</p></script><p>After.</p></body></html>",
+            "<html><body><p>Before.</p><template><noscript>Hidden.</template>"
+            "<p>Ambiguous middle.</p></noscript><p>After.</p></body></html>",
             source_name="mismatched-suppressed.html",
         )
         paragraphs = [
