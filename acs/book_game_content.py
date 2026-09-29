@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
-from .bookdocument import Game, VariationTree
+from .bookdocument import BookDocumentError, Game, VariationTree
 from .chesscore import Board
 from .gametree import GameTreeSerializationError, PgnGame, serialize_game
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
@@ -193,6 +193,16 @@ def resolve_book_game(
             "book game resolver requires a Game block",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    try:
+        # Book blocks are mutable authoring objects. Re-run the canonical
+        # BookDocument validator at the application boundary so post-construction
+        # mutation cannot leak raw type errors or invalid reference identities.
+        block.as_dict()
+    except BookDocumentError as exc:
+        raise BookGameContentError(
+            "book game block is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        ) from exc
     selected = _source(source)
     has_embedded = bool(block.pgn.strip())
     has_reference = block.game_id is not None
@@ -277,11 +287,21 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
             "book variation resolver requires a VariationTree block",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    # Resolve the root first so root-FEN corruption keeps its precise stable
+    # error code. Then validate the rest of the mutable Book block through the
+    # canonical BookDocument contract before parsing any PGN.
+    preserved_root_fen, canonical_root_fen = _canonical_root_fen(block.root_fen)
+    try:
+        block.as_dict()
+    except BookDocumentError as exc:
+        raise BookGameContentError(
+            "book variation block is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        ) from exc
     # VariationTree is mutable for authoring, so revalidate the live root at this
     # application boundary. Compare semantic positions canonically instead of raw
     # strings: BookDocument intentionally accepts equivalent four- and six-field
     # FEN spellings, while PGN FEN tags normally carry all six fields.
-    preserved_root_fen, canonical_root_fen = _canonical_root_fen(block.root_fen)
     game = _one_embedded_game(block.pgn)
     tagged_fen = game.tags.get("FEN")
     if tagged_fen is not None:
