@@ -137,6 +137,27 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT)
         self.assertNotIn(empty_board, str(caught.exception))
 
+    def test_duplicate_explicit_fen_marker_fails_closed_before_document_publication(self) -> None:
+        cases = (
+            (
+                "same-value",
+                f'<html><body><div data-acs-fen="{Board.START}" data-acs-fen="{Board.START}"></div></body></html>',
+            ),
+            (
+                "invalid-first-valid-last",
+                f'<html><body><div data-acs-fen="not-a-position" DATA-ACS-FEN="{Board.START}"></div></body></html>',
+            ),
+        )
+        for label, source in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookHtmlImportError) as caught:
+                    import_html_book(source, source_name="duplicate-position.html")
+                self.assertEqual(
+                    caught.exception.code,
+                    BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
+                )
+                self.assertNotIn("not-a-position", str(caught.exception))
+
     def test_missing_referenced_asset_is_reported_without_fake_diagram(self) -> None:
         result = import_html_book(
             _html(),

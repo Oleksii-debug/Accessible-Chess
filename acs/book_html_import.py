@@ -353,7 +353,15 @@ class _SemanticHtmlParser(HTMLParser):
                 "HTML book contains too many markup nodes",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        attrs = {name.lower(): value or "" for name, value in attrs_list}
+        attrs: dict[str, str] = {}
+        for name, value in attrs_list:
+            normalized_name = name.lower()
+            if normalized_name == "data-acs-fen" and normalized_name in attrs:
+                raise BookHtmlImportError(
+                    "HTML book contains a repeated explicitly marked chess position",
+                    code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
+                )
+            attrs[normalized_name] = value or ""
         if tag in _SUPPRESSED_TAGS:
             self._suppressed_depth += 1
             return
