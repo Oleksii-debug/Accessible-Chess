@@ -1,6 +1,9 @@
 name: Local Profile Identity Contract
 
 on:
+  push:
+    branches:
+      - work/local-profile-identity-foundation-20260929
   pull_request:
     paths:
       - "acs/local_profile.py"
@@ -10,6 +13,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: local-profile-identity-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   local-profile:
