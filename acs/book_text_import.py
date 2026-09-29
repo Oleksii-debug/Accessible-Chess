@@ -462,8 +462,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        image_matches = list(_IMAGE_RE.finditer(line))
-        if image_matches:
+        first_image = _IMAGE_RE.search(line)
+        if first_image is not None:
             flush()
             # Before this source-order repair, all image Notes were appended first
             # and one combined Paragraph containing the non-image prose was appended
@@ -473,7 +473,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
             legacy_identity_available = legacy_paragraph_identity is not None
             cursor = 0
-            for match in image_matches:
+            for match in _IMAGE_RE.finditer(line):
                 leading = line[cursor:match.start()].strip()
                 if leading:
                     builder.paragraph(
