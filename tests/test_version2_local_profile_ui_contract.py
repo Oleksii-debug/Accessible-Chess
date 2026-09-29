@@ -21,6 +21,8 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileName.setAttribute("aria-describedby", "v2-profile-description v2-profile-status")', source)
         self.assertIn('profileSave.type = "button"', source)
         self.assertIn('profileSkip.type = "button"', source)
+        self.assertIn('profileRepair.id = "v2-profile-repair"', source)
+        self.assertIn('profileRepair.hidden = !recoveryRequired', source)
 
     def test_first_launch_requires_explicit_save_or_skip(self) -> None:
         source = self.source
@@ -29,6 +31,8 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('bridge.profile_create("", true)', source)
         self.assertIn('bridge.profile_rename(profileName.value)', source)
         self.assertIn('if (event.key !== "Enter") return;', source)
+        self.assertIn('bridge.profile_repair()', source)
+        self.assertIn('(!result.exists || result.recoveryRequired)', source)
 
     def test_browser_never_requests_or_renders_stable_profile_id(self) -> None:
         source = self.source
