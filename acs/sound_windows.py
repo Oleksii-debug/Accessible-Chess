@@ -8,6 +8,7 @@ runs the real Windows smoke; Core only defines the exact contract.
 """
 
 import hashlib
+import io
 import json
 import logging
 import struct
@@ -131,14 +132,15 @@ class WindowsSoundPlaybackAdapter:
         # Cache identity must follow the actual packaged bytes, not filesystem
         # timestamps. Release extraction, pack replacement and restore can
         # legitimately preserve or move mtimes backwards.
-        source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        source_bytes = source.read_bytes()
+        source_digest = hashlib.sha256(source_bytes).hexdigest()
         destination = self._cache_dir / (
             f"{event.value}-v{volume}-{source_digest[:16]}.wav"
         )
         if destination.is_file():
             return destination
 
-        with wave.open(str(source), "rb") as reader:
+        with wave.open(io.BytesIO(source_bytes), "rb") as reader:
             params = reader.getparams()
             if params.sampwidth != 2:
                 raise ValueError("only 16-bit PCM WAV assets support volume scaling")
