@@ -18,8 +18,20 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn('actual="$(git rev-parse HEAD)"', workflow)
-        self.assertIn("git merge-base --is-ancestor \"$base\" HEAD", workflow)
-        self.assertIn('git diff --check "$base" HEAD', workflow)
+        self.assertIn("event_base='${{ github.event.pull_request.base.sha }}'", workflow)
+        self.assertIn("base_ref='${{ github.event.pull_request.base.ref }}'", workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$event_base" "$live_base"', workflow)
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            workflow,
+        )
+        self.assertIn('git diff --check "$live_base" HEAD', workflow)
+        self.assertIn('changed="$(git diff --name-only "$live_base" HEAD | sort)"', workflow)
         self.assertIn("LOCAL_PROFILE_UI_SCOPE=EXACT_SIX_PATHS", workflow)
         self.assertIn('python-version: "3.12.10"', workflow)
 
