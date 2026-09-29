@@ -10,25 +10,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-import re
 from typing import Any
 
 from .full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .presentation_privacy import redact_local_paths
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 GameCountProvider = Callable[[], int]
-
-_WINDOWS_LOCAL_PATH = re.compile(
-    r"(?i)(?<![A-Za-z0-9])(?:"
-    r"[a-z]:(?:[\\/]|(?=[^:\s]{1,160}(?:[\\/]|$)))[^\r\n\t]*"
-    r"|\\\\(?:\?\\)?[^\\\s]+\\[^\r\n\t]*"
-    r")"
-)
-_FILE_LOCAL_URI = re.compile(r"(?i)(?<![\w])file:[^\r\n\t ]+")
-_POSIX_LOCAL_PATH = re.compile(
-    r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var|private|opt|usr|etc|srv|run|root|Applications)(?:/|\b)[^\r\n\t ]*)"
-)
 
 _LABELS = {
     UILanguage.UA: {
@@ -85,10 +74,7 @@ _LABELS = {
 
 
 def _scrub_local_paths(text: str, language: UILanguage) -> str:
-    replacement = _LABELS[language]["local_path"]
-    text = _FILE_LOCAL_URI.sub(replacement, text)
-    text = _WINDOWS_LOCAL_PATH.sub(replacement, text)
-    return _POSIX_LOCAL_PATH.sub(replacement, text)
+    return redact_local_paths(text, _LABELS[language]["local_path"])
 
 
 def _bounded_text(value: object, *, language: UILanguage, limit: int) -> str:
