@@ -258,5 +258,17 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         self.assertEqual(position.to_fen(), CUSTOM_FEN)
 
 
+    def test_reachability_workflow_tracks_application_regression(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "pgn-position-new-document-reachability.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("'tests/test_version2_application.py'", workflow)
+        self.assertIn("tests.test_version2_application", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
