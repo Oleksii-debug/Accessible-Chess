@@ -355,6 +355,38 @@ class TrainingPresenterTests(unittest.TestCase):
         presenter.retry()
         self.assertEqual(before, presenter.snapshot())
 
+    def test_language_switch_relocalizes_only_presentation_owned_feedback(self):
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+        )
+
+        _rejected, view = presenter.submit("e3")
+        self.assertEqual("Try again.", view.message)
+        presenter.set_language(UILanguage.UA)
+        self.assertEqual("Спробуйте ще раз.", presenter.view().message)
+
+        presenter.retry()
+        _hint, view = presenter.request_hint()
+        self.assertEqual("Move the pawn two squares.", view.message)
+        presenter.set_language(UILanguage.EN)
+        self.assertEqual(
+            "Move the pawn two squares.",
+            presenter.view().message,
+        )
+
+        presenter.reveal_solution()
+        self.assertEqual("Solution revealed.", presenter.view().message)
+        presenter.set_language(UILanguage.UA)
+        self.assertEqual("Розв’язок показано.", presenter.view().message)
+
+        presenter.reset()
+        _accepted, view = presenter.submit("e4")
+        self.assertEqual("Good.", view.message)
+        presenter.set_language(UILanguage.EN)
+        self.assertEqual("Good.", presenter.view().message)
+
+
     def test_snapshot_restore_preserves_progress_without_ui_side_state(self):
         presenter = TrainingPresenter(ExerciseSession(self.definition))
         presenter.submit("e4")

@@ -111,7 +111,21 @@ class PgnTreePresenter:
         return SurfaceStatus.READY if self._games else SurfaceStatus.EMPTY
 
     def set_language(self, language: UILanguage) -> None:
+        previous = self._language
+        message = self._message
+        presentation_messages = (
+            ("Вправу завершено.", "Exercise completed."),
+            ("Правильно. Наступний крок.", "Correct. Next step."),
+            ("Спробуйте ще раз.", "Try again."),
+            ("Підказки для цього кроку немає.", "No hint is available for this step."),
+            ("Розв’язок показано.", "Solution revealed."),
+        )
+        for ua, en in presentation_messages:
+            if message == _localized(previous, ua, en):
+                message = _localized(language, ua, en)
+                break
         self._language = language
+        self._message = message
         self._rebuild()
 
     def select_game(self, index: int) -> PgnGameView:
