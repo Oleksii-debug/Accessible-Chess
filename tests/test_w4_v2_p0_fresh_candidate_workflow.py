@@ -121,6 +121,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             "tests.test_verify_p0_packaged_document_copy_evidence_hardening",
             "tests.test_verify_p0_packaged_document_copy_cli",
             "tests.test_p0_packaged_acceptance_orchestrator",
+            "tests.test_p0g_packaged_hotkey_result_probe",
             "tests.test_verify_p0g_packaged_hotkey_result_evidence",
             "tests.test_verify_p0g_packaged_hotkey_result_cli",
             "tests.test_w3_p0f_starter_books_training_content",
