@@ -53,9 +53,14 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
         self.assertIn('target = "p0-evidence/w4-run-metadata.json"', self.text)
         self.assertIn('if workflow != expected_workflow:', self.text)
+        self.assertIn('"winforms_accessibility_config_sha256"', self.text)
+        self.assertIn('config_sha = metadata.get("winforms_accessibility_config_sha256")', self.text)
+        self.assertIn("run metadata WinForms accessibility config SHA-256 is invalid", self.text)
+        self.assertIn("W4_READBACK_RUN_WINFORMS_CONFIG_SHA256=", self.text)
         self.assertIn('metadata.get("pre_upload_product_freshness") is not True', self.text)
         self.assertIn('metadata.get("pre_upload_workflow_freshness") is not True', self.text)
         self.assertIn('stream.write(f"product_sha={product}\\n")', self.text)
+        self.assertIn('stream.write(f"config_sha={config_sha}\\n")', self.text)
         self.assertIn("W4_READBACK_RUN_IDENTITY=PASS", self.text)
         self.assertNotIn("FULL_PRODUCT_BRANCH:", self.text)
 
@@ -69,7 +74,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
     def test_verifier_bytes_and_product_dependencies_have_separate_exact_authorities(self) -> None:
         self.assertNotIn("W4_VERIFIER_COMMIT:", self.text)
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 45219a753090d822ec95c5766c8ad94586793da2",
+            "W4_VERIFIER_BLOB_SHA: 50056ca618abc42450512d7cb0dbc3efa9442809",
             self.text,
         )
         self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
@@ -81,6 +86,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
         self.assertNotIn(".w4-readback-source/acs/acsdb.py", self.text)
         self.assertIn('PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}', self.text)
+        self.assertIn('PRODUCT_CONFIG_SHA256: ${{ steps.product.outputs.config_sha }}', self.text)
         self.assertIn('git fetch --no-tags origin "$PRODUCT_SHA"', self.text)
         self.assertIn('git worktree add --detach .w4-product-source "$PRODUCT_SHA"', self.text)
         self.assertIn('test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"', self.text)
@@ -88,6 +94,8 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
             "acs/acsdb.py",
             "acs/gametree.py",
             "acs/pgn_roundtrip.py",
+            "acs/version2_package_preflight.py",
+            "packaging/AccessibleChess.exe.config",
         ):
             self.assertIn(dependency, self.text)
         self.assertIn(
@@ -101,10 +109,22 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         )
         self.assertIn('test "$copied_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
         self.assertIn("W4_READBACK_VERIFIER_AUTHORITY=PASS", self.text)
+        self.assertIn("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS", self.text)
+        self.assertIn("sha256sum .w4-product-source/packaging/AccessibleChess.exe.config", self.text)
+        self.assertIn("validate_winforms_accessibility_app_config", self.text)
+        self.assertIn("W4_READBACK_PRODUCT_CONFIG_SEMANTICS_FAILURE", self.text)
+        config_authority = self.text.index("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS")
+        config_semantics = self.text.index("W4_READBACK_PRODUCT_CONFIG_SEMANTICS=PASS")
+        verifier_copy = self.text.index(
+            "cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py "
+            ".w4-product-source/scripts/verify_w4_candidate_artifact.py"
+        )
+        self.assertLess(config_authority, config_semantics)
+        self.assertLess(config_semantics, verifier_copy)
         self.assertIn("W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:
-        declared = "45219a753090d822ec95c5766c8ad94586793da2"
+        declared = "50056ca618abc42450512d7cb0dbc3efa9442809"
         actual = subprocess.run(
             ["git", "rev-parse", "HEAD:scripts/verify_w4_candidate_artifact.py"],
             cwd=ROOT,
