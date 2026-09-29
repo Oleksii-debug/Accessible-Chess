@@ -124,7 +124,8 @@ jobs:
               '.github/workflows/books-progress-backup-recovery.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/book_progress_store.py' \
-              'tests/test_v2_book_progress_store.py' | sort)"
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_version2_application.py' | sort)"
             if [ "$current_delta" = "$orphan_expected" ]; then
               test "$(git rev-parse "$current_product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
               test "$(git rev-parse "$current_product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
