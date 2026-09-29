@@ -365,6 +365,61 @@ function selectSubstringBackward(root, text) {
 }
 
 
+
+function proveV2BootstrapBackwardSelectionHelpers() {
+  workspace.hidden = false;
+  const content = new FakeElement("p");
+  content.textContent = "Alpha semantic Omega";
+  workspace.replaceChildren(content);
+
+  const bootstrapSource = fs.readFileSync("web/version2_final_product_bootstrap.js", "utf8");
+  const helperStart = bootstrapSource.indexOf("  function currentSelection()");
+  const helperEnd = bootstrapSource.indexOf("\n  const stage1Focus", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "V2 selection helpers were not found");
+
+  const helperFactory =
+    "(function(global,documentRef,workspace){" +
+    "let currentRouteId='library';\n" +
+    bootstrapSource.slice(helperStart, helperEnd) +
+    "\nreturn {captureWorkspaceSelection,restoreWorkspaceSelection};" +
+    "})(window,document,document.getElementById('v2-workspace'))";
+  const helpers = vm.runInContext(helperFactory, context, { filename: "version2.selection-helpers.js" });
+
+  selectSubstringBackward(workspace, "semantic");
+  const snapshot = helpers.captureWorkspaceSelection();
+  assert.ok(snapshot && snapshot.backward === true, "V2 bootstrap did not capture backward selection direction");
+
+  selection.removeAllRanges();
+  assert.strictEqual(
+    helpers.restoreWorkspaceSelection(snapshot, "library"),
+    true,
+    "V2 bootstrap failed to restore backward selection"
+  );
+  assert.strictEqual(selection.toString(), "semantic", "V2 bootstrap restored the wrong selected text");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "V2 bootstrap setBaseAndExtent path lost backward anchor/focus direction"
+  );
+
+  const nativeSetBaseAndExtent = selection.setBaseAndExtent;
+  selection.setBaseAndExtent = undefined;
+  selection.removeAllRanges();
+  assert.strictEqual(
+    helpers.restoreWorkspaceSelection(snapshot, "library"),
+    true,
+    "V2 bootstrap fallback failed to restore backward selection"
+  );
+  assert.strictEqual(selection.toString(), "semantic", "V2 bootstrap fallback restored the wrong text");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "V2 bootstrap collapse/extend fallback lost backward anchor/focus direction"
+  );
+  selection.setBaseAndExtent = nativeSetBaseAndExtent;
+
+  console.log("P0_V2_BOOTSTRAP_BACKWARD_SELECTION_SURVIVES=PASS");
+  console.log("P0_V2_BOOTSTRAP_BACKWARD_FALLBACK_SURVIVES=PASS");
+}
+
 function proveNavigationLocalRerender() {
   workspace.hidden = false;
   currentRoute = { id: "v2-nav-library" };
@@ -618,6 +673,7 @@ function provePgnLocalRerender() {
 (async function run() {
   await proveStage1RefreshAnalysis();
   proveStage1AnalysisListRerender();
+  proveV2BootstrapBackwardSelectionHelpers();
   proveNavigationLocalRerender();
   provePgnLocalRerender();
   console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
