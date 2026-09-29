@@ -16,6 +16,7 @@ from io import BytesIO
 import posixpath
 import re
 import stat
+import unicodedata
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
@@ -165,6 +166,11 @@ def _safe_entry_name(raw_name: object) -> str:
     return normalized
 
 
+def _canonical_casefold_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value)
+    return unicodedata.normalize("NFC", normalized.casefold())
+
+
 def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     infos = archive.infolist()
     if not infos or len(infos) > MAX_EPUB_ENTRIES:
@@ -174,6 +180,7 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         )
     index: dict[str, zipfile.ZipInfo] = {}
     seen: set[str] = set()
+    canonical_prefixes: dict[tuple[str, ...], tuple[str, ...]] = {}
     total_uncompressed = 0
     for info in infos:
         name = _safe_entry_name(info.filename)
@@ -183,6 +190,19 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
         seen.add(name)
+
+        raw_parts = tuple(name.split("/"))
+        canonical_parts = tuple(_canonical_casefold_name(part) for part in raw_parts)
+        for depth in range(1, len(raw_parts) + 1):
+            canonical_prefix = canonical_parts[:depth]
+            raw_prefix = raw_parts[:depth]
+            previous = canonical_prefixes.get(canonical_prefix)
+            if previous is not None and previous != raw_prefix:
+                raise _error(
+                    "EPUB package entry names collide after Unicode canonical case folding",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+            canonical_prefixes[canonical_prefix] = raw_prefix
         mode = (info.external_attr >> 16) & 0xFFFF
         if mode and stat.S_ISLNK(mode):
             raise _error(

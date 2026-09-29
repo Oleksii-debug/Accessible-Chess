@@ -243,6 +243,36 @@ class BookEpubImportTests(unittest.TestCase):
             import_epub_book(buffer.getvalue(), source_name="duplicate.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
 
+    def test_canonical_casefold_package_name_collisions_are_rejected(self) -> None:
+        collision_pairs = (
+            ("OEBPS/Text/Straße.txt", "OEBPS/Text/STRASSE.txt"),
+            ("OEBPS/Text/café.txt", "OEBPS/Text/cafe\u0301.txt"),
+            ("OEBPS/CaseDir/one.txt", "OEBPS/casedir/two.txt"),
+        )
+        for first, second in collision_pairs:
+            with self.subTest(first=first, second=second):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    prepend=[(first, b"one"), (second, b"two")],
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="canonical-collision.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
     def test_external_manifest_href_is_rejected(self) -> None:
         raw = _epub(
             opf=_opf(
