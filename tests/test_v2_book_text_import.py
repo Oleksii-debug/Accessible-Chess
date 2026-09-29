@@ -174,6 +174,37 @@ Before ![Board](board.png) after.
         heading = restored.restore_return_point("heading")
         self.assertEqual(result.document.blocks[heading.index].text, "C#")
 
+    def test_markdown_legacy_progress_occurrence_stays_stable_for_duplicate_lines(self) -> None:
+        source = """# Images
+
+Before ![Board](board.png) after.
+
+Before ![Board](board.png) after.
+"""
+        result = import_text_book(
+            source,
+            source_name="duplicate-legacy-targets.md",
+            source_format="markdown",
+        )
+        legacy_text = "Before  after."
+        digest = sha256(("Paragraph\0" + legacy_text).encode("utf-8")).hexdigest()[:20]
+        snapshot = {
+            "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+            "current_target": f"block:markdown-{digest}-2",
+            "return_points": {},
+            "fallback_digests": {},
+        }
+
+        restored = BookReader.restore_snapshot(result.document, snapshot)
+        current = restored.location()
+        matching = [
+            index
+            for index, block in enumerate(result.document.blocks)
+            if isinstance(block, Paragraph) and block.text == "Before"
+        ]
+        self.assertEqual(len(matching), 2)
+        self.assertEqual(current.index, matching[1])
+
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
 
