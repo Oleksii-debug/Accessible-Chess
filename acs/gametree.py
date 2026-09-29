@@ -350,7 +350,11 @@ def _parse_line(
             pos += 1
             continue
         if tok.kind == "MOVE_NUMBER_PERIODS":
-            if pending_number is None or not MOVE_NUMBER_TOKEN_RE.fullmatch(pending_number):
+            if (
+                pending_number is None
+                or not pending_number.isdigit()
+                or pending_comments
+            ):
                 warnings.append(f"orphan move-number periods {tok.value}")
             else:
                 pending_number += tok.value
