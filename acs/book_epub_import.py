@@ -42,6 +42,7 @@ _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
 
 
 class BookEpubImportErrorCode(str, Enum):
@@ -404,6 +405,15 @@ def _resolve_package_href(
     if _INVALID_PERCENT_ESCAPE_RE.search(parts.path):
         raise _error(
             "EPUB package href contains malformed percent encoding",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    # RFC 3986 treats percent-encoded reserved characters as non-equivalent
+    # to their literal delimiters. Decoding %2F before package lookup would
+    # turn path-segment data into archive hierarchy and could alias a
+    # different resource (for example Text%2Fchapter.xhtml -> Text/chapter.xhtml).
+    if _ENCODED_PATH_SEPARATOR_RE.search(parts.path):
+        raise _error(
+            "EPUB package href percent-encodes a path separator",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     try:
