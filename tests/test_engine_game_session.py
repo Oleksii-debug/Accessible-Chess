@@ -131,6 +131,42 @@ class EngineGameSessionTests(unittest.TestCase):
             session.request_engine_move()
         self.assertEqual(state['moves'], [])
 
+    def test_failed_engine_clock_switch_preserves_lifecycle_requests(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="white",
+            move="e2e4",
+            time_control=TimeControl(10_000, 2_000),
+            now=now,
+        )
+        before = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="b")
+        )
+        self.assertEqual(before.lifecycle.draw_offered_by, "b")
+        clock = session._clock
+        self.assertIsNotNone(clock)
+
+        def fail_switch(_side):
+            raise RuntimeError("engine clock acceptance failed")
+
+        clock.switch_after_move = fail_switch
+
+        with self.assertRaisesRegex(RuntimeError, "engine clock acceptance failed"):
+            session.request_engine_move()
+
+        # The coordinator deliberately leaves canonical Board rollback to its
+        # caller. Prove a move callback happened, then model that rollback before
+        # asking for a coherent cross-owner snapshot.
+        self.assertEqual(state["moves"], ["e2e4"])
+        state["moves"].clear()
+        state["side"] = "w"
+        state["fen"] = "fen-w"
+        state["history"] = "node-0"
+
+        after = session.snapshot()
+        self.assertEqual(after.lifecycle, before.lifecycle)
+        self.assertEqual(after.lifecycle.draw_offered_by, "b")
+
     def test_human_commit_expires_pending_requests_and_advances_turn(self):
         session, snap, state, engine, analysis, review = self.make_session(engine_side='black')
         session.handle_handoff(EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor='w'))
