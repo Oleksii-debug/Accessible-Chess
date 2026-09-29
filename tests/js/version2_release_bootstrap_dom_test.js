@@ -14,6 +14,7 @@ class FakeElement {
     this.textContent = "";
     this.hidden = false;
     this.tabIndex = 0;
+    this.focusCount = 0;
   }
 
   appendChild(child) {
@@ -51,6 +52,7 @@ class FakeElement {
   }
 
   focus() {
+    this.focusCount += 1;
     documentRef.activeElement = this;
   }
 
@@ -288,6 +290,63 @@ async function clickRoute(routeId) {
   check(snapshotCalls === beforeStatusSnapshotCalls, "status-only event triggered a full V2 snapshot rerender");
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
+
+  // Browser-triggered Library export restores its own invoking control after
+  // the synchronous native Save dialog. The later host status event carries
+  // the same focus target for native-menu parity; consuming it must not call
+  // focus() a second time or NVDA can announce the same control twice.
+  const beforeIdempotentFocus = libraryInput.focusCount;
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(documentRef.activeElement === libraryInput, "idempotent host focus event lost the active Library control");
+  check(libraryInput.focusCount === beforeIdempotentFocus, "host focus event focused an already-active Library control twice");
+
+  // Focus recording crosses an asynchronous host bridge. A later status event
+  // can therefore contain the previously recorded token after the user has
+  // already reached another live V2 control. That stale token must not steal
+  // focus back or trigger duplicate/incorrect screen-reader focus speech.
+  const libraryOther = new FakeElement("button");
+  libraryOther.id = "library-other-control";
+  workspace.appendChild(libraryOther);
+  libraryOther.focus();
+  const beforeStaleHostFocus = libraryInput.focusCount;
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(documentRef.activeElement === libraryOther, "stale host focus token stole focus from a live V2 control");
+  check(libraryInput.focusCount === beforeStaleHostFocus, "stale host focus token refocused the old Library control");
+
+  // The same host focus token must still restore focus when it is genuinely
+  // elsewhere, preserving native-menu and failure/cancel recovery semantics.
+  boardLauncher.focus();
+  const beforeRequiredRestore = libraryInput.focusCount;
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Cancelled.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(documentRef.activeElement === libraryInput, "host focus event did not restore a genuinely lost Library focus");
+  check(libraryInput.focusCount === beforeRequiredRestore + 1, "host focus restoration did not occur exactly once");
 
   currentRoute = "board";
   eventQueue = [

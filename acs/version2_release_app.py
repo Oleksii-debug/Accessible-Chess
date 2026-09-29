@@ -30,6 +30,7 @@ from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+from .version2_windows_library_export import build_version2_windows_library_file_runtime
 from .version2_windows_native_dialog_ownership import Version2OwnedWindowsFileDialogs
 from .webapp_keymap import _asset_root
 
@@ -217,6 +218,32 @@ def _install_close_guard_or_shutdown(
         raise
     return file_runtime
 
+
+
+def _build_version2_windows_file_runtime(
+    *,
+    application: Version2Application,
+    api: Version2ReleaseAccessibleChessAPI,
+    database_path: Path,
+    owner_control: object,
+    dialog_language_provider: Callable[[], object],
+) -> Version2WindowsFileWorkflowRuntime:
+    """Compose the one trusted Windows file runtime, including Library export."""
+
+    return build_version2_windows_library_file_runtime(
+        owner_control=owner_control,
+        library_service=application.library_export,
+        library_export_event_sink=application._file_event,
+        get_pgn_session=lambda: application.session,
+        set_pgn_session=lambda session: _install_host_confirmed_document(application, session),
+        import_services_factory=application.worker_factory(database_path),
+        export_selected=application.pgn_commands.export_selected,
+        import_ui_ready=application.import_ui_ready,
+        pgn_export_event_sink=application._file_event,
+        next_delegate=api.v2_board_dispatch,
+        current_focus_provider=lambda: str(application._focus),
+        dialog_language_provider=dialog_language_provider,
+    )
 
 def _copy_text_to_windows_clipboard(value: str) -> None:
     if not isinstance(value, str):
@@ -483,16 +510,11 @@ def create_version2_release_application(
             lambda: owner_control,
             language_provider=dialog_language_provider,
         )
-        file_runtime = Version2WindowsFileWorkflowRuntime(
+        file_runtime = _build_version2_windows_file_runtime(
+            application=application,
+            api=api,
+            database_path=database_path,
             owner_control=owner_control,
-            get_pgn_session=lambda: application.session,
-            set_pgn_session=lambda session: _install_host_confirmed_document(application, session),
-            import_services_factory=application.worker_factory(database_path),
-            export_selected=application.pgn_commands.export_selected,
-            import_ui_ready=application.import_ui_ready,
-            pgn_export_event_sink=application._file_event,
-            next_delegate=api.v2_board_dispatch,
-            current_focus_provider=lambda: str(application._focus),
             dialog_language_provider=dialog_language_provider,
         )
         file_runtime = _install_close_guard_or_shutdown(
