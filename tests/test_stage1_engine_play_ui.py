@@ -217,6 +217,13 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(sounds.end_events, 0)
         self.assertEqual(failed["engineGame"]["phase"], "error")
         self.assertTrue(failed["engineGame"]["canStop"])
+        self.assertTrue(failed["engineGame"]["canRetry"])
+
+        retried = api.retry_engine_move()
+        self.assertTrue(retried["ok"], retried)
+        self.assertEqual(retried["engineGame"]["phase"], "active")
+        self.assertEqual(retried["engineGame"]["turn"], "human")
+        self.assertEqual(engine.calls, [])
 
     def test_engine_move_expiring_during_clock_switch_is_rolled_back(self) -> None:
         sounds = _RecordingGameSounds()
