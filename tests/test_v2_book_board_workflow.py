@@ -154,6 +154,22 @@ class BookBoardWorkflowTests(unittest.TestCase):
                 with self.assertRaises(LookupError):
                     reader.restore_return_point(workflow._RETURN_POINT)
 
+    def test_open_current_sanitizes_reader_stale_before_origin_capture(self) -> None:
+        position = Position(fen=Board.START, block_id="already-stale")
+        document = BookDocument(title="Book", blocks=[position])
+        reader = BookReader(document)
+        workflow, engine, _analysis = self._workflow(reader)
+        position.caption = "changed before Board open"
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.open_current()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertNotIn("BookDocument changed", str(caught.exception))
+        self.assertEqual(engine.calls, [])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_open_current_rejects_revision_race_before_mutated_block_is_consumed(self) -> None:
         position = Position(fen=Board.START, block_id="race-pos")
         document = BookDocument(title="Book", blocks=[position])
