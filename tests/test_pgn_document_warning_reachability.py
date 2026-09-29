@@ -13,6 +13,8 @@ from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_document_webview_projection import PgnDocumentWebViewProjection
 from acs.pgn_workspace import PgnWorkspace
+from acs.settings import Settings
+from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 from acs.version2_application import Version2Application
 
 
@@ -151,6 +153,46 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
                 self.assertNotIn(str(source), repr(snapshot["pgn"]))
             finally:
                 analysis.close()
+                database.close()
+
+    def test_release_language_transaction_rescrubs_real_recovery_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "private recovery.pgn"
+            source.write_bytes(PGN.encode("utf-8") + b"\n{broken byte: \xff}\n")
+            settings = Settings(root / "settings.json")
+            settings.set("language", "en")
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            api = Version2ReleaseAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                settings=settings,
+                lang="en",
+            )
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_args: None,
+                    language=UILanguage.EN,
+                )
+                app.set_document(PgnDocumentSession.open(source))
+                api.bind_version2_application(app)
+
+                before = app.snapshot()["pgn"]["game"]["warnings"][0]
+                self.assertIn("Invalid UTF-8 bytes were replaced", before)
+                result = api.set_language("uk")
+                after = app.snapshot()["pgn"]["game"]["warnings"][0]
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(UILanguage.UA, app.pgn.projection.language)
+                self.assertEqual("Попередження PGN", app.snapshot()["pgn"]["game"]["warnings_heading"])
+                self.assertNotIn(str(source), after)
+                self.assertNotIn("[local path hidden]", after)
+            finally:
+                analysis.close()
+                api.close_analysis()
                 database.close()
 
     def test_clean_document_does_not_invent_warning(self) -> None:
