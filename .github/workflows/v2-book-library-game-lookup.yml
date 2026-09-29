@@ -81,11 +81,12 @@ jobs:
             test -n "$PR_BASE_SHA"
             test -n "$PR_HEAD_SHA"
             test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
-            test "$PR_BASE_SHA" = "$live_product"
-            upstream="$PR_BASE_SHA"
-          else
-            upstream="$live_product"
+            # pull_request.base.sha can be stale after a history-preserving
+            # reconvergence. Require that event base is not ahead of live
+            # Product, then scope against the fetched canonical Product head.
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$live_product"
           fi
+          upstream="$live_product"
 
           git merge-base --is-ancestor "$upstream" HEAD
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
