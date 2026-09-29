@@ -8,8 +8,13 @@ import unittest
 from unittest import mock
 
 from acs.acsdb import AcsDatabase
-from acs.cbv_extractor import ExternalCbvExtractorConfig
+from acs.cbv_extractor import (
+    CbvExtractCode,
+    CbvExtractError,
+    ExternalCbvExtractorConfig,
+)
 from acs.chessbase_decoder import (
+    ChessBaseDecodeCode,
     ChessBaseDecodeError,
     ExternalChessBaseDecoderConfig,
 )
@@ -252,6 +257,164 @@ class Version2FormatsIntegrationTests(unittest.TestCase):
         self.assertEqual(source["source_name"], "Archived Tournament.cbv")
         self.assertEqual(source["sha256"], sha256(self.cbv_source.read_bytes()).hexdigest())
         self.assertNotIn("private-account", repr(report))
+
+    def _database_counts(self) -> tuple[int, int, int]:
+        return tuple(
+            int(self.database.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in ("import_attempts", "sources", "games")
+        )
+
+    def _assert_zero_publication(self) -> None:
+        self.assertEqual(self._database_counts(), (0, 0, 0))
+
+    def test_postdecode_cbh_companion_mutation_fails_before_publication(self) -> None:
+        companion = self.private_root / "Tournament.cbg"
+        checks = 0
+
+        def mutate_after_decode() -> bool:
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                companion.write_bytes(b"changed after decoder validation")
+            return False
+
+        with mock.patch(
+            "acs.chessbase_decoder._run_backend",
+            return_value=_payload([_game(0, [_move(12, 28)])]),
+        ):
+            with self.assertRaises(ChessBaseDecodeError) as caught:
+                self.service.import_database(
+                    self.source,
+                    cancel_check=mutate_after_decode,
+                )
+
+        self.assertEqual(caught.exception.code, ChessBaseDecodeCode.SOURCE_CHANGED)
+        self.assertNotIn(str(self.private_root), str(caught.exception))
+        self.assertNotIn("private-account", str(caught.exception))
+        self._assert_zero_publication()
+
+    def test_postdecode_cbv_archive_mutation_fails_before_publication(self) -> None:
+        checks = 0
+
+        def mutate_after_decode() -> bool:
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                self.cbv_source.write_bytes(b"changed after extraction and decode")
+            return False
+
+        def uncbv_runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
+            destination = Path(cwd)
+            if arguments[0] == "list":
+                return b"Archived Tournament.cbh\nArchived Tournament.cbg\n"
+            self.assertEqual(Path(monitor_directory), destination)
+            (destination / "Archived Tournament.cbh").write_bytes(b"CBH header")
+            (destination / "Archived Tournament.cbg").write_bytes(b"CBH games")
+            return b""
+
+        with (
+            mock.patch("acs.cbv_extractor._run_uncbv", side_effect=uncbv_runner),
+            mock.patch(
+                "acs.chessbase_decoder._run_backend",
+                return_value=_payload([_game(0, [_move(12, 28)])]),
+            ),
+        ):
+            with self.assertRaises(CbvExtractError) as caught:
+                self.service.import_database(
+                    self.cbv_source,
+                    cancel_check=mutate_after_decode,
+                )
+
+        self.assertEqual(caught.exception.code, CbvExtractCode.SOURCE_CHANGED)
+        self.assertNotIn(str(self.private_root), str(caught.exception))
+        self.assertNotIn("private-account", str(caught.exception))
+        self._assert_zero_publication()
+
+    def test_cbh_mutation_inside_library_pre_attempt_cancel_poll_fails_closed(self) -> None:
+        companion = self.private_root / "Tournament.cbg"
+        checks = 0
+
+        def mutate_in_storage_pre_attempt_poll() -> bool:
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                companion.write_bytes(b"changed in D07 pre-attempt callback window")
+            return False
+
+        with mock.patch(
+            "acs.chessbase_decoder._run_backend",
+            return_value=_payload([_game(0, [_move(12, 28)])]),
+        ):
+            with self.assertRaises(ChessBaseDecodeError) as caught:
+                self.service.import_database(
+                    self.source,
+                    cancel_check=mutate_in_storage_pre_attempt_poll,
+                )
+
+        self.assertEqual(checks, 3)
+        self.assertEqual(caught.exception.code, ChessBaseDecodeCode.SOURCE_CHANGED)
+        self.assertNotIn(str(self.private_root), str(caught.exception))
+        self.assertNotIn("private-account", str(caught.exception))
+        self._assert_zero_publication()
+
+    def test_cbv_mutation_inside_library_pre_attempt_cancel_poll_fails_closed(self) -> None:
+        checks = 0
+
+        def mutate_in_storage_pre_attempt_poll() -> bool:
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                self.cbv_source.write_bytes(b"changed in D07 pre-attempt callback window")
+            return False
+
+        def uncbv_runner(_executable, arguments, _config, *, cwd, monitor_directory=None):
+            destination = Path(cwd)
+            if arguments[0] == "list":
+                return b"Archived Tournament.cbh\nArchived Tournament.cbg\n"
+            self.assertEqual(Path(monitor_directory), destination)
+            (destination / "Archived Tournament.cbh").write_bytes(b"CBH header")
+            (destination / "Archived Tournament.cbg").write_bytes(b"CBH games")
+            return b""
+
+        with (
+            mock.patch("acs.cbv_extractor._run_uncbv", side_effect=uncbv_runner),
+            mock.patch(
+                "acs.chessbase_decoder._run_backend",
+                return_value=_payload([_game(0, [_move(12, 28)])]),
+            ),
+        ):
+            with self.assertRaises(CbvExtractError) as caught:
+                self.service.import_database(
+                    self.cbv_source,
+                    cancel_check=mutate_in_storage_pre_attempt_poll,
+                )
+
+        self.assertEqual(checks, 3)
+        self.assertEqual(caught.exception.code, CbvExtractCode.SOURCE_CHANGED)
+        self.assertNotIn(str(self.private_root), str(caught.exception))
+        self.assertNotIn("private-account", str(caught.exception))
+        self._assert_zero_publication()
+
+    def test_library_pre_attempt_cancel_remains_cancel_and_publishes_nothing(self) -> None:
+        checks = 0
+
+        def cancel_in_storage_pre_attempt_poll() -> bool:
+            nonlocal checks
+            checks += 1
+            return checks == 3
+
+        with mock.patch(
+            "acs.chessbase_decoder._run_backend",
+            return_value=_payload([_game(0, [_move(12, 28)])]),
+        ):
+            with self.assertRaises(LibraryImportCancelledError):
+                self.service.import_database(
+                    self.source,
+                    cancel_check=cancel_in_storage_pre_attempt_poll,
+                )
+
+        self.assertEqual(checks, 3)
+        self._assert_zero_publication()
 
     def test_source_warning_validation_is_fail_closed_before_attempt(self) -> None:
         game = parse_games('[Event "Safe"]\n[Result "*"]\n\n1. e4 *\n')[0]
