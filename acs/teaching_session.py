@@ -642,6 +642,8 @@ def tick_timer(
     _active(state)
     if state.remaining_seconds is None:
         raise TeachingSessionError("current teaching step has no timer")
+    if state.remaining_seconds == 0:
+        raise TeachingSessionError("current teaching step timer has expired")
     elapsed = _positive_int(elapsed_seconds, "elapsed seconds", maximum=MAX_TIMER_SECONDS)
     remaining = max(0, state.remaining_seconds - elapsed)
     presentation = state.presentation
