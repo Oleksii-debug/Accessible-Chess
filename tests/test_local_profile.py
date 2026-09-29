@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -159,6 +160,89 @@ class LocalProfileStoreTests(unittest.TestCase):
         self.assertEqual(self.store.path.read_bytes(), before)
         self.assertEqual(self.store.load(), current)
 
+        # A rejected writer must release the process lock for the next valid
+        # mutation instead of stranding the profile in a locally deadlocked state.
+        final = self.store.rename(current, "Alice Three")
+        self.assertEqual(final.revision, current.revision + 1)
+        self.assertEqual(self.store.load(), final)
+
+    def test_concurrent_renames_serialize_before_revision_check(self) -> None:
+        original = self.store.create("Alice")
+        first_publish_entered = threading.Event()
+        release_first_publish = threading.Event()
+        overlapping_publish = threading.Event()
+        counter_guard = threading.Lock()
+        result_guard = threading.Lock()
+        active_backup_writers = 0
+        results: list[tuple[str, object]] = []
+
+        class CoordinatedStore(LocalProfileStore):
+            def _atomic_replace_bytes(inner_self, target: Path, payload: bytes) -> None:
+                nonlocal active_backup_writers
+                if target != inner_self.backup_path:
+                    return super()._atomic_replace_bytes(target, payload)
+
+                with counter_guard:
+                    active_backup_writers += 1
+                    is_first = active_backup_writers == 1
+                    if is_first:
+                        first_publish_entered.set()
+                    else:
+                        overlapping_publish.set()
+                try:
+                    if is_first and not release_first_publish.wait(5):
+                        raise RuntimeError("timed out waiting to release first profile writer")
+                    return super()._atomic_replace_bytes(target, payload)
+                finally:
+                    with counter_guard:
+                        active_backup_writers -= 1
+
+        first_store = CoordinatedStore(self.store.path)
+        second_store = CoordinatedStore(self.store.path)
+
+        def rename(store: LocalProfileStore, display_name: str) -> None:
+            try:
+                outcome: tuple[str, object] = ("ok", store.rename(original, display_name))
+            except Exception as exc:  # Capture worker result for the main test thread.
+                outcome = ("error", exc)
+            with result_guard:
+                results.append(outcome)
+
+        first = threading.Thread(target=rename, args=(first_store, "First Writer"), daemon=True)
+        second = threading.Thread(target=rename, args=(second_store, "Second Writer"), daemon=True)
+        first.start()
+        self.assertTrue(first_publish_entered.wait(5), "first writer never reached publication")
+        second.start()
+
+        # The second writer must remain outside publication while the first
+        # writer owns the stable sibling mutation lock.
+        self.assertFalse(
+            overlapping_publish.wait(0.25),
+            "concurrent profile writers reached publication at the same time",
+        )
+        release_first_publish.set()
+        first.join(5)
+        second.join(5)
+        self.assertFalse(first.is_alive(), "first profile writer did not finish")
+        self.assertFalse(second.is_alive(), "second profile writer did not finish")
+
+        successes = [value for kind, value in results if kind == "ok"]
+        errors = [value for kind, value in results if kind == "error"]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], LocalProfileConflict)
+        durable = self.store.load()
+        self.assertEqual(durable, successes[0])
+        self.assertEqual(durable.revision, original.revision + 1)
+
+    def test_mutation_lock_contains_no_profile_identity_data(self) -> None:
+        profile = self.store.create("Private Name")
+        self.assertTrue(self.store.lock_path.exists())
+        self.assertEqual(self.store.lock_path.read_bytes(), b"")
+        lock_bytes = self.store.lock_path.read_bytes()
+        self.assertNotIn(profile.profile_id.encode("ascii"), lock_bytes)
+        self.assertNotIn(profile.display_name.encode("utf-8"), lock_bytes)
+
     def test_corrupt_primary_recovers_from_verified_backup_without_rewriting(self) -> None:
         original = self.store.create("Alice")
         renamed = self.store.rename(original, "Alice Two")
@@ -266,6 +350,23 @@ class LocalProfileStoreTests(unittest.TestCase):
                 self.store.rename(original, "Alice Two")
         self.assertEqual(self.store.load(), original)
         self.assertEqual(parse_local_profile_bytes(self.store.backup_path.read_bytes()), original)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic links are unavailable")
+    def test_mutation_lock_symlink_is_rejected_without_touching_target(self) -> None:
+        original = self.store.create("Alice")
+        primary_before = self.store.path.read_bytes()
+        self.store.lock_path.unlink()
+        target = self.root / "hostile-lock-target.bin"
+        target.write_bytes(b"do-not-touch")
+        target_before = target.read_bytes()
+        self._symlink_or_skip(target, self.store.lock_path)
+
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.rename(original, "Alice Two")
+
+        self.assertEqual(self.store.path.read_bytes(), primary_before)
+        self.assertEqual(target.read_bytes(), target_before)
+        self.assertTrue(self.store.lock_path.is_symlink())
 
     @unittest.skipUnless(hasattr(os, "symlink"), "symbolic links are unavailable")
     def test_existing_symlink_profile_is_rejected(self) -> None:
