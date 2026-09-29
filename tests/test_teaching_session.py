@@ -324,9 +324,42 @@ class TeachingSessionDomainTests(unittest.TestCase):
         self.assertEqual(expired.remaining_seconds, 0)
         self.assertEqual(expired.phase, TeachingSessionPhase.ACTIVE)
         self.assertEqual(expired.position_fen, Board.START)
+        self.assertEqual(expired.presentation.board_permission, BoardPermissionState.LOCKED)
+        expired_snapshot = expired.to_json()
+        with self.assertRaises(TeachingSessionError):
+            submit_selection(timed_plan, expired, "student-1", "e4", expired.revision)
+        self.assertEqual(expired.to_json(), expired_snapshot)
+
         untimed = self.plan(self.step("s1", TeachingActivity.TEACHER_EXPLAINS))
         with self.assertRaises(TeachingSessionError):
             tick_timer(untimed, start_session(untimed), 1, 0)
+
+    def test_expired_move_step_stays_locked_across_pause_resume_until_advance(self) -> None:
+        plan = self.plan(
+            self.step("s1", TeachingActivity.MAKE_MOVE, timer_seconds=1),
+            self.step("s2", TeachingActivity.MAKE_MOVE),
+        )
+        expired = tick_timer(plan, start_session(plan), 2, 0)
+        self.assertEqual(expired.remaining_seconds, 0)
+        self.assertEqual(expired.presentation.board_permission, BoardPermissionState.LOCKED)
+        before = expired.to_json()
+        with self.assertRaises(TeachingSessionError):
+            submit_move(plan, expired, "student-1", "e4", expired.revision)
+        self.assertEqual(expired.to_json(), before)
+
+        paused = pause_session(plan, expired, expired.revision)
+        resumed = resume_session(plan, paused, paused.revision)
+        self.assertEqual(resumed.phase, TeachingSessionPhase.ACTIVE)
+        self.assertEqual(resumed.remaining_seconds, 0)
+        self.assertEqual(resumed.presentation.board_permission, BoardPermissionState.LOCKED)
+        with self.assertRaises(TeachingSessionError):
+            submit_move(plan, resumed, "student-1", "e4", resumed.revision)
+
+        next_step = advance_step(plan, resumed, resumed.revision)
+        self.assertEqual(next_step.remaining_seconds, None)
+        self.assertEqual(next_step.presentation.board_permission, BoardPermissionState.MOVE_ALLOWED)
+        moved = submit_move(plan, next_step, "student-1", "e4", next_step.revision)
+        self.assertEqual(moved.last_response.value, "e4")
 
     def test_stale_revision_and_wrong_plan_fail_without_partial_state(self) -> None:
         plan = self.plan(self.step("s1", TeachingActivity.SHOW_SQUARE, target_square="e4"))
