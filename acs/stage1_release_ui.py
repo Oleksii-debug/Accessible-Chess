@@ -50,7 +50,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             return analysis
         return direct
 
-    def _capture_engine_human_commit_context(self) -> dict[str, Any]:
+    def _capture_engine_commit_context(self) -> dict[str, Any]:
         moved_side = self.board.turn
         return {
             "history": self.review_history.export_tree(),
@@ -62,8 +62,8 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             "timeout_opponent_can_mate": self._timeout_mating_capability(moved_side),
         }
 
-    def _rollback_expired_human_move(self, context: dict[str, Any]) -> bool:
-        """Remove only the move rejected by the canonical game clock."""
+    def _rollback_expired_committed_move(self, context: dict[str, Any]) -> bool:
+        """Remove exactly one Board/history move rejected by the game clock."""
         try:
             restored_history = type(self.review_history).from_tree(context["history"])
             expected_fen = context["board_fen"]
@@ -97,7 +97,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         return True
 
     def _play_latest_move(self) -> None:
-        if getattr(self, "_defer_engine_human_move_sound", False):
+        if getattr(self, "_defer_engine_game_move_sound", False):
             return
         super()._play_latest_move()
 
@@ -105,27 +105,27 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         if self._engine_game_phase != "active":
             return super().make_move(text)
         previous_context = getattr(self, "_engine_human_commit_context", None)
-        previous_defer = getattr(self, "_defer_engine_human_move_sound", False)
-        self._engine_human_commit_context = self._capture_engine_human_commit_context()
-        self._defer_engine_human_move_sound = True
+        previous_defer = getattr(self, "_defer_engine_game_move_sound", False)
+        self._engine_human_commit_context = self._capture_engine_commit_context()
+        self._defer_engine_game_move_sound = True
         try:
             return super().make_move(text)
         finally:
             self._engine_human_commit_context = previous_context
-            self._defer_engine_human_move_sound = previous_defer
+            self._defer_engine_game_move_sound = previous_defer
 
     def activate_square(self, square: str) -> dict[str, Any]:
         if self._engine_game_phase != "active":
             return super().activate_square(square)
         previous_context = getattr(self, "_engine_human_commit_context", None)
-        previous_defer = getattr(self, "_defer_engine_human_move_sound", False)
-        self._engine_human_commit_context = self._capture_engine_human_commit_context()
-        self._defer_engine_human_move_sound = True
+        previous_defer = getattr(self, "_defer_engine_game_move_sound", False)
+        self._engine_human_commit_context = self._capture_engine_commit_context()
+        self._defer_engine_game_move_sound = True
         try:
             return super().activate_square(square)
         finally:
             self._engine_human_commit_context = previous_context
-            self._defer_engine_human_move_sound = previous_defer
+            self._defer_engine_game_move_sound = previous_defer
 
     def _after_human_engine_move(self, moved_side: str, human_san: str) -> dict[str, Any]:
         session = self._engine_session
@@ -138,9 +138,8 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                 moved_side,
                 timeout_opponent_can_mate=context["timeout_opponent_can_mate"],
             )
-            self._record_engine_clock(after_move)
         except Exception:
-            self._defer_engine_human_move_sound = False
+            self._defer_engine_game_move_sound = False
             if self._game_sounds is not None:
                 super()._play_latest_move()
             warning = self._pause_engine_after_failure()
@@ -155,7 +154,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             and outcome is not None
             and outcome.reason is EndReason.TIMEOUT
         ):
-            if not self._rollback_expired_human_move(context):
+            if not self._rollback_expired_committed_move(context):
                 self._engine_game_phase = "error"
                 self._engine_game_error = (
                     "Не вдалося безпечно відкотити хід після завершення часу."
@@ -166,13 +165,15 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                     "Не вдалося безпечно відкотити хід після завершення часу.",
                     "The move could not be safely rolled back after time expired.",
                 )
+            self._record_engine_clock(after_move)
             self._engine_game_phase = "finished"
             self._engine_game_error = None
             self._play_game_end_sound()
             message = self._outcome_text(after_move)
             return self._concise_error(message, message)
 
-        self._defer_engine_human_move_sound = False
+        self._record_engine_clock(after_move)
+        self._defer_engine_game_move_sound = False
         if self._game_sounds is not None:
             super()._play_latest_move()
 
@@ -194,6 +195,125 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             (f"Зіграно: {human_san}. {message}" if self.lang == "uk"
              else f"Played: {human_san}. {message}")
         )
+
+    def _request_engine_reply(self) -> tuple[bool, str]:
+        session = self._engine_session
+        if session is None:
+            return False, self._pause_engine_after_failure()
+
+        context = self._capture_engine_commit_context()
+        previous_defer = getattr(self, "_defer_engine_game_move_sound", False)
+        self._defer_engine_game_move_sound = True
+        self._engine_thinking = True
+        before = len(self.sans)
+        try:
+            try:
+                result = session.request_engine_move(
+                    timeout_opponent_can_mate=context["timeout_opponent_can_mate"],
+                )
+            except Exception:
+                committed = len(self.sans) == before + 1
+                if committed and not self._rollback_expired_committed_move(context):
+                    self._engine_game_phase = "error"
+                    self._engine_game_error = (
+                        "Не вдалося безпечно відкотити незавершений хід Stockfish."
+                        if self.lang == "uk"
+                        else "The incomplete Stockfish move could not be safely rolled back."
+                    )
+                    return False, self._engine_game_error
+                try:
+                    failed = session.snapshot()
+                except Exception:
+                    return False, self._pause_engine_after_failure()
+                outcome = failed.lifecycle.outcome
+                if (
+                    failed.lifecycle.status is GameStatus.FINISHED
+                    and outcome is not None
+                    and outcome.reason is EndReason.TIMEOUT
+                ):
+                    self._record_engine_clock(failed)
+                    self._engine_game_phase = "finished"
+                    self._engine_game_error = None
+                    self._play_game_end_sound()
+                    return True, self._outcome_text(failed)
+                return False, self._pause_engine_after_failure()
+            finally:
+                self._engine_thinking = False
+
+            if result.move is None:
+                try:
+                    snapshot = session.snapshot()
+                except Exception:
+                    return False, self._pause_engine_after_failure()
+                if snapshot.lifecycle.status is GameStatus.FINISHED:
+                    self._engine_game_phase = "finished"
+                    self._engine_game_error = None
+                    self._record_engine_clock(snapshot)
+                    self._play_game_end_sound()
+                    return True, self._outcome_text(snapshot)
+                return False, self._pause_engine_after_failure()
+
+            if len(self.sans) != before + 1:
+                return False, self._pause_engine_after_failure()
+
+            try:
+                after_move = session.snapshot()
+            except Exception:
+                if not self._rollback_expired_committed_move(context):
+                    return False, self._pause_engine_after_failure()
+                return False, self._pause_engine_after_failure()
+
+            outcome = after_move.lifecycle.outcome
+            if (
+                after_move.lifecycle.status is GameStatus.FINISHED
+                and outcome is not None
+                and outcome.reason is EndReason.TIMEOUT
+            ):
+                if not self._rollback_expired_committed_move(context):
+                    self._engine_game_phase = "error"
+                    self._engine_game_error = (
+                        "Не вдалося безпечно відкотити хід Stockfish після завершення часу."
+                        if self.lang == "uk"
+                        else "The Stockfish move could not be safely rolled back after time expired."
+                    )
+                    return False, self._engine_game_error
+                self._record_engine_clock(after_move)
+                self._engine_game_phase = "finished"
+                self._engine_game_error = None
+                self._play_game_end_sound()
+                return True, self._outcome_text(after_move)
+
+            self._record_engine_clock(after_move)
+            self._defer_engine_game_move_sound = False
+            if self._game_sounds is not None:
+                super()._play_latest_move()
+
+            engine_san = _shared_spoken_san(self.sans[-1], self.lang)
+            if after_move.lifecycle.status is GameStatus.FINISHED:
+                self._engine_game_phase = "finished"
+                self._play_game_end_sound()
+                return True, (
+                    f"Stockfish зіграв: {engine_san}. {self._outcome_text(after_move)}"
+                    if self.lang == "uk"
+                    else f"Stockfish played: {engine_san}. {self._outcome_text(after_move)}"
+                )
+            terminal = self._finish_engine_game_from_board()
+            if terminal is not None:
+                self._record_engine_clock(terminal)
+                self._engine_game_phase = "finished"
+                self._play_game_end_sound()
+                return True, (
+                    f"Stockfish зіграв: {engine_san}. {self._outcome_text(terminal)}"
+                    if self.lang == "uk"
+                    else f"Stockfish played: {engine_san}. {self._outcome_text(terminal)}"
+                )
+            return True, (
+                f"Stockfish зіграв: {engine_san}. Ваш хід."
+                if self.lang == "uk"
+                else f"Stockfish played: {engine_san}. Your move."
+            )
+        finally:
+            self._defer_engine_game_move_sound = previous_defer
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
         actions = {
