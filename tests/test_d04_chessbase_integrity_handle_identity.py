@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import acs.import_contract as import_contract
 from acs.chessbase_integrity import (
     ChessBaseIntegrityIOError,
     capture_integrity_snapshot,
@@ -43,20 +44,24 @@ class D04ChessBaseIntegrityHandleIdentityTests(unittest.TestCase):
             source.write_bytes(original_bytes)
             replacement.write_bytes(replacement_bytes)
 
-            real_open = os.open
+            real_source_open = import_contract._open_readonly_no_reparse
             swapped = False
 
-            def swap_before_open(path, flags, *args, **kwargs):
+            def swap_before_open(path):
                 nonlocal swapped
-                candidate = Path(os.fsdecode(path))
+                candidate = Path(path)
                 if not swapped and candidate == source.absolute():
                     source.rename(parked)
                     replacement.rename(source)
                     swapped = True
-                return real_open(path, flags, *args, **kwargs)
+                return real_source_open(path)
 
             try:
-                with mock.patch("acs.import_contract.os.open", side_effect=swap_before_open):
+                with mock.patch.object(
+                    import_contract,
+                    "_open_readonly_no_reparse",
+                    side_effect=swap_before_open,
+                ):
                     with self.assertRaises(ChessBaseIntegrityIOError) as caught:
                         capture_integrity_snapshot(source)
             finally:

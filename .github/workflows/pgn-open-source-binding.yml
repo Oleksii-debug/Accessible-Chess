@@ -8,6 +8,9 @@ on:
       - 'acs/import_contract.py'
       - 'acs/pgn_service.py'
       - 'tests/test_dev4_pgn_resource_security.py'
+      - 'tests/test_d04_chessbase_integrity_handle_identity.py'
+      - 'tests/test_dev4_chessbase_integrity_atomicity.py'
+      - 'tests/test_dev4_chessbase_integrity_io_observability.py'
       - 'tests/test_pgn_open_direct_source.py'
       - 'tests/test_pgn_open_identity_fail_closed.py'
       - 'tests/test_pgn_open_source_binding.py'
@@ -57,6 +60,9 @@ jobs:
             'acs/import_contract.py' \
             'acs/pgn_service.py' \
             'tests/test_dev4_pgn_resource_security.py' \
+            'tests/test_d04_chessbase_integrity_handle_identity.py' \
+            'tests/test_dev4_chessbase_integrity_atomicity.py' \
+            'tests/test_dev4_chessbase_integrity_io_observability.py' \
             'tests/test_pgn_open_direct_source.py' \
             'tests/test_pgn_open_identity_fail_closed.py' \
             'tests/test_pgn_open_source_binding.py' \
@@ -79,6 +85,9 @@ jobs:
           acs/import_contract.py
           acs/pgn_service.py
           tests/test_dev4_pgn_resource_security.py
+          tests/test_d04_chessbase_integrity_handle_identity.py
+          tests/test_dev4_chessbase_integrity_atomicity.py
+          tests/test_dev4_chessbase_integrity_io_observability.py
           tests/test_pgn_open_direct_source.py
           tests/test_pgn_open_identity_fail_closed.py
           tests/test_pgn_open_source_binding.py
@@ -90,6 +99,9 @@ jobs:
           python -m unittest -v
           tests.test_import_contract
           tests.test_dev4_pgn_resource_security
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
           tests.test_pgn_open_direct_source
           tests.test_pgn_open_identity_fail_closed
           tests.test_pgn_open_source_binding
