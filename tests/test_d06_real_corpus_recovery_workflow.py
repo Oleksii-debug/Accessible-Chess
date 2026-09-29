@@ -23,6 +23,10 @@ class D06RealCorpusRecoveryWorkflowTests(unittest.TestCase):
             "base='${{ github.event.pull_request.base.sha }}'",
             self.workflow,
         )
+        self.assertIn(
+            "expected='${{ github.event.pull_request.head.sha }}'",
+            self.workflow,
+        )
         self.assertIn('git merge-base --is-ancestor "$base" HEAD', self.workflow)
         self.assertIn(
             'test "$(git merge-base "$base" HEAD)" = "$base"',
@@ -37,7 +41,7 @@ class D06RealCorpusRecoveryWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("RECOVERY_BASE:", self.workflow)
         self.assertNotIn('test "$changed" = "$expected"', self.workflow)
-        self.assertNotIn("expected="$(printf", self.workflow)
+        self.assertNotIn('expected="$(printf', self.workflow)
 
     def test_real_corpus_oracle_remains_byte_locked(self) -> None:
         self.assertIn(
@@ -59,7 +63,7 @@ class D06RealCorpusRecoveryWorkflowTests(unittest.TestCase):
 
     def test_exact_head_and_release_contamination_fence_remain_fail_closed(self) -> None:
         self.assertIn(
-            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            "ref: ${{ github.event.pull_request.head.sha }}",
             self.workflow,
         )
         self.assertIn(
