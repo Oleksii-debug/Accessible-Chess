@@ -23,6 +23,7 @@ class FakeElement {
   }
 
   appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
+  append(...children) { children.forEach((child) => { if (child) this.appendChild(child); }); }
   insertBefore(child, reference) { const index = this.children.indexOf(reference); if (index < 0) return this.appendChild(child); child.parentNode = this; this.children.splice(index, 0, child); return child; }
   replaceChildren(...children) { this.children.forEach((child) => { child.parentNode = null; }); this.children = []; children.forEach((child) => { if (child) this.appendChild(child); }); }
   replaceWith(replacement) { if (!this.parentNode) throw new Error("detached node"); const index = this.parentNode.children.indexOf(this); if (index < 0) throw new Error("missing child"); replacement.parentNode = this.parentNode; this.parentNode.children[index] = replacement; this.parentNode = null; }
