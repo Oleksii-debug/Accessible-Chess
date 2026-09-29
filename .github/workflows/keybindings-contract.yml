@@ -57,9 +57,9 @@ jobs:
             'tests/test_keybindings.py' \
             'tests/test_stage1_board_action_integration.py' \
             'tests/test_webview_keymap_bridge_contract.py' \
-            'acs/ui_keymap_service.py' \\
-            'acs/version2_release_app.py' \\
-            'tests/test_version2_release_app.py' \\
+            'acs/ui_keymap_service.py' \
+            'acs/version2_release_app.py' \
+            'tests/test_version2_release_app.py' \
             'web/full_product_pgn.js' \
             'web/index.html' \
             'web/keybindings.json' | sort)"
