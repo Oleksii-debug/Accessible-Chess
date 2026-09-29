@@ -187,7 +187,7 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
         self.assertEqual(reopened_event.kind, FileWorkflowEventKind.PGN_OPENED)
         reopened = session_box["value"]
         self.assertEqual(reopened.workspace.current_game().tags["Event"], "Київ — збережено")
-        self.assertEqual(open_pgn(destination).games, reopened.workspace.games)
+        self.assertEqual(open_pgn(destination).games, reopened.workspace.games())
 
         rendered = repr(events)
         self.assertNotIn(str(self.root), rendered)
