@@ -300,15 +300,57 @@ class ChessBaseLibraryImportService:
                 archive_backend_sha256=archive_backend_sha256,
             )
 
-        imported = self._library.import_games(
-            decoded.games,
-            source_name=source_name,
-            source_format=source_format,
-            source_sha256=source_digest,
-            source_warning_count=len(warnings),
-            cancel_check=cancel_check,
-            progress_callback=progress_callback,
-        )
+        # LibraryImportService performs one final caller-controlled cancellation
+        # poll before it creates the durable import-attempt row.  Re-run the
+        # publication guard *after* that callback: a callback is application code
+        # and must not be able to mutate/replace the source in the narrow window
+        # between this format owner's validation and D07 publication.
+        #
+        # Once the attempt exists, the canonical games are detached values and D07
+        # owns cancellation/progress/transaction atomicity.  The progress wrapper
+        # marks that boundary without moving any ACSDB semantics into this module.
+        before_attempt = True
+        source_change_error: ChessBaseDecodeError | CbvExtractError | None = None
+
+        def storage_cancel_check():
+            nonlocal source_change_error
+            if cancel_check is None:
+                cancelled = False
+            else:
+                cancelled = cancel_check()
+            if type(cancelled) is not bool or cancelled:
+                return cancelled
+            if before_attempt:
+                try:
+                    _verify_publication_guard(path, publication_guard)
+                except (ChessBaseDecodeError, CbvExtractError) as exc:
+                    source_change_error = exc
+                    # D07's cancellation boundary guarantees no attempt exists
+                    # yet at this first poll.  Convert back to the format-domain
+                    # SOURCE_CHANGED error immediately outside D07.
+                    return True
+            return False
+
+        def storage_progress_callback(progress: LibraryImportProgress) -> None:
+            nonlocal before_attempt
+            before_attempt = False
+            if progress_callback is not None:
+                progress_callback(progress)
+
+        try:
+            imported = self._library.import_games(
+                decoded.games,
+                source_name=source_name,
+                source_format=source_format,
+                source_sha256=source_digest,
+                source_warning_count=len(warnings),
+                cancel_check=storage_cancel_check,
+                progress_callback=storage_progress_callback,
+            )
+        except LibraryImportCancelledError:
+            if source_change_error is not None:
+                raise source_change_error
+            raise
         status = (
             ChessBaseLibraryImportStatus.IMPORTED_WITH_WARNINGS
             if imported.warning_count
