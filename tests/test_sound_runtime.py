@@ -206,7 +206,7 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 writer.setnchannels(1)
                 writer.setsampwidth(2)
                 writer.setframerate(8000)
-                writer.writeframes(b"\\x20\\x00" * 8)
+                writer.writeframes(b"\x20\x00" * 8)
 
             second = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
 
@@ -214,6 +214,45 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertFalse(first.exists())
             self.assertTrue(second.is_file())
             self.assertEqual(list(cache.glob("move-v50-*.wav")), [second])
+
+    def test_scaled_cache_prunes_legacy_unversioned_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            cache.mkdir()
+            legacy = cache / "move-v50.wav"
+            legacy.write_bytes(b"stale pre-content-addressed cache")
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            current = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertNotEqual(current, legacy)
+            self.assertIn("-s1-", current.name)
+            self.assertFalse(legacy.exists())
+            self.assertTrue(current.is_file())
+
+    def test_scaled_cache_schema_change_invalidates_derived_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            first = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+            with patch("acs.sound_windows.SCALED_SOUND_CACHE_FORMAT_VERSION", 2):
+                second = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertNotEqual(first, second)
+            self.assertIn("-s2-", second.name)
+            self.assertFalse(first.exists())
+            self.assertTrue(second.is_file())
 
     def test_scaled_cache_prune_failure_does_not_break_new_playable_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,7 +269,7 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 writer.setnchannels(1)
                 writer.setsampwidth(2)
                 writer.setframerate(8000)
-                writer.writeframes(b"\\x30\\x00" * 8)
+                writer.writeframes(b"\x30\x00" * 8)
 
             original_unlink = Path.unlink
 

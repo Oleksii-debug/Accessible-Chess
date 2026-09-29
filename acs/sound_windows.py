@@ -26,6 +26,7 @@ SOUND_MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_SOUND_RELATIVE_DIR = Path("assets") / "sounds"
 DEFAULT_SOUND_MANIFEST = "manifest.json"
 REQUIRED_SOUND_EVENTS = tuple(SoundEvent)
+SCALED_SOUND_CACHE_FORMAT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -137,7 +138,7 @@ class WindowsSoundPlaybackAdapter:
         source_bytes = source.read_bytes()
         source_digest = hashlib.sha256(source_bytes).hexdigest()
         destination = self._cache_dir / (
-            f"{event.value}-v{volume}-{source_digest}.wav"
+            f"{event.value}-v{volume}-s{SCALED_SOUND_CACHE_FORMAT_VERSION}-{source_digest}.wav"
         )
         if destination.is_file():
             self._prune_scaled_variants(destination, event, volume)
@@ -183,8 +184,12 @@ class WindowsSoundPlaybackAdapter:
     ) -> None:
         """Best-effort removal of superseded content-addressed cache variants."""
 
+        # Remove the pre-content-addressed cache name as well as obsolete
+        # digest/schema variants. The schema component makes future changes to
+        # the scaling transform invalidate old derived audio deterministically.
+        legacy = self._cache_dir / f"{event.value}-v{volume}.wav"
         pattern = f"{event.value}-v{volume}-*.wav"
-        for candidate in self._cache_dir.glob(pattern):
+        for candidate in (legacy, *self._cache_dir.glob(pattern)):
             if candidate == destination:
                 continue
             try:
