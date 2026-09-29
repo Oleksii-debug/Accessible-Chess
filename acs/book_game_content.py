@@ -255,15 +255,16 @@ def resolve_book_game(
     )
 
 
-def _canonical_root_fen(value: object) -> tuple[str, str]:
-    """Return preserved and canonical FEN forms through the shared Board authority."""
+def _canonical_root_fen(value: object) -> tuple[str, str, bool]:
+    """Return preserved/canonical FEN plus whether counters were authored."""
     if type(value) is not str or not value.strip():
         raise BookGameContentError(
             "book variation root position is invalid",
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
         )
     preserved = value.strip()
-    if len(preserved.split()) not in {4, 6}:
+    fields = preserved.split()
+    if len(fields) not in {4, 6}:
         raise BookGameContentError(
             "book variation root position is invalid",
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
@@ -275,7 +276,7 @@ def _canonical_root_fen(value: object) -> tuple[str, str]:
             "book variation root position is invalid",
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
         ) from exc
-    return preserved, canonical
+    return preserved, canonical, len(fields) == 4
 
 
 def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
@@ -295,7 +296,9 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
     # Resolve the root first so root-FEN corruption keeps its precise stable
     # error code. Then validate the rest of the mutable Book block through the
     # canonical BookDocument contract before parsing any PGN.
-    preserved_root_fen, canonical_root_fen = _canonical_root_fen(block.root_fen)
+    preserved_root_fen, canonical_root_fen, root_omits_counters = _canonical_root_fen(
+        block.root_fen
+    )
     try:
         block.as_dict()
     except BookDocumentError as exc:
@@ -317,7 +320,16 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
                 "book variation PGN carries an invalid canonical FEN tag",
                 code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
             ) from exc
-        if canonical_tagged_fen != canonical_root_fen:
+        if root_omits_counters:
+            # A compact four-field Book root never asserted halfmove/fullmove
+            # counters. Board() necessarily synthesizes 0/1 while validating it,
+            # so compare only the four authored position fields in this case.
+            positions_match = (
+                canonical_tagged_fen.split()[:4] == canonical_root_fen.split()[:4]
+            )
+        else:
+            positions_match = canonical_tagged_fen == canonical_root_fen
+        if not positions_match:
             raise BookGameContentError(
                 "book variation root position conflicts with its PGN FEN tag",
                 code=BookGameContentErrorCode.ROOT_FEN_CONFLICT,
