@@ -34,6 +34,10 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 report.inventory,
             )
             self.assertIn(
+                "AccessibleChess/web/full_product_sound_settings.js",
+                report.inventory,
+            )
+            self.assertIn(
                 "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json",
                 report.inventory,
             )
@@ -60,6 +64,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
     def test_preflight_rejects_each_missing_required_file_family(self):
         removals = (
             "AccessibleChess/web/version2_release_bootstrap.js",
+            "AccessibleChess/web/full_product_sound_settings.js",
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "AccessibleChess/assets/sounds/manifest.json",
             "AccessibleChess/assets/sounds/move.wav",

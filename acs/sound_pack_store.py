@@ -1,0 +1,919 @@
+from __future__ import annotations
+
+"""Fail-closed local persistence for downloaded sound packs.
+
+SoundPackManager remains provider-neutral. This adapter treats
+DownloadedSoundPack.payload_ref as a staging directory and independently proves
+its exact filesystem topology, sizes, media signatures and SHA-256 digests before
+publishing a version. A version is immutable after publication. Updating a pack
+publishes a new version directory first and only then atomically replaces a tiny
+active-version pointer.
+"""
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import tempfile
+from typing import Mapping
+
+from .sound_pack_catalog import (
+    DEFAULT_MAX_SOUND_PACK_BYTES,
+    DownloadedSoundPack,
+    SoundAssetDigest,
+)
+from .sound_profiles import (
+    SoundPackManifest,
+    _safe_audio_path,
+    _stable_id,
+    _stable_version,
+)
+
+
+SOUND_PACK_STORE_SCHEMA_VERSION = 1
+_MANIFEST_NAME = "manifest.json"
+_INTEGRITY_NAME = "integrity.json"
+_ACTIVE_NAME = "active.json"
+_MAX_METADATA_BYTES = 128 * 1024
+
+
+class SoundPackStoreError(ValueError):
+    """Stable local sound-pack storage failure."""
+
+
+@dataclass(frozen=True, slots=True)
+class InstalledSoundPack:
+    manifest: SoundPackManifest
+    version_dir: Path
+
+
+def _is_reparse_point(metadata: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return bool(flag and attributes & flag)
+
+
+def _require_real_dir(path: Path, label: str) -> None:
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError as exc:
+        raise SoundPackStoreError(f"{label} is unavailable") from exc
+    except OSError as exc:
+        raise SoundPackStoreError(f"{label} is unavailable") from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or _is_reparse_point(metadata)
+        or not stat.S_ISDIR(metadata.st_mode)
+    ):
+        raise SoundPackStoreError(f"{label} is not a real directory")
+
+
+def _require_regular_file(path: Path, label: str) -> os.stat_result:
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError as exc:
+        raise SoundPackStoreError(f"{label} is missing") from exc
+    except OSError as exc:
+        raise SoundPackStoreError(f"{label} is unavailable") from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or _is_reparse_point(metadata)
+        or not stat.S_ISREG(metadata.st_mode)
+    ):
+        raise SoundPackStoreError(f"{label} is not a regular file")
+    return metadata
+
+
+def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SoundPackStoreError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _canonical_json(payload: Mapping[str, object]) -> bytes:
+    try:
+        encoded = (
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise SoundPackStoreError("sound pack metadata cannot be serialized") from exc
+    if len(encoded) > _MAX_METADATA_BYTES:
+        raise SoundPackStoreError("sound pack metadata exceeds the resource limit")
+    return encoded
+
+
+def _decode_json(raw: bytes, label: str) -> Mapping[str, object]:
+    if len(raw) > _MAX_METADATA_BYTES:
+        raise SoundPackStoreError(f"{label} exceeds the resource limit")
+
+    def reject_constant(_: str) -> None:
+        raise SoundPackStoreError(f"{label} contains non-finite JSON")
+
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=reject_constant,
+        )
+    except SoundPackStoreError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise SoundPackStoreError(f"{label} is invalid JSON") from exc
+    if not isinstance(value, Mapping) or any(type(key) is not str for key in value):
+        raise SoundPackStoreError(f"{label} must be a JSON object")
+    return value
+
+
+def _expected_directories(files: set[str]) -> set[str]:
+    expected: set[str] = set()
+    for relative in files:
+        parts = Path(relative).parts[:-1]
+        for index in range(1, len(parts) + 1):
+            expected.add(Path(*parts[:index]).as_posix())
+    return expected
+
+
+def _scan_exact_tree(root: Path, label: str) -> tuple[set[str], set[str]]:
+    _require_real_dir(root, label)
+    files: set[str] = set()
+    directories: set[str] = set()
+    try:
+        walker = os.walk(root, topdown=True, followlinks=False)
+        for current, dirnames, filenames in walker:
+            current_path = Path(current)
+            for name in dirnames:
+                child = current_path / name
+                _require_real_dir(child, f"{label} directory")
+                directories.add(child.relative_to(root).as_posix())
+            for name in filenames:
+                child = current_path / name
+                _require_regular_file(child, f"{label} file")
+                files.add(child.relative_to(root).as_posix())
+    except OSError as exc:
+        raise SoundPackStoreError(f"{label} could not be inspected") from exc
+    return files, directories
+
+
+def _validate_audio_header(path: str, prefix: bytes) -> None:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".wav":
+        if len(prefix) < 12 or prefix[:4] != b"RIFF" or prefix[8:12] != b"WAVE":
+            raise SoundPackStoreError("sound WAV asset has an invalid signature")
+        return
+    if suffix == ".ogg":
+        if not prefix.startswith(b"OggS"):
+            raise SoundPackStoreError("sound OGG asset has an invalid signature")
+        return
+    if suffix == ".mp3":
+        if prefix.startswith(b"ID3"):
+            return
+        if len(prefix) >= 2 and prefix[0] == 0xFF and prefix[1] & 0xE0 == 0xE0:
+            return
+        raise SoundPackStoreError("sound MP3 asset has an invalid signature")
+    raise SoundPackStoreError("unsupported sound asset type")
+
+
+def _integrity_mapping(
+    digests: Mapping[str, SoundAssetDigest],
+) -> dict[str, object]:
+    return {
+        "schema_version": SOUND_PACK_STORE_SCHEMA_VERSION,
+        "assets": {
+            path: {
+                "size_bytes": digest.size_bytes,
+                "sha256": digest.sha256,
+            }
+            for path, digest in sorted(digests.items())
+        },
+    }
+
+
+def _integrity_from_mapping(
+    raw: Mapping[str, object],
+) -> dict[str, SoundAssetDigest]:
+    if set(raw) != {"schema_version", "assets"}:
+        raise SoundPackStoreError("sound pack integrity fields are invalid")
+    schema = raw["schema_version"]
+    if type(schema) is not int or schema != SOUND_PACK_STORE_SCHEMA_VERSION:
+        raise SoundPackStoreError(
+            f"unsupported sound pack integrity schema: {schema}"
+        )
+    assets = raw["assets"]
+    if not isinstance(assets, Mapping) or any(type(key) is not str for key in assets):
+        raise SoundPackStoreError("sound pack integrity assets must be an object")
+    result: dict[str, SoundAssetDigest] = {}
+    for path, value in assets.items():
+        if not isinstance(value, Mapping) or set(value) != {"size_bytes", "sha256"}:
+            raise SoundPackStoreError("sound pack integrity asset fields are invalid")
+        try:
+            digest = SoundAssetDigest(
+                path=path,
+                size_bytes=value["size_bytes"],  # type: ignore[arg-type]
+                sha256=value["sha256"],  # type: ignore[arg-type]
+            )
+        except (TypeError, ValueError) as exc:
+            raise SoundPackStoreError("sound pack integrity asset is invalid") from exc
+        result[path] = digest
+    return result
+
+
+class FilesystemSoundPackStore:
+    """Versioned atomic local storage implementing SoundPackStoragePort."""
+
+    def __init__(
+        self,
+        root: str | os.PathLike[str],
+        *,
+        built_in: Mapping[str, SoundPackManifest] | None = None,
+        max_bytes: int = DEFAULT_MAX_SOUND_PACK_BYTES,
+    ) -> None:
+        if not isinstance(root, (str, os.PathLike)):
+            raise TypeError("sound pack root must be path-like")
+        self.root = Path(root)
+        if str(self.root) in {"", "."}:
+            raise ValueError("sound pack root must identify a dedicated directory")
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+            raise TypeError("max_bytes must be an integer")
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        self.max_bytes = max_bytes
+
+        source = {} if built_in is None else built_in
+        if not isinstance(source, Mapping):
+            raise TypeError("built_in sound packs must be a mapping")
+        normalized: dict[str, SoundPackManifest] = {}
+        for raw_id, manifest in source.items():
+            if not isinstance(raw_id, str):
+                raise TypeError("built_in sound pack ids must be text")
+            if not isinstance(manifest, SoundPackManifest):
+                raise TypeError("built_in values must be SoundPackManifest")
+            pack_id = _stable_id(raw_id, allow_dot=True)
+            if manifest.pack_id != pack_id:
+                raise ValueError("built_in key must match manifest pack_id")
+            normalized[pack_id] = manifest
+        self._built_in = normalized
+
+    def _pack_dir(self, pack_id: str) -> Path:
+        return self.root / _stable_id(pack_id, allow_dot=True)
+
+    def _version_dir(self, pack_id: str, version: str) -> Path:
+        return self._pack_dir(pack_id) / "versions" / _stable_version(version)
+
+    def _ensure_pack_parent(self, pack_id: str) -> tuple[Path, Path]:
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError("sound pack root could not be created") from exc
+        _require_real_dir(self.root, "sound pack root")
+
+        pack_dir = self._pack_dir(pack_id)
+        try:
+            pack_dir.mkdir(exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack identity directory could not be created"
+            ) from exc
+        _require_real_dir(pack_dir, "sound pack identity directory")
+
+        versions = pack_dir / "versions"
+        try:
+            versions.mkdir(exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack versions directory could not be created"
+            ) from exc
+        _require_real_dir(versions, "sound pack versions directory")
+        return pack_dir, versions
+
+    @staticmethod
+    def _validate_downloaded(
+        downloaded: DownloadedSoundPack,
+    ) -> dict[str, SoundAssetDigest]:
+        if not isinstance(downloaded, DownloadedSoundPack):
+            raise TypeError("downloaded must be DownloadedSoundPack")
+        if not isinstance(downloaded.manifest, SoundPackManifest):
+            raise TypeError("downloaded manifest must be SoundPackManifest")
+        if isinstance(downloaded.total_bytes, bool) or not isinstance(
+            downloaded.total_bytes, int
+        ):
+            raise TypeError("downloaded total_bytes must be an integer")
+        if downloaded.total_bytes < 0:
+            raise ValueError("downloaded total_bytes cannot be negative")
+        if not isinstance(downloaded.assets, Mapping):
+            raise TypeError("downloaded assets must be a mapping")
+
+        digests: dict[str, SoundAssetDigest] = {}
+        for path, digest in downloaded.assets.items():
+            if not isinstance(path, str):
+                raise TypeError("downloaded asset keys must be text")
+            if not isinstance(digest, SoundAssetDigest):
+                raise TypeError(
+                    "downloaded assets must contain SoundAssetDigest values"
+                )
+            safe_path = _safe_audio_path(path)
+            if safe_path != digest.path:
+                raise ValueError("downloaded asset key must match digest path")
+            digests[safe_path] = digest
+
+        expected = set(downloaded.manifest.files.values())
+        if set(digests) != expected:
+            raise SoundPackStoreError(
+                "downloaded assets do not exactly cover the manifest"
+            )
+        if sum(item.size_bytes for item in digests.values()) != downloaded.total_bytes:
+            raise SoundPackStoreError(
+                "downloaded total size does not match asset metadata"
+            )
+        return digests
+
+    @staticmethod
+    def _source_root(
+        downloaded: DownloadedSoundPack,
+        digests: Mapping[str, SoundAssetDigest],
+    ) -> Path:
+        if not isinstance(downloaded.payload_ref, (str, os.PathLike)):
+            raise TypeError(
+                "downloaded payload_ref must be a staging-directory path"
+            )
+        source = Path(downloaded.payload_ref)
+        files, directories = _scan_exact_tree(
+            source, "downloaded sound pack staging directory"
+        )
+        expected_files = set(digests)
+        if (
+            files != expected_files
+            or directories != _expected_directories(expected_files)
+        ):
+            raise SoundPackStoreError(
+                "downloaded sound pack staging topology does not match declared assets"
+            )
+        return source
+
+    @staticmethod
+    def _copy_verified(
+        source: Path,
+        destination: Path,
+        digest: SoundAssetDigest,
+    ) -> None:
+        metadata = _require_regular_file(source, "downloaded sound asset")
+        if metadata.st_size != digest.size_bytes:
+            raise SoundPackStoreError("downloaded sound asset size mismatch")
+
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack destination directory could not be created"
+            ) from exc
+        _require_real_dir(destination.parent, "sound pack destination directory")
+
+        sha = hashlib.sha256()
+        size = 0
+        prefix = bytearray()
+        try:
+            with source.open("rb") as reader, destination.open("xb") as writer:
+                while True:
+                    chunk = reader.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    if len(prefix) < 16:
+                        prefix.extend(chunk[: 16 - len(prefix)])
+                    size += len(chunk)
+                    if size > digest.size_bytes:
+                        raise SoundPackStoreError(
+                            "downloaded sound asset exceeds declared size"
+                        )
+                    sha.update(chunk)
+                    writer.write(chunk)
+                writer.flush()
+                os.fsync(writer.fileno())
+        except SoundPackStoreError:
+            raise
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack asset could not be staged locally"
+            ) from exc
+
+        if size != digest.size_bytes:
+            raise SoundPackStoreError("downloaded sound asset size mismatch")
+        if sha.hexdigest() != digest.sha256:
+            raise SoundPackStoreError("downloaded sound asset checksum mismatch")
+        _validate_audio_header(digest.path, bytes(prefix))
+
+    @staticmethod
+    def _write_new(path: Path, data: bytes) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack metadata directory could not be created"
+            ) from exc
+        _require_real_dir(path.parent, "sound pack metadata directory")
+        try:
+            with path.open("xb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack metadata could not be written"
+            ) from exc
+
+    @staticmethod
+    def _read_manifest(version_dir: Path) -> SoundPackManifest:
+        path = version_dir / _MANIFEST_NAME
+        metadata = _require_regular_file(path, "sound pack manifest")
+        if metadata.st_size > _MAX_METADATA_BYTES:
+            raise SoundPackStoreError(
+                "sound pack manifest exceeds the resource limit"
+            )
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack manifest could not be read"
+            ) from exc
+        try:
+            return SoundPackManifest.from_mapping(
+                _decode_json(raw, "sound pack manifest")
+            )
+        except (TypeError, ValueError) as exc:
+            raise SoundPackStoreError("sound pack manifest is invalid") from exc
+
+    @staticmethod
+    def _read_integrity(
+        version_dir: Path,
+    ) -> dict[str, SoundAssetDigest]:
+        path = version_dir / _INTEGRITY_NAME
+        metadata = _require_regular_file(
+            path, "sound pack integrity metadata"
+        )
+        if metadata.st_size > _MAX_METADATA_BYTES:
+            raise SoundPackStoreError(
+                "sound pack integrity metadata exceeds the resource limit"
+            )
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack integrity metadata could not be read"
+            ) from exc
+        return _integrity_from_mapping(
+            _decode_json(raw, "sound pack integrity metadata")
+        )
+
+    def _verify_version(
+        self,
+        version_dir: Path,
+        *,
+        expected_pack_id: str | None = None,
+        expected_version: str | None = None,
+    ) -> tuple[SoundPackManifest, dict[str, SoundAssetDigest]]:
+        _require_real_dir(version_dir, "installed sound pack version")
+        manifest = self._read_manifest(version_dir)
+        if expected_pack_id is not None and manifest.pack_id != expected_pack_id:
+            raise SoundPackStoreError(
+                "installed sound pack id does not match its directory"
+            )
+        if expected_version is not None and manifest.version != expected_version:
+            raise SoundPackStoreError(
+                "installed sound pack version does not match its directory"
+            )
+
+        digests = self._read_integrity(version_dir)
+        expected_assets = set(manifest.files.values())
+        if set(digests) != expected_assets:
+            raise SoundPackStoreError(
+                "installed integrity metadata does not cover manifest assets"
+            )
+
+        expected_files = {
+            _MANIFEST_NAME,
+            _INTEGRITY_NAME,
+            *expected_assets,
+        }
+        files, directories = _scan_exact_tree(
+            version_dir, "installed sound pack version"
+        )
+        if (
+            files != expected_files
+            or directories != _expected_directories(expected_files)
+        ):
+            raise SoundPackStoreError(
+                "installed sound pack contains undeclared filesystem content"
+            )
+
+        total = 0
+        for relative, digest in digests.items():
+            path = version_dir / relative
+            metadata = _require_regular_file(path, "installed sound asset")
+            if metadata.st_size != digest.size_bytes:
+                raise SoundPackStoreError(
+                    "installed sound asset size mismatch"
+                )
+            total += digest.size_bytes
+            if total > self.max_bytes:
+                raise SoundPackStoreError(
+                    "installed sound pack exceeds the local size limit"
+                )
+
+            sha = hashlib.sha256()
+            prefix = bytearray()
+            try:
+                with path.open("rb") as handle:
+                    while True:
+                        chunk = handle.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        if len(prefix) < 16:
+                            prefix.extend(chunk[: 16 - len(prefix)])
+                        sha.update(chunk)
+            except OSError as exc:
+                raise SoundPackStoreError(
+                    "installed sound asset could not be read"
+                ) from exc
+            if sha.hexdigest() != digest.sha256:
+                raise SoundPackStoreError(
+                    "installed sound asset checksum mismatch"
+                )
+            _validate_audio_header(relative, bytes(prefix))
+        return manifest, digests
+
+    @staticmethod
+    def _active_payload(pack_id: str, version: str) -> dict[str, object]:
+        return {
+            "schema_version": SOUND_PACK_STORE_SCHEMA_VERSION,
+            "pack_id": pack_id,
+            "version": version,
+        }
+
+    @staticmethod
+    def _read_active(pack_dir: Path) -> tuple[str, str]:
+        path = pack_dir / _ACTIVE_NAME
+        metadata = _require_regular_file(path, "sound pack active pointer")
+        if metadata.st_size > _MAX_METADATA_BYTES:
+            raise SoundPackStoreError(
+                "sound pack active pointer exceeds the resource limit"
+            )
+        try:
+            raw = _decode_json(
+                path.read_bytes(), "sound pack active pointer"
+            )
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack active pointer could not be read"
+            ) from exc
+        if set(raw) != {"schema_version", "pack_id", "version"}:
+            raise SoundPackStoreError(
+                "sound pack active pointer fields are invalid"
+            )
+        schema = raw["schema_version"]
+        if type(schema) is not int or schema != SOUND_PACK_STORE_SCHEMA_VERSION:
+            raise SoundPackStoreError(
+                f"unsupported sound pack active schema: {schema}"
+            )
+        try:
+            pack_id = _stable_id(raw["pack_id"], allow_dot=True)
+            version = _stable_version(raw["version"])
+        except (TypeError, ValueError) as exc:
+            raise SoundPackStoreError(
+                "sound pack active pointer identity is invalid"
+            ) from exc
+        return pack_id, version
+
+    @staticmethod
+    def _publish_active(
+        pack_dir: Path,
+        pack_id: str,
+        version: str,
+    ) -> None:
+        _require_real_dir(pack_dir, "sound pack identity directory")
+        encoded = _canonical_json(
+            FilesystemSoundPackStore._active_payload(pack_id, version)
+        )
+        temp_path: Path | None = None
+        try:
+            descriptor, temp_name = tempfile.mkstemp(
+                prefix=".active-",
+                suffix=".tmp",
+                dir=pack_dir,
+            )
+            temp_path = Path(temp_name)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, pack_dir / _ACTIVE_NAME)
+            temp_path = None
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack active pointer could not be published atomically"
+            ) from exc
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def install_atomically(self, downloaded: DownloadedSoundPack) -> None:
+        digests = self._validate_downloaded(downloaded)
+        if downloaded.total_bytes > self.max_bytes:
+            raise SoundPackStoreError(
+                "downloaded sound pack exceeds the local size limit"
+            )
+        manifest = downloaded.manifest
+        if manifest.pack_id in self._built_in:
+            raise SoundPackStoreError("built-in sound pack id is immutable")
+
+        source = self._source_root(downloaded, digests)
+        pack_dir, versions_dir = self._ensure_pack_parent(manifest.pack_id)
+        destination = versions_dir / manifest.version
+
+        if destination.exists():
+            existing_manifest, existing_digests = self._verify_version(
+                destination,
+                expected_pack_id=manifest.pack_id,
+                expected_version=manifest.version,
+            )
+            if (
+                existing_manifest != manifest
+                or existing_digests != digests
+            ):
+                raise SoundPackStoreError(
+                    "sound pack version already exists with different content"
+                )
+            self._publish_active(
+                pack_dir, manifest.pack_id, manifest.version
+            )
+            return
+
+        try:
+            staging = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{manifest.pack_id}-{manifest.version}-",
+                    dir=versions_dir,
+                )
+            )
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack local staging directory could not be created"
+            ) from exc
+
+        cleanup = True
+        try:
+            _require_real_dir(staging, "sound pack local staging directory")
+            for relative, digest in sorted(digests.items()):
+                self._copy_verified(
+                    source / relative,
+                    staging / relative,
+                    digest,
+                )
+            self._write_new(
+                staging / _MANIFEST_NAME,
+                _canonical_json(manifest.to_mapping()),
+            )
+            self._write_new(
+                staging / _INTEGRITY_NAME,
+                _canonical_json(_integrity_mapping(digests)),
+            )
+
+            staged_manifest, staged_digests = self._verify_version(
+                staging,
+                expected_pack_id=manifest.pack_id,
+                expected_version=manifest.version,
+            )
+            if staged_manifest != manifest or staged_digests != digests:
+                raise SoundPackStoreError(
+                    "locally staged sound pack identity changed"
+                )
+
+            try:
+                os.replace(staging, destination)
+                cleanup = False
+            except OSError as exc:
+                if destination.exists():
+                    try:
+                        current_manifest, current_digests = self._verify_version(
+                            destination,
+                            expected_pack_id=manifest.pack_id,
+                            expected_version=manifest.version,
+                        )
+                    except (TypeError, ValueError, SoundPackStoreError):
+                        raise SoundPackStoreError(
+                            "sound pack install lost an atomic publication race"
+                        ) from exc
+                    if (
+                        current_manifest == manifest
+                        and current_digests == digests
+                    ):
+                        self._publish_active(
+                            pack_dir,
+                            manifest.pack_id,
+                            manifest.version,
+                        )
+                        return
+                raise SoundPackStoreError(
+                    "sound pack version could not be published atomically"
+                ) from exc
+
+            self._publish_active(
+                pack_dir, manifest.pack_id, manifest.version
+            )
+        finally:
+            if cleanup and staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+
+    def _installed_disk_pack(self, pack_id: str) -> InstalledSoundPack:
+        identity = _stable_id(pack_id, allow_dot=True)
+        pack_dir = self._pack_dir(identity)
+        _require_real_dir(pack_dir, "sound pack identity directory")
+        active_id, version = self._read_active(pack_dir)
+        if active_id != identity:
+            raise SoundPackStoreError(
+                "sound pack active pointer id does not match directory"
+            )
+        version_dir = self._version_dir(identity, version)
+        manifest, _ = self._verify_version(
+            version_dir,
+            expected_pack_id=identity,
+            expected_version=version,
+        )
+        return InstalledSoundPack(
+            manifest=manifest,
+            version_dir=version_dir,
+        )
+
+    def installed(self) -> Mapping[str, SoundPackManifest]:
+        result = dict(self._built_in)
+        if not self.root.exists():
+            return result
+        _require_real_dir(self.root, "sound pack root")
+        try:
+            children = list(self.root.iterdir())
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack root could not be listed"
+            ) from exc
+
+        for child in children:
+            try:
+                metadata = os.lstat(child)
+            except OSError:
+                continue
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or _is_reparse_point(metadata)
+                or not stat.S_ISDIR(metadata.st_mode)
+            ):
+                continue
+            try:
+                identity = _stable_id(child.name, allow_dot=True)
+            except (TypeError, ValueError):
+                continue
+            if identity != child.name or identity in result:
+                continue
+            try:
+                installed = self._installed_disk_pack(identity)
+            except (TypeError, ValueError, SoundPackStoreError):
+                continue
+            result[identity] = installed.manifest
+        return result
+
+    def active_version(self, pack_id: str) -> str | None:
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            return self._built_in[identity].version
+        try:
+            return self._installed_disk_pack(identity).manifest.version
+        except (TypeError, ValueError, SoundPackStoreError):
+            return None
+
+    def versions(self, pack_id: str) -> tuple[str, ...]:
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            return (self._built_in[identity].version,)
+        versions_dir = self._pack_dir(identity) / "versions"
+        if not versions_dir.exists():
+            return ()
+        try:
+            _require_real_dir(versions_dir, "sound pack versions directory")
+            candidates = list(versions_dir.iterdir())
+        except (OSError, SoundPackStoreError):
+            return ()
+        valid: list[str] = []
+        for candidate in candidates:
+            try:
+                version = _stable_version(candidate.name)
+                self._verify_version(
+                    candidate,
+                    expected_pack_id=identity,
+                    expected_version=version,
+                )
+            except (TypeError, ValueError, SoundPackStoreError):
+                continue
+            valid.append(version)
+
+        def version_key(value: str) -> tuple[int, int, int, int, str]:
+            core, marker, prerelease = value.partition("-")
+            major, minor, patch = (int(part) for part in core.split("."))
+            return (
+                major,
+                minor,
+                patch,
+                0 if marker else 1,
+                prerelease,
+            )
+
+        return tuple(sorted(valid, key=version_key))
+
+    def resolve_asset(
+        self,
+        pack_id: str,
+        sound_id: str,
+    ) -> Path | None:
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            return None
+        try:
+            installed = self._installed_disk_pack(identity)
+            relative = installed.manifest.sound_path(sound_id)
+            path = installed.version_dir / relative
+            _require_regular_file(path, "installed sound asset")
+            return path
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            SoundPackStoreError,
+        ):
+            return None
+
+    @staticmethod
+    def _remove_without_following(path: Path) -> None:
+        try:
+            metadata = os.lstat(path)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack entry could not be inspected for removal"
+            ) from exc
+
+        if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata):
+            try:
+                if stat.S_ISDIR(metadata.st_mode):
+                    os.rmdir(path)
+                else:
+                    path.unlink()
+            except OSError as exc:
+                raise SoundPackStoreError(
+                    "sound pack reparse entry could not be removed"
+                ) from exc
+            return
+
+        if stat.S_ISDIR(metadata.st_mode):
+            try:
+                children = list(path.iterdir())
+            except OSError as exc:
+                raise SoundPackStoreError(
+                    "sound pack directory could not be listed for removal"
+                ) from exc
+            for child in children:
+                FilesystemSoundPackStore._remove_without_following(child)
+            try:
+                path.rmdir()
+            except OSError as exc:
+                raise SoundPackStoreError(
+                    "sound pack directory could not be removed"
+                ) from exc
+            return
+
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack file could not be removed"
+            ) from exc
+
+    def uninstall(self, pack_id: str) -> None:
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            raise SoundPackStoreError("built-in sound pack id is immutable")
+        pack_dir = self._pack_dir(identity)
+        if not pack_dir.exists():
+            return
+        self._remove_without_following(pack_dir)
