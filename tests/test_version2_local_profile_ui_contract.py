@@ -18,6 +18,7 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileDialog.setAttribute("aria-labelledby", profileHeading.id)', source)
         self.assertIn('profileName.id = "v2-profile-name"', source)
         self.assertIn('profileLabel.htmlFor = profileName.id', source)
+        self.assertIn('profileName.setAttribute("aria-describedby", "v2-profile-description v2-profile-status")', source)
         self.assertIn('profileSave.type = "button"', source)
         self.assertIn('profileSkip.type = "button"', source)
 
@@ -27,6 +28,7 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('bridge.profile_create(profileName.value, false)', source)
         self.assertIn('bridge.profile_create("", true)', source)
         self.assertIn('bridge.profile_rename(profileName.value)', source)
+        self.assertIn('if (event.key !== "Enter") return;', source)
 
     def test_browser_never_requests_or_renders_stable_profile_id(self) -> None:
         source = self.source
