@@ -178,27 +178,46 @@ class _Builder:
         elif len(self.warnings) == MAX_TEXT_WARNINGS:
             self.warnings.append("additional text import warnings were suppressed")
 
-    def paragraph(self, text: str, line: int) -> None:
+    def paragraph(
+        self,
+        text: str,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Paragraph(
                 text=text,
-                block_id=self._id("Paragraph", text),
+                block_id=self._id("Paragraph", identity),
                 source_anchor=f"line:{line}",
             )
         )
 
-    def heading(self, text: str, level: int, line: int) -> None:
+    def heading(
+        self,
+        text: str,
+        level: int,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Heading(
                 text=text,
                 level=level,
-                block_id=self._id("Heading", f"{level}\0{text}"),
+                block_id=self._id("Heading", f"{level}\0{identity}"),
                 source_anchor=f"line:{line}",
             )
         )
@@ -325,7 +344,8 @@ class _Builder:
         self.pgn_games += 1
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
+_LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
@@ -422,7 +442,18 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
-            builder.heading(heading.group(2), len(heading.group(1)), number)
+            legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
+            identity_text = (
+                legacy_heading.group(2)
+                if legacy_heading is not None
+                else heading.group(2)
+            )
+            builder.heading(
+                heading.group(2),
+                len(heading.group(1)),
+                number,
+                identity_text=identity_text,
+            )
             index += 1
             continue
 
@@ -431,16 +462,45 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        images = _IMAGE_RE.findall(line)
-        if images:
+        first_image = _IMAGE_RE.search(line)
+        if first_image is not None:
             flush()
-            for alt in images:
-                alt = alt.strip()
+            # Before this source-order repair, all image Notes were appended first
+            # and one combined Paragraph containing the non-image prose was appended
+            # last. Preserve that old Paragraph target on the first successor prose
+            # fragment so already-saved BookReader progress for the same book_key
+            # restores deterministically after the parser correction.
+            legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
+            legacy_identity_available = legacy_paragraph_identity is not None
+            cursor = 0
+            for match in _IMAGE_RE.finditer(line):
+                leading = line[cursor:match.start()].strip()
+                if leading:
+                    builder.paragraph(
+                        leading,
+                        number,
+                        identity_text=(
+                            legacy_paragraph_identity
+                            if legacy_identity_available
+                            else None
+                        ),
+                    )
+                    legacy_identity_available = False
+                alt = match.group(1).strip()
                 if alt:
                     builder.image_note(alt, number)
-            remaining = _IMAGE_RE.sub("", line).strip()
-            if remaining:
-                builder.paragraph(remaining, number)
+                cursor = match.end()
+            trailing = line[cursor:].strip()
+            if trailing:
+                builder.paragraph(
+                    trailing,
+                    number,
+                    identity_text=(
+                        legacy_paragraph_identity
+                        if legacy_identity_available
+                        else None
+                    ),
+                )
             index += 1
             continue
 
