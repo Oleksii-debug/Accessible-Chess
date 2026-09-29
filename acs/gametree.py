@@ -20,6 +20,7 @@ RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
 TAG_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
 MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
 MOVE_NUMBER_PREFIX_RE = re.compile(r"^(\d+)(\.+)(.*)$")
+MOVE_NUMBER_LIKE_RE = re.compile(r"^\d+\.+$")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 NAG_RE = re.compile(r"^\$\d+$")
 # One canonical structural grammar: White uses one dot, Black uses three.
@@ -643,7 +644,7 @@ def _validate_san(san: object) -> None:
         any(character.isspace() for character in san)
         or any(character in "{};()$" for character in san)
         or san in RESULTS
-        or MOVE_NUMBER_TOKEN_RE.fullmatch(san)
+        or MOVE_NUMBER_LIKE_RE.fullmatch(san)
         or NAG_RE.fullmatch(san)
         or san in NAG_SYMBOLS
     ):
