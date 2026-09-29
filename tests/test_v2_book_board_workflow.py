@@ -126,17 +126,22 @@ class BookBoardWorkflowTests(unittest.TestCase):
         )
         self.assertFalse(workflow.active)
 
-    def test_corrupted_book_fen_fails_closed_before_progress_mutation(self) -> None:
+    def test_corrupted_indexed_book_fen_fails_closed_before_progress_mutation(self) -> None:
         # PR #380 owns constructor-time Book FEN parity.  This application seam
-        # still protects against a corrupted/mutated block arriving after normal
-        # construction, including None which canonical Board treats as START for
-        # its own convenience API.
+        # still protects against a corrupted block snapshot crossing the reader
+        # boundary, including None which canonical Board treats as START for its
+        # own convenience API.  Live BookDocument mutation is revision drift and
+        # is covered separately by the RETURN_FAILED race regressions below.
         for invalid_fen in (None, "", "8/8/8/8/8/8/8/8 w - - 0 1"):
             with self.subTest(invalid_fen=invalid_fen):
                 position = Position(fen=Board.START, block_id="bad")
                 document = BookDocument(title="Book", blocks=[position])
                 reader = BookReader(document)
-                position.fen = invalid_fen  # simulate corruption after validation
+                corrupted = reader.block_snapshot(0)
+                corrupted.fen = invalid_fen  # type: ignore[assignment]
+                reader.block_snapshot = (  # type: ignore[method-assign]
+                    lambda _index, block=corrupted: block
+                )
                 workflow, _engine, _analysis = self._workflow(reader)
 
                 with self.assertRaises(BookBoardWorkflowError) as caught:
