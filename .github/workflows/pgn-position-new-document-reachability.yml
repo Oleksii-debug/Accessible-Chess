@@ -58,6 +58,7 @@ jobs:
             '.github/workflows/d01-pgn-workspace-webview.yml'
             '.github/workflows/pgn-document-new-game-position-integrity.yml'
             '.github/workflows/pgn-position-new-document-reachability.yml'
+            '.github/workflows/version2-windows-composition.yml'
             'acs/full_product_actions.py'
             'acs/full_product_native_menu.py'
             'acs/pgn_document.py'
