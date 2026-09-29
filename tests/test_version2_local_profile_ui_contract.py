@@ -7,9 +7,21 @@ import unittest
 class Version2LocalProfileUiContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = (
-            Path(__file__).resolve().parents[1] / "web" / "version2_release_bootstrap.js"
+        root = Path(__file__).resolve().parents[1]
+        cls.source = (root / "web" / "version2_release_bootstrap.js").read_text(encoding="utf-8")
+        cls.workflow = (
+            root / ".github" / "workflows" / "local-profile-first-launch-ui.yml"
         ).read_text(encoding="utf-8")
+
+    def test_workflow_qualifies_exact_head_and_exact_owned_scope(self) -> None:
+        workflow = self.workflow
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("fetch-depth: 0", workflow)
+        self.assertIn('actual="$(git rev-parse HEAD)"', workflow)
+        self.assertIn("git merge-base --is-ancestor \"$base\" HEAD", workflow)
+        self.assertIn('git diff --check "$base" HEAD', workflow)
+        self.assertIn("LOCAL_PROFILE_UI_SCOPE=EXACT_SIX_PATHS", workflow)
+        self.assertIn('python-version: "3.12.10"', workflow)
 
     def test_profile_dialog_is_semantic_keyboard_native_html(self) -> None:
         source = self.source
