@@ -16,6 +16,7 @@ from io import BytesIO
 import posixpath
 import re
 import stat
+import unicodedata
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
@@ -165,6 +166,11 @@ def _safe_entry_name(raw_name: object) -> str:
     return normalized
 
 
+def _canonical_casefold_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value)
+    return unicodedata.normalize("NFC", normalized.casefold())
+
+
 def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     infos = archive.infolist()
     if not infos or len(infos) > MAX_EPUB_ENTRIES:
@@ -174,6 +180,8 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         )
     index: dict[str, zipfile.ZipInfo] = {}
     seen: set[str] = set()
+    canonical_children: dict[tuple[int, str], tuple[int, str]] = {}
+    next_canonical_node = 1
     total_uncompressed = 0
     for info in infos:
         name = _safe_entry_name(info.filename)
@@ -183,6 +191,24 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
         seen.add(name)
+
+        parent_node = 0
+        for raw_part in name.split("/"):
+            canonical_part = _canonical_casefold_name(raw_part)
+            edge = (parent_node, canonical_part)
+            previous = canonical_children.get(edge)
+            if previous is None:
+                child_node = next_canonical_node
+                next_canonical_node += 1
+                canonical_children[edge] = (child_node, raw_part)
+            else:
+                child_node, previous_raw_part = previous
+                if previous_raw_part != raw_part:
+                    raise _error(
+                        "EPUB package entry names collide after Unicode canonical case folding",
+                        BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                    )
+            parent_node = child_node
         mode = (info.external_attr >> 16) & 0xFFFF
         if mode and stat.S_ISLNK(mode):
             raise _error(
@@ -319,13 +345,24 @@ def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
     return values
 
 
-def _resolve_package_href(base_dir: str, href: object) -> str:
+def _resolve_package_href(
+    base_dir: str,
+    href: object,
+    *,
+    allow_fragment: bool = False,
+) -> str:
     if type(href) is not str or not href.strip():
         raise _error(
             "EPUB manifest href is invalid",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    parts = urlsplit(href.strip())
+    raw_href = href.strip()
+    parts = urlsplit(raw_href)
+    if "#" in raw_href and not allow_fragment:
+        raise _error(
+            "EPUB package href must not contain a fragment identifier",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     if parts.scheme or parts.netloc or parts.query:
         raise _error(
             "EPUB manifest contains an external or parameterized reading href",
@@ -487,7 +524,11 @@ def _resolved_asset(entry_name: str, reference: str) -> str | None:
     if parts.scheme or parts.netloc or not parts.path:
         return None
     try:
-        return _resolve_package_href(posixpath.dirname(entry_name), reference)
+        return _resolve_package_href(
+            posixpath.dirname(entry_name),
+            reference,
+            allow_fragment=True,
+        )
     except BookEpubImportError:
         return None
 

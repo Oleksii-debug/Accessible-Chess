@@ -243,6 +243,36 @@ class BookEpubImportTests(unittest.TestCase):
             import_epub_book(buffer.getvalue(), source_name="duplicate.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
 
+    def test_canonical_casefold_package_name_collisions_are_rejected(self) -> None:
+        collision_pairs = (
+            ("OEBPS/Text/Straße.txt", "OEBPS/Text/STRASSE.txt"),
+            ("OEBPS/Text/café.txt", "OEBPS/Text/cafe\u0301.txt"),
+            ("OEBPS/CaseDir/one.txt", "OEBPS/casedir/two.txt"),
+        )
+        for first, second in collision_pairs:
+            with self.subTest(first=first, second=second):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    prepend=[(first, b"one"), (second, b"two")],
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="canonical-collision.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
     def test_external_manifest_href_is_rejected(self) -> None:
         raw = _epub(
             opf=_opf(
@@ -254,6 +284,104 @@ class BookEpubImportTests(unittest.TestCase):
         with self.assertRaises(BookEpubImportError) as raised:
             import_epub_book(raw, source_name="external.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
+
+    def test_manifest_item_href_fragment_is_rejected(self) -> None:
+        for href in ("Text/chapter.xhtml#start", "Text/chapter.xhtml#"):
+            with self.subTest(href=href):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="{href}" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="manifest-fragment.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_percent_encoded_hash_remains_package_path_character(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/chapter%23one.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter#one.xhtml": (
+                    b"<html><body><p>Encoded hash path.</p></body></html>"
+                ),
+            },
+        )
+
+        result = import_epub_book(raw, source_name="encoded-hash.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Encoded hash path.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_container_rootfile_fragment_is_rejected(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf#rendition"
+      media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            },
+            container=container,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="rootfile-fragment.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_in_document_asset_fragment_remains_resolvable(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Images/board.svg#diagram" '
+            b'alt="Board diagram"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": chapter,
+                "OEBPS/Images/board.svg": b"<svg/>",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="asset-fragment.epub")
+        self.assertEqual(
+            result.image_references,
+            ("OEBPS/Images/board.svg",),
+        )
 
     def test_fallback_cycle_is_rejected(self) -> None:
         raw = _epub(

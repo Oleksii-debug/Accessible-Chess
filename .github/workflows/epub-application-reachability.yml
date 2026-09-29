@@ -60,15 +60,15 @@ jobs:
           product_parser_test="$(git rev-parse "$product:$parser_test_path")"
           candidate_parser="$(git rev-parse "HEAD:$parser_path")"
           candidate_parser_test="$(git rev-parse "HEAD:$parser_test_path")"
-          successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'
-          successor_parser_test='dce2f3042a254e2b6130ebbb2762c87acb9358bb'
+          fragment_successor_parser='a27e4cfb3ce84412895db864102f22cc6ccd525f'
+          fragment_successor_parser_test='8a6bed0e068a12a92c2225b6af0d8fc18973e5cf'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then
             :
-          elif test "$candidate_parser" = "$successor_parser" && \
-               test "$candidate_parser_test" = "$successor_parser_test"; then
-            echo "EPUB_XML_DECLARATION_SUCCESSOR=EXACT"
+          elif test "$candidate_parser" = "$fragment_successor_parser" && \
+               test "$candidate_parser_test" = "$fragment_successor_parser_test"; then
+            echo "EPUB_MANIFEST_FRAGMENT_SUCCESSOR=EXACT"
           else
             printf 'EPUB parser/test drift requires an exact reviewed successor pair: parser=%s test=%s\n' \
               "$candidate_parser" "$candidate_parser_test" >&2
