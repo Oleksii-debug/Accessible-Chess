@@ -11,8 +11,10 @@ import hashlib
 import io
 import json
 import logging
+import os
 import struct
 import sys
+import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -152,7 +154,21 @@ class WindowsSoundPlaybackAdapter:
             struct.pack("<h", max(-32768, min(32767, int(sample * factor))))
             for sample in samples
         )
-        with wave.open(str(destination), "wb") as writer:
-            writer.setparams(params)
-            writer.writeframes(scaled)
+        fd, temporary_name = tempfile.mkstemp(
+            dir=self._cache_dir,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        )
+        os.close(fd)
+        temporary = Path(temporary_name)
+        try:
+            with wave.open(str(temporary), "wb") as writer:
+                writer.setparams(params)
+                writer.writeframes(scaled)
+            os.replace(temporary, destination)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
         return destination
