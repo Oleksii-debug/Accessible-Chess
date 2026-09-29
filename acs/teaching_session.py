@@ -360,6 +360,12 @@ class TeachingSessionState:
                 raise TeachingSessionError("paused/completed teaching session board must be locked")
             if self.presentation.engine_visibility is not EngineVisibilityPolicy.HIDDEN:
                 raise TeachingSessionError("paused/completed teaching session engine visibility must be hidden")
+        if (
+            self.phase is TeachingSessionPhase.ACTIVE
+            and self.remaining_seconds == 0
+            and self.presentation.board_permission is not BoardPermissionState.LOCKED
+        ):
+            raise TeachingSessionError("expired active teaching session board must be locked")
         if self.phase is TeachingSessionPhase.COMPLETED and self.remaining_seconds is not None:
             raise TeachingSessionError("completed session cannot retain a live timer")
 
