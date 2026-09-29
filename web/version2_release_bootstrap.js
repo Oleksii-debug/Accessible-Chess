@@ -69,6 +69,7 @@
   const profileRepair = documentRef.createElement("button");
   profileRepair.type = "button";
   profileRepair.id = "v2-profile-repair";
+  profileRepair.hidden = true;
   const profileClose = documentRef.createElement("button");
   profileClose.type = "button";
   profileClose.id = "v2-profile-close";
