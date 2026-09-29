@@ -164,6 +164,20 @@ class D06PgnRoundTripTests(unittest.TestCase):
                     )
                 )
 
+    def test_programmatic_noncanonical_move_number_fails_d06_serialization(self):
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1..")],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+
     def test_recovery_mode_remains_available_for_read_only_damaged_inspection(self):
         games = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
