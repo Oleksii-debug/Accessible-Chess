@@ -141,6 +141,8 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(engine.calls, [])
         self.assertEqual(sounds.move_events, [])
         self.assertEqual(sounds.end_events, 1)
+        self.assertEqual(len(api._engine_clock_history), 1)
+        self.assertEqual(api._engine_clock_history[0].flagged, "w")
         self.assertEqual(expired["engineGame"]["phase"], "finished")
 
     def test_timed_board_move_expiring_after_preflight_is_rolled_back(self) -> None:
@@ -181,6 +183,76 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIsNone(api.selected_source)
         self.assertEqual(engine.calls, [])
         self.assertEqual(expired["engineGame"]["phase"], "finished")
+
+    def test_engine_move_expiring_during_clock_switch_is_rolled_back(self) -> None:
+        sounds = _RecordingGameSounds()
+        api, engine = self.make_api(game_sounds=sounds)
+        started = api.start_engine_game("white", 5, 1, 0)
+        self.assertTrue(started["ok"], started)
+        session = api._engine_session
+        self.assertIsNotNone(session)
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        now = _FakeTime(clock._last_tick)
+        clock._now = now
+        clock.set_remaining("b", 1)
+        original_switch = clock.switch_after_move
+
+        def expire_engine_on_switch(side):
+            if side == "b":
+                now.advance(0.002)
+            return original_switch(side)
+
+        clock.switch_after_move = expire_engine_on_switch
+        played = api.make_move("e4")
+
+        self.assertTrue(played["ok"], played)
+        self.assertIn("Час вичерпано", played["announcement"])
+        self.assertEqual(played["historyLength"], 1)
+        self.assertEqual(len(api.sans), 1)
+        self.assertEqual(api.board.turn, "b")
+        self.assertEqual(api.board.redo_stack, [])
+        self.assertIsNone(api.selected_source)
+        self.assertEqual(len(engine.calls), 1)
+        self.assertEqual(len(sounds.move_events), 1)
+        self.assertEqual(sounds.end_events, 1)
+        self.assertEqual(played["engineGame"]["phase"], "finished")
+        self.assertEqual(len(api._engine_clock_history), 2)
+        self.assertEqual(api._engine_clock_history[-1].flagged, "b")
+
+    def test_engine_timeout_while_thinking_finishes_without_error_phase(self) -> None:
+        sounds = _RecordingGameSounds()
+        api, engine = self.make_api(game_sounds=sounds)
+        started = api.start_engine_game("white", 5, 1, 0)
+        self.assertTrue(started["ok"], started)
+        session = api._engine_session
+        self.assertIsNotNone(session)
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        now = _FakeTime(clock._last_tick)
+        clock._now = now
+        clock.set_remaining("b", 1)
+        original_best_move = engine.best_move
+
+        def expire_while_thinking(fen, skill_level=10, movetime_ms=500):
+            now.advance(0.002)
+            return original_best_move(fen, skill_level, movetime_ms)
+
+        engine.best_move = expire_while_thinking
+        played = api.make_move("e4")
+
+        self.assertTrue(played["ok"], played)
+        self.assertIn("Час вичерпано", played["announcement"])
+        self.assertEqual(played["historyLength"], 1)
+        self.assertEqual(len(api.sans), 1)
+        self.assertEqual(api.board.turn, "b")
+        self.assertEqual(len(engine.calls), 1)
+        self.assertEqual(len(sounds.move_events), 1)
+        self.assertEqual(sounds.end_events, 1)
+        self.assertEqual(played["engineGame"]["phase"], "finished")
+        self.assertFalse(played["engineGame"]["canRetry"])
+        self.assertEqual(len(api._engine_clock_history), 2)
+        self.assertEqual(api._engine_clock_history[-1].flagged, "b")
 
     def test_human_black_receives_opening_engine_move_before_focus_handoff(self) -> None:
         api, engine = self.make_api()
