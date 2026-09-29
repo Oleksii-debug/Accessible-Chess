@@ -226,6 +226,33 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             self.assertEqual(result.game_count, 1)
             self.assertIn("Post-commit save", source.read_text(encoding="utf-8"))
 
+    def test_save_as_view_failure_is_sanitized_before_dialog_or_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "must-not-exist.pgn"
+            dialogs = _Dialogs()
+            dialogs.save_path = destination
+            controller, events, session_box, _ = self._controller(
+                dialogs,
+                focus="pgn-tree",
+            )
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session_box["value"] = session
+
+            with mock.patch.object(
+                session,
+                "view",
+                side_effect=RuntimeError("private presentation failure"),
+            ):
+                result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_as_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(dialogs.save_calls, 0)
+            self.assertFalse(destination.exists())
+            self.assertEqual(events[-1], result)
+            self.assertNotIn("private presentation failure", repr(result))
+
     def test_save_as_does_not_requery_view_after_durable_publication(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "durable-save-as.pgn"

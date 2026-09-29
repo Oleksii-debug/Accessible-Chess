@@ -399,7 +399,14 @@ class Version2WindowsFileActionDelegate:
         if isinstance(current, FileWorkflowEvent):
             return current
         previous_focus = self._focus() if prior_focus is None else prior_focus
-        view = current.view()
+        try:
+            view = current.view()
+        except Exception:
+            return self._failed(
+                "pgn.save_as",
+                "pgn_save_as_failed",
+                focus_target=previous_focus,
+            )
         game_count = view.game_count
         suggested = "game.pgn"
         if view.source_path:
