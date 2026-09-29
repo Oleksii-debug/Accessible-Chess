@@ -55,6 +55,7 @@ jobs:
 
           mapfile -t actual < <(git diff --name-only "$books" HEAD | LC_ALL=C sort)
           expected_paths=(
+            '.github/workflows/d01-pgn-workspace-webview.yml'
             '.github/workflows/pgn-document-new-game-position-integrity.yml'
             '.github/workflows/pgn-position-new-document-reachability.yml'
             'acs/full_product_actions.py'
