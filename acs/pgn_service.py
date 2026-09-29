@@ -180,6 +180,85 @@ def _preliminary_source_identity(path: Path) -> tuple[int, int]:
     return _source_identity(source_stat)
 
 
+def _open_direct_source(path: Path):
+    """Open one submitted source without following filesystem indirection."""
+
+    if os.name != "nt":
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None:
+            raise PgnFileError("PGN source no-follow open is unavailable")
+        flags = os.O_RDONLY | nofollow | getattr(os, "O_BINARY", 0)
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise PgnFileError("PGN source could not be opened safely") from exc
+        try:
+            return os.fdopen(descriptor, "rb", closefd=True)
+        except Exception:
+            os.close(descriptor)
+            raise
+
+    # Windows requires an explicit OPEN_REPARSE_POINT handle.  Plain Path.open()
+    # follows a junction/symlink and can therefore consume foreign bytes before
+    # post-open identity validation.
+    try:
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+    except ImportError as exc:  # pragma: no cover - Windows stdlib invariant
+        raise PgnFileError("PGN source no-follow open is unavailable") from exc
+
+    create_file = ctypes.WinDLL("kernel32", use_last_error=True).CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+
+    generic_read = 0x80000000
+    share_read = 0x00000001
+    share_write = 0x00000002
+    share_delete = 0x00000004
+    open_existing = 3
+    file_flag_open_reparse_point = 0x00200000
+    invalid_handle_value = ctypes.c_void_p(-1).value
+
+    handle = create_file(
+        str(path),
+        generic_read,
+        share_read | share_write | share_delete,
+        None,
+        open_existing,
+        file_flag_open_reparse_point,
+        None,
+    )
+    if handle == invalid_handle_value:
+        error = ctypes.get_last_error()
+        raise PgnFileError(
+            f"PGN source could not be opened safely (Windows error {error})"
+        )
+
+    try:
+        descriptor = msvcrt.open_osfhandle(
+            int(handle),
+            os.O_RDONLY | getattr(os, "O_BINARY", 0),
+        )
+    except OSError as exc:
+        ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(handle)
+        raise PgnFileError("PGN source could not be opened safely") from exc
+
+    try:
+        return os.fdopen(descriptor, "rb", closefd=True)
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
 def _opened_source_identity(handle: object) -> tuple[int, int] | None:
     """Return the real opened object identity; `None` is a focused test-double seam."""
 
@@ -220,7 +299,7 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
         )
 
     try:
-        with path.open("rb") as handle:
+        with _open_direct_source(path) as handle:
             opened_identity = _opened_source_identity(handle)
             if opened_identity is not None:
                 if opened_identity != expected_identity:
