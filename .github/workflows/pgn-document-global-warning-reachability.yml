@@ -73,6 +73,7 @@ jobs:
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/version2_pgn_commands.py=ad2cb1879868c73729d4895f229b3bd63245b288
+          acs/version2_release_ui.py=e7ada401a4ef9c19ae78605c8bd8d75dcbc3039d
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           LOCKS
 
@@ -95,6 +96,7 @@ jobs:
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_dev1_pgn_webview_projection
           tests.test_pgn_position_new_document_reachability
+          tests.test_w6_v2_language_owner_current
 
       - name: Run adjacent V2 application contract
         run: python -m unittest -v tests.test_version2_application
