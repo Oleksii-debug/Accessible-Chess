@@ -330,8 +330,9 @@ def _resolve_package_href(
             "EPUB manifest href is invalid",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    parts = urlsplit(href.strip())
-    if parts.fragment and not allow_fragment:
+    raw_href = href.strip()
+    parts = urlsplit(raw_href)
+    if "#" in raw_href and not allow_fragment:
         raise _error(
             "EPUB package href must not contain a fragment identifier",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,

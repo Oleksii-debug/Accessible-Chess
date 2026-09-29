@@ -256,20 +256,54 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
 
     def test_manifest_item_href_fragment_is_rejected(self) -> None:
+        for href in ("Text/chapter.xhtml#start", "Text/chapter.xhtml#"):
+            with self.subTest(href=href):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="{href}" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="manifest-fragment.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_percent_encoded_hash_remains_package_path_character(self) -> None:
         raw = _epub(
             opf=_opf(
-                manifest='    <item id="c1" href="Text/chapter.xhtml#start" media-type="application/xhtml+xml"/>',
+                manifest=(
+                    '    <item id="c1" href="Text/chapter%23one.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
                 spine='    <itemref idref="c1"/>',
             ),
             entries={
-                "OEBPS/Text/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+                "OEBPS/Text/chapter#one.xhtml": (
+                    b"<html><body><p>Encoded hash path.</p></body></html>"
+                ),
             },
         )
-        with self.assertRaises(BookEpubImportError) as raised:
-            import_epub_book(raw, source_name="manifest-fragment.epub")
-        self.assertEqual(
-            raised.exception.code,
-            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+
+        result = import_epub_book(raw, source_name="encoded-hash.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Encoded hash path.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
         )
 
     def test_container_rootfile_fragment_is_rejected(self) -> None:
