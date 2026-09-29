@@ -1596,8 +1596,8 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
-    def test_training_continue_render_error_secondary_restore_failure_recovers_to_books(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-render-secondary-restore-") as raw:
+    def test_training_continue_render_error_does_not_require_secondary_rebuild(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-render-local-rollback-") as raw:
             root = Path(raw)
             database = AcsDatabase(root / "library.acsdb")
             analysis = AnalysisService(lambda: None)
@@ -1621,6 +1621,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual("render", completed["kind"])
                     self.assertTrue(app.training_workspace.session.completed)
                     reader_before = app.reader.snapshot()
+                    training_before = app.training_workspace.snapshot()
                     key_before = app.book_key
                     durable_before = app.progress_store.restore(
                         key_before,
@@ -1632,12 +1633,19 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         side_effect=RuntimeError("simulated next exercise render failure"),
                     ), patch(
                         "acs.version2_application.Version2BookTrainingWorkspace.start_current",
-                        side_effect=ValueError("simulated Training restore failure"),
-                    ):
+                        side_effect=AssertionError(
+                            "local workspace rollback must avoid secondary Training rebuild"
+                        ),
+                    ) as rebuild:
                         rejected = app.browser_command("training", "training.continue")
 
                     self.assertEqual("error", rejected["kind"])
+                    rebuild.assert_not_called()
+                    self.assertEqual("training", app.shell.current_route.route_id)
                     self.assertEqual(reader_before, app.reader.snapshot())
+                    self.assertEqual(training_before, app.training_workspace.snapshot())
+                    self.assertIs(app.training, app.training_workspace.bridge)
+                    self.assertTrue(app.training_workspace.session.completed)
                     self.assertEqual(
                         durable_before,
                         app.progress_store.restore(
@@ -1645,15 +1653,11 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                             app.reader.document,
                         ).snapshot(),
                     )
-                    self.assertIsNone(app.training_workspace)
-                    self.assertIsNone(app.training)
-                    self.assertEqual("books", app.shell.current_route.route_id)
-                    events = app.drain_events()
-                    self.assertTrue(
+                    self.assertFalse(
                         any(
                             item["kind"] == "route"
                             and item["payload"].get("route_id") == "books"
-                            for item in events
+                            for item in app.drain_events()
                         )
                     )
                 finally:
