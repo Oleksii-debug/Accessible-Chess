@@ -77,6 +77,36 @@ class BookReaderTests(unittest.TestCase):
             reader.go_to(0)
         self.assertEqual(reader.index, 3)
 
+    def test_navigation_availability_rechecks_revision_after_semantic_scan(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        before_index = reader.index
+
+        class MutatingIndexedBlocks(list):
+            def __init__(self, values):
+                super().__init__(values)
+                self.mutated = False
+
+            def __getitem__(self, index):
+                value = super().__getitem__(index)
+                if isinstance(index, int) and not self.mutated:
+                    self.mutated = True
+                    book.blocks[0].text = "Concurrent heading"
+                return value
+
+        reader._indexed_document.blocks = MutatingIndexedBlocks(
+            reader._indexed_document.blocks
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "changed after BookReader creation",
+        ):
+            reader.navigation_availability()
+
+        self.assertEqual(reader.index, before_index)
+
     def test_go_to_rolls_back_cursor_if_revision_changes_between_checks(self):
         book = self.make_book()
         reader = BookReader(book)

@@ -274,6 +274,10 @@ class BookReader:
                 ):
                     break
                 cursor += direction
+
+        # A long semantic scan must not publish reachability for a document
+        # revision that changed after the initial validation.
+        self._require_indexed_revision()
         return availability
 
     def next_heading(self) -> ReadingLocation:
