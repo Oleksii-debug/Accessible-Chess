@@ -62,6 +62,9 @@ jobs:
           tests.test_bookdocument
           tests.test_book_index
           tests.test_bookreader
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
           tests.test_v2_book_game_content
           tests.test_v2_book_library_game_lookup
 
