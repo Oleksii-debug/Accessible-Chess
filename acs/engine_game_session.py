@@ -429,9 +429,12 @@ class EngineGameSessionCoordinator:
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
         self._commit_engine_move(result.move)
-        self._lifecycle.on_move_committed()
         assert self._clock is not None
+        # The Board-owning caller rolls this callback mutation back when clock
+        # acceptance fails. Publish lifecycle move acceptance only after the
+        # clock switch succeeds so pending draw/takeback state rolls back with it.
         switched = self._clock.switch_after_move(moved_side)
+        self._lifecycle.on_move_committed()
         if (
             switched.flagged is not None
             and timeout_opponent_can_mate is not None
