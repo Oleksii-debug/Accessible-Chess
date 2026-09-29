@@ -100,6 +100,7 @@ jobs:
           python -m unittest -v
           tests.test_v2_book_html_import
           tests.test_v2_book_epub_import
+          tests.test_version2_epub_application_reachability
           tests.test_bookdocument
           tests.test_bookreader
           tests.test_v2_book_progress_store
