@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/gametree.py'
       - 'tests/test_gametree.py'
+      - 'tests/test_d06_pgn_roundtrip.py'
       - '.github/workflows/pgn-move-number-grammar-integrity.yml'
 
 permissions:
@@ -60,6 +61,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-move-number-grammar-integrity.yml' \
             'acs/gametree.py' \
+            'tests/test_d06_pgn_roundtrip.py' \
             'tests/test_gametree.py' | sort)"
           test "$actual" = "$expected"
           git diff --check "$base" HEAD
@@ -72,6 +74,7 @@ jobs:
           python -m py_compile
           acs/gametree.py
           tests/test_gametree.py
+          tests/test_d06_pgn_roundtrip.py
 
       - name: Run focused PGN grammar and recovery regressions
         run: >-
