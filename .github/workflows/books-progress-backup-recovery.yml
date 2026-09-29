@@ -76,9 +76,9 @@ jobs:
           if [ "$current_delta" = "$orphan_expected" ]; then
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
-            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "b4722657371d37fda14a01cf0d76100dd12845df"
-            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "6c4e30c8cd3e2282f61027a9ae6d757f88ccd1d4"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "09e06b49d52175ba0ecabf9e0def7acec3428922"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "c9ef7c00d1ae1503820713c3dd20df71aa8c9693"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "08bb84509a9e34503fe31959068e7aa7477bb1e8"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "8f67f6762079ef40431358d2c582b8bdeabf90e5"
             orphan_backup_successor=true
           fi
 
