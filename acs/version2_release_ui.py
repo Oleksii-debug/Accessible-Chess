@@ -106,42 +106,69 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._version2_language_refresh = callback
 
     @staticmethod
-    def _sync_version2_language(application: Any, language: UILanguage) -> None:
-        """Apply one presentation language to every currently materialized V2 surface."""
+    def _sync_version2_language(
+        application: Any,
+        language: UILanguage,
+        *,
+        best_effort: bool = False,
+    ) -> bool:
+        """Apply one language to every materialized V2 surface.
+
+        Forward convergence is strict. Rollback can opt into best-effort mode so
+        one broken surface setter cannot prevent independent later surfaces from
+        returning to the persisted owner language.
+        """
 
         if not isinstance(language, UILanguage):
             raise TypeError("Version 2 language must be UILanguage")
+        complete = True
+
+        def apply(setter: Any, *, label: str) -> bool:
+            nonlocal complete
+            if not callable(setter):
+                if not best_effort:
+                    raise TypeError(f"{label} cannot change language")
+                complete = False
+                return False
+            try:
+                setter(language)
+                return True
+            except Exception:
+                if not best_effort:
+                    raise
+                complete = False
+                return False
+
         shell = getattr(application, "shell", None)
-        set_shell_language = getattr(shell, "set_language", None)
-        if not callable(set_shell_language):
-            raise TypeError("Version 2 shell cannot change language")
-        set_shell_language(language)
+        apply(
+            getattr(shell, "set_language", None),
+            label="Version 2 shell",
+        )
 
         for bridge_name in ("pgn", "library", "books"):
             bridge = getattr(application, bridge_name, None)
             if bridge is None:
                 continue
             projection = getattr(bridge, "projection", None)
-            set_projection_language = getattr(projection, "set_language", None)
-            if not callable(set_projection_language):
-                raise TypeError(f"Version 2 {bridge_name} surface cannot change language")
-            set_projection_language(language)
+            apply(
+                getattr(projection, "set_language", None),
+                label=f"Version 2 {bridge_name} surface",
+            )
 
         # Training is materialized through a workspace rather than a direct
-        # application bridge attribute. Once live, it participates in the same
-        # persisted presentation-language transaction as every other V2 surface.
-        # Projection mutation happens first; workspace.language is published only
-        # after render succeeds, so the outer set_language rollback can restore a
-        # post-mutation projection failure without leaving split authorities.
+        # application bridge attribute. Publish workspace.language only after its
+        # projection accepted the same language.
         training_workspace = getattr(application, "training_workspace", None)
         if training_workspace is not None:
             bridge = getattr(training_workspace, "bridge", None)
             projection = getattr(bridge, "projection", None)
-            set_projection_language = getattr(projection, "set_language", None)
-            if not callable(set_projection_language):
-                raise TypeError("Version 2 Training surface cannot change language")
-            set_projection_language(language)
-            training_workspace.language = language
+            if apply(
+                getattr(projection, "set_language", None),
+                label="Version 2 Training surface",
+            ):
+                training_workspace.language = language
+
+        return complete
 
     @staticmethod
     def _queue_version2_language_refresh(application: Any) -> None:
@@ -218,7 +245,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 pass
             if application is not None:
                 try:
-                    self._sync_version2_language(application, UILanguage(previous))
+                    self._sync_version2_language(
+                        application,
+                        UILanguage(previous),
+                        best_effort=True,
+                    )
                 except Exception:
                     pass
             if self._version2_language_refresh is not None:

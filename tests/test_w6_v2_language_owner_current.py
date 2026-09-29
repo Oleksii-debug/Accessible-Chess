@@ -484,6 +484,60 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
+    def test_rollback_failure_on_one_surface_does_not_block_other_surface_restores(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            pgn_projection = application.pgn.projection
+            training_projection = application.training_workspace.bridge.projection
+            real_pgn_set_language = pgn_projection.set_language
+            real_training_set_language = training_projection.set_language
+            training_calls = []
+
+            def pgn_language(language):
+                if language is UILanguage.UA:
+                    raise RuntimeError("simulated PGN rollback failure")
+                return real_pgn_set_language(language)
+
+            def training_language(language):
+                result = real_training_set_language(language)
+                training_calls.append(language)
+                if len(training_calls) == 1:
+                    raise RuntimeError("simulated Training forward failure")
+                return result
+
+            try:
+                with mock.patch.object(
+                    pgn_projection,
+                    "set_language",
+                    side_effect=pgn_language,
+                ), mock.patch.object(
+                    training_projection,
+                    "set_language",
+                    side_effect=training_language,
+                ):
+                    result = api.set_language("en")
+
+                self.assertFalse(result["ok"])
+                self.assertEqual(settings.get("language"), "uk")
+                self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                # PGN itself is the intentionally unrecoverable injected owner.
+                self.assertEqual(application.pgn.projection.language, UILanguage.EN)
+                # Its rollback failure must not strand independent later owners.
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(application.training.projection.language, UILanguage.UA)
+                self.assertEqual(training_calls, [UILanguage.EN, UILanguage.UA])
+                events = application.drain_events()
+                self.assertEqual(events, ({"kind": "language", "payload": {}},))
+            finally:
+                self._close_real_application(api, application, analysis)
+
     def test_release_window_uses_shell_language_for_initial_menu_and_binds_live_refresh_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
