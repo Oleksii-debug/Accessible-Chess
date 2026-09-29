@@ -83,6 +83,7 @@
       const start = textOffset(workspace, range.startContainer, range.startOffset);
       const end = textOffset(workspace, range.endContainer, range.endOffset);
       if (end <= start) return null;
+      const context = selectionContext(String(workspace.textContent || ""), start, end);
       let backward = false;
       if (
         selection.anchorNode &&
@@ -99,6 +100,8 @@
         start: start,
         end: end,
         text: chosenText,
+        before: context.before,
+        after: context.after,
         backward: backward
       };
     } catch (_) {
@@ -122,16 +125,53 @@
     return {node: root, offset: 0};
   }
 
-  function nearestSelectionStart(fullText, selectedText, preferredStart) {
-    if (!selectedText) return preferredStart;
+  const SELECTION_CONTEXT_CHARS = 48;
+
+  function selectionContext(fullText, start, end) {
+    return {
+      before: fullText.slice(Math.max(0, start - SELECTION_CONTEXT_CHARS), start),
+      after: fullText.slice(end, Math.min(fullText.length, end + SELECTION_CONTEXT_CHARS))
+    };
+  }
+
+  function contextMatchScore(fullText, selectedText, start, before, after) {
+    const expectedBefore = String(before || "");
+    const expectedAfter = String(after || "");
+    const left = fullText.slice(Math.max(0, start - expectedBefore.length), start);
+    const rightStart = start + selectedText.length;
+    const right = fullText.slice(rightStart, Math.min(fullText.length, rightStart + expectedAfter.length));
+    let leftScore = 0;
+    while (
+      leftScore < left.length &&
+      leftScore < expectedBefore.length &&
+      left[left.length - 1 - leftScore] === expectedBefore[expectedBefore.length - 1 - leftScore]
+    ) {
+      leftScore += 1;
+    }
+    let rightScore = 0;
+    while (
+      rightScore < right.length &&
+      rightScore < expectedAfter.length &&
+      right[rightScore] === expectedAfter[rightScore]
+    ) {
+      rightScore += 1;
+    }
+    return leftScore + rightScore;
+  }
+
+  function nearestSelectionStart(fullText, selectedText, preferredStart, before, after) {
+    if (!selectedText) return -1;
     let match = fullText.indexOf(selectedText);
     if (match < 0) return -1;
     let best = match;
+    let bestScore = contextMatchScore(fullText, selectedText, match, before, after);
     let bestDistance = Math.abs(match - preferredStart);
     while (match >= 0) {
+      const score = contextMatchScore(fullText, selectedText, match, before, after);
       const distance = Math.abs(match - preferredStart);
-      if (distance < bestDistance) {
+      if (score > bestScore || (score === bestScore && distance < bestDistance)) {
         best = match;
+        bestScore = score;
         bestDistance = distance;
       }
       match = fullText.indexOf(selectedText, match + 1);
@@ -147,10 +187,30 @@
       const fullText = String(workspace.textContent || "");
       let start = Math.max(0, Math.min(snapshot.start, fullText.length));
       let end = Math.max(start, Math.min(snapshot.end, fullText.length));
-      if (snapshot.text && fullText.slice(start, end) !== snapshot.text) {
-        start = nearestSelectionStart(fullText, snapshot.text, start);
-        if (start < 0) return false;
-        end = Math.min(fullText.length, start + snapshot.text.length);
+      if (snapshot.text) {
+        const directMatch = fullText.slice(start, end) === snapshot.text;
+        const directScore = directMatch
+          ? contextMatchScore(fullText, snapshot.text, start, snapshot.before, snapshot.after)
+          : -1;
+        const candidateStart = nearestSelectionStart(
+          fullText,
+          snapshot.text,
+          start,
+          snapshot.before,
+          snapshot.after
+        );
+        if (candidateStart < 0) return false;
+        const candidateScore = contextMatchScore(
+          fullText,
+          snapshot.text,
+          candidateStart,
+          snapshot.before,
+          snapshot.after
+        );
+        if (!directMatch || candidateScore > directScore) {
+          start = candidateStart;
+          end = Math.min(fullText.length, start + snapshot.text.length);
+        }
       }
       const startPoint = textPoint(workspace, start);
       const endPoint = textPoint(workspace, end);
