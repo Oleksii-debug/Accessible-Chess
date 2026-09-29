@@ -34,7 +34,7 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('changed="$(git diff --name-only "$live_base" HEAD | sort)"', workflow)
         self.assertIn("feature/local-profile-first-launch-ui-20260929", workflow)
         self.assertIn("work/local-profile-identity-foundation-20260929", workflow)
-        self.assertIn("EXACT_MUTATION_SUCCESSOR_SEVEN_PATHS", workflow)
+        self.assertIn("EXACT_MUTATION_SUCCESSOR_FIFTEEN_PATHS", workflow)
         self.assertIn("EXACT_ROOT_ELEVEN_PATHS", workflow)
         self.assertIn("'.github/workflows/local-profile-identity.yml'", workflow)
         self.assertIn("'.github/workflows/p0-release-critical-triad-convergence.yml'", workflow)
