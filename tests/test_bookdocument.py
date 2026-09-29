@@ -110,6 +110,25 @@ class BookDocumentTests(unittest.TestCase):
             book.validate_structure()
         self.assertEqual(level.exception.code, BookDocumentErrorCode.INVALID_FIELD)
 
+    def test_structure_validation_contains_mutated_document_containers(self):
+        bad_warnings = BookDocument("Book")
+        bad_warnings.warnings = "not-a-list"  # type: ignore[assignment]
+        with self.assertRaises(BookDocumentError) as warnings_error:
+            bad_warnings.validate_structure()
+        self.assertEqual(
+            warnings_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+
+        bad_blocks = BookDocument("Book")
+        bad_blocks.blocks = [object()]  # type: ignore[list-item]
+        with self.assertRaises(BookDocumentError) as blocks_error:
+            bad_blocks.validate_structure()
+        self.assertEqual(
+            blocks_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+
     def test_diagram_requires_accessibility_warning_when_alt_missing(self):
         book = BookDocument("Book")
         book.append(Diagram(fen=FEN, caption="Diagram"))
