@@ -80,6 +80,9 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("root.contains(range.startContainer)", capture)
         self.assertIn("root.contains(range.endContainer)", capture)
         self.assertIn("selection.isCollapsed", capture)
+        self.assertIn("selection.anchorNode===range.endContainer", capture)
+        self.assertIn("selection.focusNode===range.startContainer", capture)
+        self.assertIn("backward", capture)
 
         restore_start = self.index.index("function restoreTextSelection(root,snapshot)")
         restore_end = self.index.index("\nfunction renderAnalysis", restore_start)
@@ -88,6 +91,9 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("nearestTextOccurrence(current,snapshot.text,start)", restore)
         self.assertIn("if(end<=start)return", restore)
         self.assertNotIn("preventDefault", restore)
+        self.assertIn("snapshot.backward", restore)
+        self.assertIn("selection.setBaseAndExtent(b.node,b.offset,a.node,a.offset)", restore)
+        self.assertIn("selection.extend(a.node,a.offset)", restore)
 
         nearest_start = self.index.index("function nearestTextOccurrence(text,needle,offset)")
         nearest_end = self.index.index("\nfunction restoreTextSelection", nearest_start)
