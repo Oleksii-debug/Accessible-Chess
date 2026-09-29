@@ -34,6 +34,13 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('bridge.profile_repair()', source)
         self.assertIn('profileRepair.hidden = !exists', source)
 
+    def test_ambient_refresh_preserves_unsaved_profile_name(self) -> None:
+        source = self.source
+        self.assertIn("function renderProfileState(state, preserveDraft)", source)
+        self.assertIn("if (!preserveDraft) profileName.value = displayName;", source)
+        self.assertIn("renderProfileState(profileState, profileDialog.open)", source)
+        self.assertIn("renderProfileState(result);", source)
+
     def test_browser_never_requests_or_renders_stable_profile_id(self) -> None:
         source = self.source
         self.assertNotIn("profileId", source)
