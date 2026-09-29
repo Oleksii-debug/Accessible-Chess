@@ -19,9 +19,12 @@ from typing import Iterable
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
 TAG_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
 MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
+MOVE_NUMBER_PREFIX_RE = re.compile(r"^(\d+)(\.+)(.*)$")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 NAG_RE = re.compile(r"^\$\d+$")
-MOVE_NUMBER_TOKEN_RE = re.compile(r"^\d+\.{1,3}$")
+# One canonical structural grammar: White uses one dot, Black uses three.
+# Recovery may diagnose another dot run, but serialization must not publish it.
+MOVE_NUMBER_TOKEN_RE = MOVE_NUMBER_RE
 NAG_SYMBOLS = frozenset({"!", "?", "!!", "??", "!?", "?!"})
 MAX_NUMERIC_NAG = 255
 
@@ -239,17 +242,31 @@ def tokenize_movetext(text: str) -> list[_Token]:
         while j < n and not text[j].isspace() and text[j] not in "{};()$":
             j += 1
         value = text[i:j]
+        move_number = MOVE_NUMBER_PREFIX_RE.fullmatch(value)
+        if move_number is not None:
+            number, dots, remainder = move_number.groups()
+            indicator = number + dots
+            if len(dots) in (1, 3):
+                out.append(_Token("MOVE_NUMBER", indicator))
+            else:
+                out.append(
+                    _Token(
+                        "WARNING",
+                        f"malformed move-number indicator {indicator}",
+                    )
+                )
+            if not remainder:
+                i = j
+                continue
+            value = remainder
+
         if value in RESULTS:
             kind = "RESULT"
-        elif MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
+        elif MOVE_NUMBER_TOKEN_RE.fullmatch(value):
             kind = "MOVE_NUMBER"
         elif value in NAG_SYMBOLS:
             kind = "NAG_SYMBOL"
         else:
-            m = re.match(r"^(\d+\.{1,3})(.+)$", value)
-            if m:
-                out.append(_Token("MOVE_NUMBER", m.group(1)))
-                value = m.group(2)
             kind = "SAN"
         if value:
             out.append(_Token(kind, value))
