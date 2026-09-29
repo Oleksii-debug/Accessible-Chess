@@ -34,6 +34,7 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('bridge.profile_repair()', source)
         self.assertIn('const recoveryRequired = exists && profileState.recoveryRequired === true', source)
         self.assertIn('profileRepair.hidden = !recoveryRequired', source)
+        self.assertIn('openIfMissing && (!result.exists || result.recoveryRequired === true)', source)
         self.assertIn('Профіль відкрито з резервної копії.', source)
 
     def test_ambient_refresh_preserves_unsaved_profile_name(self) -> None:
