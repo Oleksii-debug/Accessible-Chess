@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import unittest
 
 from acs.acsdb import AcsDatabase
@@ -318,6 +319,68 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertEqual(result.student_lines, ())
         self.assertIsNone(result.error)
         self.assertEqual(workflow.view().cursor.next_move_index, 1)
+
+    def test_return_invalidates_old_analysis_before_new_session_can_publish(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[Position(fen=Board.START, block_id="serialized-return")],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+        workflow.open_current()
+
+        invalidate_started = threading.Event()
+        release_invalidate = threading.Event()
+        return_errors: list[BaseException] = []
+        real_invalidate = workflow._engine.invalidate
+
+        def gated_invalidate() -> int:
+            invalidate_started.set()
+            if not release_invalidate.wait(5):
+                raise RuntimeError("test did not release analysis invalidation")
+            return real_invalidate()
+
+        workflow._engine.invalidate = gated_invalidate  # type: ignore[method-assign]
+
+        def return_old_session() -> None:
+            try:
+                workflow.return_to_book()
+            except BaseException as exc:  # preserve worker failure for the main assertion
+                return_errors.append(exc)
+
+        worker = threading.Thread(target=return_old_session, daemon=True)
+        worker.start()
+        self.assertTrue(
+            invalidate_started.wait(5),
+            "return did not reach the old-context invalidation boundary",
+        )
+
+        # The invalidation callback deliberately pauses.  A non-blocking acquire
+        # from this thread must fail: otherwise a newer Book Board session could
+        # publish in this exact gap and then be invalidated by the older Return.
+        acquired_during_invalidate = workflow._lock.acquire(blocking=False)
+        if acquired_during_invalidate:
+            workflow._lock.release()
+
+        release_invalidate.set()
+        worker.join(5)
+        workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(return_errors, [])
+        self.assertFalse(
+            acquired_during_invalidate,
+            "Book Board lock was released before old-context analysis invalidation",
+        )
+        self.assertFalse(workflow.active)
+
+        # A successor context starts only after the old invalidation is complete;
+        # its first analysis therefore remains current instead of being cancelled.
+        workflow.open_current()
+        successor = workflow.analyze(multipv=1, depth=8)
+        self.assertFalse(successor.stale)
+        self.assertIsNone(successor.error)
 
     def test_failed_return_keeps_session_recoverable(self) -> None:
         document = BookDocument(
