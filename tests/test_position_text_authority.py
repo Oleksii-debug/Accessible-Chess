@@ -69,6 +69,27 @@ class PositionTextAuthorityTests(unittest.TestCase):
             "position text must contain W: and B: sections",
         )
 
+    def test_non_text_payload_cannot_coerce_into_a_valid_position(self):
+        class CoerciblePosition:
+            def __str__(self):
+                return "W: K e1 B: K e8"
+
+        payload = CoerciblePosition()
+        with self.assertRaisesRegex(ValueError, "position text must be text"):
+            parse_piece_coordinate_position(payload)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(ValueError, "Текст позиції має бути текстовим значенням"):
+            parse_position_text(payload)  # type: ignore[arg-type]
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        result = api.set_position_text(payload, "w")  # type: ignore[arg-type]
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(
+            result["announcement"],
+            "Текст позиції має бути текстовим значенням",
+        )
+
     def test_legacy_direct_adapter_defaults_to_ukrainian_errors(self):
         with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):
             parse_position_text("broken position")
