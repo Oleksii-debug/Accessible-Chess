@@ -140,6 +140,7 @@ class WindowsSoundPlaybackAdapter:
             f"{event.value}-v{volume}-{source_digest}.wav"
         )
         if destination.is_file():
+            self._prune_scaled_variants(destination, event, volume)
             return destination
 
         with wave.open(io.BytesIO(source_bytes), "rb") as reader:
@@ -171,4 +172,30 @@ class WindowsSoundPlaybackAdapter:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
+        self._prune_scaled_variants(destination, event, volume)
         return destination
+
+    def _prune_scaled_variants(
+        self,
+        destination: Path,
+        event: SoundEvent,
+        volume: int,
+    ) -> None:
+        """Best-effort removal of superseded content-addressed cache variants."""
+
+        pattern = f"{event.value}-v{volume}-*.wav"
+        for candidate in self._cache_dir.glob(pattern):
+            if candidate == destination:
+                continue
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                # Cache housekeeping must never turn successful playback into a
+                # product failure. The stale entry can be retried next time.
+                self._logger.warning(
+                    "could not prune stale chess sound cache file: %s",
+                    candidate,
+                    exc_info=True,
+                )
