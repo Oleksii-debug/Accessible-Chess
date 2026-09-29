@@ -37,8 +37,8 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
     def test_epub_parser_successor_is_exact_pair_and_application_oracle_stays_locked(self) -> None:
         self.assertIn("parser_path='acs/book_epub_import.py'", self.workflow)
         self.assertIn("parser_test_path='tests/test_v2_book_epub_import.py'", self.workflow)
-        self.assertIn("package_identity_successor_parser='c3499b67d860a86382e9446c1676b695bc1b93e0'", self.workflow)
-        self.assertIn("package_identity_successor_parser_test='4ecc980aa3f23abe70cbe983dd1e82e0f7381f27'", self.workflow)
+        self.assertIn("package_identity_successor_parser='5fa1de0f3c93db45ee23ae7c30c1d8da86ada872'", self.workflow)
+        self.assertIn("package_identity_successor_parser_test='e9c979713cf85e6ee0939502935883105327b04e'", self.workflow)
         self.assertIn(
             'test "$candidate_parser" = "$package_identity_successor_parser"',
             self.workflow,
