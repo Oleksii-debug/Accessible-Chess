@@ -197,6 +197,14 @@ class Version2WindowsFileActionDelegate:
         }
     )
     _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"})
+    _IMPORT_TERMINAL_KINDS = frozenset(
+        {
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            FileWorkflowEventKind.IMPORT_CANCELLED,
+            FileWorkflowEventKind.IMPORT_EMPTY,
+            FileWorkflowEventKind.FAILED,
+        }
+    )
 
     def __init__(
         self,
@@ -676,6 +684,14 @@ class Version2WindowsFileActionDelegate:
     def _emit_if_current(self, generation: int, event: FileWorkflowEvent) -> None:
         with self._lock:
             current = generation == self._generation
+            if current and event.kind in self._IMPORT_TERMINAL_KINDS:
+                # Terminal publication is the cancellation linearization point.
+                # The worker may remain alive briefly while services.close()
+                # releases SQLite/backend resources, but canonical import work is
+                # no longer cancellable.  Closing this host port before exposing
+                # the terminal event prevents a late Cancel from projecting a
+                # spurious CANCELLING state after COMPLETED/EMPTY/FAILED.
+                self._cancel_event = None
         if current:
             self._emit(event)
 
