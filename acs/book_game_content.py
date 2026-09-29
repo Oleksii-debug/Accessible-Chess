@@ -263,6 +263,11 @@ def _canonical_root_fen(value: object) -> tuple[str, str]:
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
         )
     preserved = value.strip()
+    if len(preserved.split()) not in {4, 6}:
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
     try:
         canonical = Board(preserved).fen()
     except (TypeError, ValueError) as exc:
