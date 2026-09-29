@@ -691,8 +691,8 @@ class BookProgressStore:
         backup_raw = self._read_raw_file_unlocked(self.backup_path, missing_ok=True)
         if backup_raw is not None:
             raise BookProgressStoreError(
-                "book progress recovery data must be resolved before new state can be created",
-                code=BookProgressStoreErrorCode.STALE_WRITE,
+                "book progress primary data is missing while recovery data remains",
+                code=BookProgressStoreErrorCode.CORRUPT_STORE,
             )
 
     def _write_payload_unlocked(
