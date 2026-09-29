@@ -81,6 +81,15 @@ class GameTreeTests(unittest.TestCase):
                     any("orphan move number" in warning for warning in recovered.warnings)
                 )
 
+        for annotation in ("$1", "!"):
+            with self.subTest(annotation=annotation):
+                recovered = parse_games(
+                    f'[Result "*"]\n\n1. e4 1... {annotation} e5 *'
+                )[0]
+                self.assertEqual(recovered.line.moves[0].nags, [])
+                self.assertEqual(recovered.line.moves[1].move_number, "1...")
+                self.assertIn(f"orphan annotation {annotation}", recovered.warnings)
+
         game = PgnGame(
             line=VariationLine(
                 moves=[MoveNode("e4")],
