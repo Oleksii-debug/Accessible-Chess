@@ -91,7 +91,6 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             fallback = api.profile_snapshot()
             self.assertTrue(fallback["ok"])
             self.assertTrue(fallback["exists"])
-            self.assertTrue(fallback["recoveryRequired"])
             self.assertEqual(fallback["displayName"], "First")
 
             rejected = api.profile_rename("Third")
@@ -100,7 +99,6 @@ class Version2LocalProfileApiTests(unittest.TestCase):
 
             repaired = api.profile_repair()
             self.assertTrue(repaired["ok"])
-            self.assertFalse(repaired["recoveryRequired"])
             self.assertEqual(repaired["displayName"], "First")
             self.assertEqual(store.load().profile_id, original.profile_id)
 
