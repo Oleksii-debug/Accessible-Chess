@@ -173,6 +173,15 @@ class WindowsSoundPlaybackAdapter:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
+            except OSError:
+                # Temporary-cache cleanup is housekeeping. In particular, a
+                # short Windows file lock must not replace the primary scaling
+                # or publication exception with a less useful cleanup error.
+                self._logger.warning(
+                    "could not remove temporary chess sound cache file: %s",
+                    temporary,
+                    exc_info=True,
+                )
         self._prune_scaled_variants(destination, event, volume)
         return destination
 

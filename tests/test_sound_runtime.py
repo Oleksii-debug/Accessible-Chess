@@ -301,6 +301,27 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertEqual(list(cache.glob("move-v50-*.wav")), [])
             self.assertEqual(list(cache.glob("*.tmp")), [])
 
+    def test_scaled_cache_cleanup_failure_does_not_mask_publish_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            with patch(
+                "acs.sound_windows.os.replace",
+                side_effect=OSError("publish failed"),
+            ), patch(
+                "acs.sound_windows.Path.unlink",
+                autospec=True,
+                side_effect=PermissionError("temporary cache busy"),
+            ):
+                with self.assertRaisesRegex(OSError, "publish failed"):
+                    adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
     def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
