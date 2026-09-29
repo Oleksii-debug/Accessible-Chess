@@ -116,17 +116,25 @@ class _HostApplication:
 
 class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
     def _real_application(self, root: Path, settings: Settings):
+        language_value = settings.get("language", "uk")
+        try:
+            language = UILanguage(language_value)
+        except (TypeError, ValueError):
+            language = UILanguage.UA
+
         database = AcsDatabase(root / "library.acsdb")
         analysis = AnalysisService(lambda: None)
         api = Version2ReleaseAccessibleChessAPI(
             keymap_path=root / "keymap.json",
             settings=settings,
+            lang=language.value,
         )
         application = Version2Application(
             database,
             progress_store=BookProgressStore(root / "book-progress.json"),
             engine_assistance=EngineAssistedWorkflowService(analysis),
             board_dispatch=lambda *_args, **_kwargs: {"ok": True},
+            language=language,
         )
         api.bind_version2_application(application)
         return api, application, analysis
@@ -264,6 +272,37 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertNotIn("message", events[0]["payload"])
             finally:
                 self._close_real_application(api, application, analysis)
+
+            restarted_settings = Settings(root / "settings.json")
+            restarted_api, restarted_application, restarted_analysis = self._real_application(
+                root,
+                restarted_settings,
+            )
+            try:
+                self.assertEqual(restarted_settings.get("language"), "en")
+                self.assertEqual(restarted_api.lang, "en")
+                self.assertEqual(restarted_application.shell.language, UILanguage.EN)
+
+                self._materialize_real_surfaces(restarted_application, root)
+                self.assertEqual(restarted_application.pgn.projection.language, UILanguage.EN)
+                self.assertEqual(restarted_application.library.projection.language, UILanguage.EN)
+                self.assertEqual(restarted_application.books.projection.language, UILanguage.EN)
+                self.assertEqual(
+                    restarted_application.training_workspace.language,
+                    UILanguage.EN,
+                )
+                self.assertEqual(
+                    restarted_application.training.projection.language,
+                    UILanguage.EN,
+                )
+                self._assert_all_snapshot_languages(restarted_application, "en")
+                self.assertFalse(restarted_application.drain_events())
+            finally:
+                self._close_real_application(
+                    restarted_api,
+                    restarted_application,
+                    restarted_analysis,
+                )
 
     def test_live_switch_relocalizes_training_presentation_feedback(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
