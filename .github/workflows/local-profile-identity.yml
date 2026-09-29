@@ -66,10 +66,12 @@ jobs:
               expected_paths="$(printf '%s\n' \
                 '.github/workflows/local-profile-first-launch-ui.yml' \
                 '.github/workflows/local-profile-identity.yml' \
+                '.github/workflows/p0-release-critical-triad-convergence.yml' \
                 'acs/local_profile.py' \
                 'acs/version2_local_profile_api.py' \
                 'acs/version2_release_app.py' \
                 'tests/test_local_profile.py' \
+                'tests/test_p0_release_critical_triad_convergence.py' \
                 'tests/test_version2_local_profile_api.py' \
                 'tests/test_version2_local_profile_ui_contract.py' \
                 'web/version2_release_bootstrap.js' | sort)"
