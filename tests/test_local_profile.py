@@ -84,6 +84,12 @@ class LocalProfileStoreTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def _symlink_or_skip(self, target: Path, link: Path) -> None:
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("symbolic links are not permitted in this environment")
+
     def test_create_skip_persists_same_alias_and_identifier(self) -> None:
         created = self.store.create(None)
         reopened = LocalProfileStore(self.store.path).load()
@@ -232,13 +238,68 @@ class LocalProfileStoreTests(unittest.TestCase):
         target = self.root / "target.json"
         target.write_bytes(serialize_local_profile(new_local_profile("Target")))
         link = self.root / "link.json"
-        try:
-            os.symlink(target, link)
-        except (OSError, NotImplementedError):
-            self.skipTest("symbolic links are not permitted in this environment")
+        self._symlink_or_skip(target, link)
         linked_store = LocalProfileStore(link)
         with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
             linked_store.load()
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic links are unavailable")
+    def test_primary_symlink_never_falls_back_to_valid_backup(self) -> None:
+        original = self.store.create("Alice")
+        self.store.rename(original, "Alice Two")
+        backup_before = self.store.backup_path.read_bytes()
+        target = self.root / "hostile-primary-target.json"
+        target.write_bytes(serialize_local_profile(new_local_profile("Target")))
+        target_before = target.read_bytes()
+        self.store.path.unlink()
+        self._symlink_or_skip(target, self.store.path)
+
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.load()
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.repair_from_backup()
+
+        self.assertTrue(self.store.path.is_symlink())
+        self.assertEqual(target.read_bytes(), target_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic links are unavailable")
+    def test_backup_symlink_is_not_accepted_as_recovery_authority(self) -> None:
+        original = self.store.create("Alice")
+        self.store.rename(original, "Alice Two")
+        self.store.path.unlink()
+        self.store.backup_path.unlink()
+        target = self.root / "hostile-backup-target.json"
+        target.write_bytes(serialize_local_profile(new_local_profile("Target")))
+        target_before = target.read_bytes()
+        self._symlink_or_skip(target, self.store.backup_path)
+
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.load()
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.repair_from_backup()
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.create("Replacement")
+
+        self.assertFalse(self.store.path.exists())
+        self.assertTrue(self.store.backup_path.is_symlink())
+        self.assertEqual(target.read_bytes(), target_before)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic links are unavailable")
+    def test_broken_backup_symlink_cannot_be_replaced_during_publish(self) -> None:
+        original = self.store.create("Alice")
+        primary_before = self.store.path.read_bytes()
+        missing_target = self.root / "missing-target.json"
+        self._symlink_or_skip(missing_target, self.store.backup_path)
+        self.assertTrue(self.store.backup_path.is_symlink())
+        self.assertFalse(self.store.backup_path.exists())
+
+        with self.assertRaisesRegex(LocalProfileError, "symbolic link"):
+            self.store.rename(original, "Alice Two")
+
+        self.assertEqual(self.store.path.read_bytes(), primary_before)
+        self.assertTrue(self.store.backup_path.is_symlink())
+        self.assertFalse(missing_target.exists())
 
 
 if __name__ == "__main__":
