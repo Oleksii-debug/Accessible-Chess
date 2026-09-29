@@ -94,6 +94,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
             "acs/acsdb.py",
             "acs/gametree.py",
             "acs/pgn_roundtrip.py",
+            "acs/version2_package_preflight.py",
             "packaging/AccessibleChess.exe.config",
         ):
             self.assertIn(dependency, self.text)
@@ -110,6 +111,15 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_VERIFIER_AUTHORITY=PASS", self.text)
         self.assertIn("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS", self.text)
         self.assertIn("sha256sum .w4-product-source/packaging/AccessibleChess.exe.config", self.text)
+        self.assertIn("validate_winforms_accessibility_app_config", self.text)
+        config_authority = self.text.index("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS")
+        config_semantics = self.text.index("W4_READBACK_PRODUCT_CONFIG_SEMANTICS=PASS")
+        verifier_copy = self.text.index(
+            "cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py "
+            ".w4-product-source/scripts/verify_w4_candidate_artifact.py"
+        )
+        self.assertLess(config_authority, config_semantics)
+        self.assertLess(config_semantics, verifier_copy)
         self.assertIn("W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:

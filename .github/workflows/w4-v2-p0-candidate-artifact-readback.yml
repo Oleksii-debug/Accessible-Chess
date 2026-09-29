@@ -248,7 +248,7 @@ jobs:
           rm -rf .w4-product-source
           git worktree add --detach .w4-product-source "$PRODUCT_SHA"
           test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"
-          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py packaging/AccessibleChess.exe.config; do
+          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py acs/version2_package_preflight.py packaging/AccessibleChess.exe.config; do
             test -s ".w4-product-source/$dependency" || {
               printf 'Exact Product semantic dependency missing: %s\n' "$dependency" >&2
               exit 1
@@ -261,6 +261,10 @@ jobs:
           }
           echo "W4_READBACK_PRODUCT_CONFIG_SHA256=$actual_config_sha"
           echo 'W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS'
+          (
+            cd .w4-product-source
+            python -c "from pathlib import Path; from acs.version2_package_preflight import validate_winforms_accessibility_app_config; validate_winforms_accessibility_app_config(Path('packaging/AccessibleChess.exe.config')); print('W4_READBACK_PRODUCT_CONFIG_SEMANTICS=PASS')"
+          )
           mkdir -p .w4-product-source/scripts
           cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py .w4-product-source/scripts/verify_w4_candidate_artifact.py
           copied_blob="$(git hash-object .w4-product-source/scripts/verify_w4_candidate_artifact.py)"
