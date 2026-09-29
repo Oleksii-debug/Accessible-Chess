@@ -36,7 +36,7 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         uk = KeymapEditorModel(lang="uk")
         self.assertEqual(
             [row.action_id for row in uk.rows(query="перейти")],
-            ["history.go_to_move"],
+            ["history.go_to_move", "history.commit_go_to_move"],
         )
         uk_rank = next(row for row in uk.rows() if row.action_id == "board.rank_1")
         uk_file = next(row for row in uk.rows() if row.action_id == "board.file_1")
@@ -50,7 +50,7 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         en = KeymapEditorModel(lang="en")
         self.assertEqual(
             [row.action_id for row in en.rows(query="go")],
-            ["history.go_to_move"],
+            ["history.go_to_move", "history.commit_go_to_move"],
         )
         en_rank = next(row for row in en.rows() if row.action_id == "board.rank_1")
         en_file = next(row for row in en.rows() if row.action_id == "board.file_1")
@@ -97,17 +97,27 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         end = html.index("el('move-submit').addEventListener", start)
         handler = html[start:end]
         editable_guard = "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
-        binding_resolve = "resolveBinding(chord,'analysis','analysis')"
+        context_order = "const contexts=[['analysis','analysis'],['history','document'],['document','document']]"
+        candidate_lookup = "actionByRegistryChord(chord,registryContext)"
+        binding_resolve = "resolveBinding(chord,selected.registryContext,selected.uiContext)"
         mapped_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
         self.assertIn(editable_guard, handler)
+        self.assertIn(context_order, handler)
+        self.assertIn(candidate_lookup, handler)
         self.assertIn(binding_resolve, handler)
         self.assertIn(mapped_prevent_default, handler)
+        self.assertLess(handler.index(editable_guard), handler.index(context_order))
         self.assertLess(handler.index(editable_guard), handler.index(binding_resolve))
         self.assertLess(handler.index(editable_guard), handler.index(mapped_prevent_default))
 
-        move_listener = "el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitMove()}})"
+        move_listener = (
+            "el('move-input').addEventListener('keydown',async e=>{const chord=eventChord(e),"
+            "candidate=keymapActionForEvent(e,'move_entry');if(candidate!=='move.submit')return;"
+            "e.preventDefault();const a=await resolveBinding(chord,'move_entry','move-entry');"
+            "if(a&&a.actionId===candidate)executeAction(a.actionId)})"
+        )
         self.assertIn(move_listener, html)
-        self.assertNotIn("'move-input').addEventListener('keydown',e=>{e.preventDefault()", html)
+        self.assertNotIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", html)
 
     def test_board_square_accessible_names_are_concise_and_bilingual(self) -> None:
         with tempfile.TemporaryDirectory() as td:
