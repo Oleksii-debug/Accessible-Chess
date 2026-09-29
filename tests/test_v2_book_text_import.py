@@ -115,7 +115,7 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
 
     def test_markdown_escaped_and_literal_image_syntax_stays_readable(self) -> None:
         cases = (
-            (r"Before \\![Board](board.png) after.", "escaped"),
+            (r"Before \![Board](board.png) after.", "escaped"),
             ("Before `![Board](board.png)` after.", "inline-code"),
             ("Before `![Board](board.png) after.", "unclosed-code"),
         )
