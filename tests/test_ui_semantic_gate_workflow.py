@@ -43,8 +43,14 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
             "web/**",
             "acs/full_product_actions.py",
             "acs/full_product_native_menu.py",
+            "acs/full_product_presenters.py",
             "acs/full_product_ui_shell.py",
+            "acs/full_product_webview_adapter.py",
             "acs/stage1_release_ui.py",
+            "acs/stage1_release_ui_core.py",
+            "acs/ui_keymap_service.py",
+            "acs/ui_native_menu.py",
+            "acs/webapp_keymap_core.py",
             "acs/version2_application.py",
             "acs/version2_education_mutation_release.py",
             "acs/version2_release_ui.py",
@@ -72,6 +78,11 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.workflow)
         for suite in (
             "tests.test_accessible_webui",
+            "tests.test_dev1_full_product_accessible_shell",
+            "tests.test_dev1_full_product_ui_packages",
+            "tests.test_dev1_full_product_webview_adapter",
+            "tests.test_full_product_native_menu",
+            "tests.test_stage1_native_menu_action_routing",
             "tests.test_nvda_p0_contract",
             "tests.test_stage1_complete_user_flow",
             "tests.test_stage1_release_composition_ui",
@@ -82,6 +93,16 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(suite=suite):
                 self.assertIn(suite, self.workflow)
+        for path in (
+            "tests/test_dev1_full_product_accessible_shell.py",
+            "tests/test_dev1_full_product_ui_packages.py",
+            "tests/test_dev1_full_product_webview_adapter.py",
+            "tests/test_full_product_native_menu.py",
+            "tests/test_ui_keymap_service.py",
+            "tests/test_ui_native_menu_recovery.py",
+            "tests/test_webapp_keymap_api.py",
+        ):
+            self.assertIn(path, self.workflow)
         self.assertIn("tests/test_p0_dynamic_selection_action_delivery.py", self.workflow)
         self.assertIn("tests/test_p0_semantic_document_copy.py", self.workflow)
         self.assertIn("tests/test_v2_windows_*.py", self.workflow)
