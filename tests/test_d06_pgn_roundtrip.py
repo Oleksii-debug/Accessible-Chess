@@ -140,6 +140,30 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 )
                 self.assert_code(expected, parse_pgn_text, source)
 
+    def test_move_number_dot_grammar_is_strict_but_recoverable(self):
+        canonical = parse_pgn_text('[Result "*"]\n\n1.e4 1...e5 *')
+        self.assertEqual(
+            [move.move_number for move in canonical[0].line.moves],
+            ["1.", "1..."],
+        )
+
+        for movetext in ("1.. e4 *", "1..e4 *", "1....e4 *"):
+            with self.subTest(movetext=movetext):
+                source = f'[Result "*"]\n\n{movetext}'
+                self.assert_code(
+                    PgnRoundTripErrorCode.MALFORMED_PGN,
+                    parse_pgn_text,
+                    source,
+                )
+                recovered = parse_pgn_text(source, strict=False)
+                self.assertEqual([move.san for move in recovered[0].line.moves], ["e4"])
+                self.assertTrue(
+                    any(
+                        "malformed move-number indicator" in warning
+                        for warning in recovered[0].warnings
+                    )
+                )
+
     def test_recovery_mode_remains_available_for_read_only_damaged_inspection(self):
         games = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
