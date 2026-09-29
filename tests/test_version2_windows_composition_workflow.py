@@ -50,9 +50,16 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
             "PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             self.workflow,
         )
+        self.assertIn(
+            "PUSH_BASE_SHA: ${{ github.event.before }}",
+            self.workflow,
+        )
         self.assertNotIn("PR_BASE_REF", self.workflow)
         self.assertNotIn("refs/remotes/origin/$PR_BASE_REF", self.workflow)
         self.assertIn('test "$(git rev-parse HEAD)" = "$expected_head"', self.workflow)
+        self.assertIn('push_base="${PUSH_BASE_SHA:-}"', self.workflow)
+        self.assertIn("zero_sha='0000000000000000000000000000000000000000'", self.workflow)
+        self.assertIn('scope_base="$push_base"', self.workflow)
         self.assertIn('git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"', self.workflow)
         self.assertIn('scope_base="$(git rev-parse HEAD^)"', self.workflow)
         self.assertIn('git merge-base --is-ancestor "$scope_base" HEAD', self.workflow)
