@@ -33,6 +33,7 @@ class Version2LocalProfileApiTests(unittest.TestCase):
 
             reopened = self.make_api(root).profile_snapshot()
             self.assertEqual(reopened["displayName"], "Oleksii Chess")
+            self.assertFalse(reopened["recoveryRequired"])
             self.assertEqual(reopened["revision"], 1)
 
     def test_skip_creates_private_generated_alias_and_rename_preserves_identity(self) -> None:
@@ -92,6 +93,7 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             self.assertTrue(fallback["ok"])
             self.assertTrue(fallback["exists"])
             self.assertEqual(fallback["displayName"], "First")
+            self.assertTrue(fallback["recoveryRequired"])
 
             rejected = api.profile_rename("Third")
             self.assertFalse(rejected["ok"])
@@ -100,6 +102,7 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             repaired = api.profile_repair()
             self.assertTrue(repaired["ok"])
             self.assertEqual(repaired["displayName"], "First")
+            self.assertFalse(repaired["recoveryRequired"])
             self.assertEqual(store.load().profile_id, original.profile_id)
 
             renamed = api.profile_rename("Third")
