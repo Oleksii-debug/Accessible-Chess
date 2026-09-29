@@ -229,6 +229,9 @@ class EngineGameSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "clock acceptance failed"):
             session.on_human_move_committed("w")
 
+        # The Board owner rejects the just-committed move on this failure path.
+        # Restore its side before asking the coordinator for a coherent snapshot.
+        state["side"] = "w"
         after = session.snapshot()
         self.assertEqual(after.lifecycle, before.lifecycle)
         self.assertEqual(after.lifecycle.draw_offered_by, "w")
