@@ -325,7 +325,7 @@ class _Builder:
         self.pgn_games += 1
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
