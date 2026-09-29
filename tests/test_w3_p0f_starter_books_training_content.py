@@ -271,13 +271,20 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     with patch(
                         "acs.version2_training_workspace.build_book_training_material",
                         side_effect=mutate_during_material_build,
-                    ):
+                    ), patch.object(
+                        workspace._store,
+                        "save",
+                        side_effect=AssertionError(
+                            "revision-drifted Continue must fail before Training persistence"
+                        ),
+                    ) as save:
                         with self.assertRaisesRegex(
                             RuntimeError,
                             "changed after BookReader creation",
                         ):
                             workspace.continue_next()
 
+                    save.assert_not_called()
                     self.assertTrue(drift)
                     document = app.reader.document
                     document.blocks[drift["index"]].prompt = drift["prompt"]

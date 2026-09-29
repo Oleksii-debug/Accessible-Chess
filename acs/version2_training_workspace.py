@@ -193,11 +193,12 @@ class Version2BookTrainingWorkspace:
     def continue_next(self) -> TrainingWebViewEvent:
         if not self.session.completed:
             raise ValueError("current Training exercise is not complete")
-        self.save()
         next_index, material = self._next_exercise_material()
-        # Validate the next semantic exercise and its durable state before moving
-        # the BookReader or replacing the active Training surface.
+        # Validate the successor and its durable state before any persistence or
+        # reader mutation. A stale/malformed next exercise must not rewrite the
+        # already-durable completed origin merely because Continue was attempted.
         session, bridge, store, revision = self._prepare(material)
+        self.save()
         self.reader.go_to(next_index)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
