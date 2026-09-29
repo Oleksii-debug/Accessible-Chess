@@ -85,12 +85,24 @@
       const start = textOffset(root, range.startContainer, range.startOffset);
       const end = textOffset(root, range.endContainer, range.endOffset);
       if (end <= start) return null;
+      let backward = false;
+      if (
+        selection.anchorNode &&
+        selection.focusNode &&
+        rootForNode(selection.anchorNode) === root &&
+        rootForNode(selection.focusNode) === root
+      ) {
+        const anchor = textOffset(root, selection.anchorNode, selection.anchorOffset);
+        const focus = textOffset(root, selection.focusNode, selection.focusOffset);
+        backward = anchor > focus;
+      }
       return {
         rootId: root.id,
         route: routeToken(),
         start: start,
         end: end,
-        text: text
+        text: text,
+        backward: backward
       };
     } catch (_) {
       return null;
@@ -117,8 +129,26 @@
       const range = documentRef.createRange();
       range.setStart(startPoint.node, startPoint.offset);
       range.setEnd(endPoint.node, endPoint.offset);
-      selection.removeAllRanges();
-      selection.addRange(range);
+      if (snapshot.backward && typeof selection.setBaseAndExtent === "function") {
+        selection.setBaseAndExtent(
+          endPoint.node,
+          endPoint.offset,
+          startPoint.node,
+          startPoint.offset
+        );
+      } else if (
+        snapshot.backward &&
+        typeof selection.collapse === "function" &&
+        typeof selection.extend === "function"
+      ) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+        selection.collapse(endPoint.node, endPoint.offset);
+        selection.extend(startPoint.node, startPoint.offset);
+      } else {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
       return String(selection.toString() || "") === snapshot.text;
     } catch (_) {
       return false;
