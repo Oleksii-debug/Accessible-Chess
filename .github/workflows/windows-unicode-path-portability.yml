@@ -73,6 +73,7 @@ jobs:
           python -m unittest -v
           tests.test_windows_unicode_path_portability
           tests.test_settings
+          tests.test_version2_release_app
           tests.test_whole_product_user_journey
           tests.test_v2_windows_nvda_file_workflows
           tests.test_d07_library_import_service
