@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.library_import_service import (
@@ -164,6 +165,63 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             for event in events:
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-source-name", repr(event))
+
+    def test_save_does_not_requery_view_after_durable_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "durable-save.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs()
+            controller, _, session_box, _ = self._controller(dialogs)
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Post-commit save")
+            session_box["value"] = session
+            real_view = PgnDocumentSession.view
+
+            def reject_post_commit_readback(bound_session):
+                if "Post-commit save" in source.read_text(encoding="utf-8"):
+                    raise AssertionError("view must not be re-read after durable save")
+                return real_view(bound_session)
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=reject_post_commit_readback,
+            ):
+                result = controller("pgn.save", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertEqual(result.game_count, 1)
+            self.assertIn("Post-commit save", source.read_text(encoding="utf-8"))
+
+    def test_save_as_does_not_requery_view_after_durable_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "durable-save-as.pgn"
+            dialogs = _Dialogs()
+            dialogs.save_path = destination
+            controller, _, session_box, _ = self._controller(dialogs)
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session_box["value"] = session
+            real_view = PgnDocumentSession.view
+
+            def reject_post_commit_readback(bound_session):
+                if destination.exists():
+                    raise AssertionError("view must not be re-read after durable Save As")
+                return real_view(bound_session)
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=reject_post_commit_readback,
+            ):
+                result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVED_AS)
+            self.assertEqual(result.game_count, 1)
+            self.assertTrue(destination.is_file())
+            reopened = PgnDocumentSession.open(destination)
+            self.assertEqual(reopened.view().game_count, 1)
 
     def test_save_as_existing_destination_uses_expected_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

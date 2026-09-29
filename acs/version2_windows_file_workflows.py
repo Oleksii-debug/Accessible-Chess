@@ -362,6 +362,11 @@ class Version2WindowsFileActionDelegate:
             return current
         previous_focus = self._focus()
         try:
+            # Capture presentation metadata before the atomic publication. Once
+            # save() returns, canonical PGN bytes and session provenance have
+            # committed; no fallible presentation readback may turn that
+            # durable success into a caller-visible failure.
+            game_count = current.view().game_count
             current.save()
         except PgnDocumentError as exc:
             if exc.code in {
@@ -377,7 +382,7 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEventKind.PGN_SAVED,
                 "pgn.save",
                 focus_target=previous_focus,
-                game_count=current.view().game_count,
+                game_count=game_count,
             )
         )
 
@@ -393,6 +398,7 @@ class Version2WindowsFileActionDelegate:
             return current
         previous_focus = self._focus() if prior_focus is None else prior_focus
         view = current.view()
+        game_count = view.game_count
         suggested = "game.pgn"
         if view.source_path:
             suggested = Path(view.source_path).name or suggested
@@ -416,7 +422,7 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEventKind.PGN_SAVED_AS,
                 "pgn.save_as",
                 focus_target=previous_focus,
-                game_count=current.view().game_count,
+                game_count=game_count,
             )
         )
 
