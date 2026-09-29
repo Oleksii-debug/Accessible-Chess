@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - repair/book-index-snapshot-integrity-20260927
+      - fix/book-index-unicode-search-fold-20260929
   workflow_dispatch:
 
 permissions:
