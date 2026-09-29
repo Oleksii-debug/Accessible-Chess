@@ -78,6 +78,7 @@
     {"id":"move.black_to_move","context":"move-entry","registryContext":"move_entry","labelUk":"Команда ходу чорних","labelEn":"Black to move command","binding":null,"alias":"b","defaultBinding":null,"defaultAlias":"b"},
     {"id":"move.clear","context":"move-entry","registryContext":"move_entry","labelUk":"Команда очищення дошки","labelEn":"Clear board command","binding":null,"alias":"c","defaultBinding":null,"defaultAlias":"c"},
     {"id":"move.standard","context":"move-entry","registryContext":"move_entry","labelUk":"Команда стандартної позиції","labelEn":"Standard position command","binding":null,"alias":"s","defaultBinding":null,"defaultAlias":"s"},
-    {"id":"move.empty","context":"move-entry","registryContext":"move_entry","labelUk":"Команда порожньої позиції","labelEn":"Empty position command","binding":null,"alias":"e","defaultBinding":null,"defaultAlias":"e"}
+    {"id":"move.empty","context":"move-entry","registryContext":"move_entry","labelUk":"Команда порожньої позиції","labelEn":"Empty position command","binding":null,"alias":"e","defaultBinding":null,"defaultAlias":"e"},
+    {"id":"screen.help","context":"document","registryContext":"global","labelUk":"Довідка","labelEn":"Help","binding":"F1","alias":null,"defaultBinding":"F1","defaultAlias":null}
   ]
 }
