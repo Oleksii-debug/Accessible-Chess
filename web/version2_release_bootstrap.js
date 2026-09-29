@@ -86,7 +86,7 @@
   );
   documentRef.body.appendChild(profileDialog);
 
-  function renderProfileState(state) {
+  function renderProfileState(state, preserveDraft) {
     profileState = state && typeof state === "object" ? state : null;
     profileHeading.textContent = uiText("Локальний профіль", "Local profile");
     profileDescription.textContent = uiText(
@@ -105,7 +105,7 @@
     profileButton.textContent = exists
       ? uiText("Профіль: ", "Profile: ") + displayName
       : uiText("Налаштувати профіль", "Set up profile");
-    profileName.value = displayName;
+    if (!preserveDraft) profileName.value = displayName;
     profileSkip.hidden = exists;
     profileRepair.hidden = !exists;
     profileSave.disabled = false;
@@ -406,7 +406,7 @@
     nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
     navHeading.textContent = uiText("Розділи", "Sections");
     renderNavigation(snapshot);
-    if (profileState) renderProfileState(profileState);
+    if (profileState) renderProfileState(profileState, profileDialog.open);
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
