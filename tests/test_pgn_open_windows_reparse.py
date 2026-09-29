@@ -244,6 +244,84 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
                     _remove_junction(submitted)
 
 
+    def test_open_rejects_parent_junction_to_same_inode_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            submitted = root / "submitted"
+            foreign = root / "foreign"
+            submitted.mkdir()
+            foreign.mkdir()
+            source = submitted / "source.pgn"
+            foreign_source = foreign / "source.pgn"
+            source.write_text(_SAMPLE_PGN, encoding="utf-8", newline="")
+            os.link(source, foreign_source)
+
+            original = source.stat()
+            self.assertEqual(
+                (foreign_source.stat().st_dev, foreign_source.stat().st_ino),
+                (original.st_dev, original.st_ino),
+            )
+
+            real_validate = pgn_service._validate_source_path
+            real_fdopen = pgn_service.os.fdopen
+            validations = 0
+            swapped = False
+
+            class ReadForbiddenHandle:
+                def __init__(self, wrapped):
+                    self._wrapped = wrapped
+
+                def __enter__(self):
+                    self._wrapped.__enter__()
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return self._wrapped.__exit__(exc_type, exc, tb)
+
+                def fileno(self):
+                    return self._wrapped.fileno()
+
+                def read(self, *args, **kwargs):
+                    raise AssertionError(
+                        "indirect same-inode source must be rejected before read"
+                    )
+
+            def validate_then_swap(path):
+                nonlocal validations, swapped
+                result = real_validate(path)
+                validations += 1
+                if validations == 1:
+                    self._replace_directory_with_junction(submitted, foreign)
+                    swapped = True
+                    current = source.stat()
+                    self.assertEqual(
+                        (current.st_dev, current.st_ino),
+                        (original.st_dev, original.st_ino),
+                    )
+                return result
+
+            def fdopen_without_read(descriptor, *args, **kwargs):
+                return ReadForbiddenHandle(real_fdopen(descriptor, *args, **kwargs))
+
+            try:
+                with patch.object(
+                    pgn_service,
+                    "_validate_source_path",
+                    side_effect=validate_then_swap,
+                ), patch.object(
+                    pgn_service.os,
+                    "fdopen",
+                    side_effect=fdopen_without_read,
+                ):
+                    with self.assertRaises(PgnSourceChangedError):
+                        open_pgn(source)
+
+                self.assertTrue(swapped)
+            finally:
+                if swapped:
+                    _remove_junction(submitted)
+
+
 
 class PgnOpenDirectUnicodePathTests(unittest.TestCase):
     def test_direct_path_with_spaces_and_non_ascii_is_not_treated_as_indirect(self) -> None:
