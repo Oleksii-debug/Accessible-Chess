@@ -112,6 +112,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS", self.text)
         self.assertIn("sha256sum .w4-product-source/packaging/AccessibleChess.exe.config", self.text)
         self.assertIn("validate_winforms_accessibility_app_config", self.text)
+        self.assertIn("W4_READBACK_PRODUCT_CONFIG_SEMANTICS_FAILURE", self.text)
         config_authority = self.text.index("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS")
         config_semantics = self.text.index("W4_READBACK_PRODUCT_CONFIG_SEMANTICS=PASS")
         verifier_copy = self.text.index(
