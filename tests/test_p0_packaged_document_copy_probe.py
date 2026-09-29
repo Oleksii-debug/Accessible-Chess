@@ -93,8 +93,18 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("$target.Select()", self.text)
         self.assertIn("$textPattern.GetSelection()", self.text)
         self.assertIn("$activeSelection.CompareEndpoints(", self.text)
-        self.assertIn("TextPatternRangeEndpoint]::Start", self.text)
-        self.assertIn("TextPatternRangeEndpoint]::End", self.text)
+        self.assertIn(
+            "[System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start",
+            self.text,
+        )
+        self.assertIn(
+            "[System.Windows.Automation.Text.TextPatternRangeEndpoint]::End",
+            self.text,
+        )
+        self.assertNotIn(
+            "[System.Windows.Automation.TextPatternRangeEndpoint]",
+            self.text,
+        )
         self.assertIn("textpattern_target_selected=$true", self.text)
         self.assertIn(
             "textpattern_selection_equality='UIA exact range endpoints and case-sensitive text equality'",
