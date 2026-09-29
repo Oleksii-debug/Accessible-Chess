@@ -77,9 +77,13 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
             "tests.test_stage1_release_composition_ui",
             "tests.test_stage1_packaged_focus_origin_contract",
             "tests.test_stage1_webview2_accessibility_boundary",
+            "tests.test_p0_dynamic_selection_action_delivery",
+            "tests.test_p0_semantic_document_copy",
         ):
             with self.subTest(suite=suite):
                 self.assertIn(suite, self.workflow)
+        self.assertIn("tests/test_p0_dynamic_selection_action_delivery.py", self.workflow)
+        self.assertIn("tests/test_p0_semantic_document_copy.py", self.workflow)
         self.assertIn("tests/test_v2_windows_*.py", self.workflow)
         self.assertIn("tests/test_ui_semantic_gate_workflow.py", self.workflow)
         self.assertIn("python run_accessible_chess.py --diagnostic", self.workflow)
