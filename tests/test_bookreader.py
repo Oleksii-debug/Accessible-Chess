@@ -320,6 +320,25 @@ class BookReaderTests(unittest.TestCase):
         finally:
             BookReader._go_to_target = original_go_to_target
 
+    def test_restore_empty_snapshot_rechecks_revision_before_publication(self):
+        book = BookDocument("Empty")
+        snapshot = BookReader(book).snapshot()
+        original_init = BookReader.__init__
+
+        def mutate_after_reader_indexing(reader, document):
+            original_init(reader, document)
+            document.blocks.append(Paragraph(text="Concurrent content"))
+
+        BookReader.__init__ = mutate_after_reader_indexing
+        try:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "changed after BookReader creation",
+            ):
+                BookReader.restore_snapshot(book, snapshot)
+        finally:
+            BookReader.__init__ = original_init
+
     def test_empty_book_is_explicit_not_silent(self):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
