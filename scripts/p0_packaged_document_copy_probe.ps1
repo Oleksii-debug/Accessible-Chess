@@ -293,6 +293,41 @@ function AssertVisibleTextRange($Range) {
   return 'enclosing-element'
 }
 
+function AddStaticCandidateDiagnostic($Element,$Pattern,[string]$Phrase,[string]$Source,$Lines) {
+  if($Lines.Count -ge 24){return}
+  try {
+    $type=[string]$Element.Current.ControlType.ProgrammaticName
+    $automationId=[string]$Element.Current.AutomationId
+    $bounds=$Element.Current.BoundingRectangle
+    $isContent=[bool]$Element.Current.IsContentElement
+    $isControl=[bool]$Element.Current.IsControlElement
+    $keyboardFocusable=[bool]$Element.Current.IsKeyboardFocusable
+    $offscreen=[bool]$Element.Current.IsOffscreen
+    $rangeState='unavailable'
+    $rangeLength=-1
+    $rangeExact=$false
+    $rangeSingleLine=$false
+    try {
+      $diagnosticRange=$Pattern.RangeFromChild($Element)
+      if($null -eq $diagnosticRange){
+        $rangeState='null'
+      } else {
+        $diagnosticText=[string]$diagnosticRange.GetText(-1)
+        $rangeState='available'
+        $rangeLength=$diagnosticText.Length
+        $rangeExact=($diagnosticText -ceq $Phrase)
+        $rangeSingleLine=(-not $diagnosticText.Contains("`r") -and -not $diagnosticText.Contains("`n"))
+      }
+    } catch {
+      $rangeState='error'
+    }
+    $line=("P0_STATIC_TARGET_CANDIDATE source={0} phrase_code_units='{1}' type={2} automation_id={3} content={4} control={5} keyboard_focusable={6} offscreen={7} width={8} height={9} range={10} range_length={11} exact_text={12} single_line={13}" -f $Source,(ClipboardCodeUnits $Phrase 48),$type,$automationId,$isContent,$isControl,$keyboardFocusable,$offscreen,[Math]::Round([double]$bounds.Width,2),[Math]::Round([double]$bounds.Height,2),$rangeState,$rangeLength,$rangeExact,$rangeSingleLine)
+    [void]$Lines.Add($line)
+  } catch {
+    if($Lines.Count -lt 24){[void]$Lines.Add("P0_STATIC_TARGET_CANDIDATE source=$Source diagnostic=property-read-error")}
+  }
+}
+
 $root=(Resolve-Path -LiteralPath $ProductRoot).Path
 $exe=(Resolve-Path -LiteralPath (Join-Path $root 'AccessibleChess.exe')).Path
 AssertExactPackageBinding $root $ProductSha $exe
@@ -310,6 +345,7 @@ try {
   if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
 
   $usableDocuments=@()
+  $staticTargetDiagnostics=New-Object 'System.Collections.Generic.List[string]'
   foreach($candidate in $documents){
     try {
       $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
@@ -320,6 +356,21 @@ try {
       $candidatePhrase=''
       $candidateTargetType=''
       foreach($phrase in @('Розділи','Sections','Accessible Chess','Інформація про гру','Game information','Список ходів')){
+        $controlViewPhraseMatches=@($candidateElements | Where-Object {
+          try {[string]$_.Current.Name -ceq $phrase} catch {$false}
+        })
+        foreach($observed in $controlViewPhraseMatches){
+          AddStaticCandidateDiagnostic $observed $candidatePattern $phrase 'control-view-name' $staticTargetDiagnostics
+        }
+        try {
+          $nameCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$phrase)
+          $rawPhraseMatches=@($candidate.FindAll([System.Windows.Automation.TreeScope]::Descendants,$nameCondition))
+          foreach($observed in $rawPhraseMatches){
+            AddStaticCandidateDiagnostic $observed $candidatePattern $phrase 'raw-name' $staticTargetDiagnostics
+          }
+        } catch {
+          if($staticTargetDiagnostics.Count -lt 24){[void]$staticTargetDiagnostics.Add("P0_STATIC_TARGET_DIAGNOSTIC_ERROR source=raw-name")}
+        }
         $namedTargets=@($candidateElements | Where-Object {
           try {
             $type=[string]$_.Current.ControlType.ProgrammaticName
@@ -344,6 +395,15 @@ try {
         $candidateTargetType=[string]$namedTargets[0].Current.ControlType.ProgrammaticName
         break
       }
+      try {
+        $idCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,'v2-navigation-heading')
+        $rawHeadingMatches=@($candidate.FindAll([System.Windows.Automation.TreeScope]::Descendants,$idCondition))
+        foreach($observed in $rawHeadingMatches){
+          AddStaticCandidateDiagnostic $observed $candidatePattern 'Розділи' 'raw-automation-id-v2-navigation-heading' $staticTargetDiagnostics
+        }
+      } catch {
+        if($staticTargetDiagnostics.Count -lt 24){[void]$staticTargetDiagnostics.Add('P0_STATIC_TARGET_DIAGNOSTIC_ERROR source=raw-automation-id-v2-navigation-heading')}
+      }
       if($null -eq $candidateTarget){continue}
       $usableDocuments += ,[pscustomobject]@{
         document=$candidate
@@ -357,7 +417,8 @@ try {
     }
   }
   if($usableDocuments.Count -eq 0){
-    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
+    foreach($diagnosticLine in @($staticTargetDiagnostics)){Write-Host $diagnosticLine}
+    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text; diagnostic_candidates=$($staticTargetDiagnostics.Count)"
   }
   if($usableDocuments.Count -ne 1){
     throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
