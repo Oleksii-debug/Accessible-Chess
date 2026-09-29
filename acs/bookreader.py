@@ -450,6 +450,7 @@ class BookReader:
         if not reader._book_index.entries:
             if current_target is not None or return_points or fallback_digests:
                 raise LookupError("Book reader snapshot targets require readable content")
+            reader._require_indexed_revision()
             return reader
         if current_target is None:
             raise ValueError("Book reader snapshot current_target is required for non-empty content")
@@ -462,4 +463,5 @@ class BookReader:
 
         reader._go_to_target(current_target)
         reader._return_points = return_points
+        reader._require_indexed_revision()
         return reader

@@ -297,6 +297,29 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             reader.location()
 
+    def test_restore_snapshot_rechecks_revision_after_target_navigation(self):
+        book = self.make_book()
+        source = BookReader(book)
+        source.go_to(3)
+        source.save_return_point("analysis")
+        snapshot = source.snapshot()
+        original_go_to_target = BookReader._go_to_target
+
+        def mutate_after_target_navigation(reader, key):
+            location = original_go_to_target(reader, key)
+            book.blocks[0].text = "Concurrent heading"
+            return location
+
+        BookReader._go_to_target = mutate_after_target_navigation
+        try:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "changed after BookReader creation",
+            ):
+                BookReader.restore_snapshot(book, snapshot)
+        finally:
+            BookReader._go_to_target = original_go_to_target
+
     def test_empty_book_is_explicit_not_silent(self):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
