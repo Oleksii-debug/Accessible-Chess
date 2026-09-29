@@ -87,7 +87,7 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')", self.text)
         self.assertIn("static_text_visibility_evidence=$visibilityEvidence", self.text)
         self.assertLess(
-            self.text.index("$null=AssertVisibleTextRange $target"),
+            self.text.index("$visibilityEvidence=AssertVisibleTextRange $target"),
             self.text.index("$target.Select()"),
         )
         self.assertIn("$target.Select()", self.text)
