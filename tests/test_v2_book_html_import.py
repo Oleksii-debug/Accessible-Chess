@@ -204,6 +204,26 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertTrue(result.document.blocks)
         self.assertTrue(any("unclosed" in warning for warning in result.warnings))
 
+    def test_unclosed_suppressed_markup_reports_possible_reading_text_loss(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Visible before.</p><template><p>Suppressed tail.</p><h2>Also suppressed",
+            source_name="unclosed-template.html",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertTrue(any("Visible before." in text for text in paragraphs))
+        self.assertFalse(any("Suppressed tail." in text for text in paragraphs))
+        self.assertTrue(
+            any(
+                "suppressed content unclosed" in warning
+                and "may have been omitted" in warning
+                for warning in result.warnings
+            )
+        )
+
     def test_import_navigation_game_board_return_and_progress_reopen(self) -> None:
         source = _html()
         result = import_html_book(source, source_name="journey.html")

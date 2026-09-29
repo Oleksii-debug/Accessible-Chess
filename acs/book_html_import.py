@@ -536,6 +536,11 @@ class _SemanticHtmlParser(HTMLParser):
 
     def close(self) -> None:
         super().close()
+        if self._suppressed_depth:
+            self._warning(
+                "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"
+            )
+            self._suppressed_depth = 0
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
         while self._lists:
