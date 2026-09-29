@@ -27,20 +27,28 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 2
-      - name: Require intended convergence base
+      - name: Prove exact pull-request merge identity
         shell: bash
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.ref }}'
-          case "$base" in
-            codex/v2-runtime-completion-20260907|fix/p0f-packaged-starter-diagnostic-20260926|work/full-product-teacher-education-reachability-20260911|fix/convergence-full-suite-regressions-20260927|converge/p0-release-critical-to-full-product-20260926|release/w4-v2-current-p0-candidate-20260926)
-              ;;
-            *)
-              echo "unexpected convergence base: $base" >&2
-              exit 1
-              ;;
-          esac
-          git diff --check HEAD^
+          test '${{ github.event_name }}' = 'pull_request'
+          test '${{ github.event.pull_request.base.repo.full_name }}' = '${{ github.repository }}'
+
+          base_sha='${{ github.event.pull_request.base.sha }}'
+          head_sha='${{ github.event.pull_request.head.sha }}'
+          merge_sha='${{ github.sha }}'
+
+          git cat-file -e "$base_sha^{commit}"
+          git cat-file -e "$head_sha^{commit}"
+          test "$(git rev-parse HEAD)" = "$merge_sha"
+
+          read -r actual_merge parent_one parent_two extra < <(git rev-list --parents -n 1 HEAD)
+          test "$actual_merge" = "$merge_sha"
+          test "$parent_one" = "$base_sha"
+          test "$parent_two" = "$head_sha"
+          test -z "${extra:-}"
+
+          git diff --check "$base_sha" "$merge_sha"
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
