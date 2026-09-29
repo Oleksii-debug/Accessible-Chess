@@ -28,6 +28,7 @@ env:
   SHIPPING_RELEASE_BLOB: 6631d8e8a000ed32f60a95f68d9b02cf0422c4df
   EDUCATION_RELEASE_BLOB: 7a772b33f01709eb5f7ab7db447aa0a48594b3de
   P0_RUNTIME_BLOB: 14565e8b97f0dcd995a764127bd1badc17ff7e30
+  P0_RUNTIME_DIRECTION_BLOB: ffd62735480c6b26a01aeeec672c020b9815c40c
   REACHABILITY_TEST_BLOB: 28ccda2a560e34ea5b014de1b36c6ceb344b71f2
 
 jobs:
@@ -90,7 +91,15 @@ jobs:
           test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$SHIPPING_RELEASE_BLOB"
           test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$EDUCATION_RELEASE_BLOB"
-          test "$(git rev-parse HEAD:web/p0_accessibility_runtime.js)" = "$P0_RUNTIME_BLOB"
+          runtime_blob="$(git rev-parse HEAD:web/p0_accessibility_runtime.js)"
+          case "$runtime_blob" in
+            "$P0_RUNTIME_BLOB"|"$P0_RUNTIME_DIRECTION_BLOB")
+              ;;
+            *)
+              printf 'Unexpected P0 runtime blob: %s\n' "$runtime_blob" >&2
+              exit 1
+              ;;
+          esac
           test "$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)" = "$REACHABILITY_TEST_BLOB"
           grep -Fq 'from acs.version2_upgrade_status_release import main' run_accessible_chess_v2.py
           grep -Fq '"AccessibleChessTeacherSurface"' web/p0_accessibility_runtime.js
