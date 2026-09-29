@@ -1,4 +1,4 @@
-name: Book HTML BR Text Integrity
+name: Book HTML Semantic Text Boundary Integrity
 
 on:
   push:
@@ -60,7 +60,7 @@ jobs:
               .github/workflows/book-html-br-text-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py|tests/test_v2_book_epub_import.py)
                 ;;
               *)
-                echo "Unexpected path outside Book HTML BR text-integrity ownership: $path" >&2
+                echo "Unexpected path outside Book HTML semantic text-boundary ownership: $path" >&2
                 exit 1
                 ;;
             esac
