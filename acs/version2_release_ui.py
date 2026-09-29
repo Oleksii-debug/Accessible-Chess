@@ -569,11 +569,16 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         command: str,
         payload: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
-        # Persisted Settings is the only release language owner. The reusable
-        # lower Training bridge keeps its local language command for isolated
-        # composition/testing, but packaged WebView ingress must not split one
-        # live surface from the persisted shell/PGN/Library/Books transaction.
-        if area == "training" and command == "training.language":
+        # Persisted Settings is the only release language owner. Reusable lower
+        # surface bridges keep local language commands for isolated composition
+        # and testing, but packaged WebView ingress must not split any live
+        # surface from the persisted shell/PGN/Library/Books/Training transaction.
+        local_language_commands = {
+            ("library", "library.language"),
+            ("books", "book.language"),
+            ("training", "training.language"),
+        }
+        if (area, command) in local_language_commands:
             return {
                 "kind": "error",
                 "payload": {

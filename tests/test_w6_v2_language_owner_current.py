@@ -312,23 +312,33 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
-    def test_release_browser_ingress_rejects_training_local_language_split(self) -> None:
+    def test_release_browser_ingress_rejects_surface_local_language_splits(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             settings = Settings(root / "settings.json")
             api, application, analysis = self._real_application(root, settings)
             self._materialize_real_surfaces(application, root)
+            # Training's lower bridge additionally requires the active route.
+            # Put it in the permissive lower-layer state so this test proves the
+            # production API fence rather than accidentally passing on route scope.
             application.shell.open_route("training")
             before = application.training_workspace.session.snapshot()
             try:
-                result = api.v2_browser_command(
-                    "training",
-                    "training.language",
-                    {"language": "en"},
+                local_commands = (
+                    ("library", "library.language"),
+                    ("books", "book.language"),
+                    ("training", "training.language"),
                 )
+                for area, command in local_commands:
+                    with self.subTest(area=area, command=command):
+                        result = api.v2_browser_command(
+                            area,
+                            command,
+                            {"language": "en"},
+                        )
+                        self.assertEqual(result["kind"], "error")
+                        self.assertTrue(result["payload"]["message"])
 
-                self.assertEqual(result["kind"], "error")
-                self.assertTrue(result["payload"]["message"])
                 self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
                 self.assertEqual(settings.get("language"), "uk")
                 self.assertEqual(api.lang, "uk")
