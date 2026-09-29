@@ -354,6 +354,19 @@ class TeachingSessionDomainTests(unittest.TestCase):
         with self.assertRaises(TeachingSessionError):
             current_step(timed_plan, restored_with_remaining(state, 6))
 
+        locked_record = state.to_record()
+        locked_record["presentation"]["board_permission"] = BoardPermissionState.LOCKED.value
+        body = dict(locked_record)
+        body.pop("digest")
+        locked_record["digest"] = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        locked_state = TeachingSessionState.from_record(locked_record)
+        locked_snapshot = locked_state.to_json()
+        with self.assertRaises(TeachingSessionError):
+            submit_selection(timed_plan, locked_state, "student-1", "e4", locked_state.revision)
+        self.assertEqual(locked_state.to_json(), locked_snapshot)
+
         untimed = self.plan(self.step("s1", TeachingActivity.TEACHER_EXPLAINS))
         untimed_state = start_session(untimed)
         with self.assertRaises(TeachingSessionError):
