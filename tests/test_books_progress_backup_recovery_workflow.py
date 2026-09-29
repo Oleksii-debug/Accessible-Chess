@@ -29,19 +29,72 @@ class BooksProgressBackupRecoveryWorkflowTests(unittest.TestCase):
         self.assertNotIn("mapfile -t actual < <(git diff --name-only", self.workflow)
 
     def test_recovery_exclusive_authorities_remain_locked_to_product(self) -> None:
-        protected = (
+        marker = "protected_paths=("
+        start = self.workflow.index(marker)
+        end = self.workflow.index("\n          )", start)
+        protected = self.workflow[start:end]
+        for path in (
             ".github/workflows/v2-book-progress-production-repair.yml",
-            ".github/workflows/v2-composition-publication-boundary.yml",
             "acs/book_progress_store.py",
-        )
-        for path in protected:
+        ):
             with self.subTest(path=path):
-                self.assertIn(f"'{path}'", self.workflow)
-
+                self.assertIn(f"'{path}'", protected)
+        self.assertNotIn(
+            "'.github/workflows/v2-composition-publication-boundary.yml'",
+            protected,
+        )
         self.assertIn('product_blob="$(git rev-parse "$product:$path")"', self.workflow)
         self.assertIn('candidate_blob="$(git rev-parse "HEAD:$path")"', self.workflow)
         self.assertIn(
             "Recovery authority drift requires a dedicated successor gate",
+            self.workflow,
+        )
+
+    def test_publication_authority_is_an_exact_atomic_pair(self) -> None:
+        self.assertIn(
+            "publication_path='.github/workflows/v2-composition-publication-boundary.yml'",
+            self.workflow,
+        )
+        self.assertIn(
+            "publication_contract='tests/test_composition_publication_boundary_workflow.py'",
+            self.workflow,
+        )
+        self.assertIn(
+            "successor_publication='653d4c8a252a258f580900b7f6f470f14e2899ed'",
+            self.workflow,
+        )
+        self.assertIn(
+            "successor_contract='cee4f2de715b26bee6d3b5a1b511927ee42207fc'",
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_publication" = "$product_publication"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_contract" = "$product_contract"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_publication" = "$successor_publication"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_contract" = "$successor_contract"',
+            self.workflow,
+        )
+        self.assertIn(
+            "Publication authority pair drift requires an exact reviewed successor",
+            self.workflow,
+        )
+        self.assertIn(
+            "BOOKS_RECOVERY_PUBLICATION_SUCCESSOR=EXACT",
+            self.workflow,
+        )
+
+    def test_publication_contract_is_a_trigger(self) -> None:
+        self.assertIn(
+            "- 'tests/test_composition_publication_boundary_workflow.py'",
             self.workflow,
         )
 
