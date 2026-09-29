@@ -162,10 +162,22 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if training_workspace is not None:
             bridge = getattr(training_workspace, "bridge", None)
             projection = getattr(bridge, "projection", None)
-            if apply(
+            training_applied = apply(
                 getattr(projection, "set_language", None),
                 label="Version 2 Training surface",
+            )
+            if (
+                not training_applied
+                and best_effort
+                and getattr(projection, "language", None) is language
             ):
+                # Training projection publishes its language before rendering the
+                # returned snapshot. A post-mutation render failure therefore
+                # still means the projection accepted the rollback language even
+                # though the call raised. Keep workspace authority aligned with
+                # the observable projection state.
+                training_applied = True
+            if training_applied:
                 training_workspace.language = language
 
         return complete

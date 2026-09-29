@@ -485,6 +485,49 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
+    def test_training_post_mutation_rollback_failure_keeps_workspace_authority_aligned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            projection = application.training_workspace.bridge.projection
+            real_set_language = projection.set_language
+            native_refresh = mock.Mock(side_effect=[False, True])
+            api.bind_version2_language_refresh(native_refresh)
+
+            def fail_after_rollback_mutation(language):
+                result = real_set_language(language)
+                if language is UILanguage.UA:
+                    raise RuntimeError("simulated post-mutation Training rollback render failure")
+                return result
+
+            try:
+                with mock.patch.object(
+                    projection,
+                    "set_language",
+                    side_effect=fail_after_rollback_mutation,
+                ):
+                    result = api.set_language("en")
+
+                self.assertFalse(result["ok"])
+                self.assertEqual(settings.get("language"), "uk")
+                self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                self.assertEqual(application.pgn.projection.language, UILanguage.UA)
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(native_refresh.call_count, 2)
+                self.assertEqual(
+                    application.drain_events(),
+                    ({"kind": "language", "payload": {}},),
+                )
+            finally:
+                self._close_real_application(api, application, analysis)
+
     def test_rollback_failure_on_one_surface_does_not_block_other_surface_restores(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
