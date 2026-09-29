@@ -41,6 +41,7 @@ MAX_EPUB_WARNINGS = 4_096
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
+_INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 class BookEpubImportErrorCode(str, Enum):
@@ -181,6 +182,8 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     index: dict[str, zipfile.ZipInfo] = {}
     seen: set[str] = set()
     canonical_children: dict[tuple[int, str], tuple[int, str]] = {}
+    canonical_directory_nodes: set[int] = set()
+    canonical_file_nodes: set[int] = set()
     next_canonical_node = 1
     total_uncompressed = 0
     for info in infos:
@@ -192,8 +195,14 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
             )
         seen.add(name)
 
+        parts = name.split("/")
         parent_node = 0
-        for raw_part in name.split("/"):
+        for part_index, raw_part in enumerate(parts):
+            if parent_node in canonical_file_nodes:
+                raise _error(
+                    "EPUB package entry path traverses an existing regular file",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
             canonical_part = _canonical_casefold_name(raw_part)
             edge = (parent_node, canonical_part)
             previous = canonical_children.get(edge)
@@ -208,7 +217,31 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                         "EPUB package entry names collide after Unicode canonical case folding",
                         BookEpubImportErrorCode.UNSAFE_PACKAGE,
                     )
+            if part_index < len(parts) - 1:
+                if child_node in canonical_file_nodes:
+                    raise _error(
+                        "EPUB package entry path traverses an existing regular file",
+                        BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                    )
+                canonical_directory_nodes.add(child_node)
             parent_node = child_node
+
+        is_directory = info.is_dir()
+        if is_directory:
+            if parent_node in canonical_file_nodes:
+                raise _error(
+                    "EPUB package path is both a regular file and a directory",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+            canonical_directory_nodes.add(parent_node)
+        else:
+            if parent_node in canonical_directory_nodes:
+                raise _error(
+                    "EPUB package path is both a regular file and a directory",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+            canonical_file_nodes.add(parent_node)
+
         mode = (info.external_attr >> 16) & 0xFFFF
         if mode and stat.S_ISLNK(mode):
             raise _error(
@@ -231,7 +264,7 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 "EPUB expanded content exceeds the supported size",
                 BookEpubImportErrorCode.RESOURCE_LIMIT,
             )
-        if not info.is_dir():
+        if not is_directory:
             index[name] = info
     return index
 
@@ -368,7 +401,18 @@ def _resolve_package_href(
             "EPUB manifest contains an external or parameterized reading href",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
-    decoded = unquote(parts.path)
+    if _INVALID_PERCENT_ESCAPE_RE.search(parts.path):
+        raise _error(
+            "EPUB package href contains malformed percent encoding",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    try:
+        decoded = unquote(parts.path, errors="strict")
+    except UnicodeDecodeError as exc:
+        raise _error(
+            "EPUB package href contains invalid UTF-8 percent encoding",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        ) from exc
     if not decoded or "\x00" in decoded or "\\" in decoded or decoded.startswith("/") or _DRIVE_RE.match(decoded):
         raise _error(
             "EPUB manifest contains an unsafe reading href",
