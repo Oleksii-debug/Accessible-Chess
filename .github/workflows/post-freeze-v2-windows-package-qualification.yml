@@ -138,8 +138,8 @@ jobs:
           fi
           grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'first_mismatch_index=$mismatch' .p0-packaged-document-copy-probe.ps1
-          grep -Fq "expected_code_units='$expectedUnits'" .p0-packaged-document-copy-probe.ps1
-          grep -Fq "actual_code_units='$actualUnits'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "expected_code_units='\$expectedUnits'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "actual_code_units='\$actualUnits'" .p0-packaged-document-copy-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "AUDITED_PACKAGE_PARENT=$AUDITED_PARENT_SHA"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
