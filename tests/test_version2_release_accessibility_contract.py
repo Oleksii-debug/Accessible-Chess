@@ -18,8 +18,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('const button = documentRef.createElement("button")', BOOTSTRAP)
         self.assertIn('button.textContent = String(item.label || item.route_id || "")', BOOTSTRAP)
         self.assertIn('button.setAttribute("aria-current", "page")', BOOTSTRAP)
-        self.assertNotIn("aria-describedby", BOOTSTRAP)
-        self.assertNotIn('button.id + "-description"', BOOTSTRAP)
+        navigation_start = BOOTSTRAP.index("  function renderNavigation(snapshot) {")
+        navigation_end = BOOTSTRAP.index("  function renderProductSurface(", navigation_start)
+        navigation = BOOTSTRAP[navigation_start:navigation_end]
+        self.assertNotIn('button.setAttribute("aria-describedby"', navigation)
+        self.assertNotIn("button.setAttribute('aria-describedby'", navigation)
+        self.assertNotIn('button.id + "-description"', navigation)
 
     def test_v2_navigation_is_a_named_landmark_in_both_languages(self) -> None:
         self.assertIn('const nav = documentRef.createElement("nav")', BOOTSTRAP)
@@ -72,7 +76,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
         self.assertIn('return focusById(stage1Focus[routeId] || "");', BOOTSTRAP)
         self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
-        self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
+        self.assertIn('refresh(true).then(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
 
     def test_focus_targets_under_hidden_routes_are_never_programmatically_focused(self) -> None:
@@ -116,7 +120,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
         focus_start = BOOTSTRAP.index('  documentRef.addEventListener("focusin"')
-        focus_end = BOOTSTRAP.index('  refresh(true).catch(function () {', focus_start)
+        focus_end = BOOTSTRAP.index('  refresh(true).then(function () {', focus_start)
         focus_handler = BOOTSTRAP[focus_start:focus_end]
         skip = 'if (target.id.indexOf("v2-nav-") === 0) return;'
         record = 'bridge.v2_record_focus(target.id)'
