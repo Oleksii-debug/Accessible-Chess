@@ -22,7 +22,7 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
-from .search_policy import search_fold
+from .search_policy import normalize_search_term, search_fold
 
 
 class BookEntryKind(str, Enum):
@@ -199,10 +199,10 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
-        raw_needle = text.strip()
-        if not raw_needle:
+        normalized_needle = normalize_search_term(text, name="Book search text")
+        if normalized_needle is None:
             raise ValueError("Search text must not be empty")
-        needle = search_fold(raw_needle)
+        needle = search_fold(normalized_needle)
         assert needle is not None
         return tuple(
             entry
