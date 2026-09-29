@@ -37,21 +37,27 @@ class GameTreeTests(unittest.TestCase):
         self.assertEqual([m.san for m in reparsed.line.moves], ['e4', 'e5', 'Nf3', 'Nc6'])
         self.assertEqual([m.san for m in reparsed.line.moves[1].variations[0].moves], ['c5', 'Nf3'])
 
-    def test_move_number_prefix_cannot_hide_inside_san_model(self):
-        canonical = parse_games('[Result "*"]\n\n1.e4 1...e5 *')[0]
+    def test_import_move_number_grammar_and_san_boundary(self):
+        source = '[Result "*"]\n\n1 e4 1 .. e5 2....Nf3 2 ... Nc6 *'
+        parsed = parse_games(source)[0]
         self.assertEqual(
-            [move.move_number for move in canonical.line.moves],
-            ["1.", "1..."],
+            [move.move_number for move in parsed.line.moves],
+            ["1", "1..", "2....", "2..."],
         )
-        self.assertEqual([move.san for move in canonical.line.moves], ["e4", "e5"])
+        self.assertEqual(
+            [move.san for move in parsed.line.moves],
+            ["e4", "e5", "Nf3", "Nc6"],
+        )
+        self.assertFalse(parsed.warnings)
 
-        # PGN import grammar is intentionally more permissive than export
-        # grammar. Preserve the existing recovery/import interpretation here:
-        # this repair targets only programmatic SAN that would be re-tokenized
-        # as structural move-number syntax after serialization.
-        import_flexible = parse_games('[Result "*"]\n\n1..e4 *')[0]
-        self.assertEqual(import_flexible.line.moves[0].move_number, "1..")
-        self.assertEqual(import_flexible.line.moves[0].san, "e4")
+        reparsed = parse_games(serialize_games([parsed]))[0]
+        self.assertEqual(reparsed, parsed)
+
+        orphan = parse_games('[Result "*"]\n\n... e4 *')[0]
+        self.assertEqual([move.san for move in orphan.line.moves], ["e4"])
+        self.assertTrue(
+            any("orphan move-number periods" in warning for warning in orphan.warnings)
+        )
 
         game = PgnGame(
             line=VariationLine(
