@@ -198,6 +198,11 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:huge")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.RESOURCE_LIMIT)
 
+    def test_recovery_without_primary_or_backup_remains_a_noop(self) -> None:
+        self.assertFalse(self.store.recover_from_backup())
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.store.backup_path.exists())
+
     def test_missing_primary_can_be_explicitly_recovered_from_validated_backup(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
