@@ -176,19 +176,73 @@ class FakeRange {
 }
 
 class FakeSelection {
-  constructor() { this.range = null; }
+  constructor() {
+    this.range = null;
+    this.anchorNode = null;
+    this.anchorOffset = 0;
+    this.focusNode = null;
+    this.focusOffset = 0;
+  }
   get rangeCount() { return this.range ? 1 : 0; }
   get isCollapsed() { return !this.range || this.range.toString().length === 0; }
   getRangeAt(index) { if (index !== 0 || !this.range) throw new Error("selection range unavailable"); return this.range; }
-  removeAllRanges() { this.range = null; }
-  addRange(range) { this.range = range; }
+  removeAllRanges() {
+    this.range = null;
+    this.anchorNode = null;
+    this.anchorOffset = 0;
+    this.focusNode = null;
+    this.focusOffset = 0;
+  }
+  addRange(range) {
+    this.range = range;
+    this.anchorNode = range.startContainer;
+    this.anchorOffset = range.startOffset;
+    this.focusNode = range.endContainer;
+    this.focusOffset = range.endOffset;
+  }
+  _absolute(node, offset) {
+    const root = nearestSemanticRoot(node);
+    if (!root) return 0;
+    let total = 0;
+    for (const candidate of textNodes(root)) {
+      if (candidate === node) return total + Math.max(0, Math.min(Number(offset) || 0, candidate.data.length));
+      total += candidate.data.length;
+    }
+    return total;
+  }
+  _setDirectionalRange(anchorNode, anchorOffset, focusNode, focusOffset) {
+    const range = new FakeRange();
+    range.root = nearestSemanticRoot(anchorNode) || nearestSemanticRoot(focusNode);
+    if (this._absolute(anchorNode, anchorOffset) <= this._absolute(focusNode, focusOffset)) {
+      range.setStart(anchorNode, anchorOffset);
+      range.setEnd(focusNode, focusOffset);
+    } else {
+      range.setStart(focusNode, focusOffset);
+      range.setEnd(anchorNode, anchorOffset);
+    }
+    this.range = range;
+    this.anchorNode = anchorNode;
+    this.anchorOffset = Number(anchorOffset) || 0;
+    this.focusNode = focusNode;
+    this.focusOffset = Number(focusOffset) || 0;
+  }
+  setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset) {
+    this._setDirectionalRange(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
+  collapse(node, offset) {
+    this._setDirectionalRange(node, offset, node, offset);
+  }
+  extend(node, offset) {
+    if (!this.anchorNode) throw new Error("selection anchor unavailable");
+    this._setDirectionalRange(this.anchorNode, this.anchorOffset, node, offset);
+  }
   toString() { return this.range ? this.range.toString() : ""; }
   collapseForMutation(target) {
     if (!this.range) return;
     const start = this.range.startContainer;
     const end = this.range.endContainer;
     if ((target.contains && (target.contains(start) || target.contains(end))) || target === start || target === end) {
-      this.range = null;
+      this.removeAllRanges();
     }
   }
 }
@@ -298,6 +352,16 @@ function selectSubstring(root, text) {
   selection.addRange(range);
   if (listeners.selectionchange) listeners.selectionchange();
   assert.strictEqual(selection.toString(), text, "test selection setup failed");
+}
+
+function selectSubstringBackward(root, text) {
+  const node = textNodes(root).find(item => item.data.includes(text));
+  assert.ok(node, "selection text not found: " + text);
+  const start = node.data.indexOf(text);
+  selection.setBaseAndExtent(node, start + text.length, node, start);
+  if (listeners.selectionchange) listeners.selectionchange();
+  assert.strictEqual(selection.toString(), text, "backward test selection setup failed");
+  assert.ok(selection.anchorOffset > selection.focusOffset, "backward test selection direction setup failed");
 }
 
 
@@ -422,6 +486,45 @@ function proveStage1AnalysisListRerender() {
     "Stage1 renderAnalysis must preserve surviving semantic analysis text selection through the canonical P0 runtime"
   );
 
+  selectSubstringBackward(list, "e4 e5");
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 19,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 19, scoreText: "+0.40", pvText: "e4 e5" }]
+    }
+  });
+  assert.strictEqual(selection.toString(), "e4 e5", "Stage1 backward selection text must survive rerender");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "Stage1 backward selection must preserve anchor/focus direction through rerender"
+  );
+
+  selectSubstringBackward(list, "e4 e5");
+  const nativeSetBaseAndExtent = selection.setBaseAndExtent;
+  selection.setBaseAndExtent = undefined;
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 20,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 20, scoreText: "+0.45", pvText: "e4 e5" }]
+    }
+  });
+  assert.strictEqual(selection.toString(), "e4 e5", "Stage1 backward fallback selection text must survive rerender");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "Stage1 collapse/extend fallback must preserve backward anchor/focus direction"
+  );
+  selection.setBaseAndExtent = nativeSetBaseAndExtent;
+
   selectSubstring(list, "e4 e5");
   renderAnalysis({
     analysis: {
@@ -440,6 +543,8 @@ function proveStage1AnalysisListRerender() {
     "Stage1 renderAnalysis must not fabricate a selection after the selected analysis text disappears"
   );
   console.log("P0_STAGE1_ANALYSIS_RERENDER_SELECTION_SURVIVES=PASS");
+  console.log("P0_STAGE1_ANALYSIS_BACKWARD_DIRECTION_SURVIVES=PASS");
+  console.log("P0_STAGE1_ANALYSIS_BACKWARD_FALLBACK_SURVIVES=PASS");
   console.log("P0_STAGE1_ANALYSIS_DISAPPEARING_SELECTION_NOT_RESTORED=PASS");
 }
 
