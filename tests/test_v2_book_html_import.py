@@ -158,6 +158,23 @@ class BookHtmlImportTests(unittest.TestCase):
                 )
                 self.assertNotIn("not-a-position", str(caught.exception))
 
+    def test_duplicate_marker_inside_suppressed_content_does_not_narrow_html_recovery(self) -> None:
+        result = import_html_book(
+            '''<html><body>
+<template><div data-acs-fen="not-a-position" data-acs-fen="also-not-a-position"></div></template>
+<p class="first" class="second">Readable malformed prose remains available.</p>
+</body></html>''',
+            source_name="suppressed-duplicate-position.html",
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and "Readable malformed prose remains available." in block.text
+                for block in result.document.blocks
+            )
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in result.document.blocks))
+
     def test_missing_referenced_asset_is_reported_without_fake_diagram(self) -> None:
         result = import_html_book(
             _html(),

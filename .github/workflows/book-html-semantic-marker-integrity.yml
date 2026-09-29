@@ -53,11 +53,24 @@ jobs:
           git merge-base --is-ancestor "$upstream" HEAD
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/book-html-semantic-marker-integrity.yml' \
-            'acs/book_html_import.py' \
-            'tests/test_v2_book_html_import.py' | sort)"
-          test "$changed" = "$expected"
+          test -n "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/book-html-semantic-marker-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py)
+                ;;
+              *)
+                echo "Unexpected path outside Book HTML semantic-marker ownership: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            expected="$(printf '%s\\n' \\
+              '.github/workflows/book-html-semantic-marker-integrity.yml' \\
+              'acs/book_html_import.py' \\
+              'tests/test_v2_book_html_import.py' | sort)"
+            test "$changed" = "$expected"
+          fi
           git diff --quiet "$upstream" HEAD -- \
             acs/bookdocument.py \
             acs/bookreader.py \
