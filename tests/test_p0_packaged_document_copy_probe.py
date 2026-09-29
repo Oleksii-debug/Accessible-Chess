@@ -84,17 +84,34 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("foreach($candidate in $documents)", self.text)
         self.assertIn("$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)", self.text)
         self.assertIn("$candidatePattern.SupportedTextSelection", self.text)
+        self.assertIn("$candidateElements=ControlElements @($candidate)", self.text)
         self.assertIn("foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів'))", self.text)
-        self.assertIn("$probeRange=$candidateRange.FindText($phrase,$false,$false)", self.text)
+        self.assertIn("$name -ceq $phrase", self.text)
+        self.assertIn("$type -eq 'ControlType.Header'", self.text)
+        self.assertIn("$type -eq 'ControlType.Text'", self.text)
+        self.assertIn("-not [bool]$_.Current.IsOffscreen", self.text)
+        self.assertIn("[double]$bounds.Width -gt 0", self.text)
+        self.assertIn("[double]$bounds.Height -gt 0", self.text)
+        self.assertIn("if($namedTargets.Count -ne 1){continue}", self.text)
+        self.assertIn("$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])", self.text)
         self.assertIn("$probeText=[string]$probeRange.GetText(-1)", self.text)
         self.assertIn("if($probeText -cne $phrase){continue}", self.text)
         self.assertIn('if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}', self.text)
         self.assertIn("target_phrase=$candidatePhrase", self.text)
+        self.assertIn("target_control_type=$candidateTargetType", self.text)
         self.assertIn("none exposes selectable stable static text", self.text)
         self.assertIn("if($usableDocuments.Count -ne 1)", self.text)
         self.assertIn("Ambiguous selectable Accessible Chess Documents", self.text)
         self.assertIn("expected exactly one stable packaged document provider", self.text)
-        self.assertIn("document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'", self.text)
+        self.assertIn(
+            "document_provider_cardinality='exactly one selectable Accessible Chess document containing one exact visible static UIA child target'",
+            self.text,
+        )
+        self.assertIn(
+            "static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'",
+            self.text,
+        )
+        self.assertNotIn(".FindText(", self.text)
         self.assertNotIn("$document=$documents[0]", self.text)
         self.assertNotIn("$document=$candidate", self.text)
 
