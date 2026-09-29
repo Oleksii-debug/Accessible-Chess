@@ -56,6 +56,7 @@
   profileName.id = "v2-profile-name";
   profileName.maxLength = 80;
   profileName.autocomplete = "off";
+  profileName.setAttribute("aria-describedby", "v2-profile-description v2-profile-status");
   profileLabel.htmlFor = profileName.id;
   const profileActions = documentRef.createElement("div");
   profileActions.className = "row";
@@ -155,7 +156,7 @@
   profileDialog.addEventListener("cancel", function (event) {
     if (!profileState || !profileState.exists) event.preventDefault();
   });
-  profileSave.addEventListener("click", function () {
+  function saveProfileName() {
     const bridge = api();
     if (!bridge) return;
     const call = profileState && profileState.exists
@@ -167,6 +168,12 @@
       announce(uiText("Не вдалося оновити профіль.", "Could not update the profile."));
       profileName.focus();
     });
+  }
+  profileSave.addEventListener("click", saveProfileName);
+  profileName.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    saveProfileName();
   });
   profileSkip.addEventListener("click", function () {
     const bridge = api();
