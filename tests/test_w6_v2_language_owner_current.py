@@ -178,8 +178,15 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                     "EngineAssistedWorkflowService",
                     return_value=mock.MagicMock(),
                 ),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
-                mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(
+                    release_app,
+                    "create_local_sound_composition",
+                    return_value=SimpleNamespace(
+                        game_runtime=mock.MagicMock(),
+                        profiled_runtime=mock.MagicMock(),
+                        settings=mock.MagicMock(),
+                    ),
+                ),
                 mock.patch.object(
                     release_app,
                     "Version2ReleaseAccessibleChessAPI",

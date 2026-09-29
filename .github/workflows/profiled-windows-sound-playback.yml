@@ -54,4 +54,3 @@ jobs:
           tests.test_sound_profile_windows
           tests.test_sound_profile_runtime
           tests.test_sound_pack_store
-          tests.test_sound_windows
