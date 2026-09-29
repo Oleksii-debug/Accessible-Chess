@@ -24,6 +24,7 @@ MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
 MOVE_NUMBER_TOKEN_RE = re.compile(r"^\d+\.*$")
 MOVE_NUMBER_ATTACHED_RE = re.compile(r"^(\d+\.+)(.+)$")
 MOVE_NUMBER_PERIODS_RE = re.compile(r"^\.+$")
+MOVE_NUMBER_PERIODS_ATTACHED_RE = re.compile(r"^(\.+)(.+)$")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 NAG_RE = re.compile(r"^\$\d+$")
 NAG_SYMBOLS = frozenset({"!", "?", "!!", "??", "!?", "?!"})
@@ -252,6 +253,11 @@ def tokenize_movetext(text: str) -> list[_Token]:
         if attached_number is not None:
             out.append(_Token("MOVE_NUMBER", attached_number.group(1)))
             value = attached_number.group(2)
+        else:
+            attached_periods = MOVE_NUMBER_PERIODS_ATTACHED_RE.fullmatch(value)
+            if attached_periods is not None:
+                out.append(_Token("MOVE_NUMBER_PERIODS", attached_periods.group(1)))
+                value = attached_periods.group(2)
 
         if value in RESULTS:
             kind = "RESULT"
@@ -649,6 +655,8 @@ def _validate_san(san: object) -> None:
         or san in RESULTS
         or MOVE_NUMBER_TOKEN_RE.fullmatch(san)
         or MOVE_NUMBER_ATTACHED_RE.fullmatch(san)
+        or MOVE_NUMBER_PERIODS_RE.fullmatch(san)
+        or MOVE_NUMBER_PERIODS_ATTACHED_RE.fullmatch(san)
         or NAG_RE.fullmatch(san)
         or san in NAG_SYMBOLS
     ):
