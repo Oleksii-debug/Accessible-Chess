@@ -37,6 +37,18 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('openIfMissing && (!result.exists || result.recoveryRequired === true)', source)
         self.assertIn('Профіль відкрито з резервної копії.', source)
 
+    def test_profile_mutations_are_serialized_and_expose_busy_state(self) -> None:
+        source = self.source
+        self.assertIn("let profileMutationPending = false;", source)
+        self.assertIn('profileDialog.setAttribute("aria-busy", profileMutationPending ? "true" : "false")', source)
+        self.assertEqual(source.count("if (!beginProfileMutation()) return;"), 3)
+        self.assertIn("if (profileMutationPending || !profileState || !profileState.exists)", source)
+        self.assertIn("profileSave.disabled = profileMutationPending;", source)
+        self.assertIn("profileSkip.disabled = profileMutationPending;", source)
+        self.assertIn("profileRepair.disabled = profileMutationPending;", source)
+        self.assertIn("profileClose.disabled = profileMutationPending;", source)
+        self.assertIn("profileName.disabled = profileMutationPending;", source)
+
     def test_ambient_refresh_preserves_unsaved_profile_name(self) -> None:
         source = self.source
         self.assertIn("function renderProfileState(state, preserveDraft)", source)
