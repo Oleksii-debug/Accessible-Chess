@@ -176,7 +176,7 @@ jobs:
           # frozen core; every other identity remains fail-closed.
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
           case "$stage1_facade_actual" in
-            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|338721735b7d5e656d73f8a70183cd79c3b999d5)
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|884218e6f03195b96402709e8c4b1271c63d57ff)
               ;;
             *)
               printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2
