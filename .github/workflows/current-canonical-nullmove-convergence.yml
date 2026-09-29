@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/chesscore.py'
       - 'acs/chessbase_decoder.py'
+      - 'acs/webapp_keymap.py'
       - 'tests/test_current_canonical_nullmove_convergence.py'
       - '.github/workflows/current-canonical-nullmove-convergence.yml'
   push:
@@ -59,6 +60,7 @@ jobs:
             '.github/workflows/current-canonical-nullmove-convergence.yml' \
             'acs/chessbase_decoder.py' \
             'acs/chesscore.py' \
+            'acs/webapp_keymap.py' \
             'tests/test_current_canonical_nullmove_convergence.py' | LC_ALL=C sort)"
           test "$actual" = "$wanted"
 
@@ -77,6 +79,7 @@ jobs:
           python -m py_compile
           acs/chesscore.py
           acs/chessbase_decoder.py
+          acs/webapp_keymap.py
           tests/test_current_canonical_nullmove_convergence.py
 
       - name: Run canonical null-move and adjacent format regressions

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 
@@ -9,9 +11,32 @@ from acs.chessbase_decoder import _decode_game, _decode_move
 from acs.chesscore import Board
 from acs.gametree import parse_games, serialize_game
 from acs.gametree_legality import GameTreeLegalityCode, validate_game_legality
+from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
 class CurrentCanonicalNullMoveConvergenceTests(unittest.TestCase):
+    def test_move_entry_rejects_null_move_without_mutating_gameplay_state(self) -> None:
+        for language, expected in (
+            ("uk", "Нульовий хід не можна грати вручну."),
+            ("en", "A null move cannot be played manually."),
+        ):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as temp:
+                api = KeymapAwareAccessibleChessAPI(
+                    lang=language,
+                    keymap_path=Path(temp) / "keymap.json",
+                )
+                before_fen = api.board.fen()
+                before_sans = tuple(api.sans)
+                before_history = api.review_history.node_count
+
+                result = api.make_move("--")
+
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["announcement"], expected)
+                self.assertEqual(api.board.fen(), before_fen)
+                self.assertEqual(tuple(api.sans), before_sans)
+                self.assertEqual(api.review_history.node_count, before_history)
+
     def test_canonical_null_move_transition_and_history(self) -> None:
         board = Board()
         before = board.fen()
