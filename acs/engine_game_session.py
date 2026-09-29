@@ -392,6 +392,14 @@ class EngineGameSessionCoordinator:
         *,
         timeout_opponent_can_mate: bool | None = None,
     ) -> EngineMoveResult:
+        """Request one engine move without transferring canonical Board ownership.
+
+        When an exact pre-commit timeout fact is supplied and the mover flags
+        during the post-commit clock switch, the lifecycle is finalized and an
+        exception is raised. The Board-owning integration must then roll back
+        the just-committed callback mutation instead of treating the move as
+        accepted.
+        """
         if (
             timeout_opponent_can_mate is not None
             and type(timeout_opponent_can_mate) is not bool
@@ -433,6 +441,7 @@ class EngineGameSessionCoordinator:
                 switched.flagged,
                 opponent_can_mate=timeout_opponent_can_mate,
             )
+            raise ValueError("clock flagged before engine move acceptance")
         return result
 
     def on_human_move_committed(
