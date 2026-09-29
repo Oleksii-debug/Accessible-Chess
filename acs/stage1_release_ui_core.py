@@ -639,10 +639,86 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             )
         return None
 
-    def _after_human_engine_move(self, moved_side: str, human_san: str) -> dict[str, Any]:
+    def _rollback_expired_human_move(self, history_before: Any) -> bool:
+        """Undo only a move that lost the clock race before clock switching.
+
+        The Board remains the sole live chess-state owner. ReviewHistory is
+        restored from its own immutable pre-commit snapshot so the rejected
+        move cannot survive as a review variation or redo candidate.
+        """
+        try:
+            restored_history = self.review_history.from_tree(history_before)
+        except Exception:
+            return False
+        if not self.sans or not self.move_sides:
+            return False
+        try:
+            undone = self.board.undo()
+        except Exception:
+            return False
+        if undone is None:
+            return False
+        self.sans.pop()
+        self.move_sides.pop()
+        self.redo_meta.clear()
+        self.board.redo_stack.clear()
+        self.review_history = restored_history
+        self.review_adapter = self.review_adapter.__class__(
+            restored_history,
+            language=self.lang,
+        )
+        self.live_history_node = history_before.cursor_node_id
+        self.selected_source = None
+        return True
+
+    def _after_human_engine_move(
+        self,
+        moved_side: str,
+        human_san: str,
+        *,
+        history_before: Any,
+    ) -> dict[str, Any]:
         session = self._engine_session
         if session is None:
             return self._ok(human_san)
+
+        # Re-sync the clock after the Board commit but before accepting the
+        # move in the engine-game coordinator. This closes the guard/commit
+        # race where the mover can flag between preflight and clock switching.
+        try:
+            pre_switch = session.snapshot()
+        except Exception:
+            warning = self._pause_engine_after_failure()
+            return self._ok(
+                (f"Зіграно: {human_san}. {warning}" if self.lang == "uk"
+                 else f"Played: {human_san}. {warning}")
+            )
+        outcome = pre_switch.lifecycle.outcome
+        if (
+            pre_switch.lifecycle.status is GameStatus.FINISHED
+            and outcome is not None
+            and outcome.reason is EndReason.TIMEOUT
+        ):
+            if not self._rollback_expired_human_move(history_before):
+                self._engine_game_phase = "error"
+                self._engine_game_error = (
+                    "Не вдалося безпечно відкотити хід після завершення часу."
+                    if self.lang == "uk"
+                    else "The move could not be safely rolled back after time expired."
+                )
+                return self._concise_error(
+                    "Не вдалося безпечно відкотити хід після завершення часу.",
+                    "The move could not be safely rolled back after time expired.",
+                )
+            self._engine_game_phase = "finished"
+            self._engine_game_error = None
+            self._record_engine_clock(pre_switch)
+            self._play_game_end_sound()
+            message = self._outcome_text(pre_switch)
+            return self._concise_error(message, message)
+
+        if self._game_sounds is not None:
+            self._play_latest_move()
         try:
             after_move = session.on_human_move_committed(moved_side)
             self._record_engine_clock(after_move)
@@ -926,21 +1002,24 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             return guard
         before = len(self.sans)
         moved_side = self.board.turn
+        history_before = self.review_history.export_tree()
         result = super().make_move(text)
         after = len(self.sans)
-        if self._game_sounds is not None:
-            if result.get("ok") and after > before:
-                self._play_latest_move()
-            elif not result.get("ok"):
-                self._game_sounds.illegal()
-        if (
+        engine_commit = (
             self._engine_game_phase == "active"
             and result.get("ok")
             and after == before + 1
-        ):
+        )
+        if self._game_sounds is not None:
+            if result.get("ok") and after > before and not engine_commit:
+                self._play_latest_move()
+            elif not result.get("ok"):
+                self._game_sounds.illegal()
+        if engine_commit:
             return self._after_human_engine_move(
                 moved_side,
                 _shared_spoken_san(self.sans[-1], self.lang),
+                history_before=history_before,
             )
         return result
 
@@ -993,6 +1072,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             return guard
         before = len(self.sans)
         moved_side = self.board.turn
+        history_before = self.review_history.export_tree()
         try:
             parse_sq(square)
         except Exception:
@@ -1023,19 +1103,21 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                         "Board action failed.",
                     )
         after = len(self.sans)
-        if self._game_sounds is not None:
-            if result.get("ok") and after > before:
-                self._play_latest_move()
-            elif not result.get("ok"):
-                self._game_sounds.illegal()
-        if (
+        engine_commit = (
             self._engine_game_phase == "active"
             and result.get("ok")
             and after == before + 1
-        ):
+        )
+        if self._game_sounds is not None:
+            if result.get("ok") and after > before and not engine_commit:
+                self._play_latest_move()
+            elif not result.get("ok"):
+                self._game_sounds.illegal()
+        if engine_commit:
             return self._after_human_engine_move(
                 moved_side,
                 _shared_spoken_san(self.sans[-1], self.lang),
+                history_before=history_before,
             )
         return result
 
