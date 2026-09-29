@@ -361,6 +361,14 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if tag in _BLOCK_BOUNDARY_TAGS:
             self._append_visible("\n")
+            # HTMLParser does not include markup in active capture text.  A <br>
+            # is nevertheless a semantic word/line boundary inside headings,
+            # paragraphs, list items, table rows and preformatted regions.  Keep
+            # that boundary in the capture so readable/selectable text cannot
+            # concatenate adjacent source words (for example, "White<br>to move").
+            if tag == "br":
+                for capture in self._captures:
+                    capture.parts.append("\n")
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
             if lang:
