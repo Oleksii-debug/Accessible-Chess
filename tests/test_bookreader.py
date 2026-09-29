@@ -61,6 +61,159 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             reader.go_to(99)
 
+    def test_navigation_fails_closed_after_document_revision_changes(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        book.blocks[2].text = "Changed chapter"
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.next_heading()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.navigation_availability()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.go_to(0)
+        self.assertEqual(reader.index, 3)
+
+    def test_go_to_rolls_back_cursor_if_revision_changes_between_checks(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        before_index = reader.index
+        original_check = reader._require_indexed_revision
+        checks = 0
+
+        def mutate_after_initial_check():
+            nonlocal checks
+            checks += 1
+            original_check()
+            if checks == 1:
+                book.blocks[2].text = "Concurrent chapter"
+
+        reader._require_indexed_revision = mutate_after_initial_check
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.go_to(6)
+
+        self.assertEqual(reader.index, before_index)
+
+    def test_save_return_point_rolls_back_new_name_on_revision_drift(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        original_text = book.blocks[2].text
+        original_check = reader._require_indexed_revision
+        checks = 0
+
+        def mutate_after_target_validation():
+            nonlocal checks
+            checks += 1
+            original_check()
+            if checks == 3:
+                book.blocks[2].text = "Concurrent chapter"
+
+        reader._require_indexed_revision = mutate_after_target_validation
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.save_return_point("race")
+
+        book.blocks[2].text = original_text
+        with self.assertRaisesRegex(LookupError, "Unknown return point"):
+            reader.restore_return_point("race")
+        self.assertEqual(reader.index, 3)
+
+    def test_save_return_point_restores_previous_target_on_revision_drift(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        reader.save_return_point("analysis")
+        reader.go_to(6)
+        original_text = book.blocks[2].text
+        original_check = reader._require_indexed_revision
+        checks = 0
+
+        def mutate_after_target_validation():
+            nonlocal checks
+            checks += 1
+            original_check()
+            if checks == 3:
+                book.blocks[2].text = "Concurrent chapter"
+
+        reader._require_indexed_revision = mutate_after_target_validation
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.save_return_point("analysis")
+
+        book.blocks[2].text = original_text
+        restored = reader.restore_return_point("analysis")
+        self.assertEqual(restored.index, 3)
+        self.assertEqual(restored.block_id, "diagram")
+
+    def test_location_stays_on_one_indexed_revision_if_live_document_changes_after_validation(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        original_check = reader._require_indexed_revision
+        mutated = False
+
+        def mutate_after_check():
+            nonlocal mutated
+            original_check()
+            if not mutated:
+                book.blocks[2].text = "Concurrent chapter"
+                mutated = True
+
+        reader._require_indexed_revision = mutate_after_check
+        location = reader.location()
+        self.assertEqual(location.block_id, "diagram")
+        self.assertEqual(location.heading_path, ("Part I", "Chapter"))
+        self.assertEqual(location.position_fen, WHITE_FEN)
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+
+    def test_block_snapshot_is_detached_and_fails_closed_after_live_revision_changes(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        block = reader.block_snapshot(1)
+        self.assertEqual(block.text, "Intro")
+        block.text = "Caller mutation"
+        self.assertEqual(reader.block_snapshot(1).text, "Intro")
+
+        book.blocks[1].text = "Live mutation"
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.block_snapshot(1)
+
+    def test_navigation_fails_closed_if_live_document_becomes_invalid(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        before_index = reader.index
+
+        book.blocks[2].text = ""
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertEqual(reader.index, before_index)
+
+    def test_navigation_fails_closed_if_live_blocks_contain_invalid_object(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        before_index = reader.index
+
+        book.blocks.append(object())
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.navigation_availability()
+        self.assertEqual(reader.index, before_index)
+
+    def test_navigation_fails_closed_if_document_becomes_empty(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        book.blocks.clear()
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+
     def test_empty_book_is_explicit_not_silent(self):
         reader = BookReader(BookDocument("Empty"))
         with self.assertRaisesRegex(LookupError, "no readable blocks"):
