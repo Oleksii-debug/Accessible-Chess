@@ -182,14 +182,17 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
         saved = delegate("pgn.save_as", {})
         self.assertEqual(saved.kind, FileWorkflowEventKind.PGN_SAVED_AS)
 
-        dialogs.open_path = destination
-        reopened_event = delegate("pgn.open", {})
+        reopen_dialogs = _FileDialogs()
+        reopen_dialogs.open_path = destination
+        reopen_delegate, reopen_events, reopen_session_box = self._file_delegate(reopen_dialogs)
+        reopened_event = reopen_delegate("pgn.open", {})
         self.assertEqual(reopened_event.kind, FileWorkflowEventKind.PGN_OPENED)
-        reopened = session_box["value"]
+        reopened = reopen_session_box["value"]
+        self.assertIsInstance(reopened, PgnDocumentSession)
         self.assertEqual(reopened.workspace.current_game().tags["Event"], "Київ — збережено")
         self.assertEqual(open_pgn(destination).games, reopened.workspace.games())
 
-        rendered = repr(events)
+        rendered = repr((*events, *reopen_events))
         self.assertNotIn(str(self.root), rendered)
         self.assertNotIn(source.name, rendered)
         self.assertNotIn(destination.name, rendered)
@@ -313,7 +316,11 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
                     board_dispatch=lambda *_: None,
                     board_position_projector=lambda _fen: {"ok": True},
                 )
-                app.open_book(source)
+                app.open_book_dialog = lambda source=source: source
+                opened = app.browser_command("shell", "book.open")
+                self.assertEqual(opened["kind"], "delegated")
+                self.assertNotIn(str(self.root), json.dumps(opened, ensure_ascii=False))
+                self.assertNotIn(source.name, json.dumps(opened, ensure_ascii=False))
                 moved = app.reader.next_block()
                 app.save_book_progress()
                 saved_key = app.book_key
@@ -325,7 +332,11 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
                     board_dispatch=lambda *_: None,
                     board_position_projector=lambda _fen: {"ok": True},
                 )
-                restarted.open_book(source)
+                restarted.open_book_dialog = lambda source=source: source
+                reopened = restarted.browser_command("shell", "book.open")
+                self.assertEqual(reopened["kind"], "delegated")
+                self.assertNotIn(str(self.root), json.dumps(reopened, ensure_ascii=False))
+                self.assertNotIn(source.name, json.dumps(reopened, ensure_ascii=False))
                 self.assertEqual(restarted.book_key, saved_key)
                 self.assertEqual(restarted.reader.location(), moved)
 
