@@ -339,15 +339,34 @@ class TeachingSessionDomainTests(unittest.TestCase):
         with self.assertRaises(TeachingSessionError):
             TeachingSessionState.from_record(unlocked_record)
 
+        def restored_with_remaining(source_state: TeachingSessionState, remaining: int | None) -> TeachingSessionState:
+            record = source_state.to_record()
+            record["remaining_seconds"] = remaining
+            body = dict(record)
+            body.pop("digest")
+            record["digest"] = hashlib.sha256(
+                json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return TeachingSessionState.from_record(record)
+
+        with self.assertRaises(TeachingSessionError):
+            current_step(timed_plan, restored_with_remaining(state, None))
+        with self.assertRaises(TeachingSessionError):
+            current_step(timed_plan, restored_with_remaining(state, 6))
+
+        untimed = self.plan(self.step("s1", TeachingActivity.TEACHER_EXPLAINS))
+        untimed_state = start_session(untimed)
+        with self.assertRaises(TeachingSessionError):
+            current_step(untimed, restored_with_remaining(untimed_state, 1))
+
         with self.assertRaises(TeachingSessionError):
             tick_timer(timed_plan, expired, 1, expired.revision)
         with self.assertRaises(TeachingSessionError):
             submit_selection(timed_plan, expired, "student-1", "e4", expired.revision)
         self.assertEqual(expired.to_json(), expired_snapshot)
 
-        untimed = self.plan(self.step("s1", TeachingActivity.TEACHER_EXPLAINS))
         with self.assertRaises(TeachingSessionError):
-            tick_timer(untimed, start_session(untimed), 1, 0)
+            tick_timer(untimed, untimed_state, 1, 0)
 
     def test_expired_move_step_stays_locked_across_pause_resume_until_advance(self) -> None:
         plan = self.plan(
