@@ -186,11 +186,14 @@ jobs:
           $sourceConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $config).Hash
           $distConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $distConfig).Hash
           if($sourceConfigHash -ne $distConfigHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
+          $canonicalConfigHash=$sourceConfigHash.ToLowerInvariant()
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "WINFORMS_CONFIG_SHA256=$canonicalConfigHash"
           $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'})
           if($leaks.Count -ne 0){throw 'RAW_PYTHON_SOURCE_OR_BYTECODE_LEAK'}
           $reports=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Name -match '(?i)(nuitka.*report|compilation[-_ ]?report)'})
           if($reports.Count -ne 0){throw 'COMPILATION_REPORT_LEAK'}
           Write-Host "STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host "PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=$canonicalConfigHash"
           Write-Host "STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$($distConfigHash.ToLowerInvariant())"
           Write-Host 'STANDALONE_BUILD=PASS'
 
@@ -329,6 +332,11 @@ jobs:
           print('FRESH_EXTRACTION_PREFLIGHT=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
+          if($env:WINFORMS_CONFIG_SHA256 -notmatch '^[0-9a-f]{64}$'){throw 'WINFORMS_ACCESSIBILITY_CONFIG_AUTHORITY_HASH_INVALID'}
+          $freshConfig=(Resolve-Path 'fresh-extraction\AccessibleChess\AccessibleChess.exe.config').Path
+          $freshConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $freshConfig).Hash.ToLowerInvariant()
+          if($freshConfigHash -ne $env:WINFORMS_CONFIG_SHA256){throw 'FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
+          Write-Host "FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$freshConfigHash"
 
       - name: Fresh-extracted packaged diagnostic and Stockfish smoke
         shell: pwsh
@@ -461,16 +469,21 @@ jobs:
           from pathlib import Path
 
           hex40 = re.compile(r"^[0-9a-f]{40}$")
+          hex64 = re.compile(r"^[0-9a-f]{64}$")
           product_sha = os.environ["PRODUCT_SHA"].strip().lower()
           workflow_sha = os.environ["WORKFLOW_AUTHORITY_SHA"].strip().lower()
+          config_sha = os.environ["WINFORMS_CONFIG_SHA256"].strip().lower()
           if not hex40.fullmatch(product_sha):
               raise SystemExit("RUN_METADATA_PRODUCT_SHA_INVALID")
           if not hex40.fullmatch(workflow_sha):
               raise SystemExit("RUN_METADATA_WORKFLOW_SHA_INVALID")
+          if not hex64.fullmatch(config_sha):
+              raise SystemExit("RUN_METADATA_WINFORMS_CONFIG_SHA_INVALID")
           payload = {
               "schema_version": 1,
               "product_sha": product_sha,
               "workflow_sha": workflow_sha,
+              "winforms_accessibility_config_sha256": config_sha,
               "pre_upload_product_freshness": True,
               "pre_upload_workflow_freshness": True,
               "human_tested": False,
@@ -486,6 +499,7 @@ jobs:
           temporary.replace(path)
           print(f"W4_RUN_METADATA_PRODUCT_SHA={product_sha}")
           print(f"W4_RUN_METADATA_WORKFLOW_SHA={workflow_sha}")
+          print(f"W4_RUN_METADATA_WINFORMS_CONFIG_SHA256={config_sha}")
           print("W4_RUN_METADATA=PASS")
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Run-bound candidate metadata publication failed'}
