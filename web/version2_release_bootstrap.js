@@ -125,7 +125,14 @@
 
   function showProfileDialog() {
     if (!profileDialog.open) profileDialog.showModal();
-    global.setTimeout(function () { profileName.focus(); profileName.select(); }, 0);
+    global.setTimeout(function () {
+      if (profileState && profileState.recoveryRequired) {
+        profileRepair.focus();
+        return;
+      }
+      profileName.focus();
+      profileName.select();
+    }, 0);
   }
 
   function applyProfileResult(result, closeOnSuccess) {
