@@ -122,6 +122,24 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             self.assertTrue(skipped["ok"])
             self.assertTrue(skipped["generatedAlias"])
 
+    def test_blank_rename_reports_validation_without_changing_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LocalProfileStore(root / "profile.json")
+            original = store.create("Oleksii")
+            api = Version2ProfileAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                profile_store=store,
+            )
+
+            rejected = api.profile_rename("   ")
+
+            self.assertFalse(rejected["ok"])
+            self.assertTrue(rejected["exists"])
+            self.assertEqual(rejected["announcement"], "Введіть ім’я профілю.")
+            durable = store.load()
+            self.assertEqual(durable, original)
+
 
 if __name__ == "__main__":
     unittest.main()
