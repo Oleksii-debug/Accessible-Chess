@@ -6,7 +6,11 @@ from pathlib import Path
 
 from acs.chesscore import Board, sq_name
 from acs.clock_service import ClockSnapshot, ClockState
-from acs.engine_play_service import EnginePlayService
+from acs.engine_play_service import (
+    EngineGameHandoff,
+    EngineGameIntent,
+    EnginePlayService,
+)
 from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
 
 
@@ -196,6 +200,10 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIsNotNone(session)
         clock = session._clock
         self.assertIsNotNone(clock)
+        pending = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="w")
+        )
+        self.assertEqual(pending.lifecycle.draw_offered_by, "w")
         before_tree = api.review_history.export_tree()
 
         def fail_switch(_side):
@@ -218,12 +226,14 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(failed["engineGame"]["phase"], "error")
         self.assertTrue(failed["engineGame"]["canStop"])
         self.assertTrue(failed["engineGame"]["canRetry"])
+        self.assertEqual(session.snapshot().lifecycle.draw_offered_by, "w")
 
         retried = api.retry_engine_move()
         self.assertTrue(retried["ok"], retried)
         self.assertEqual(retried["engineGame"]["phase"], "active")
         self.assertEqual(retried["engineGame"]["turn"], "human")
         self.assertEqual(engine.calls, [])
+        self.assertEqual(session.snapshot().lifecycle.draw_offered_by, "w")
 
     def test_engine_move_expiring_during_clock_switch_is_rolled_back(self) -> None:
         sounds = _RecordingGameSounds()
