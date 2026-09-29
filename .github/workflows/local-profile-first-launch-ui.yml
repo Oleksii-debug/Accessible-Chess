@@ -1,0 +1,35 @@
+name: Local Profile First Launch UI
+
+on:
+  pull_request:
+    paths:
+      - "acs/local_profile.py"
+      - "acs/version2_local_profile_api.py"
+      - "acs/version2_release_app.py"
+      - "web/version2_release_bootstrap.js"
+      - "tests/test_local_profile.py"
+      - "tests/test_version2_local_profile_api.py"
+      - "tests/test_version2_local_profile_ui_contract.py"
+      - ".github/workflows/local-profile-first-launch-ui.yml"
+  workflow_dispatch:
+
+jobs:
+  profile-ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile profile and release composition
+        run: python -m py_compile acs/local_profile.py acs/version2_local_profile_api.py acs/version2_release_app.py
+      - name: Focused persistence and UI bridge regressions
+        run: python -m unittest -v tests.test_local_profile tests.test_version2_local_profile_api tests.test_version2_local_profile_ui_contract tests.test_version2_release_ui tests.test_version2_release_app
+      - name: Full unittest suite
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Full pytest suite
+        run: python -m pytest -q
