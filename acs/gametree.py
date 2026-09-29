@@ -356,6 +356,8 @@ def _parse_line(
             pos += 1
             continue
         if tok.kind == "MOVE_NUMBER":
+            if pending_number is not None:
+                warnings.append(f"orphan move number {pending_number}")
             pending_number = tok.value
             pos += 1
             continue
@@ -410,6 +412,8 @@ def _parse_line(
         warnings.append(f"unknown token {tok.kind}:{tok.value}")
         pos += 1
 
+    if pending_number is not None:
+        warnings.append(f"orphan move number {pending_number}")
     if pending_comments:
         if line.moves:
             line.trailing_comments.extend(pending_comments)
