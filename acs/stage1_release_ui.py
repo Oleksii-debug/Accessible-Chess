@@ -15,6 +15,7 @@ from . import stage1_release_ui_core as _core
 from .stage1_release_ui_core import *  # noqa: F401,F403 - compatibility surface
 from .stage1_release_ui_core import _asset_root, _shared_spoken_san
 from .engine_play_service import EngineGameIntent
+from .game_lifecycle import EndReason, GameStatus
 from .stage1_native_menu_router import Stage1NativeMenuActionProxy
 from .webapp_keymap import KeymapAwareAccessibleChessAPI
 
@@ -48,6 +49,151 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         if analysis is not None and self._binding_context(analysis.get("context")) == "analysis":
             return analysis
         return direct
+
+    def _capture_engine_human_commit_context(self) -> dict[str, Any]:
+        moved_side = self.board.turn
+        return {
+            "history": self.review_history.export_tree(),
+            "board_fen": self.board.fen(),
+            "sans_len": len(self.sans),
+            "move_sides_len": len(self.move_sides),
+            "redo_meta": tuple(self.redo_meta),
+            "board_redo": tuple(self.board.redo_stack),
+            "timeout_opponent_can_mate": self._timeout_mating_capability(moved_side),
+        }
+
+    def _rollback_expired_human_move(self, context: dict[str, Any]) -> bool:
+        """Remove only the move rejected by the canonical game clock."""
+        try:
+            restored_history = type(self.review_history).from_tree(context["history"])
+            expected_fen = context["board_fen"]
+            if len(self.sans) != context["sans_len"] + 1:
+                return False
+            if len(self.move_sides) != context["move_sides_len"] + 1:
+                return False
+            undone = self.board.undo()
+            if undone is None:
+                return False
+            if self.board.fen() != expected_fen:
+                try:
+                    self.board.redo()
+                except Exception:
+                    pass
+                return False
+        except Exception:
+            return False
+
+        self.sans.pop()
+        self.move_sides.pop()
+        self.redo_meta[:] = list(context["redo_meta"])
+        self.board.redo_stack[:] = list(context["board_redo"])
+        self.review_history = restored_history
+        self.review_adapter = self.review_adapter.__class__(
+            restored_history,
+            language=self.lang,
+        )
+        self.live_history_node = context["history"].cursor_node_id
+        self.selected_source = None
+        return True
+
+    def _play_latest_move(self) -> None:
+        if getattr(self, "_defer_engine_human_move_sound", False):
+            return
+        super()._play_latest_move()
+
+    def make_move(self, text: str) -> dict[str, Any]:
+        if self._engine_game_phase != "active":
+            return super().make_move(text)
+        previous_context = getattr(self, "_engine_human_commit_context", None)
+        previous_defer = getattr(self, "_defer_engine_human_move_sound", False)
+        self._engine_human_commit_context = self._capture_engine_human_commit_context()
+        self._defer_engine_human_move_sound = True
+        try:
+            return super().make_move(text)
+        finally:
+            self._engine_human_commit_context = previous_context
+            self._defer_engine_human_move_sound = previous_defer
+
+    def activate_square(self, square: str) -> dict[str, Any]:
+        if self._engine_game_phase != "active":
+            return super().activate_square(square)
+        previous_context = getattr(self, "_engine_human_commit_context", None)
+        previous_defer = getattr(self, "_defer_engine_human_move_sound", False)
+        self._engine_human_commit_context = self._capture_engine_human_commit_context()
+        self._defer_engine_human_move_sound = True
+        try:
+            return super().activate_square(square)
+        finally:
+            self._engine_human_commit_context = previous_context
+            self._defer_engine_human_move_sound = previous_defer
+
+    def _after_human_engine_move(self, moved_side: str, human_san: str) -> dict[str, Any]:
+        session = self._engine_session
+        context = getattr(self, "_engine_human_commit_context", None)
+        if session is None or not isinstance(context, dict):
+            return super()._after_human_engine_move(moved_side, human_san)
+
+        try:
+            after_move = session.on_human_move_committed(
+                moved_side,
+                timeout_opponent_can_mate=context["timeout_opponent_can_mate"],
+            )
+            self._record_engine_clock(after_move)
+        except Exception:
+            self._defer_engine_human_move_sound = False
+            if self._game_sounds is not None:
+                super()._play_latest_move()
+            warning = self._pause_engine_after_failure()
+            return self._ok(
+                (f"Зіграно: {human_san}. {warning}" if self.lang == "uk"
+                 else f"Played: {human_san}. {warning}")
+            )
+
+        outcome = after_move.lifecycle.outcome
+        if (
+            after_move.lifecycle.status is GameStatus.FINISHED
+            and outcome is not None
+            and outcome.reason is EndReason.TIMEOUT
+        ):
+            if not self._rollback_expired_human_move(context):
+                self._engine_game_phase = "error"
+                self._engine_game_error = (
+                    "Не вдалося безпечно відкотити хід після завершення часу."
+                    if self.lang == "uk"
+                    else "The move could not be safely rolled back after time expired."
+                )
+                return self._concise_error(
+                    "Не вдалося безпечно відкотити хід після завершення часу.",
+                    "The move could not be safely rolled back after time expired.",
+                )
+            self._engine_game_phase = "finished"
+            self._engine_game_error = None
+            self._play_game_end_sound()
+            message = self._outcome_text(after_move)
+            return self._concise_error(message, message)
+
+        self._defer_engine_human_move_sound = False
+        if self._game_sounds is not None:
+            super()._play_latest_move()
+
+        if after_move.lifecycle.status is GameStatus.FINISHED:
+            self._engine_game_phase = "finished"
+            self._play_game_end_sound()
+            return self._ok(
+                (f"Зіграно: {human_san}. {self._outcome_text(after_move)}" if self.lang == "uk"
+                 else f"Played: {human_san}. {self._outcome_text(after_move)}")
+            )
+        terminal = self._finish_engine_game_from_board()
+        if terminal is not None:
+            return self._ok(
+                (f"Зіграно: {human_san}. {self._outcome_text(terminal)}" if self.lang == "uk"
+                 else f"Played: {human_san}. {self._outcome_text(terminal)}")
+            )
+        _replied, message = self._request_engine_reply()
+        return self._ok(
+            (f"Зіграно: {human_san}. {message}" if self.lang == "uk"
+             else f"Played: {human_san}. {message}")
+        )
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
         actions = {
