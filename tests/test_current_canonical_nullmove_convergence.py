@@ -29,13 +29,18 @@ class CurrentCanonicalNullMoveConvergenceTests(unittest.TestCase):
                 before_sans = tuple(api.sans)
                 before_history = api.review_history.node_count
 
-                result = api.make_move("--")
+                for move_text in ("--", " --! ", "– –"):
+                    with self.subTest(language=language, move_text=move_text):
+                        result = api.make_move(move_text)
 
-                self.assertFalse(result["ok"])
-                self.assertEqual(result["announcement"], expected)
-                self.assertEqual(api.board.fen(), before_fen)
-                self.assertEqual(tuple(api.sans), before_sans)
-                self.assertEqual(api.review_history.node_count, before_history)
+                        self.assertFalse(result["ok"])
+                        self.assertEqual(result["announcement"], expected)
+                        self.assertEqual(api.board.fen(), before_fen)
+                        self.assertEqual(tuple(api.sans), before_sans)
+                        self.assertEqual(
+                            api.review_history.node_count,
+                            before_history,
+                        )
 
     def test_canonical_null_move_transition_and_history(self) -> None:
         board = Board()
