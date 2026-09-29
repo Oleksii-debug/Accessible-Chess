@@ -36,6 +36,7 @@
 
   let profileState = null;
   let profileMutationPending = false;
+  let profileReturnFocusId = "";
   const profileButton = documentRef.createElement("button");
   profileButton.type = "button";
   profileButton.id = "v2-profile-button";
@@ -127,7 +128,11 @@
   }
 
   function showProfileDialog() {
-    if (!profileDialog.open) profileDialog.showModal();
+    if (!profileDialog.open) {
+      const active = documentRef.activeElement;
+      profileReturnFocusId = active && typeof active.id === "string" ? active.id : "";
+      profileDialog.showModal();
+    }
     global.setTimeout(function () {
       profileName.focus();
       profileName.select();
@@ -191,6 +196,12 @@
     if (profileMutationPending || !profileState || !profileState.exists) {
       event.preventDefault();
     }
+  });
+  profileDialog.addEventListener("close", function () {
+    const returnId = profileReturnFocusId;
+    profileReturnFocusId = "";
+    if (returnId && focusById(returnId)) return;
+    if (!profileButton.disabled) profileButton.focus({ preventScroll: true });
   });
   function saveProfileName() {
     const bridge = api();

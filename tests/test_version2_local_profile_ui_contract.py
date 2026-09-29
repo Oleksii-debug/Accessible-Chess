@@ -24,6 +24,14 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileRepair.id = "v2-profile-repair"', source)
         self.assertIn('profileRepair.setAttribute("aria-describedby", "v2-profile-status")', source)
 
+    def test_profile_dialog_restores_keyboard_focus_after_close(self) -> None:
+        source = self.source
+        self.assertIn('let profileReturnFocusId = "";', source)
+        self.assertIn('profileReturnFocusId = active && typeof active.id === "string" ? active.id : "";', source)
+        self.assertIn('profileDialog.addEventListener("close", function () {', source)
+        self.assertIn("if (returnId && focusById(returnId)) return;", source)
+        self.assertIn("if (!profileButton.disabled) profileButton.focus({ preventScroll: true });", source)
+
     def test_first_launch_requires_explicit_save_or_skip(self) -> None:
         source = self.source
         self.assertIn('if (!profileState || !profileState.exists) event.preventDefault()', source)
