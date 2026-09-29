@@ -152,6 +152,16 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("selection.collapse(endPoint.node, endPoint.offset)", self.v2_bootstrap)
         self.assertIn("selection.extend(startPoint.node, startPoint.offset)", self.v2_bootstrap)
 
+    def test_duplicate_selection_restore_uses_bounded_semantic_context(self) -> None:
+        for source in (self.p0_runtime, self.v2_bootstrap):
+            self.assertIn("SELECTION_CONTEXT_CHARS = 48", source)
+            self.assertIn("function selectionContext(fullText, start, end)", source)
+            self.assertIn("function contextMatchScore(fullText, selectedText, start, before, after)", source)
+            self.assertIn("before: context.before", source)
+            self.assertIn("after: context.after", source)
+            self.assertIn("snapshot.before", source)
+            self.assertIn("snapshot.after", source)
+
     def test_selection_restore_never_crosses_product_routes(self) -> None:
         self.assertIn("routeId: currentRouteId", self.v2_bootstrap)
         self.assertIn("snapshot.routeId !== routeId", self.v2_bootstrap)
