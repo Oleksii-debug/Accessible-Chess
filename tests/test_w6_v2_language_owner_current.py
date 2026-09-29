@@ -9,18 +9,23 @@ from unittest import mock
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
+from acs.bookdocument import BookDocument, Exercise
+from acs.bookreader import BookReader
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
 from acs.pgn_document import PgnDocumentSession
 from acs.settings import Settings
 from acs.version2_application import Version2Application
 from acs.version2_profile import Version2NativeMenuController
+from acs.version2_training_workspace import Version2BookTrainingWorkspace
 import acs.version2_release_app as release_app
 from acs.version2_release_ui import (
     Version2ReleaseAccessibleChessAPI,
     run_version2_release_window,
 )
 
+
+TRAINING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 PGN = (
     '[Event "Language owner"]\n'
@@ -126,7 +131,7 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
         api.bind_version2_application(application)
         return api, application, analysis
 
-    def _materialize_real_pgn_and_books(self, application: Version2Application, root: Path) -> None:
+    def _materialize_real_surfaces(self, application: Version2Application, root: Path) -> None:
         application.set_document(PgnDocumentSession.from_text(PGN))
         book = root / "language-owner.md"
         book.write_text(
@@ -134,9 +139,33 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             encoding="utf-8",
         )
         application.open_book(book)
+
+        training_document = BookDocument(
+            title="Language owner Training",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=TRAINING_FEN,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="language-owner-training",
+                )
+            ],
+        )
+        training_reader = BookReader(training_document)
+        training_workspace = Version2BookTrainingWorkspace(
+            training_reader,
+            progress_root=root / "training-progress",
+            language=application.shell.language,
+        )
+        training_workspace.start_current()
+        application.training_workspace = training_workspace
+        application.training = training_workspace.bridge
+
         snapshot = application.snapshot()
         self.assertIsNotNone(snapshot["pgn"])
         self.assertIsNotNone(snapshot["books"])
+        self.assertIsNotNone(snapshot["training"])
         application.drain_events()
 
     def _assert_all_snapshot_languages(self, application: Version2Application, expected: str) -> None:
@@ -145,6 +174,7 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
         self.assertEqual(snapshot["pgn"]["document"]["lang"], expected)
         self.assertEqual(snapshot["library"]["document"]["lang"], expected)
         self.assertEqual(snapshot["books"]["document"]["lang"], expected)
+        self.assertEqual(snapshot["training"]["document"]["lang"], expected)
 
     def _close_real_application(self, api, application, analysis) -> None:
         application.shutdown()
@@ -210,7 +240,7 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             root = Path(temp)
             settings = Settings(root / "settings.json")
             api, application, analysis = self._real_application(root, settings)
-            self._materialize_real_pgn_and_books(application, root)
+            self._materialize_real_surfaces(application, root)
             self._assert_all_snapshot_languages(application, "uk")
             native_refresh = mock.Mock(return_value=True)
             api.bind_version2_language_refresh(native_refresh)
@@ -223,6 +253,8 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertEqual(application.pgn.projection.language, UILanguage.EN)
                 self.assertEqual(application.library.projection.language, UILanguage.EN)
                 self.assertEqual(application.books.projection.language, UILanguage.EN)
+                self.assertEqual(application.training_workspace.language, UILanguage.EN)
+                self.assertEqual(application.training.projection.language, UILanguage.EN)
                 self._assert_all_snapshot_languages(application, "en")
                 native_refresh.assert_called_once_with()
 
@@ -238,7 +270,7 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             root = Path(temp)
             settings = Settings(root / "settings.json")
             api, application, analysis = self._real_application(root, settings)
-            self._materialize_real_pgn_and_books(application, root)
+            self._materialize_real_surfaces(application, root)
             settings.save = mock.Mock(side_effect=OSError("disk unavailable"))
             try:
                 result = api.set_language("en")
@@ -249,6 +281,8 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertEqual(application.pgn.projection.language, UILanguage.UA)
                 self.assertEqual(application.library.projection.language, UILanguage.UA)
                 self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(application.training.projection.language, UILanguage.UA)
                 self._assert_all_snapshot_languages(application, "uk")
                 self.assertFalse(application.drain_events())
             finally:
@@ -259,7 +293,7 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             root = Path(temp)
             settings = Settings(root / "settings.json")
             api, application, analysis = self._real_application(root, settings)
-            self._materialize_real_pgn_and_books(application, root)
+            self._materialize_real_surfaces(application, root)
             native_refresh = mock.Mock(side_effect=[False, True])
             api.bind_version2_language_refresh(native_refresh)
             try:
@@ -272,8 +306,55 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 self.assertEqual(application.pgn.projection.language, UILanguage.UA)
                 self.assertEqual(application.library.projection.language, UILanguage.UA)
                 self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(application.training.projection.language, UILanguage.UA)
                 self._assert_all_snapshot_languages(application, "uk")
                 self.assertEqual(native_refresh.call_count, 2)
+
+                events = application.drain_events()
+                self.assertEqual(events, ({"kind": "language", "payload": {}},))
+                self.assertNotIn("announcement", events[0]["payload"])
+                self.assertNotIn("message", events[0]["payload"])
+            finally:
+                self._close_real_application(api, application, analysis)
+
+    def test_training_projection_failure_rolls_back_every_persisted_language_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            projection = application.training_workspace.bridge.projection
+            real_set_language = projection.set_language
+            calls = []
+
+            def fail_after_mutation(language):
+                result = real_set_language(language)
+                calls.append(language)
+                if len(calls) == 1:
+                    raise RuntimeError("simulated post-mutation Training language failure")
+                return result
+
+            try:
+                with mock.patch.object(
+                    projection,
+                    "set_language",
+                    side_effect=fail_after_mutation,
+                ):
+                    result = api.set_language("en")
+
+                self.assertFalse(result["ok"])
+                self.assertEqual(calls, [UILanguage.EN, UILanguage.UA])
+                self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
+                self.assertEqual(settings.get("language"), "uk")
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                self.assertEqual(application.pgn.projection.language, UILanguage.UA)
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(application.training.projection.language, UILanguage.UA)
+                self._assert_all_snapshot_languages(application, "uk")
 
                 events = application.drain_events()
                 self.assertEqual(events, ({"kind": "language", "payload": {}},))
