@@ -156,7 +156,9 @@
       }
       profileButton.disabled = false;
       renderProfileState(result);
-      if (openIfMissing && !result.exists) showProfileDialog();
+      if (openIfMissing && (!result.exists || result.recoveryRequired === true)) {
+        showProfileDialog();
+      }
       return true;
     }, function () {
       profileButton.disabled = true;
