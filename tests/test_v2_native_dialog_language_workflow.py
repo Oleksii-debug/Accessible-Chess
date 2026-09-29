@@ -30,6 +30,30 @@ class NativeDialogLanguageWorkflowTests(unittest.TestCase):
                 self.assertIn("paths:", block)
                 self.assertIn("tests/test_v2_native_dialog_language_workflow.py", block)
 
+    def test_trigger_covers_dialog_implementations_and_language_owners(self) -> None:
+        push_start = self.workflow.index("  push:\n")
+        pull_start = self.workflow.index("  pull_request:\n")
+        permissions = self.workflow.index("\npermissions:", pull_start)
+        blocks = (
+            self.workflow[push_start:pull_start],
+            self.workflow[pull_start:permissions],
+        )
+        required_paths = (
+            "acs/full_product_ui_shell.py",
+            "acs/settings.py",
+            "acs/version2_application.py",
+            "acs/version2_release_app.py",
+            "acs/version2_windows_file_workflows.py",
+            "acs/version2_windows_host_runtime.py",
+            "acs/version2_windows_library_export.py",
+            "acs/version2_windows_native_dialog_ownership.py",
+            "acs/version2_windows_pgn_export.py",
+        )
+        for block in blocks:
+            for path in required_paths:
+                with self.subTest(block=block.splitlines()[0], path=path):
+                    self.assertIn(path, block)
+
     def test_exact_pull_request_base_drives_geometry_check(self) -> None:
         self.assertIn(
             "PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
