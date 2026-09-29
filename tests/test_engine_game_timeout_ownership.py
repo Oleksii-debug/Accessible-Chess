@@ -98,6 +98,35 @@ class EngineGameTimeoutOwnershipTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
         self.assertEqual(session._lifecycle.snapshot().status, GameStatus.ACTIVE)
 
+    def test_post_commit_timeout_fact_uses_precommit_position_evidence(self):
+        session, now, calls = self.make_session(lambda flagged: True)
+        now.advance(2)
+
+        snapshot = session.on_human_move_committed(
+            "w",
+            timeout_opponent_can_mate=False,
+        )
+
+        self.assertEqual(calls, [])
+        self.assertEqual(snapshot.lifecycle.status, GameStatus.FINISHED)
+        self.assertEqual(snapshot.lifecycle.outcome.reason, EndReason.TIMEOUT)
+        self.assertEqual(snapshot.lifecycle.outcome.result, "1/2-1/2")
+        self.assertIsNone(snapshot.lifecycle.outcome.winner)
+
+    def test_post_commit_timeout_fact_rejects_scalar_coercion_atomically(self):
+        session, _now, calls = self.make_session(lambda flagged: True)
+        before = session.snapshot()
+
+        with self.assertRaises(EngineContractError) as caught:
+            session.on_human_move_committed(
+                "w",
+                timeout_opponent_can_mate=1,
+            )
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_REQUEST)
+        self.assertEqual(calls, [])
+        self.assertEqual(session.snapshot(), before)
+
     def test_explicit_sync_timeout_accepts_exact_resolved_fact(self):
         session, now, calls = self.make_session(lambda flagged: None)
         now.advance(2)
