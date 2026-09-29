@@ -255,6 +255,70 @@ class BookEpubImportTests(unittest.TestCase):
             import_epub_book(raw, source_name="external.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
 
+    def test_manifest_item_href_fragment_is_rejected(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="Text/chapter.xhtml#start" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="manifest-fragment.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_container_rootfile_fragment_is_rejected(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf#rendition"
+      media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            },
+            container=container,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="rootfile-fragment.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_in_document_asset_fragment_remains_resolvable(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Images/board.svg#diagram" '
+            b'alt="Board diagram"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": chapter,
+                "OEBPS/Images/board.svg": b"<svg/>",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="asset-fragment.epub")
+        self.assertEqual(
+            result.image_references,
+            ("OEBPS/Images/board.svg",),
+        )
+
     def test_fallback_cycle_is_rejected(self) -> None:
         raw = _epub(
             opf=_opf(

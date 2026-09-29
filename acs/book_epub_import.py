@@ -319,13 +319,23 @@ def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
     return values
 
 
-def _resolve_package_href(base_dir: str, href: object) -> str:
+def _resolve_package_href(
+    base_dir: str,
+    href: object,
+    *,
+    allow_fragment: bool = False,
+) -> str:
     if type(href) is not str or not href.strip():
         raise _error(
             "EPUB manifest href is invalid",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     parts = urlsplit(href.strip())
+    if parts.fragment and not allow_fragment:
+        raise _error(
+            "EPUB package href must not contain a fragment identifier",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     if parts.scheme or parts.netloc or parts.query:
         raise _error(
             "EPUB manifest contains an external or parameterized reading href",
@@ -487,7 +497,11 @@ def _resolved_asset(entry_name: str, reference: str) -> str | None:
     if parts.scheme or parts.netloc or not parts.path:
         return None
     try:
-        return _resolve_package_href(posixpath.dirname(entry_name), reference)
+        return _resolve_package_href(
+            posixpath.dirname(entry_name),
+            reference,
+            allow_fragment=True,
+        )
     except BookEpubImportError:
         return None
 
