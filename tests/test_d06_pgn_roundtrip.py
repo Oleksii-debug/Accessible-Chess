@@ -168,6 +168,20 @@ class D06PgnRoundTripTests(unittest.TestCase):
                     f'[Result "*"]\n\n{damaged}',
                 )
 
+    def test_strict_mode_rejects_orphan_or_superseded_move_numbers(self):
+        for damaged in (
+            '1 2 e4 *',
+            '1 {between move numbers} 2 e4 *',
+            '1. 2... e4 *',
+            '1 *',
+        ):
+            with self.subTest(damaged=damaged):
+                self.assert_code(
+                    PgnRoundTripErrorCode.MALFORMED_PGN,
+                    parse_pgn_text,
+                    f'[Result "*"]\n\n{damaged}',
+                )
+
     def test_recovery_mode_remains_available_for_read_only_damaged_inspection(self):
         games = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
