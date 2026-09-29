@@ -99,6 +99,7 @@ container.appendChild(live);
 const documentListeners = {};
 const documentRef = {
   activeElement: null,
+  body: container,
   documentElement: { lang: "en" },
   createElement: (tagName) => new FakeElement(tagName),
   createDocumentFragment: () => new FakeElement("fragment"),
