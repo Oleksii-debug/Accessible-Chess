@@ -32,6 +32,7 @@ from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
+from .position_editor import PositionState
 from .report_paths import report_safe_name
 from .search_service import GameSearchQuery
 from .version2_book_workspace import build_version2_book_webview
@@ -77,8 +78,8 @@ class Version2Application:
 
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
-                 board_position_projector=None, copy_text=lambda _: None,
-                 language=UILanguage.UA):
+                 board_position_projector=None, board_position_provider=None,
+                 copy_text=lambda _: None, language=UILanguage.UA):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
@@ -88,6 +89,9 @@ class Version2Application:
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
+        if board_position_provider is not None and not callable(board_position_provider):
+            raise TypeError("board_position_provider must be callable or None")
+        self._board_position_provider = board_position_provider
         self._events = deque(maxlen=64)
         # The Book Board adapter treats event sinks as observers and therefore
         # swallows sink exceptions. Book-return persistence is stronger than an
@@ -157,9 +161,13 @@ class Version2Application:
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
             raise ValueError("PGN replacement cancelled")
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
-        self.session, self.pgn = session, PgnWebViewBridge(projection)
-        self.pgn_board_active = False
+        bridge = PgnWebViewBridge(projection)
+        # Route publication can fail (for example if shell invariants reject the
+        # transition).  Keep the previous document authoritative until every
+        # fallible staging step has succeeded; the field commit below cannot fail.
         self.shell.open_route("pgn")
+        self.session, self.pgn = session, bridge
+        self.pgn_board_active = False
 
     def open_book(self, source: Path):
         self._assert_thread()
@@ -477,6 +485,19 @@ class Version2Application:
 
     def _delegate(self, action, payload):
         # Native menus enter the same projection commands as keyboard buttons.
+        if action == "pgn.new_from_position":
+            if payload:
+                raise ValueError("PGN position creation accepts no payload")
+            if self.shell.current_route.route_id != "board":
+                raise ValueError("PGN position creation requires the visible Board")
+            if self._board_position_provider is None:
+                raise ValueError("current board position is unavailable")
+            position = self._board_position_provider()
+            if not isinstance(position, PositionState):
+                raise TypeError("current board position provider returned invalid state")
+            candidate = PgnDocumentSession.new_game_from_position(position)
+            self.set_document(candidate)
+            return None
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
             self._project_pgn_position()
