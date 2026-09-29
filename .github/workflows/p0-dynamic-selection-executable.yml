@@ -81,11 +81,11 @@ jobs:
           done
 
           # The dynamic-selection oracle may be the retained #775 owner or the
-          # exact reviewed navigation/Stage1-analysis retention successors.
+          # exact reviewed navigation/Stage1-analysis/duplicate-context retention successors.
           dynamic_selection_actual="$(git rev-parse HEAD:tests/js/p0_dynamic_selection_runtime_test.js)"
           dynamic_selection_owner="$(git rev-parse "$p0_owner:tests/js/p0_dynamic_selection_runtime_test.js")"
           case "$dynamic_selection_actual" in
-            "$dynamic_selection_owner"|f8b63e1c2ffefa2077524f8b4da074a656648f1b|8b4ec18800883794e825263faa9bbc17bea0fd0c|aa6b978e6679736119490dedcdb5d93b2e47965b|5a169c76c0a4ee9c49fb99465d045359275a5327)
+            "$dynamic_selection_owner"|f8b63e1c2ffefa2077524f8b4da074a656648f1b|8b4ec18800883794e825263faa9bbc17bea0fd0c|aa6b978e6679736119490dedcdb5d93b2e47965b|5a169c76c0a4ee9c49fb99465d045359275a5327|89f512b0b49c8f665eba852ec09ce5c1258d6e1b)
               ;;
             *)
               printf 'Retained P0 evidence blob drift: tests/js/p0_dynamic_selection_runtime_test.js owner=%s actual=%s\n' "$dynamic_selection_owner" "$dynamic_selection_actual" >&2
