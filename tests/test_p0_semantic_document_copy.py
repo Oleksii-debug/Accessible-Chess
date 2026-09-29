@@ -56,6 +56,37 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertLess(selection_index, binding_index)
         self.assertLess(binding_index, prevent_default_index)
 
+    def test_stage1_analysis_refresh_preserves_native_text_selection(self) -> None:
+        self.assertIn("function captureTextSelection(root)", self.index)
+        self.assertIn("function restoreTextSelection(root,snapshot)", self.index)
+        self.assertIn("document.createRange()", self.index)
+        self.assertIn("selection.addRange(range)", self.index)
+        self.assertNotIn("navigator.clipboard", self.index)
+
+        render_start = self.index.index("function renderAnalysis(s)")
+        render_end = self.index.index("\nfunction render(s)", render_start)
+        render_analysis = self.index[render_start:render_end]
+        capture = render_analysis.index("selectionSnapshot=captureTextSelection(list)")
+        mutation = render_analysis.index("button.textContent=lineText")
+        restore = render_analysis.index("restoreTextSelection(list,selectionSnapshot)")
+        self.assertLess(capture, mutation)
+        self.assertLess(mutation, restore)
+
+    def test_stage1_selection_restore_is_scoped_to_analysis_text(self) -> None:
+        capture_start = self.index.index("function captureTextSelection(root)")
+        capture_end = self.index.index("\nfunction textBoundaryForOffset", capture_start)
+        capture = self.index[capture_start:capture_end]
+        self.assertIn("root.contains(range.startContainer)", capture)
+        self.assertIn("root.contains(range.endContainer)", capture)
+        self.assertIn("selection.isCollapsed", capture)
+
+        restore_start = self.index.index("function restoreTextSelection(root,snapshot)")
+        restore_end = self.index.index("\nfunction renderAnalysis", restore_start)
+        restore = self.index[restore_start:restore_end]
+        self.assertIn("if(!root||!snapshot)return", restore)
+        self.assertIn("if(end<=start)return", restore)
+        self.assertNotIn("preventDefault", restore)
+
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
         self.assertIn("user-select: text !important", self.v2_bootstrap)
