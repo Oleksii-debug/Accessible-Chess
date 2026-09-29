@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.gametree_navigation import GameTreeCursor
 from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from acs.position_editor import PositionState, standard_position
 
@@ -17,6 +18,17 @@ CUSTOM_POSITION = f"""[Event "Custom black start"]
 23... Kg7 24. Ke3 *
 """
 
+
+WORKING_DOCUMENT = """[Event "Working one"]
+[Result "*"]
+
+1. e4 e5 2. Nf3 Nc6 *
+
+[Event "Working two"]
+[Result "*"]
+
+1. d4 d5 2. c4 e6 *
+"""
 
 class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
     def test_generic_new_game_tags_cannot_create_or_split_start_position(self) -> None:
@@ -159,6 +171,46 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
         with self.assertRaises(PgnDocumentError) as caught:
             PgnDocumentSession.new_game_from_position(position, {"Result": "draw"})
         self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_RESULT)
+
+    def test_failed_position_new_game_leaves_existing_working_session_exactly_unchanged(self) -> None:
+        cases = (
+            (
+                PositionState.from_fen("8/8/8/8/8/8/8/8 w - - 0 1"),
+                {"Event": "Invalid position"},
+                PgnDocumentErrorCode.INVALID_POSITION,
+            ),
+            (
+                PositionState.from_fen(CUSTOM_FEN),
+                {"Event": "Smuggle rejected", "SetUp": "1"},
+                PgnDocumentErrorCode.INVALID_TAG,
+            ),
+        )
+
+        for position, supplied_tags, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                session = PgnDocumentSession.from_text(WORKING_DOCUMENT)
+                session.edit_tag("Annotator", "dirty working context")
+                session.workspace.select_game(1)
+                session.workspace.set_cursor(GameTreeCursor((), 1))
+
+                before_text = session.copy_pgn()
+                before_document_view = session.view()
+                before_workspace_view = session.workspace.view()
+                before_context = session.bookmark()
+
+                self.assertTrue(session.dirty)
+                self.assertEqual(before_document_view.selected_game_index, 1)
+                self.assertEqual(before_document_view.cursor, GameTreeCursor((), 1))
+
+                with self.assertRaises(PgnDocumentError) as caught:
+                    session.new_game_from_position(position, supplied_tags)
+
+                self.assertEqual(caught.exception.code, expected_code)
+                self.assertEqual(session.copy_pgn(), before_text)
+                self.assertEqual(session.view(), before_document_view)
+                self.assertEqual(session.workspace.view(), before_workspace_view)
+                self.assertEqual(session.bookmark(), before_context)
+                self.assertTrue(session.dirty)
 
     def test_position_workflow_custom_start_survives_save_and_reopen(self) -> None:
         session = PgnDocumentSession.new_game_from_position(
