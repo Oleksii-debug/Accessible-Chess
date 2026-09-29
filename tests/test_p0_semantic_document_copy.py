@@ -56,51 +56,6 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertLess(selection_index, binding_index)
         self.assertLess(binding_index, prevent_default_index)
 
-    def test_stage1_analysis_refresh_preserves_native_text_selection(self) -> None:
-        self.assertIn("function captureTextSelection(root)", self.index)
-        self.assertIn("function nearestTextOccurrence(text,needle,offset)", self.index)
-        self.assertIn("function restoreTextSelection(root,snapshot)", self.index)
-        self.assertIn("document.createRange()", self.index)
-        self.assertIn("selection.addRange(range)", self.index)
-        self.assertNotIn("navigator.clipboard", self.index)
-
-        render_start = self.index.index("function renderAnalysis(s)")
-        render_end = self.index.index("\nfunction render(s)", render_start)
-        render_analysis = self.index[render_start:render_end]
-        capture = render_analysis.index("selectionSnapshot=captureTextSelection(list)")
-        mutation = render_analysis.index("button.textContent=lineText")
-        restore = render_analysis.index("restoreTextSelection(list,selectionSnapshot)")
-        self.assertLess(capture, mutation)
-        self.assertLess(mutation, restore)
-
-    def test_stage1_selection_restore_is_scoped_to_analysis_text(self) -> None:
-        capture_start = self.index.index("function captureTextSelection(root)")
-        capture_end = self.index.index("\nfunction textBoundaryForOffset", capture_start)
-        capture = self.index[capture_start:capture_end]
-        self.assertIn("root.contains(range.startContainer)", capture)
-        self.assertIn("root.contains(range.endContainer)", capture)
-        self.assertIn("selection.isCollapsed", capture)
-        self.assertIn("selection.anchorNode===range.endContainer", capture)
-        self.assertIn("selection.focusNode===range.startContainer", capture)
-        self.assertIn("backward", capture)
-
-        restore_start = self.index.index("function restoreTextSelection(root,snapshot)")
-        restore_end = self.index.index("\nfunction renderAnalysis", restore_start)
-        restore = self.index[restore_start:restore_end]
-        self.assertIn("if(!root||!snapshot)return", restore)
-        self.assertIn("nearestTextOccurrence(current,snapshot.text,start)", restore)
-        self.assertIn("if(end<=start)return", restore)
-        self.assertNotIn("preventDefault", restore)
-        self.assertIn("snapshot.backward", restore)
-        self.assertIn("selection.setBaseAndExtent(b.node,b.offset,a.node,a.offset)", restore)
-        self.assertIn("selection.extend(a.node,a.offset)", restore)
-
-        nearest_start = self.index.index("function nearestTextOccurrence(text,needle,offset)")
-        nearest_end = self.index.index("\nfunction restoreTextSelection", nearest_start)
-        nearest = self.index[nearest_start:nearest_end]
-        self.assertIn("Math.abs(candidate-offset)", nearest)
-        self.assertIn("candidate<=upper", nearest)
-
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
         self.assertIn("user-select: text !important", self.v2_bootstrap)
@@ -168,6 +123,16 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
 
     def test_current_final_product_still_loads_the_repaired_v2_bootstrap(self) -> None:
         self.assertIn('root / "version2_final_product_bootstrap.js"', self.final_release)
+
+    def test_current_final_product_loads_canonical_p0_selection_runtime(self) -> None:
+        bootstrap = self.final_release.index('root / "version2_final_product_bootstrap.js"')
+        runtime = self.final_release.index('root / "p0_accessibility_runtime.js"')
+        self.assertLess(bootstrap, runtime)
+
+    def test_stage1_does_not_duplicate_canonical_selection_runtime(self) -> None:
+        self.assertNotIn("function captureTextSelection(root)", self.index)
+        self.assertNotIn("function restoreTextSelection(root,snapshot)", self.index)
+        self.assertNotIn("function nearestTextOccurrence(text,needle,offset)", self.index)
 
     def test_selection_restore_never_crosses_product_routes(self) -> None:
         self.assertIn("routeId: currentRouteId", self.v2_bootstrap)
