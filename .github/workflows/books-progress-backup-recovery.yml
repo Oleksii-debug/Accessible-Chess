@@ -80,10 +80,26 @@ jobs:
           publication_path='.github/workflows/v2-composition-publication-boundary.yml'
           publication_contract='tests/test_composition_publication_boundary_workflow.py'
           missing='__MISSING__'
+
+          blob_or_missing() {
+            local spec="$1"
+            local object_type
+            object_type="$(git cat-file -t "$spec" 2>/dev/null || true)"
+            if test -z "$object_type"; then
+              printf '%s' "$missing"
+            elif test "$object_type" = 'blob'; then
+              git rev-parse "$spec"
+            else
+              printf 'Publication authority path must resolve to a blob: %s type=%s\n' \
+                "$spec" "$object_type" >&2
+              return 1
+            fi
+          }
+
           product_publication="$(git rev-parse "$product:$publication_path")"
           candidate_publication="$(git rev-parse "HEAD:$publication_path")"
-          product_contract="$(git rev-parse "$product:$publication_contract" 2>/dev/null || printf '%s' "$missing")"
-          candidate_contract="$(git rev-parse "HEAD:$publication_contract" 2>/dev/null || printf '%s' "$missing")"
+          product_contract="$(blob_or_missing "$product:$publication_contract")"
+          candidate_contract="$(blob_or_missing "HEAD:$publication_contract")"
           successor_publication='653d4c8a252a258f580900b7f6f470f14e2899ed'
           successor_contract='cee4f2de715b26bee6d3b5a1b511927ee42207fc'
 
