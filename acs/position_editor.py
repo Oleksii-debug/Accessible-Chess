@@ -208,10 +208,12 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
     by the canonical chess-rules layer.
     """
 
+    if not isinstance(text, str):
+        raise ValueError("position text must be text")
     if turn not in {"w", "b"}:
         raise ValueError("turn must be 'w' or 'b'")
 
-    match = _POSITION_SECTIONS_RE.match(str(text))
+    match = _POSITION_SECTIONS_RE.match(text)
     if match is None:
         raise ValueError("position text must contain W: and B: sections")
 
