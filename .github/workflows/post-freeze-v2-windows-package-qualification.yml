@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  AUDITED_PARENT_SHA: 53689ce05555d74e5e5c73d2b956b27091fe0a89
   PACKAGE_ANCHOR_SHA: dd8c07b84f0aac1cec1a538e80a0f84d9ef64b4d
   PRODUCT_PARENT_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
   PREVIOUS_PACKAGE_SHA: f7ee134a9c0c7e57010f5b52a54c2177e21220ec
@@ -61,12 +62,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git cat-file -e "$AUDITED_PARENT_SHA^{commit}"
           git cat-file -e "$PACKAGE_ANCHOR_SHA^{commit}"
           git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
           git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
           git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
           git cat-file -e "$P0G_QA_SHA^{commit}"
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
+          test "$(git rev-parse HEAD^1)" = "$AUDITED_PARENT_SHA"
+          test "$(git rev-parse "$AUDITED_PARENT_SHA^1")" = "$PACKAGE_ANCHOR_SHA"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^1")" = "$PRODUCT_PARENT_SHA"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^2")" = "$PREVIOUS_PACKAGE_SHA"
           test "$(git merge-base "$PACKAGE_ANCHOR_SHA" HEAD)" = "$PACKAGE_ANCHOR_SHA"
@@ -134,6 +138,7 @@ jobs:
           fi
           grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
+          echo "AUDITED_PACKAGE_PARENT=$AUDITED_PARENT_SHA"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
           echo "SOURCE_INTEGRATION_SHA=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
