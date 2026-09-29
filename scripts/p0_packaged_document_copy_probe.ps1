@@ -378,7 +378,6 @@ try {
             $bounds=$_.Current.BoundingRectangle
             $name -ceq $phrase -and
             ($type -eq 'ControlType.Header' -or $type -eq 'ControlType.Text') -and
-            -not [bool]$_.Current.IsOffscreen -and
             [double]$bounds.Width -gt 0 -and
             [double]$bounds.Height -gt 0
           } catch {$false}

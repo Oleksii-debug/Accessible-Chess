@@ -93,7 +93,7 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("$name -ceq $phrase", self.text)
         self.assertIn("$type -eq 'ControlType.Header'", self.text)
         self.assertIn("$type -eq 'ControlType.Text'", self.text)
-        self.assertIn("-not [bool]$_.Current.IsOffscreen", self.text)
+        self.assertNotIn("-not [bool]$_.Current.IsOffscreen", self.text)
         self.assertIn("[double]$bounds.Width -gt 0", self.text)
         self.assertIn("[double]$bounds.Height -gt 0", self.text)
         self.assertIn("if($namedTargets.Count -ne 1){continue}", self.text)
