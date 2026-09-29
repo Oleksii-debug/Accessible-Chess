@@ -463,6 +463,11 @@ class BookProgressStore:
                 if backup_payload is not None:
                     assert backup_raw is not None and backup_revision is not None
                     return backup_payload, backup_raw, backup_revision
+            else:
+                # Mutation callers must not mistake recoverable orphan state for
+                # a clean first run.  The write path repeats this check to close
+                # the race where a backup appears after this load.
+                self._require_no_orphan_backup_unlocked()
             return _empty_payload(), None, None
         return payload, raw, revision
 
