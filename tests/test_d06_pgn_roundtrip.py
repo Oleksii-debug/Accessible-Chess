@@ -168,12 +168,14 @@ class D06PgnRoundTripTests(unittest.TestCase):
                     f'[Result "*"]\n\n{damaged}',
                 )
 
-    def test_strict_mode_rejects_orphan_or_superseded_move_numbers(self):
+    def test_strict_mode_rejects_lossy_pending_move_structure(self):
         for damaged in (
             '1 2 e4 *',
             '1 {between move numbers} 2 e4 *',
             '1. 2... e4 *',
             '1 *',
+            '1. e4 1... $1 e5 *',
+            '1. e4 1... ! e5 *',
         ):
             with self.subTest(damaged=damaged):
                 self.assert_code(
