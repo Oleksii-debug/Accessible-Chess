@@ -6,17 +6,14 @@ on:
       - 'acs/teaching_session.py'
       - 'tests/test_teaching_session.py'
       - '.github/workflows/teaching-session-timer-expiry.yml'
-  push:
-    branches:
-      - 'fix/teaching-timer-expiry-20260929'
-    paths:
-      - 'acs/teaching_session.py'
-      - 'tests/test_teaching_session.py'
-      - '.github/workflows/teaching-session-timer-expiry.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: teaching-session-timer-expiry-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   contract:
