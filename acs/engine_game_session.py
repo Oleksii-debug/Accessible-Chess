@@ -476,8 +476,12 @@ class EngineGameSessionCoordinator:
             raise ValueError("clock flagged before move commit")
         if clock.state is ClockState.RUNNING and clock.active != moved_side:
             raise ValueError("active clock does not match moved side")
-        self._lifecycle.on_move_committed()
+        # Clock acceptance must precede lifecycle publication. A failed clock
+        # switch means the caller's just-committed Board move is rejected and
+        # rolled back; clearing draw/takeback requests before that boundary
+        # would leave lifecycle state ahead of the canonical Board/history.
         switched = self._clock.switch_after_move(moved_side)
+        self._lifecycle.on_move_committed()
         if (
             switched.flagged is not None
             and timeout_opponent_can_mate is not None
