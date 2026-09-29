@@ -119,6 +119,30 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         self.assertEqual(self.app.session.copy_pgn(), before_text)
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
 
+
+    def test_route_publication_failure_keeps_existing_document_authoritative(self) -> None:
+        existing = PgnDocumentSession.new_game({"Event": "Unsaved existing"})
+        self.app.set_document(existing)
+        self.app.shell.open_route("board")
+        existing_bridge = self.app.pgn
+        existing_text = existing.copy_pgn()
+        self.app.confirm_document_replace = lambda: True
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=RuntimeError("synthetic PGN route publication failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "route publication failure"):
+                self.app.router.dispatch("pgn.new_from_position")
+
+        self.assertIs(self.app.session, existing)
+        self.assertIs(self.app.pgn, existing_bridge)
+        self.assertEqual(self.app.session.copy_pgn(), existing_text)
+        self.assertTrue(self.app.session.dirty)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertFalse(self.app.pgn_board_active)
+
     def test_dirty_replacement_confirmation_accepts_and_swaps_once(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Unsaved existing"})
         self.app.set_document(existing)

@@ -161,9 +161,13 @@ class Version2Application:
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
             raise ValueError("PGN replacement cancelled")
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
-        self.session, self.pgn = session, PgnWebViewBridge(projection)
-        self.pgn_board_active = False
+        bridge = PgnWebViewBridge(projection)
+        # Route publication can fail (for example if shell invariants reject the
+        # transition).  Keep the previous document authoritative until every
+        # fallible staging step has succeeded; the field commit below cannot fail.
         self.shell.open_route("pgn")
+        self.session, self.pgn = session, bridge
+        self.pgn_board_active = False
 
     def open_book(self, source: Path):
         self._assert_thread()
