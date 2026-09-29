@@ -1,4 +1,4 @@
-name: Books Markdown Heading Text Integrity
+name: Books Markdown Text Integrity
 
 on:
   push:
