@@ -1,6 +1,9 @@
 name: Remappable PGN Tree Navigation
 
 on:
+  push:
+    branches:
+      - fix/remappable-pgn-tree-navigation-20260926
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -29,6 +32,9 @@ on:
 permissions:
   contents: read
 
+env:
+  KEYMAP_PRODUCT_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
+
 concurrency:
   group: remappable-pgn-tree-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -47,14 +53,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact stacked scope
-        if: github.event_name == 'pull_request'
+      - name: Prove exact current-Product ancestry and consolidated scope
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
+          base="${PR_BASE_SHA:-$KEYMAP_PRODUCT_SHA}"
+          git cat-file -e "$base^{commit}"
           merge_base="$(git merge-base "$base" HEAD)"
-          changed="$(git diff --name-only "$merge_base" HEAD | sort)"
+          test "$merge_base" = "$base" || {
+            echo "Keybinding stack is not based on exact current Product: expected=$base merge-base=$merge_base" >&2
+            exit 1
+          }
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/full-product-native-menu-keymap-refresh.yml' \
             '.github/workflows/keybindings-contract.yml' \
