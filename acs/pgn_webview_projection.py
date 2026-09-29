@@ -25,7 +25,7 @@ _WINDOWS_LOCAL_PATH = re.compile(
     r"|\\\\(?:\?\\)?[^\\\s]+\\[^\r\n\t]*"
     r")"
 )
-_FILE_LOCAL_URI = re.compile(r"(?i)(?<![\w])file:///[^\r\n\t ]*")
+_FILE_LOCAL_URI = re.compile(r"(?i)(?<![\w])file:[^\r\n\t ]+")
 _POSIX_LOCAL_PATH = re.compile(
     r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var|private|opt|usr|etc|srv|run|root|Applications)(?:/|\b)[^\r\n\t ]*)"
 )
