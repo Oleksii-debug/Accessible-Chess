@@ -1,0 +1,69 @@
+name: BookDocument Constructor Semantic Integrity
+
+on:
+  pull_request:
+    paths:
+      - "acs/bookdocument.py"
+      - "tests/test_bookdocument.py"
+      - ".github/workflows/bookdocument-constructor-semantic-integrity.yml"
+  push:
+    branches:
+      - "fix/bookdocument-constructor-block-validation-20260929"
+    paths:
+      - "acs/bookdocument.py"
+      - "tests/test_bookdocument.py"
+      - ".github/workflows/bookdocument-constructor-semantic-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCT_BASE_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
+
+jobs:
+  semantic-integrity:
+    name: BookDocument semantic integrity (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove bounded current-Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$PRODUCT_BASE_SHA^{commit}"
+          test "$(git merge-base "$PRODUCT_BASE_SHA" HEAD)" = "$PRODUCT_BASE_SHA"
+          actual="$(git diff --name-only "$PRODUCT_BASE_SHA" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
+            'acs/bookdocument.py' \
+            'tests/test_bookdocument.py' | sort)"
+          test "$actual" = "$expected"
+          git diff --check "$PRODUCT_BASE_SHA" HEAD
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile changed boundary
+        run: python -m py_compile acs/bookdocument.py tests/test_bookdocument.py
+
+      - name: Run focused semantic regressions
+        run: >-
+          python -m unittest
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_book_game_content
+          tests.test_v2_book_library_game_lookup
+
+      - name: Run product self-test
+        run: python -m acs.selftest
