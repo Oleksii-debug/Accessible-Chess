@@ -218,7 +218,7 @@ jobs:
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/test_v2_pgn_webview_path_privacy.py=cf810ffa1db7e0d5a223159b2c3aa14486881f87
+          tests/test_v2_pgn_webview_path_privacy.py=38501d0508330115acdb9fa5dfa1b59e67001377
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
