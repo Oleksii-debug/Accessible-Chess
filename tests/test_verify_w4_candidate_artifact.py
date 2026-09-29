@@ -307,13 +307,16 @@ def _candidate_bytes(
     human_tested: bool = False,
     starter_files: dict[str, bytes] | None = None,
     app_executable: bytes | None = None,
+    app_config: bytes | None = None,
     stockfish_executable: bytes | None = None,
 ) -> bytes:
     payload = {
         "AccessibleChess/AccessibleChess.exe": (
             _pe_fixture(b"app") if app_executable is None else app_executable
         ),
-        "AccessibleChess/AccessibleChess.exe.config": WINFORMS_CONFIG,
+        "AccessibleChess/AccessibleChess.exe.config": (
+            WINFORMS_CONFIG if app_config is None else app_config
+        ),
         "AccessibleChess/engines/stockfish/stockfish.exe": (
             _pe_fixture(b"stockfish") if stockfish_executable is None else stockfish_executable
         ),
@@ -622,6 +625,26 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
             with patch.object(zipfile.ZipFile, "read", new=guarded_read):
                 with self.assertRaisesRegex(CandidateArtifactError, "candidate metadata size"):
                     verify(self.path, SHA)
+
+    def test_app_config_size_bound_fails_before_config_read(self) -> None:
+        oversized_config = b"x" * (MAX_CANDIDATE_METADATA_BYTES + 1)
+        self.path.write_bytes(
+            _outer_bytes(candidate=_candidate_bytes(app_config=oversized_config))
+        )
+        original_read = zipfile.ZipFile.read
+
+        def guarded_read(archive, name, *args, **kwargs):
+            normalized = str(name).replace("\\", "/")
+            if normalized == "AccessibleChess/AccessibleChess.exe.config":
+                raise AssertionError("oversized app-config must not be decompressed")
+            return original_read(archive, name, *args, **kwargs)
+
+        with patch.object(zipfile.ZipFile, "read", new=guarded_read):
+            with self.assertRaisesRegex(
+                CandidateArtifactError,
+                "WinForms accessibility app-config size",
+            ):
+                verify(self.path, SHA)
 
     def test_candidate_uncompressed_size_bound_fails_before_member_reads(self) -> None:
         original_read = zipfile.ZipFile.read
