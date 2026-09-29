@@ -37,9 +37,18 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("github.event.pull_request.base.sha", workflow)
         self.assertIn("github.event.pull_request.head.sha", workflow)
         self.assertIn("git rev-list --parents -n 1 HEAD", workflow)
-        self.assertIn('test "$parent_one" = "$base_sha"', workflow)
-        self.assertIn('test "$parent_two" = "$head_sha"', workflow)
+        self.assertIn(
+            "read -r actual_merge base_sha merged_head_sha extra",
+            workflow,
+        )
+        self.assertIn('test "$merged_head_sha" = "$head_sha"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base_sha" "$base_sha"',
+            workflow,
+        )
         self.assertIn('git diff --check "$base_sha" "$merge_sha"', workflow)
+        self.assertIn("P0_TRIAD_MERGE_IDENTITY=EXACT", workflow)
+        self.assertNotIn('test "$parent_one" = "$base_sha"', workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn("fetch-depth: 2", workflow)
         self.assertNotIn("unexpected convergence base:", workflow)

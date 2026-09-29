@@ -40,21 +40,28 @@ jobs:
           test '${{ github.event_name }}' = 'pull_request'
           test '${{ github.event.pull_request.base.repo.full_name }}' = '${{ github.repository }}'
 
-          base_sha='${{ github.event.pull_request.base.sha }}'
+          event_base_sha='${{ github.event.pull_request.base.sha }}'
           head_sha='${{ github.event.pull_request.head.sha }}'
           merge_sha='${{ github.sha }}'
 
-          git cat-file -e "$base_sha^{commit}"
+          git cat-file -e "$event_base_sha^{commit}"
           git cat-file -e "$head_sha^{commit}"
           test "$(git rev-parse HEAD)" = "$merge_sha"
 
-          read -r actual_merge parent_one parent_two extra < <(git rev-list --parents -n 1 HEAD)
+          read -r actual_merge base_sha merged_head_sha extra < <(git rev-list --parents -n 1 HEAD)
           test "$actual_merge" = "$merge_sha"
-          test "$parent_one" = "$base_sha"
-          test "$parent_two" = "$head_sha"
+          test "$merged_head_sha" = "$head_sha"
           test -z "${extra:-}"
 
+          # GitHub may synthesize the merge after the target branch advanced
+          # beyond the pull_request payload's base.sha. Bind qualification to
+          # the actual tested merge parent, while requiring the event snapshot
+          # to remain in that base lineage.
+          git cat-file -e "$base_sha^{commit}"
+          git merge-base --is-ancestor "$event_base_sha" "$base_sha"
           git diff --check "$base_sha" "$merge_sha"
+          printf 'P0_TRIAD_MERGE_IDENTITY=EXACT base=%s head=%s merge=%s\n' \
+            "$base_sha" "$merged_head_sha" "$merge_sha"
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
