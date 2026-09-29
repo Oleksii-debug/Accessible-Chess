@@ -38,6 +38,24 @@ class _LegalMoveEngine:
         self.closed = True
 
 
+class _RecordingGameSounds:
+    def __init__(self) -> None:
+        self.move_events = []
+        self.end_events = 0
+
+    def start(self) -> None:
+        pass
+
+    def move(self, facts) -> None:
+        self.move_events.append(facts)
+
+    def end(self) -> None:
+        self.end_events += 1
+
+    def illegal(self) -> None:
+        pass
+
+
 class _FakeTime:
     def __init__(self, value: float) -> None:
         self.value = float(value)
@@ -50,7 +68,12 @@ class _FakeTime:
 
 
 class Stage1EnginePlayUiTests(unittest.TestCase):
-    def make_api(self, engine: _LegalMoveEngine | None = None):
+    def make_api(
+        self,
+        engine: _LegalMoveEngine | None = None,
+        *,
+        game_sounds=None,
+    ):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         selected = engine or _LegalMoveEngine()
@@ -58,6 +81,7 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         api = Stage1ReleaseAccessibleChessAPI(
             keymap_path=Path(temp.name) / "keymap.json",
             engine_play_service=service,
+            game_sounds=game_sounds,
         )
         self.addCleanup(api.close_analysis)
         return api, selected
@@ -84,7 +108,8 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIn("Stockfish зіграв", played["announcement"])
 
     def test_timed_text_move_expiring_after_preflight_is_rolled_back(self) -> None:
-        api, engine = self.make_api()
+        sounds = _RecordingGameSounds()
+        api, engine = self.make_api(game_sounds=sounds)
         started = api.start_engine_game("white", 5, 1, 0)
         self.assertTrue(started["ok"], started)
         session = api._engine_session
@@ -114,6 +139,8 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(api.review_history.export_tree(), before_tree)
         self.assertEqual(api.board.redo_stack, [])
         self.assertEqual(engine.calls, [])
+        self.assertEqual(sounds.move_events, [])
+        self.assertEqual(sounds.end_events, 1)
         self.assertEqual(expired["engineGame"]["phase"], "finished")
 
     def test_timed_board_move_expiring_after_preflight_is_rolled_back(self) -> None:
