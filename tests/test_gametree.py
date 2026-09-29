@@ -38,7 +38,7 @@ class GameTreeTests(unittest.TestCase):
         self.assertEqual([m.san for m in reparsed.line.moves[1].variations[0].moves], ['c5', 'Nf3'])
 
     def test_import_move_number_grammar_and_san_boundary(self):
-        source = '[Result "*"]\n\n1 e4 1 .. e5 2....Nf3 2 ... Nc6 *'
+        source = '[Result "*"]\n\n1 e4 1 ..e5 2....Nf3 2 ... Nc6 *'
         parsed = parse_games(source)[0]
         self.assertEqual(
             [move.move_number for move in parsed.line.moves],
@@ -55,6 +55,7 @@ class GameTreeTests(unittest.TestCase):
 
         for damaged in (
             '... e4 *',
+            '....e4 *',
             '1 . . e4 *',
             '1 {between integer and periods} .. e4 *',
         ):
@@ -81,6 +82,8 @@ class GameTreeTests(unittest.TestCase):
             "1..e4",
             "1...e5",
             "1....e4",
+            "...",
+            "...e5",
         ):
             with self.subTest(structural_san=structural_san):
                 game.line.moves[0].san = structural_san
