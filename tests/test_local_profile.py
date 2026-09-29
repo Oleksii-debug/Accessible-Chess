@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import tempfile
 import threading
@@ -19,6 +20,29 @@ from acs.local_profile import (
     parse_local_profile_bytes,
     serialize_local_profile,
 )
+
+
+def _hold_profile_mutation_lock(
+    profile_path: str,
+    ready,
+    release,
+) -> None:
+    store = LocalProfileStore(profile_path)
+    with store._mutation_lock():
+        ready.set()
+        if not release.wait(10):
+            raise RuntimeError("timed out waiting to release cross-process profile lock")
+
+
+def _acquire_profile_mutation_lock(
+    profile_path: str,
+    attempting,
+    acquired,
+) -> None:
+    store = LocalProfileStore(profile_path)
+    attempting.set()
+    with store._mutation_lock():
+        acquired.set()
 
 
 class LocalProfileContractTests(unittest.TestCase):
@@ -248,6 +272,45 @@ class LocalProfileStoreTests(unittest.TestCase):
         lock_bytes = self.store.lock_path.read_bytes()
         self.assertNotIn(profile.profile_id.encode("ascii"), lock_bytes)
         self.assertNotIn(profile.display_name.encode("utf-8"), lock_bytes)
+
+    def test_mutation_lock_serializes_independent_processes(self) -> None:
+        self.store.create("Alice")
+        context = multiprocessing.get_context("spawn")
+        ready = context.Event()
+        release = context.Event()
+        attempting = context.Event()
+        acquired = context.Event()
+        holder = context.Process(
+            target=_hold_profile_mutation_lock,
+            args=(str(self.store.path), ready, release),
+        )
+        waiter = context.Process(
+            target=_acquire_profile_mutation_lock,
+            args=(str(self.store.path), attempting, acquired),
+        )
+        try:
+            holder.start()
+            self.assertTrue(ready.wait(10), "holder process did not acquire profile lock")
+            waiter.start()
+            self.assertTrue(attempting.wait(10), "waiter process did not start lock attempt")
+            self.assertFalse(
+                acquired.wait(0.35),
+                "independent process entered profile mutation lock before release",
+            )
+            release.set()
+            self.assertTrue(acquired.wait(10), "waiter process never acquired released profile lock")
+        finally:
+            release.set()
+            holder.join(10)
+            waiter.join(10)
+            if holder.is_alive():
+                holder.terminate()
+                holder.join(5)
+            if waiter.is_alive():
+                waiter.terminate()
+                waiter.join(5)
+        self.assertEqual(holder.exitcode, 0)
+        self.assertEqual(waiter.exitcode, 0)
 
     def test_corrupt_primary_recovers_from_verified_backup_without_rewriting(self) -> None:
         original = self.store.create("Alice")
