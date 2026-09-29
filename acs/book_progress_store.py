@@ -455,6 +455,14 @@ class BookProgressStore:
             return backup_payload, backup_raw, _revision(backup_raw)
 
         if payload is None:
+            if allow_backup_recovery:
+                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
+                    self.backup_path,
+                    missing_ok=True,
+                )
+                if backup_payload is not None:
+                    assert backup_raw is not None and backup_revision is not None
+                    return backup_payload, backup_raw, backup_revision
             return _empty_payload(), None, None
         return payload, raw, revision
 
