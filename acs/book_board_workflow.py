@@ -389,7 +389,13 @@ class BookBoardWorkflow:
                     "a Book Board session is already active",
                     BookBoardWorkflowCode.ACTIVE_SESSION,
                 )
-            origin = self._reader.location()
+            try:
+                origin = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while opening the board",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
             candidate = self._build_session(origin, game_source=game_source)
             # The reader is externally owned.  Reject a concurrent cursor move
             # rather than returning to a different location later.
