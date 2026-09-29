@@ -178,6 +178,7 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(api.board.turn, "w")
         self.assertEqual(api.review_history.export_tree(), before_tree)
         self.assertEqual(api.board.redo_stack, [])
+        self.assertIsNone(api.selected_source)
         self.assertEqual(engine.calls, [])
         self.assertEqual(expired["engineGame"]["phase"], "finished")
 
