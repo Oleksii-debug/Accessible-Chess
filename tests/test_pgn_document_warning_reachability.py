@@ -65,6 +65,21 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
         self.assertNotIn("/home/", warnings[0])
         self.assertNotIn("Oleksii", warnings[0])
 
+    def test_document_warning_survives_post_action_render(self) -> None:
+        projection = PgnDocumentWebViewProjection(
+            self._warning_session(),
+            self._router(),
+            language=UILanguage.EN,
+        )
+
+        event = projection.copy_selection()
+
+        self.assertEqual("selection", event.kind)
+        warnings = event.payload["snapshot"]["game"]["warnings"]
+        self.assertTrue(
+            any("Recovered damaged source." in warning for warning in warnings)
+        )
+
     def test_real_invalid_utf8_open_warning_reaches_accessible_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "legacy source.pgn"
