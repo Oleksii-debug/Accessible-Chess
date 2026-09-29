@@ -48,6 +48,15 @@ class NativeDialogLanguageWorkflowTests(unittest.TestCase):
             "acs/version2_windows_library_export.py",
             "acs/version2_windows_native_dialog_ownership.py",
             "acs/version2_windows_pgn_export.py",
+            "tests/test_v2_library_export_dialog_language.py",
+            "tests/test_v2_native_dialog_language.py",
+            "tests/test_v2_native_dialog_language_workflow.py",
+            "tests/test_v2_windows_host_runtime.py",
+            "tests/test_v2_windows_library_export.py",
+            "tests/test_v2_windows_native_dialog_ownership.py",
+            "tests/test_v2_windows_pgn_export.py",
+            "tests/test_version2_release_app.py",
+            "tests/test_w6_v2_language_owner_current.py",
         )
         for block in blocks:
             for path in required_paths:
