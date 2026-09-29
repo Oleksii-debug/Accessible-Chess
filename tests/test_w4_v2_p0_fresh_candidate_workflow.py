@@ -88,6 +88,24 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
         self.assertIn("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS_FAILURE", self.text)
 
+    def test_packaged_probe_powershell_automatic_variable_guard_precedes_product_code(self) -> None:
+        qualify = self.text.index("Qualify exact Product source before compilation")
+        config_semantics = self.text.index("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
+        guard = self.text.index("SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY=PASS")
+        diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        self.assertLess(qualify, config_semantics)
+        self.assertLess(config_semantics, guard)
+        self.assertLess(guard, diagnostic)
+        self.assertLess(diagnostic, build)
+        self.assertIn("scripts/p0_packaged_document_copy_probe.ps1", self.text)
+        self.assertIn("scripts/p0g_packaged_hotkey_result_probe.ps1", self.text)
+        self.assertIn(r"\$matches\s*", self.text)
+        self.assertIn(
+            "SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY_FAILURE",
+            self.text,
+        )
+
     def test_winforms_accessibility_config_bytes_survive_fresh_package_readback(self) -> None:
         standalone = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
         extracted = self.text.index("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG=PASS")

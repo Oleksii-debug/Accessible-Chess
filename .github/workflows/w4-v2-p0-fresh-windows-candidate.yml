@@ -174,6 +174,25 @@ jobs:
           print("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS_FAILURE'}
+          @'
+          from pathlib import Path
+          import re
+
+          automatic_matches_mutation = re.compile(
+              r"(?im)\$matches\s*(?:\+\+|--|[+\-*/%]?=)"
+          )
+          for relative in (
+              "scripts/p0_packaged_document_copy_probe.ps1",
+              "scripts/p0g_packaged_hotkey_result_probe.ps1",
+          ):
+              text = Path(relative).read_text(encoding="utf-8")
+              if automatic_matches_mutation.search(text):
+                  raise SystemExit(
+                      f"PowerShell automatic $Matches variable is mutated in {relative}"
+                  )
+          print("SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY=PASS")
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY_FAILURE'}
           python run_accessible_chess_v2.py --diagnostic
           if($LASTEXITCODE -ne 0){throw 'SOURCE_V2_DIAGNOSTIC_FAILURE'}
           python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_packaged_hotkey_result_probe tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
