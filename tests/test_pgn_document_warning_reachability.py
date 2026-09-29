@@ -65,6 +65,27 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
         self.assertNotIn("/home/", warnings[0])
         self.assertNotIn("Oleksii", warnings[0])
 
+    def test_document_warning_is_rescrubbed_after_live_language_change(self) -> None:
+        projection = PgnDocumentWebViewProjection(
+            self._warning_session(),
+            self._router(),
+            language=UILanguage.EN,
+        )
+        self.assertIn(
+            "[local path hidden]",
+            projection.snapshot()["game"]["warnings"][0],
+        )
+
+        event = projection.set_language(UILanguage.UA)
+
+        self.assertEqual("render", event.kind)
+        warning = event.payload["game"]["warnings"][0]
+        self.assertEqual("Попередження PGN", event.payload["game"]["warnings_heading"])
+        self.assertIn("[локальний шлях приховано]", warning)
+        self.assertNotIn("[local path hidden]", warning)
+        self.assertNotIn("Users", warning)
+        self.assertNotIn("/home/", warning)
+
     def test_document_warning_survives_post_action_render(self) -> None:
         projection = PgnDocumentWebViewProjection(
             self._warning_session(),
@@ -137,6 +158,21 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
         session.set_result("1-0")
 
         self.assertEqual("1-0", projection.snapshot()["game"]["result"])
+
+    def test_browser_warning_renderer_is_persistent_selectable_text_not_live_region(self) -> None:
+        renderer = (
+            Path(__file__).resolve().parents[1] / "web" / "full_product_pgn.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("function renderWarnings(host, game)", renderer)
+        self.assertIn('section.setAttribute("aria-live", "off");', renderer)
+        self.assertIn('section.appendChild(node("h3", game.warnings_heading || ""));', renderer)
+        self.assertIn('const list = node("ul");', renderer)
+        self.assertIn(
+            'warnings.forEach(function (warning) { list.appendChild(node("li", warning)); });',
+            renderer,
+        )
+        self.assertIn("element.textContent = String(text);", renderer)
 
     def test_version2_application_binds_document_aware_projection(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
