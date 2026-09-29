@@ -96,6 +96,27 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         self.selected_source = None
         return True
 
+    def _play_game_end_sound(self) -> None:
+        if getattr(self, "_suppress_projection_game_end_sound", False):
+            return
+        super()._play_game_end_sound()
+
+    def _engine_game_projection(self) -> dict[str, Any]:
+        previous_phase = self._engine_game_phase
+        previous_suppress = getattr(
+            self,
+            "_suppress_projection_game_end_sound",
+            False,
+        )
+        self._suppress_projection_game_end_sound = True
+        try:
+            projection = super()._engine_game_projection()
+        finally:
+            self._suppress_projection_game_end_sound = previous_suppress
+        if previous_phase != "finished" and projection.get("phase") == "finished":
+            self._play_game_end_sound()
+        return projection
+
     def _play_latest_move(self) -> None:
         if getattr(self, "_defer_engine_game_move_sound", False):
             return
