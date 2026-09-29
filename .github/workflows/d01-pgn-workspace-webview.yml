@@ -172,11 +172,11 @@ jobs:
           esac
 
           # The Stage1 release facade is a shared keyboard-routing boundary.
-          # Accept only the prior canonical blob or the exact P0-G facade that
-          # adds board->analysis fallback while preserving the frozen core.
+          # Accept only reviewed exact successor blobs while preserving the
+          # frozen core; every other identity remains fail-closed.
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
           case "$stage1_facade_actual" in
-            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb)
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|be66793231442b7e5242eaf51a166acfb9df698f)
               ;;
             *)
               printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2
