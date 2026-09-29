@@ -309,13 +309,67 @@ try {
   })
   if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
 
+  # Prefer only bounded, application-owned, single-line labels. The V2 navigation
+  # heading is present across Stage1 and product routes, so selection proof must
+  # not depend on which persisted route happened to be active at process start.
+  $stablePhrases=@(
+    'Accessible Chess',
+    'Розділи','Sections',
+    'Інформація про гру','Game information',
+    'Список ходів','Move list',
+    'Дошка','Board',
+    'Бібліотека','Library',
+    'Книги','Books',
+    'Тренування','Training',
+    'Налаштування','Settings',
+    'Довідка','Help'
+  )
   $usableDocuments=@()
+  $documentDiagnostics=@()
   foreach($candidate in $documents){
+    $reportedSelectionMode='unavailable'
+    $phraseMatches=0
     try {
       $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-      if($null -eq $candidatePattern){continue}
-      if(([string]$candidatePattern.SupportedTextSelection) -match 'None
-    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
+      if($null -eq $candidatePattern){
+        $documentDiagnostics += 'pattern=null'
+        continue
+      }
+      $reportedSelectionMode=[string]$candidatePattern.SupportedTextSelection
+      # The capability enum is diagnostic only. The decisive proof is actual
+      # TextPatternRange Select/GetSelection with exact endpoints/text followed
+      # by native Ctrl+C and exact clipboard equality below.
+      $candidateRange=$candidatePattern.DocumentRange.Clone()
+      $candidateTarget=$null
+      $candidatePhrase=''
+      foreach($phrase in $stablePhrases){
+        $probeRange=$candidateRange.FindText($phrase,$false,$false)
+        if($null -eq $probeRange){continue}
+        $probeText=[string]$probeRange.GetText(-1)
+        if($probeText -cne $phrase){continue}
+        if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}
+        $phraseMatches++
+        $candidateTarget=$probeRange
+        $candidatePhrase=$phrase
+        break
+      }
+      $documentDiagnostics += "selection_mode=$reportedSelectionMode;stable_phrase_matches=$phraseMatches"
+      if($null -eq $candidateTarget){continue}
+      $usableDocuments += ,[pscustomobject]@{
+        document=$candidate
+        text_pattern=$candidatePattern
+        target=$candidateTarget
+        target_phrase=$candidatePhrase
+        reported_selection_mode=$reportedSelectionMode
+      }
+    } catch {
+      $documentDiagnostics += "selection_mode=$reportedSelectionMode;probe_error=$($_.Exception.GetType().Name)"
+      continue
+    }
+  }
+  if($usableDocuments.Count -eq 0){
+    $diagnostic=($documentDiagnostics -join '|')
+    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes bounded stable static text; diagnostics=$diagnostic"
   }
   if($usableDocuments.Count -ne 1){
     throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
@@ -421,6 +475,7 @@ try {
     manifest_product_sha_verified=$true
     executable_checksum_verified=$true
     textpattern_selection_supported=$true
+    reported_text_selection_mode=$reportedSelectionMode
     textpattern_target_selected=$true
     textpattern_selection_equality='UIA exact range endpoints and case-sensitive text equality'
     clipboard_equality='case-sensitive exact string equality'
@@ -493,6 +548,7 @@ if($bounded.Contains(':\') -or $bounded -match '(?i)/home/|/Users/|/tmp/'){throw
   $textPattern=$usableDocuments[0].text_pattern
   $target=$usableDocuments[0].target
   $targetPhrase=[string]$usableDocuments[0].target_phrase
+  $reportedSelectionMode=[string]$usableDocuments[0].reported_selection_mode
 
   $selected=[string]$target.GetText(-1)
   if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}
