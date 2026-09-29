@@ -73,6 +73,7 @@ jobs:
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/version2_pgn_commands.py=ad2cb1879868c73729d4895f229b3bd63245b288
+          web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           LOCKS
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
