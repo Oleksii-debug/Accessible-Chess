@@ -53,11 +53,20 @@ class GameTreeTests(unittest.TestCase):
         reparsed = parse_games(serialize_games([parsed]))[0]
         self.assertEqual(reparsed, parsed)
 
-        orphan = parse_games('[Result "*"]\n\n... e4 *')[0]
-        self.assertEqual([move.san for move in orphan.line.moves], ["e4"])
-        self.assertTrue(
-            any("orphan move-number periods" in warning for warning in orphan.warnings)
-        )
+        for damaged in (
+            '... e4 *',
+            '1 . . e4 *',
+            '1 {between integer and periods} .. e4 *',
+        ):
+            with self.subTest(damaged=damaged):
+                recovered = parse_games(f'[Result "*"]\n\n{damaged}')[0]
+                self.assertEqual([move.san for move in recovered.line.moves], ["e4"])
+                self.assertTrue(
+                    any(
+                        "orphan move-number periods" in warning
+                        for warning in recovered.warnings
+                    )
+                )
 
         game = PgnGame(
             line=VariationLine(
