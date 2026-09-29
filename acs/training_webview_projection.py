@@ -122,6 +122,11 @@ class TrainingWebViewProjection:
         """Exact transient presenter feedback for local transactional rollback."""
         return self._presenter.message
 
+    @property
+    def presenter_message_key(self) -> str | None:
+        """Internal presentation-message provenance for transactional rollback."""
+        return self._presenter.message_key
+
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
         if isinstance(language, str):
             try:

@@ -363,6 +363,7 @@ class TrainingPresenterTests(unittest.TestCase):
 
         _rejected, view = presenter.submit("e3")
         self.assertEqual("Try again.", view.message)
+        self.assertEqual("retry", presenter.message_key)
         presenter.set_language(UILanguage.UA)
         self.assertEqual("Спробуйте ще раз.", presenter.view().message)
 
@@ -385,6 +386,25 @@ class TrainingPresenterTests(unittest.TestCase):
         self.assertEqual("Good.", view.message)
         presenter.set_language(UILanguage.EN)
         self.assertEqual("Good.", presenter.view().message)
+
+        authored_collision = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+            message="Try again.",
+        )
+        self.assertIsNone(authored_collision.message_key)
+        authored_collision.set_language(UILanguage.UA)
+        self.assertEqual("Try again.", authored_collision.view().message)
+
+        restored_system = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+            message="ignored rollback copy",
+            message_key="retry",
+        )
+        self.assertEqual("Try again.", restored_system.view().message)
+        restored_system.set_language(UILanguage.UA)
+        self.assertEqual("Спробуйте ще раз.", restored_system.view().message)
 
 
     def test_snapshot_restore_preserves_progress_without_ui_side_state(self):

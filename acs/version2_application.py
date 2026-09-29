@@ -255,6 +255,7 @@ class Version2Application:
         restore_training=False,
         training_language=None,
         training_message="",
+        training_message_key=None,
     ):
         """Restore a failed Book progress transaction without partial UI state."""
         training_was_active = self.training_workspace is not None or self.training is not None
@@ -295,7 +296,10 @@ class Version2Application:
                         else training_language
                     ),
                 )
-                self.training = workspace.start_current(message=training_message)
+                self.training = workspace.start_current(
+                    message=training_message,
+                    message_key=training_message_key,
+                )
                 self.training_workspace = workspace
             except Exception:
                 # Secondary Training-state recovery failure must not mask the
@@ -354,12 +358,14 @@ class Version2Application:
         before_reader = None
         language = bookmark_name = training_language = None
         training_message = ""
+        training_message_key = None
         if command == "training.continue":
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
             training_language = self.training_workspace.language
             training_message = self.training_workspace.presenter_message
+            training_message_key = self.training_workspace.presenter_message_key
         try:
             result = self.training_workspace.dispatch(command, payload)
         except Exception:
@@ -382,6 +388,7 @@ class Version2Application:
                         restore_training=True,
                         training_language=training_language,
                         training_message=training_message,
+                        training_message_key=training_message_key,
                     )
             raise
         self.training = self.training_workspace.bridge
@@ -404,6 +411,7 @@ class Version2Application:
                         restore_training=True,
                         training_language=training_language,
                         training_message=training_message,
+                        training_message_key=training_message_key,
                     )
                 return result
             try:
@@ -416,6 +424,7 @@ class Version2Application:
                     restore_training=True,
                     training_language=training_language,
                     training_message=training_message,
+                    training_message_key=training_message_key,
                 )
                 raise
         return result

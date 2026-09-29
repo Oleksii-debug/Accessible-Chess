@@ -68,8 +68,14 @@ class Version2BookTrainingWorkspace:
         session: ExerciseSession,
         *,
         message: str = "",
+        message_key: str | None = None,
     ) -> TrainingWebViewBridge:
-        presenter = TrainingPresenter(session, language=self.language, message=message)
+        presenter = TrainingPresenter(
+            session,
+            language=self.language,
+            message=message,
+            message_key=message_key,
+        )
         projection = TrainingWebViewProjection(
             presenter,
             language=self.language,
@@ -85,12 +91,18 @@ class Version2BookTrainingWorkspace:
         material: BookTrainingMaterial,
         *,
         message: str = "",
+        message_key: str | None = None,
     ) -> tuple[ExerciseSession, TrainingWebViewBridge, TrainingProgressStore, str | None]:
         store = self._store_for(material)
         loaded = store.load(material.definition)
         session = ExerciseSession(material.definition) if loaded is None else loaded.session
         revision = None if loaded is None else loaded.revision
-        return session, self._bridge_for(session, message=message), store, revision
+        return (
+            session,
+            self._bridge_for(session, message=message, message_key=message_key),
+            store,
+            revision,
+        )
 
     @property
     def session(self) -> ExerciseSession:
@@ -104,14 +116,29 @@ class Version2BookTrainingWorkspace:
             raise RuntimeError("no Training exercise is active")
         return self.bridge.projection.presenter_message
 
-    def start_current(self, *, message: str = "") -> TrainingWebViewBridge:
+    @property
+    def presenter_message_key(self) -> str | None:
+        if self.bridge is None:
+            raise RuntimeError("no Training exercise is active")
+        return self.bridge.projection.presenter_message_key
+
+    def start_current(
+        self,
+        *,
+        message: str = "",
+        message_key: str | None = None,
+    ) -> TrainingWebViewBridge:
         location = self.reader.location()
         material = build_current_book_training_material(self.reader)
         # BookReader is bound to one immutable indexed revision. Revalidate the
         # live authoring document after Training material derivation so a mutable
         # BookDocument cannot change between the reader check and publication.
         self.reader.block_snapshot(location.index)
-        session, bridge, store, revision = self._prepare(material, message=message)
+        session, bridge, store, revision = self._prepare(
+            material,
+            message=message,
+            message_key=message_key,
+        )
         # Durable Training load is an external I/O boundary. Revalidate once more
         # immediately before publishing the prepared session/bridge.
         self.reader.block_snapshot(location.index)
@@ -206,6 +233,7 @@ class Version2BookTrainingWorkspace:
         revision = self._revision
         before_language = bridge.projection.language
         before_message = bridge.projection.presenter_message
+        before_message_key = bridge.projection.presenter_message_key
         try:
             event = bridge.dispatch(command, payload)
         except Exception:
@@ -217,7 +245,11 @@ class Version2BookTrainingWorkspace:
                 restored = ExerciseSession.restore(material.definition, before)
                 self._session = restored
                 self.language = before_language
-                self.bridge = self._bridge_for(restored, message=before_message)
+                self.bridge = self._bridge_for(
+                    restored,
+                    message=before_message,
+                    message_key=before_message_key,
+                )
                 self._revision = revision
             raise
         if command == "training.continue":
@@ -230,7 +262,11 @@ class Version2BookTrainingWorkspace:
             restored = ExerciseSession.restore(material.definition, before)
             self._session = restored
             self.language = before_language
-            self.bridge = self._bridge_for(restored, message=before_message)
+            self.bridge = self._bridge_for(
+                    restored,
+                    message=before_message,
+                    message_key=before_message_key,
+                )
             self._revision = revision
             # The bridge can construct its generic error after partially mutating
             # presentation state (notably a rejected language switch). We have
@@ -246,7 +282,11 @@ class Version2BookTrainingWorkspace:
             restored = ExerciseSession.restore(material.definition, before)
             self._session = restored
             self.language = before_language
-            self.bridge = self._bridge_for(restored, message=before_message)
+            self.bridge = self._bridge_for(
+                    restored,
+                    message=before_message,
+                    message_key=before_message_key,
+                )
             self._revision = revision
             raise
         if command == "training.language":
