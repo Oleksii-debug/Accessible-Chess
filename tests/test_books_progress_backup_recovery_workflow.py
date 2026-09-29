@@ -92,6 +92,37 @@ class BooksProgressBackupRecoveryWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
+    def test_missing_publication_contract_sentinel_is_deterministic(self) -> None:
+        self.assertIn("blob_or_missing() {", self.workflow)
+        self.assertIn(
+            'object_type="$(git cat-file -t "$spec" 2>/dev/null || true)"',
+            self.workflow,
+        )
+        self.assertIn(
+            "elif test \"$object_type\" = 'blob'; then",
+            self.workflow,
+        )
+        self.assertIn(
+            'product_contract="$(blob_or_missing "$product:$publication_contract")"',
+            self.workflow,
+        )
+        self.assertIn(
+            'candidate_contract="$(blob_or_missing "HEAD:$publication_contract")"',
+            self.workflow,
+        )
+        self.assertIn(
+            "Publication authority path must resolve to a blob",
+            self.workflow,
+        )
+        self.assertNotIn(
+            'git rev-parse "$product:$publication_contract" 2>/dev/null || printf',
+            self.workflow,
+        )
+        self.assertNotIn(
+            'git rev-parse "HEAD:$publication_contract" 2>/dev/null || printf',
+            self.workflow,
+        )
+
     def test_publication_contract_is_a_trigger(self) -> None:
         self.assertIn(
             "- 'tests/test_composition_publication_boundary_workflow.py'",
