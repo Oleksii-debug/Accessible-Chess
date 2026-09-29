@@ -135,7 +135,7 @@ class WindowsSoundPlaybackAdapter:
         source_bytes = source.read_bytes()
         source_digest = hashlib.sha256(source_bytes).hexdigest()
         destination = self._cache_dir / (
-            f"{event.value}-v{volume}-{source_digest[:16]}.wav"
+            f"{event.value}-v{volume}-{source_digest}.wav"
         )
         if destination.is_file():
             return destination
