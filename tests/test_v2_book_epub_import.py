@@ -339,6 +339,30 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_percent_encoded_slash_cannot_alias_archive_hierarchy(self) -> None:
+        for href in ("Text%2Fchapter.xhtml", "Text%2fchapter.xhtml"):
+            with self.subTest(href=href):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="{href}" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>Wrong hierarchy target.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="encoded-slash.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
     def test_valid_percent_encoded_utf8_package_path_is_preserved(self) -> None:
         raw = _epub(
             opf=_opf(
