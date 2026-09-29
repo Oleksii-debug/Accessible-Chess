@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
-from .full_product_ui_shell import UILanguage
+from .full_product_ui_shell import UILanguage, concise_user_error
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
 from .ui_review_adapter import ReviewView
@@ -106,26 +106,69 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._version2_language_refresh = callback
 
     @staticmethod
-    def _sync_version2_language(application: Any, language: UILanguage) -> None:
-        """Apply one presentation language to every currently materialized V2 surface."""
+    def _sync_version2_language(
+        application: Any,
+        language: UILanguage,
+        *,
+        best_effort: bool = False,
+    ) -> bool:
+        """Apply one language to every materialized V2 surface.
+
+        Forward convergence is strict. Rollback can opt into best-effort mode so
+        one broken surface setter cannot prevent independent later surfaces from
+        returning to the persisted owner language.
+        """
 
         if not isinstance(language, UILanguage):
             raise TypeError("Version 2 language must be UILanguage")
+        complete = True
+
+        def apply(setter: Any, *, label: str) -> bool:
+            nonlocal complete
+            if not callable(setter):
+                if not best_effort:
+                    raise TypeError(f"{label} cannot change language")
+                complete = False
+                return False
+            try:
+                setter(language)
+                return True
+            except Exception:
+                if not best_effort:
+                    raise
+                complete = False
+                return False
+
         shell = getattr(application, "shell", None)
-        set_shell_language = getattr(shell, "set_language", None)
-        if not callable(set_shell_language):
-            raise TypeError("Version 2 shell cannot change language")
-        set_shell_language(language)
+        apply(
+            getattr(shell, "set_language", None),
+            label="Version 2 shell",
+        )
 
         for bridge_name in ("pgn", "library", "books"):
             bridge = getattr(application, bridge_name, None)
             if bridge is None:
                 continue
             projection = getattr(bridge, "projection", None)
-            set_projection_language = getattr(projection, "set_language", None)
-            if not callable(set_projection_language):
-                raise TypeError(f"Version 2 {bridge_name} surface cannot change language")
-            set_projection_language(language)
+            apply(
+                getattr(projection, "set_language", None),
+                label=f"Version 2 {bridge_name} surface",
+            )
+
+        # Training is materialized through a workspace rather than a direct
+        # application bridge attribute. Publish workspace.language only after its
+        # projection accepted the same language.
+        training_workspace = getattr(application, "training_workspace", None)
+        if training_workspace is not None:
+            bridge = getattr(training_workspace, "bridge", None)
+            projection = getattr(bridge, "projection", None)
+            if apply(
+                getattr(projection, "set_language", None),
+                label="Version 2 Training surface",
+            ):
+                training_workspace.language = language
+
+        return complete
 
     @staticmethod
     def _queue_version2_language_refresh(application: Any) -> None:
@@ -145,15 +188,6 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         if isinstance(data, dict):
             data["language"] = language
 
-    @classmethod
-    def _rollback_settings_language(cls, settings: Any, language: str) -> None:
-        if settings is None:
-            return
-        try:
-            settings.set("language", language)
-        except Exception:
-            cls._restore_settings_language_memory(settings, language)
-
     def _language_error(self, language: str) -> dict[str, Any]:
         return self._error(
             "Language could not be changed."
@@ -162,7 +196,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         )
 
     def set_language(self, lang: str) -> dict[str, Any]:
-        """Persist first, then atomically converge every live V2 presentation surface."""
+        """Converge reversible live surfaces before the one durable Settings commit."""
 
         if type(lang) is not str:
             return super().set_language(lang)
@@ -173,22 +207,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         previous = self.lang
         settings = getattr(self, "_settings", None)
         application = self._version2_application
-
-        if settings is not None:
-            try:
-                settings.set("language", target)
-            except Exception:
-                self._restore_settings_language_memory(settings, previous)
-                return self._language_error(previous)
+        refresh_queued = False
 
         try:
             result = super().set_language(target)
         except Exception:
-            self._rollback_settings_language(settings, previous)
             return self._language_error(previous)
-
         if not result.get("ok"):
-            self._rollback_settings_language(settings, previous)
             return result
 
         try:
@@ -200,6 +225,19 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     raise RuntimeError("Version 2 native menu language refresh failed")
             if application is not None:
                 self._queue_version2_language_refresh(application)
+                refresh_queued = True
+
+            # This is the final fallible commit point. Nothing after a successful
+            # Settings.set() may require a compensating durable write.
+            if settings is not None:
+                try:
+                    settings.set("language", target)
+                except Exception:
+                    # Settings.set() updates memory before save(), so restore the
+                    # in-memory value. The durable file was never intentionally
+                    # rewritten to the previous value: rollback remains write-free.
+                    self._restore_settings_language_memory(settings, previous)
+                    raise
         except Exception:
             try:
                 super().set_language(previous)
@@ -207,7 +245,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 pass
             if application is not None:
                 try:
-                    self._sync_version2_language(application, UILanguage(previous))
+                    self._sync_version2_language(
+                        application,
+                        UILanguage(previous),
+                        best_effort=True,
+                    )
                 except Exception:
                     pass
             if self._version2_language_refresh is not None:
@@ -215,8 +257,10 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     self._version2_language_refresh()
                 except Exception:
                     pass
-            self._rollback_settings_language(settings, previous)
-            if application is not None:
+            # One empty language event simply asks the WebView to re-read current
+            # state. If the target event was already staged before persistence
+            # failed, reuse it; otherwise publish one rollback refresh.
+            if application is not None and not refresh_queued:
                 try:
                     self._queue_version2_language_refresh(application)
                 except Exception:
@@ -553,6 +597,26 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         command: str,
         payload: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
+        # Persisted Settings is the only release language owner. Reusable lower
+        # surface bridges keep local language commands for isolated composition
+        # and testing, but packaged WebView ingress must not split any live
+        # surface from the persisted shell/PGN/Library/Books/Training transaction.
+        local_language_commands = {
+            ("library", "library.language"),
+            ("books", "book.language"),
+            ("training", "training.language"),
+        }
+        command_id = command.strip() if isinstance(command, str) else command
+        if (area, command_id) in local_language_commands:
+            return {
+                "kind": "error",
+                "payload": {
+                    "message": concise_user_error(
+                        "",
+                        language=UILanguage(self.lang),
+                    )
+                },
+            }
         return self._version2().browser_command(area, command, payload)
 
     def v2_drain_events(self) -> tuple[dict[str, object], ...]:
