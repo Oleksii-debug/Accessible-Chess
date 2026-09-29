@@ -606,7 +606,8 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             ("books", "book.language"),
             ("training", "training.language"),
         }
-        if (area, command) in local_language_commands:
+        command_id = command.strip() if isinstance(command, str) else command
+        if (area, command_id) in local_language_commands:
             return {
                 "kind": "error",
                 "payload": {

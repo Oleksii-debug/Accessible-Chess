@@ -330,14 +330,15 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                     ("training", "training.language"),
                 )
                 for area, command in local_commands:
-                    with self.subTest(area=area, command=command):
-                        result = api.v2_browser_command(
-                            area,
-                            command,
-                            {"language": "en"},
-                        )
-                        self.assertEqual(result["kind"], "error")
-                        self.assertTrue(result["payload"]["message"])
+                    for browser_command in (command, f"  {command}  "):
+                        with self.subTest(area=area, command=browser_command):
+                            result = api.v2_browser_command(
+                                area,
+                                browser_command,
+                                {"language": "en"},
+                            )
+                            self.assertEqual(result["kind"], "error")
+                            self.assertTrue(result["payload"]["message"])
 
                 self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
                 self.assertEqual(settings.get("language"), "uk")
