@@ -57,6 +57,11 @@ jobs:
             'tests/test_keybindings.py' \
             'tests/test_stage1_board_action_integration.py' \
             'tests/test_webview_keymap_bridge_contract.py' \
+            'tests/test_accessible_webui.py' \
+            'tests/test_dev1_release_ui_regressions.py' \
+            'tests/test_issue22_release_contract.py' \
+            'tests/test_p0g_packaged_hotkey_result_probe.py' \
+            'tests/test_stage1_packaged_focus_origin_contract.py' \
             'acs/ui_keymap_service.py' \
             'acs/version2_release_app.py' \
             'tests/test_version2_release_app.py' \
