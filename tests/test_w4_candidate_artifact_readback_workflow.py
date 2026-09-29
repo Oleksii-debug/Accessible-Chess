@@ -74,7 +74,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
     def test_verifier_bytes_and_product_dependencies_have_separate_exact_authorities(self) -> None:
         self.assertNotIn("W4_VERIFIER_COMMIT:", self.text)
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 7f2a0275eafdca4177cf1c1317b0fea0d2880fa3",
+            "W4_VERIFIER_BLOB_SHA: 50056ca618abc42450512d7cb0dbc3efa9442809",
             self.text,
         )
         self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
@@ -124,7 +124,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:
-        declared = "7f2a0275eafdca4177cf1c1317b0fea0d2880fa3"
+        declared = "50056ca618abc42450512d7cb0dbc3efa9442809"
         actual = subprocess.run(
             ["git", "rev-parse", "HEAD:scripts/verify_w4_candidate_artifact.py"],
             cwd=ROOT,
