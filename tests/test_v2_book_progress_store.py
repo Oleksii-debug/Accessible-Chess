@@ -198,6 +198,36 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:huge")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.RESOURCE_LIMIT)
 
+    def test_missing_primary_read_path_restores_valid_backup_without_mutation(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:read-orphan", reader)
+        reader.go_to(3)
+        self.store.save("book:read-orphan", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+
+        self.assertTrue(self.store.has("book:read-orphan"))
+        restored = self.store.restore(
+            "book:read-orphan",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_missing_primary_with_corrupt_backup_fails_closed_on_read(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        corrupt_backup = b'{"schema_version":2,"generation":'
+        self.store.backup_path.write_bytes(corrupt_backup)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:corrupt-orphan")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), corrupt_backup)
+
     def test_recovery_without_primary_or_backup_remains_a_noop(self) -> None:
         self.assertFalse(self.store.recover_from_backup())
         self.assertFalse(self.path.exists())
