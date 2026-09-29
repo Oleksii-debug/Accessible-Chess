@@ -22,6 +22,7 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
+from .search_policy import search_fold
 
 
 class BookEntryKind(str, Enum):
@@ -198,11 +199,14 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
-        needle = text.strip().casefold()
-        if not needle:
+        raw_needle = text.strip()
+        if not raw_needle:
             raise ValueError("Search text must not be empty")
+        needle = search_fold(raw_needle)
+        assert needle is not None
         return tuple(
             entry
             for entry in self._entries
-            if (kinds is None or entry.kind in kinds) and needle in entry.label.casefold()
+            if (kinds is None or entry.kind in kinds)
+            and needle in (search_fold(entry.label) or "")
         )
