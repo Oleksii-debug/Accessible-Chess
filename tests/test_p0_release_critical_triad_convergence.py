@@ -5,12 +5,11 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_FULL_PRODUCT_BASE = "codex/v2-runtime-completion-20260907"
-
 REQUIRED_QA_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
     "tests/test_p0_packaged_document_copy_probe.py",
     "scripts/verify_p0_packaged_document_copy_evidence.py",
+    "tests/test_verify_p0_packaged_document_copy_evidence.py",
     "scripts/p0g_packaged_hotkey_result_probe.ps1",
     "tests/test_p0g_packaged_hotkey_result_probe.py",
 )
@@ -33,11 +32,31 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
-    def test_current_w4_release_base_is_explicitly_admitted(self) -> None:
+    def test_pull_request_gate_binds_exact_synthetic_merge_identity(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml").read_text(encoding="utf-8")
-        self.assertIn("release/w4-v2-current-p0-candidate-20260926", workflow)
-        self.assertIn(CANONICAL_FULL_PRODUCT_BASE, workflow)
+        self.assertIn("github.event.pull_request.base.sha", workflow)
+        self.assertIn("github.event.pull_request.head.sha", workflow)
+        self.assertIn("git rev-list --parents -n 1 HEAD", workflow)
+        self.assertIn(
+            "read -r actual_merge base_sha merged_head_sha extra",
+            workflow,
+        )
+        self.assertIn('test "$merged_head_sha" = "$head_sha"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base_sha" "$base_sha"',
+            workflow,
+        )
+        self.assertIn('git diff --check "$base_sha" "$merge_sha"', workflow)
+        self.assertIn("P0_TRIAD_MERGE_IDENTITY=EXACT", workflow)
+        self.assertNotIn('test "$parent_one" = "$base_sha"', workflow)
+        self.assertIn("fetch-depth: 0", workflow)
+        self.assertNotIn("fetch-depth: 2", workflow)
+        self.assertNotIn("unexpected convergence base:", workflow)
+        self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("base='*'", workflow)
+        for path in REQUIRED_QA_PATHS:
+            with self.subTest(trigger_path=path):
+                self.assertIn("      - '" + path + "'", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
