@@ -5,8 +5,6 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_FULL_PRODUCT_BASE = "codex/v2-runtime-completion-20260907"
-
 REQUIRED_QA_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
     "tests/test_p0_packaged_document_copy_probe.py",
