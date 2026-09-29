@@ -165,6 +165,32 @@ class PackagedSoundResolverTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PackagedSoundAssetResolver(tmp).load_manifest()
 
+    def test_scaled_cache_is_bound_to_source_bytes_not_mtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=Path(tmp) / "cache",
+            )
+
+            first_mtime = source.stat().st_mtime_ns
+            first = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            with wave.open(str(source), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x10\x00" * 8)
+            source.touch()
+            import os
+            os.utime(source, ns=(first_mtime, first_mtime))
+
+            second = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.is_file())
+            self.assertTrue(second.is_file())
+
     def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"

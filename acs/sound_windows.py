@@ -7,6 +7,7 @@ layout, WAV scaling/cache and ``winsound`` usage. Worker 4 packages the assets a
 runs the real Windows smoke; Core only defines the exact contract.
 """
 
+import hashlib
 import json
 import logging
 import struct
@@ -126,8 +127,15 @@ class WindowsSoundPlaybackAdapter:
 
     def _scaled_copy(self, source: Path, event: SoundEvent, volume: int) -> Path:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        destination = self._cache_dir / f"{event.value}-v{volume}.wav"
-        if destination.is_file() and destination.stat().st_mtime_ns >= source.stat().st_mtime_ns:
+
+        # Cache identity must follow the actual packaged bytes, not filesystem
+        # timestamps. Release extraction, pack replacement and restore can
+        # legitimately preserve or move mtimes backwards.
+        source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        destination = self._cache_dir / (
+            f"{event.value}-v{volume}-{source_digest[:16]}.wav"
+        )
+        if destination.is_file():
             return destination
 
         with wave.open(str(source), "rb") as reader:
