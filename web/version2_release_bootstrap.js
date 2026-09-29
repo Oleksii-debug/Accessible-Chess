@@ -66,10 +66,13 @@
   const profileSkip = documentRef.createElement("button");
   profileSkip.type = "button";
   profileSkip.id = "v2-profile-skip";
+  const profileRepair = documentRef.createElement("button");
+  profileRepair.type = "button";
+  profileRepair.id = "v2-profile-repair";
   const profileClose = documentRef.createElement("button");
   profileClose.type = "button";
   profileClose.id = "v2-profile-close";
-  profileActions.append(profileSave, profileSkip, profileClose);
+  profileActions.append(profileSave, profileSkip, profileRepair, profileClose);
   profileDialog.append(
     profileHeading,
     profileDescription,
@@ -93,6 +96,7 @@
       ? uiText("Змінити ім’я", "Rename")
       : uiText("Зберегти ім’я", "Save name");
     profileSkip.textContent = uiText("Пропустити й створити псевдонім", "Skip and create an alias");
+    profileRepair.textContent = uiText("Відновити з резервної копії", "Recover from backup");
     profileClose.textContent = uiText("Закрити", "Close");
     const exists = !!(profileState && profileState.exists);
     const displayName = exists ? String(profileState.displayName || "") : "";
@@ -100,13 +104,22 @@
       ? uiText("Профіль: ", "Profile: ") + displayName
       : uiText("Налаштувати профіль", "Set up profile");
     profileName.value = displayName;
+    const recoveryRequired = !!(profileState && profileState.recoveryRequired);
     profileSkip.hidden = exists;
+    profileRepair.hidden = !recoveryRequired;
+    profileSave.disabled = recoveryRequired;
+    profileName.disabled = recoveryRequired;
     profileClose.hidden = !exists;
-    profileStatus.textContent = exists
-      ? (profileState.generatedAlias
-        ? uiText("Використовується випадковий локальний псевдонім.", "A random local alias is in use.")
-        : uiText("Профіль збережено локально.", "The profile is stored locally."))
-      : uiText("Профіль ще не створено.", "No profile has been created yet.");
+    profileStatus.textContent = recoveryRequired
+      ? uiText(
+        "Профіль прочитано з перевіреної резервної копії. Щоб знову змінювати ім’я, спочатку відновіть основний файл профілю.",
+        "The profile was read from a verified backup. Recover the primary profile before changing the name."
+      )
+      : exists
+        ? (profileState.generatedAlias
+          ? uiText("Використовується випадковий локальний псевдонім.", "A random local alias is in use.")
+          : uiText("Профіль збережено локально.", "The profile is stored locally."))
+        : uiText("Профіль ще не створено.", "No profile has been created yet.");
   }
 
   function showProfileDialog() {
@@ -141,7 +154,7 @@
       }
       profileButton.disabled = false;
       renderProfileState(result);
-      if (openIfMissing && !result.exists) showProfileDialog();
+      if (openIfMissing && (!result.exists || result.recoveryRequired)) showProfileDialog();
       return true;
     }, function () {
       profileButton.disabled = true;
@@ -182,6 +195,18 @@
       applyProfileResult(result, true);
     }, function () {
       announce(uiText("Не вдалося створити псевдонім.", "Could not create an alias."));
+    });
+  });
+  profileRepair.addEventListener("click", function () {
+    const bridge = api();
+    if (!bridge || typeof bridge.profile_repair !== "function") return;
+    bridge.profile_repair().then(function (result) {
+      if (!applyProfileResult(result, false)) return;
+      profileName.disabled = false;
+      profileName.focus();
+      profileName.select();
+    }, function () {
+      announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
     });
   });
   profileClose.addEventListener("click", function () {
