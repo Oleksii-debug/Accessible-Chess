@@ -90,7 +90,7 @@ jobs:
           tests.test_pgn_position_new_document_reachability
           tests.test_version2_release_app
           tests.test_full_product_native_menu
-          tests.test_version2_profile
+          tests.test_version2_windows_composition_profile
 
       - name: Run adjacent V2 application contracts
         run: python -m unittest -v tests.test_version2_application
