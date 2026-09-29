@@ -98,7 +98,7 @@
       ? uiText("Змінити ім’я", "Rename")
       : uiText("Зберегти ім’я", "Save name");
     profileSkip.textContent = uiText("Пропустити й створити псевдонім", "Skip and create an alias");
-    profileRepair.textContent = uiText("Відновити з резервної копії", "Recover from backup");
+    profileRepair.textContent = uiText("Перевірити або відновити профіль", "Check or recover profile");
     profileClose.textContent = uiText("Закрити", "Close");
     const exists = !!(profileState && profileState.exists);
     const displayName = exists ? String(profileState.displayName || "") : "";
@@ -106,31 +106,21 @@
       ? uiText("Профіль: ", "Profile: ") + displayName
       : uiText("Налаштувати профіль", "Set up profile");
     profileName.value = displayName;
-    const recoveryRequired = !!(profileState && profileState.recoveryRequired);
     profileSkip.hidden = exists;
-    profileRepair.hidden = !recoveryRequired;
-    profileSave.disabled = recoveryRequired;
-    profileName.disabled = recoveryRequired;
+    profileRepair.hidden = !exists;
+    profileSave.disabled = false;
+    profileName.disabled = false;
     profileClose.hidden = !exists;
-    profileStatus.textContent = recoveryRequired
-      ? uiText(
-        "Профіль прочитано з перевіреної резервної копії. Щоб знову змінювати ім’я, спочатку відновіть основний файл профілю.",
-        "The profile was read from a verified backup. Recover the primary profile before changing the name."
-      )
-      : exists
-        ? (profileState.generatedAlias
-          ? uiText("Використовується випадковий локальний псевдонім.", "A random local alias is in use.")
-          : uiText("Профіль збережено локально.", "The profile is stored locally."))
-        : uiText("Профіль ще не створено.", "No profile has been created yet.");
+    profileStatus.textContent = exists
+      ? (profileState.generatedAlias
+        ? uiText("Використовується випадковий локальний псевдонім.", "A random local alias is in use.")
+        : uiText("Профіль збережено локально.", "The profile is stored locally."))
+      : uiText("Профіль ще не створено.", "No profile has been created yet.");
   }
 
   function showProfileDialog() {
     if (!profileDialog.open) profileDialog.showModal();
     global.setTimeout(function () {
-      if (profileState && profileState.recoveryRequired) {
-        profileRepair.focus();
-        return;
-      }
       profileName.focus();
       profileName.select();
     }, 0);
@@ -163,7 +153,7 @@
       }
       profileButton.disabled = false;
       renderProfileState(result);
-      if (openIfMissing && (!result.exists || result.recoveryRequired)) showProfileDialog();
+      if (openIfMissing && !result.exists) showProfileDialog();
       return true;
     }, function () {
       profileButton.disabled = true;
