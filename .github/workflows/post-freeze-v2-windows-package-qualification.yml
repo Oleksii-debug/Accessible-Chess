@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 0c9036f / p0g 48cae7e / p0-document 680a25a
+# exact-package-reconvergence: 0c9036f / p0g 48cae7e / p0-document cdbe498
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LINEAGE_PARENT_SHA: ffdc8676f89dfd78d4c6ddfb3b0dfe55e6743c07
-  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 16f1699ec27e45387858e8204f122118134449b8
+  LINEAGE_PARENT_SHA: 1593b4c4ad8c5476557e51aa6d0b1f003319204a
+  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 429e949eff186ef1cae6914d8e7bcb5ec9cdc0bb
   AUDITED_PARENT_SHA: 036e72bcec14a0b070c30fa846bc353ac08176ef
   PACKAGE_ANCHOR_SHA: 6559b5f5018ef51beb50b3c38515d2b6777b4ffa
   PRODUCT_PARENT_SHA: 0c9036f3f3a445d3d518825cd620583b29af755a
@@ -31,8 +31,8 @@ env:
   P0G_QA_SHA: 48cae7ed5d2915912a6e98806e787be126f8cff7
   P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 680a25af277026c5910ccccb3639e309050cf2b0
-  P0_DOCUMENT_PROBE_BLOB_SHA: b7814aa4eca183c6baa8737a52415d0c46036f9d
+  P0_DOCUMENT_QA_SHA: cdbe4980bc5d4221dc51d6e20d6d9e193c626181
+  P0_DOCUMENT_PROBE_BLOB_SHA: 126b10e3c259a0ef2dd4359c6725ade07d804079
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -133,7 +133,9 @@ jobs:
           grep -Fq 'AssertExactPackageBinding $root $ProductSha $exe' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'manifest_product_sha_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'executable_checksum_verified=$true' .p0-packaged-document-copy-probe.ps1
-          grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing one exact visible static UIA child target'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq "AssertProviderFocus \$roots 'move input copy dispatch after Ctrl+A' 'move-input'" .p0-packaged-document-copy-probe.ps1
@@ -266,7 +268,10 @@ jobs:
           $summary=Get-Content -LiteralPath 'packaged-v2-document-copy-summary.json' -Raw | ConvertFrom-Json
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Hardened document-copy summary Product SHA mismatch'}
           if(-not [bool]$summary.static_document_outside_edit -or -not [bool]$summary.textpattern_selection_supported){throw 'Hardened document-copy semantic selection proof incomplete'}
-          if([string]$summary.document_provider_cardinality -ne 'exactly one selectable Accessible Chess document containing stable static target text'){throw 'Hardened document-copy provider cardinality proof incomplete'}
+          if([string]$summary.document_provider_cardinality -ne 'exactly one selectable Accessible Chess document containing one exact visible static UIA child target'){throw 'Hardened document-copy provider cardinality proof incomplete'}
+          if([string]$summary.static_document_range_source -ne 'TextPattern.RangeFromChild exact named visible static UIA child'){throw 'Hardened document-copy static range source proof incomplete'}
+          $targetControlType=[string]$summary.static_document_target_control_type
+          if($targetControlType -ne 'ControlType.Header' -and $targetControlType -ne 'ControlType.Text'){throw 'Hardened document-copy static target control type proof incomplete'}
           if(-not [string]$summary.static_document_target_phrase){throw 'Hardened document-copy exact target phrase missing'}
           if([string]$summary.static_document_text -cne [string]$summary.static_document_target_phrase){throw 'Hardened document-copy exact target phrase/text mismatch'}
           $targetPhrase=[string]$summary.static_document_target_phrase
