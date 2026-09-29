@@ -135,6 +135,38 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
         self.assertEqual(dialogs.import_calls, 0)
         self.assertEqual(events, [])
 
+    def test_open_does_not_read_view_after_session_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "open-publication-order.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs()
+            dialogs.open_path = source
+            controller, _, session_box, _ = self._controller(dialogs)
+            real_view = PgnDocumentSession.view
+
+            def reject_post_publication_readback(bound_session):
+                if session_box["value"] is bound_session:
+                    raise AssertionError(
+                        "new PGN view must be materialized before session publication"
+                    )
+                return real_view(bound_session)
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=reject_post_publication_readback,
+            ):
+                result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertEqual(result.game_count, 1)
+            self.assertIsInstance(session_box["value"], PgnDocumentSession)
+            self.assertEqual(
+                session_box["value"].workspace.current_game().tags["Event"],
+                "UI journey",
+            )
+
     def test_real_pgn_open_edit_save_reopen_uses_canonical_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "private-source-name.pgn"

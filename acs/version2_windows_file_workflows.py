@@ -331,8 +331,10 @@ class Version2WindowsFileActionDelegate:
             return self._dialog_cancelled("pgn.open", previous_focus)
         try:
             session = PgnDocumentSession.open(path)
-            self._set_pgn_session(session)
+            # Materialize presentation state before publishing the replacement.
+            # A failed readback must leave the previous active document intact.
             view = session.view()
+            self._set_pgn_session(session)
         except Exception:
             return self._failed("pgn.open", "pgn_open_failed", focus_target=previous_focus)
         return self._emit(
