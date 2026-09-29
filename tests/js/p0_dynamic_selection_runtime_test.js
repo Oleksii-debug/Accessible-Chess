@@ -176,19 +176,73 @@ class FakeRange {
 }
 
 class FakeSelection {
-  constructor() { this.range = null; }
+  constructor() {
+    this.range = null;
+    this.anchorNode = null;
+    this.anchorOffset = 0;
+    this.focusNode = null;
+    this.focusOffset = 0;
+  }
   get rangeCount() { return this.range ? 1 : 0; }
   get isCollapsed() { return !this.range || this.range.toString().length === 0; }
   getRangeAt(index) { if (index !== 0 || !this.range) throw new Error("selection range unavailable"); return this.range; }
-  removeAllRanges() { this.range = null; }
-  addRange(range) { this.range = range; }
+  removeAllRanges() {
+    this.range = null;
+    this.anchorNode = null;
+    this.anchorOffset = 0;
+    this.focusNode = null;
+    this.focusOffset = 0;
+  }
+  addRange(range) {
+    this.range = range;
+    this.anchorNode = range.startContainer;
+    this.anchorOffset = range.startOffset;
+    this.focusNode = range.endContainer;
+    this.focusOffset = range.endOffset;
+  }
+  _absolute(node, offset) {
+    const root = nearestSemanticRoot(node);
+    if (!root) return 0;
+    let total = 0;
+    for (const candidate of textNodes(root)) {
+      if (candidate === node) return total + Math.max(0, Math.min(Number(offset) || 0, candidate.data.length));
+      total += candidate.data.length;
+    }
+    return total;
+  }
+  _setDirectionalRange(anchorNode, anchorOffset, focusNode, focusOffset) {
+    const range = new FakeRange();
+    range.root = nearestSemanticRoot(anchorNode) || nearestSemanticRoot(focusNode);
+    if (this._absolute(anchorNode, anchorOffset) <= this._absolute(focusNode, focusOffset)) {
+      range.setStart(anchorNode, anchorOffset);
+      range.setEnd(focusNode, focusOffset);
+    } else {
+      range.setStart(focusNode, focusOffset);
+      range.setEnd(anchorNode, anchorOffset);
+    }
+    this.range = range;
+    this.anchorNode = anchorNode;
+    this.anchorOffset = Number(anchorOffset) || 0;
+    this.focusNode = focusNode;
+    this.focusOffset = Number(focusOffset) || 0;
+  }
+  setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset) {
+    this._setDirectionalRange(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
+  collapse(node, offset) {
+    this._setDirectionalRange(node, offset, node, offset);
+  }
+  extend(node, offset) {
+    if (!this.anchorNode) throw new Error("selection anchor unavailable");
+    this._setDirectionalRange(this.anchorNode, this.anchorOffset, node, offset);
+  }
   toString() { return this.range ? this.range.toString() : ""; }
   collapseForMutation(target) {
     if (!this.range) return;
     const start = this.range.startContainer;
     const end = this.range.endContainer;
     if ((target.contains && (target.contains(start) || target.contains(end))) || target === start || target === end) {
-      this.range = null;
+      this.removeAllRanges();
     }
   }
 }
@@ -222,6 +276,7 @@ let currentRoute = null;
 
 const documentRef = {
   activeElement: null,
+  documentElement: { lang: "en" },
   getElementById(id) {
     if (main.id === id) return main;
     if (nav.id === id) return nav;
@@ -299,6 +354,125 @@ function selectSubstring(root, text) {
   assert.strictEqual(selection.toString(), text, "test selection setup failed");
 }
 
+function selectSubstringOccurrence(root, text, occurrence) {
+  let remaining = Math.max(0, Number(occurrence) || 0);
+  let chosenNode = null;
+  let chosenStart = -1;
+  for (const node of textNodes(root)) {
+    let start = 0;
+    while (start <= node.data.length) {
+      const match = node.data.indexOf(text, start);
+      if (match < 0) break;
+      if (remaining === 0) {
+        chosenNode = node;
+        chosenStart = match;
+        break;
+      }
+      remaining -= 1;
+      start = match + 1;
+    }
+    if (chosenNode) break;
+  }
+  assert.ok(chosenNode, "selection occurrence not found: " + text + " #" + occurrence);
+  const range = new FakeRange();
+  range.root = nearestSemanticRoot(chosenNode);
+  range.setStart(chosenNode, chosenStart);
+  range.setEnd(chosenNode, chosenStart + text.length);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  if (listeners.selectionchange) listeners.selectionchange();
+  assert.strictEqual(selection.toString(), text, "occurrence selection setup failed");
+}
+
+function selectSubstringBackward(root, text) {
+  const node = textNodes(root).find(item => item.data.includes(text));
+  assert.ok(node, "selection text not found: " + text);
+  const start = node.data.indexOf(text);
+  selection.setBaseAndExtent(node, start + text.length, node, start);
+  if (listeners.selectionchange) listeners.selectionchange();
+  assert.strictEqual(selection.toString(), text, "backward test selection setup failed");
+  assert.ok(selection.anchorOffset > selection.focusOffset, "backward test selection direction setup failed");
+}
+
+
+
+function proveV2BootstrapBackwardSelectionHelpers() {
+  workspace.hidden = false;
+  const content = new FakeElement("p");
+  content.textContent = "Alpha semantic Omega";
+  workspace.replaceChildren(content);
+
+  const bootstrapSource = fs.readFileSync("web/version2_final_product_bootstrap.js", "utf8");
+  const helperStart = bootstrapSource.indexOf("  function currentSelection()");
+  const helperEnd = bootstrapSource.indexOf("\n  const stage1Focus", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "V2 selection helpers were not found");
+
+  const helperFactory =
+    "(function(global,documentRef,workspace){" +
+    "let currentRouteId='library';\n" +
+    bootstrapSource.slice(helperStart, helperEnd) +
+    "\nreturn {captureWorkspaceSelection,restoreWorkspaceSelection};" +
+    "})(window,document,document.getElementById('v2-workspace'))";
+  const helpers = vm.runInContext(helperFactory, context, { filename: "version2.selection-helpers.js" });
+
+  selectSubstringBackward(workspace, "semantic");
+  const snapshot = helpers.captureWorkspaceSelection();
+  assert.ok(snapshot && snapshot.backward === true, "V2 bootstrap did not capture backward selection direction");
+
+  selection.removeAllRanges();
+  assert.strictEqual(
+    helpers.restoreWorkspaceSelection(snapshot, "library"),
+    true,
+    "V2 bootstrap failed to restore backward selection"
+  );
+  assert.strictEqual(selection.toString(), "semantic", "V2 bootstrap restored the wrong selected text");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "V2 bootstrap setBaseAndExtent path lost backward anchor/focus direction"
+  );
+
+  const nativeSetBaseAndExtent = selection.setBaseAndExtent;
+  selection.setBaseAndExtent = undefined;
+  selection.removeAllRanges();
+  assert.strictEqual(
+    helpers.restoreWorkspaceSelection(snapshot, "library"),
+    true,
+    "V2 bootstrap fallback failed to restore backward selection"
+  );
+  assert.strictEqual(selection.toString(), "semantic", "V2 bootstrap fallback restored the wrong text");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "V2 bootstrap collapse/extend fallback lost backward anchor/focus direction"
+  );
+  selection.setBaseAndExtent = nativeSetBaseAndExtent;
+
+  const duplicateInitial =
+    "FIRST target alpha " + "x".repeat(120) + " SECOND-CONTEXT target omega";
+  const duplicateUpdated =
+    "FIRST target alpha " + "y".repeat(320) + " SECOND-CONTEXT target omega";
+  content.textContent = duplicateInitial;
+  selectSubstringOccurrence(workspace, "target", 1);
+  const duplicateSnapshot = helpers.captureWorkspaceSelection();
+  const replacementText = new FakeTextNode(duplicateUpdated);
+  replacementText.parentNode = content;
+  content.children = [replacementText];
+  selection.removeAllRanges();
+  assert.strictEqual(
+    helpers.restoreWorkspaceSelection(duplicateSnapshot, "library"),
+    true,
+    "V2 bootstrap failed to restore duplicate selected text"
+  );
+  assert.strictEqual(selection.toString(), "target", "V2 bootstrap restored the wrong duplicate text");
+  assert.strictEqual(
+    selection.anchorOffset,
+    duplicateUpdated.lastIndexOf("target"),
+    "V2 bootstrap restored the nearer but semantically wrong duplicate occurrence"
+  );
+
+  console.log("P0_V2_BOOTSTRAP_DUPLICATE_CONTEXT_SURVIVES=PASS");
+  console.log("P0_V2_BOOTSTRAP_BACKWARD_SELECTION_SURVIVES=PASS");
+  console.log("P0_V2_BOOTSTRAP_BACKWARD_FALLBACK_SURVIVES=PASS");
+}
 
 function proveNavigationLocalRerender() {
   workspace.hidden = false;
@@ -353,6 +527,154 @@ async function proveStage1RefreshAnalysis() {
   await refreshAnalysis();
   assert.strictEqual(selection.toString(), "selected", "Stage1 refreshAnalysis lost a surviving semantic selection");
   console.log("P0_STAGE1_REFRESH_SELECTION_SURVIVES=PASS");
+}
+
+function createStage1Control(id, tagName) {
+  const control = new FakeElement(tagName || "button");
+  control.id = id;
+  main.appendChild(control);
+  return control;
+}
+
+function proveDuplicateSelectionContextRetention() {
+  currentRoute = null;
+  workspace.hidden = true;
+  const duplicate = createStage1Control("duplicate-selection-context", "p");
+  const initial =
+    "FIRST target alpha " + "x".repeat(120) + " SECOND-CONTEXT target omega";
+  const updated =
+    "FIRST target alpha " + "y".repeat(320) + " SECOND-CONTEXT target omega";
+  duplicate.textContent = initial;
+  selectSubstringOccurrence(duplicate, "target", 1);
+  duplicate.textContent = updated;
+  assert.strictEqual(selection.toString(), "target", "canonical runtime lost duplicate selected text");
+  assert.strictEqual(
+    selection.anchorOffset,
+    updated.lastIndexOf("target"),
+    "canonical runtime restored the nearer but semantically wrong duplicate occurrence"
+  );
+  console.log("P0_DUPLICATE_SELECTION_CONTEXT_SURVIVES=PASS");
+}
+
+function proveStage1AnalysisListRerender() {
+  currentRoute = null;
+  workspace.hidden = true;
+
+  const list = createStage1Control("analysis-lines", "ul");
+  const li = new FakeElement("li");
+  const button = new FakeElement("button");
+  button.textContent = "Variation 1. Depth 16. Evaluation +0.20. e4 e5";
+  li.appendChild(button);
+  list.appendChild(li);
+
+  [
+    "engine-toggle", "analysis-restart", "analysis-lock", "analysis-multipv",
+    "analysis-depth", "analysis-return", "analysis-explore-prev",
+    "analysis-explore-next", "analysis-exploration-status", "analysis-prev-pv",
+    "analysis-next-pv", "analysis-read", "analysis-explore",
+    "analysis-insert-move", "analysis-insert-line"
+  ].forEach(id => createStage1Control(id, id === "analysis-multipv" || id === "analysis-depth" ? "input" : "button"));
+
+  selectSubstring(list, "e4 e5");
+
+  const indexSource = fs.readFileSync("web/index.html", "utf8");
+  const lineStart = indexSource.indexOf("function analysisLineText(line)");
+  const lineEnd = indexSource.indexOf("\nfunction setAnalysisMutationLock", lineStart);
+  const renderStart = indexSource.indexOf("function renderAnalysis(s)");
+  const renderEnd = indexSource.indexOf("\nfunction render(s)", renderStart);
+  assert.ok(lineStart >= 0 && lineEnd > lineStart, "shipping analysisLineText function was not found");
+  assert.ok(renderStart >= 0 && renderEnd > renderStart, "shipping renderAnalysis function was not found");
+
+  context.el = id => documentRef.getElementById(id);
+  context.setText = function (id, text) {
+    const node = documentRef.getElementById(id);
+    if (node && node.textContent !== String(text || "")) node.textContent = String(text || "");
+  };
+  context.setAnalysisMutationLock = function () {};
+  context.apiAction = async function () {};
+
+  const executable =
+    indexSource.slice(lineStart, lineEnd) + "\n" +
+    indexSource.slice(renderStart, renderEnd) + "\nrenderAnalysis";
+  const renderAnalysis = vm.runInContext(executable, context, { filename: "index.renderAnalysis.js" });
+
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 18,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 18, scoreText: "+0.35", pvText: "e4 e5" }]
+    }
+  });
+  assert.strictEqual(
+    selection.toString(),
+    "e4 e5",
+    "Stage1 renderAnalysis must preserve surviving semantic analysis text selection through the canonical P0 runtime"
+  );
+
+  selectSubstringBackward(list, "e4 e5");
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 19,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 19, scoreText: "+0.40", pvText: "e4 e5" }]
+    }
+  });
+  assert.strictEqual(selection.toString(), "e4 e5", "Stage1 backward selection text must survive rerender");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "Stage1 backward selection must preserve anchor/focus direction through rerender"
+  );
+
+  selectSubstringBackward(list, "e4 e5");
+  const nativeSetBaseAndExtent = selection.setBaseAndExtent;
+  selection.setBaseAndExtent = undefined;
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 20,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 20, scoreText: "+0.45", pvText: "e4 e5" }]
+    }
+  });
+  assert.strictEqual(selection.toString(), "e4 e5", "Stage1 backward fallback selection text must survive rerender");
+  assert.ok(
+    selection.anchorOffset > selection.focusOffset,
+    "Stage1 collapse/extend fallback must preserve backward anchor/focus direction"
+  );
+  selection.setBaseAndExtent = nativeSetBaseAndExtent;
+
+  selectSubstring(list, "e4 e5");
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 19,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 19, scoreText: "+0.40", pvText: "d4 d5" }]
+    }
+  });
+  assert.strictEqual(
+    selection.toString(),
+    "",
+    "Stage1 renderAnalysis must not fabricate a selection after the selected analysis text disappears"
+  );
+  console.log("P0_STAGE1_ANALYSIS_RERENDER_SELECTION_SURVIVES=PASS");
+  console.log("P0_STAGE1_ANALYSIS_BACKWARD_DIRECTION_SURVIVES=PASS");
+  console.log("P0_STAGE1_ANALYSIS_BACKWARD_FALLBACK_SURVIVES=PASS");
+  console.log("P0_STAGE1_ANALYSIS_DISAPPEARING_SELECTION_NOT_RESTORED=PASS");
 }
 
 function emptyPgnSnapshot(message) {
@@ -424,6 +746,9 @@ function provePgnLocalRerender() {
 
 (async function run() {
   await proveStage1RefreshAnalysis();
+  proveStage1AnalysisListRerender();
+  proveDuplicateSelectionContextRetention();
+  proveV2BootstrapBackwardSelectionHelpers();
   proveNavigationLocalRerender();
   provePgnLocalRerender();
   console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
