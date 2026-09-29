@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
+  CURRENT_PRODUCT_BASE: 0c9036f3f3a445d3d518825cd620583b29af755a
 
 jobs:
   markdown-heading-text-integrity:
@@ -42,11 +42,21 @@ jobs:
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
-          git cat-file -e "$PRODUCT_BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$PRODUCT_BASE_SHA" HEAD
-          test "$(git merge-base "$PRODUCT_BASE_SHA" HEAD)" = "$PRODUCT_BASE_SHA"
-          git diff --check "$PRODUCT_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$PRODUCT_BASE_SHA" HEAD | sort)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin \
+              "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            upstream="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$upstream"
+          else
+            upstream="$CURRENT_PRODUCT_BASE"
+          fi
+          git cat-file -e "$upstream^{commit}"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/book-markdown-heading-text-integrity.yml' \
             '.github/workflows/v2-markdown-semantic-lists-convergence.yml' \
