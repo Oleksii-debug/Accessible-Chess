@@ -534,7 +534,7 @@ def submit_selection(
     expected_revision: int,
 ) -> TeachingSessionState:
     step = _mutable(plan, state, expected_revision)
-    _student_input_open(state)
+    _student_input_open(step, state)
     student_id = _session_student(plan, student_id)
     if step.policy.input_kind is not TeachingInputKind.SELECTION:
         raise TeachingSessionError("current teaching step does not accept board selection")
@@ -568,7 +568,7 @@ def submit_move(
     expected_revision: int,
 ) -> TeachingSessionState:
     step = _mutable(plan, state, expected_revision)
-    _student_input_open(state)
+    _student_input_open(step, state)
     student_id = _session_student(plan, student_id)
     if step.policy.input_kind is not TeachingInputKind.MOVE:
         raise TeachingSessionError("current teaching step does not accept chess moves")
@@ -698,10 +698,12 @@ def _active(state: TeachingSessionState) -> None:
         raise TeachingSessionError("student input requires active teaching session")
 
 
-def _student_input_open(state: TeachingSessionState) -> None:
+def _student_input_open(step: TeachingStep, state: TeachingSessionState) -> None:
     _active(state)
     if state.remaining_seconds == 0:
         raise TeachingSessionError("current teaching step timer has expired")
+    if state.presentation.board_permission is not step.policy.board_permission:
+        raise TeachingSessionError("teaching presentation does not permit current student input")
 
 
 def _validate_timer_state(step: TeachingStep, state: TeachingSessionState) -> None:
