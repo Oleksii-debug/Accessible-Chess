@@ -249,15 +249,23 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.game.tags["FEN"], AFTER_E4_FEN)
 
     def test_mutated_invalid_variation_root_fen_fails_closed_at_resolution(self) -> None:
-        block = VariationTree(
-            root_fen=AFTER_E4_FEN,
-            pgn="1... c5 *",
-        )
-        block.root_fen = "not a FEN"
+        for invalid_root in (
+            "not a FEN",
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0",
+        ):
+            with self.subTest(root=invalid_root):
+                block = VariationTree(
+                    root_fen=AFTER_E4_FEN,
+                    pgn="1... c5 *",
+                )
+                block.root_fen = invalid_root
 
-        with self.assertRaises(BookGameContentError) as caught:
-            resolve_book_variation(block)
-        self.assertEqual(caught.exception.code, BookGameContentErrorCode.INVALID_ROOT_FEN)
+                with self.assertRaises(BookGameContentError) as caught:
+                    resolve_book_variation(block)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookGameContentErrorCode.INVALID_ROOT_FEN,
+                )
 
     def test_matching_variation_fen_tag_is_preserved_not_rewritten(self) -> None:
         pgn = f'''[SetUp "1"]
