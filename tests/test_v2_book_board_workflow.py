@@ -391,10 +391,27 @@ class BookBoardWorkflowTests(unittest.TestCase):
         workflow, _engine, _analysis = self._workflow(reader)
         workflow.open_current()
         document.blocks[0].caption = "changed after reader index"
+        invalidation_calls = 0
+        real_invalidate = workflow._engine.invalidate
 
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.return_to_book()
+        def counted_invalidate() -> int:
+            nonlocal invalidation_calls
+            invalidation_calls += 1
+            return real_invalidate()
+
+        workflow._engine.invalidate = counted_invalidate  # type: ignore[method-assign]
+        try:
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                workflow.return_to_book()
+        finally:
+            workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
+
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertEqual(
+            invalidation_calls,
+            0,
+            "failed Book return must keep the active analysis context valid",
+        )
         self.assertTrue(workflow.active)
         self.assertEqual(workflow.board_snapshot().fen(), Board.START)
 
