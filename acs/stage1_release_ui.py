@@ -160,13 +160,34 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                 timeout_opponent_can_mate=context["timeout_opponent_can_mate"],
             )
         except Exception:
-            self._defer_engine_game_move_sound = False
-            if self._game_sounds is not None:
-                super()._play_latest_move()
-            warning = self._pause_engine_after_failure()
-            return self._ok(
-                (f"Зіграно: {human_san}. {warning}" if self.lang == "uk"
-                 else f"Played: {human_san}. {warning}")
+            # The Board mutation belongs to the caller, but clock/lifecycle
+            # acceptance belongs to EngineGameSession.  If that acceptance
+            # raises for any reason, the just-committed human move is not
+            # durable and must not be announced or sounded as successful.
+            if not self._rollback_expired_committed_move(context):
+                self._engine_game_phase = "error"
+                self._engine_game_error = (
+                    "Не вдалося безпечно скасувати непідтверджений хід."
+                    if self.lang == "uk"
+                    else "The unconfirmed move could not be safely rolled back."
+                )
+                return self._concise_error(
+                    "Не вдалося безпечно скасувати непідтверджений хід.",
+                    "The unconfirmed move could not be safely rolled back.",
+                )
+            try:
+                session.pause()
+            except Exception:
+                pass
+            self._engine_game_phase = "error"
+            self._engine_game_error = (
+                "Хід скасовано: не вдалося підтвердити стан годинника."
+                if self.lang == "uk"
+                else "The move was cancelled because the clock state could not be confirmed."
+            )
+            return self._concise_error(
+                "Хід скасовано: не вдалося підтвердити стан годинника.",
+                "The move was cancelled because the clock state could not be confirmed.",
             )
 
         outcome = after_move.lifecycle.outcome
