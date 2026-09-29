@@ -5,6 +5,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.ui_keymap_adapter import build_web_keymap
+from acs.version2_profile import build_version2_action_registry
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
@@ -22,6 +24,37 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
         self.assertNotIn("localStorage.getItem", html)
         self.assertNotIn("function conflictsFor", html)
         self.assertNotIn("const alias=keymap.find", html)
+
+    def test_help_uses_canonical_global_binding_and_accessible_dynamic_surface(self):
+        registry = build_version2_action_registry()
+        self.assertEqual(registry.get_binding("screen.help"), "F1")
+
+        snapshot = build_web_keymap(registry)
+        help_item = next(item for item in snapshot["actions"] if item["id"] == "screen.help")
+        self.assertEqual(help_item["registryContext"], "global")
+        self.assertEqual(help_item["context"], "document")
+        self.assertEqual(help_item["labelUk"], "Довідка")
+        self.assertEqual(help_item["labelEn"], "Help")
+        self.assertEqual(help_item["binding"], "F1")
+
+        root = Path(__file__).resolve().parents[1]
+        fallback = json.loads((root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        fallback_help = next(item for item in fallback["actions"] if item["id"] == "screen.help")
+        self.assertEqual(fallback_help["binding"], "F1")
+        self.assertEqual(fallback_help["registryContext"], "global")
+
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(
+            'id="help" class="block" role="document" aria-labelledby="help-title" '
+            'aria-live="off" tabindex="-1"',
+            html,
+        )
+        self.assertIn("function openHelp()", html)
+        self.assertIn("if(!d.open)d.showModal();el('help').focus()", html)
+        self.assertIn("keymap.filter(x=>x.binding||x.alias).map", html)
+        self.assertIn("resolveBinding(chord,'global','document')", html)
+        self.assertIn("if(id==='screen.help'){openHelp();return}", html)
+        self.assertNotIn("line('history.previous')", html)
 
     def test_board_grid_remap_uses_same_persisted_registry(self):
         with tempfile.TemporaryDirectory() as td:
