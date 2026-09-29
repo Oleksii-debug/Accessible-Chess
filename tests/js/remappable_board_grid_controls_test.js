@@ -61,12 +61,17 @@ for (const actionId of [
   assert.ok(actionBody.includes(actionId), `missing board action dispatch: ${actionId}`);
 }
 
-const helpStart = html.indexOf('function openHelp(){');
+const helpStart = html.indexOf('let helpReturnFocus=null;');
 const helpEnd = html.indexOf('\nfunction renderHelp', helpStart);
-assert.notStrictEqual(helpStart, -1, 'openHelp not found');
-assert.notStrictEqual(helpEnd, -1, 'openHelp terminator not found');
+assert.notStrictEqual(helpStart, -1, 'Help focus state not found');
+assert.notStrictEqual(helpEnd, -1, 'Help focus block terminator not found');
 const helpSource = html.slice(helpStart, helpEnd);
 let focusedId = '';
+const opener = {
+  isConnected: true,
+  focus() { focusedId = 'opener'; },
+};
+const helpDocument = {activeElement: opener};
 const helpDialog = {
   open: false,
   showModal() { this.open = true; },
@@ -74,13 +79,19 @@ const helpDialog = {
 const helpNode = {
   focus() { focusedId = 'help'; },
 };
-const openHelp = new Function(
+const helpFunctions = new Function(
   'el',
-  helpSource + '; return openHelp;',
-)((id) => (id === 'help-dialog' ? helpDialog : helpNode));
-openHelp();
+  'document',
+  helpSource + '; return {openHelp, restoreHelpFocus};',
+)(
+  (id) => (id === 'help-dialog' ? helpDialog : helpNode),
+  helpDocument,
+);
+helpFunctions.openHelp();
 assert.strictEqual(helpDialog.open, true, 'Help dialog did not open');
 assert.strictEqual(focusedId, 'help', 'Help content did not receive deterministic focus');
+helpFunctions.restoreHelpFocus();
+assert.strictEqual(focusedId, 'opener', 'Help close did not restore exact opener focus');
 
 const renderStart = html.indexOf('function renderHelp(){');
 const renderEnd = html.indexOf('\ndocument.addEventListener(\'keydown\'', renderStart);
