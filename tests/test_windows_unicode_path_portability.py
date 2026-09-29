@@ -19,6 +19,7 @@ from acs.pgn_service import open_pgn
 from acs.search_service import GameSearchQuery, GameSearchService
 from acs.settings import Settings
 from acs.version2_application import Version2Application
+from acs.version2_release_app import _version2_user_data_layout
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
@@ -152,7 +153,12 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
     def test_settings_and_native_pgn_open_save_as_reopen(self) -> None:
         state_dir = self.root / "Дані користувача"
         state_dir.mkdir()
-        settings_path = state_dir / "налаштування з пробілами.json"
+        layout = _version2_user_data_layout(
+            data_root=state_dir,
+            settings_path=state_dir / "налаштування з пробілами.json",
+        )
+        self.assertEqual(layout.root, state_dir)
+        settings_path = layout.settings_path
 
         settings = Settings(settings_path)
         settings.set("volume", 37)
