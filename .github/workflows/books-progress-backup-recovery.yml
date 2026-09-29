@@ -71,13 +71,14 @@ jobs:
             '.github/workflows/books-progress-backup-recovery.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/book_progress_store.py' \
-            'tests/test_v2_book_progress_store.py' | sort)"
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_version2_application.py' | sort)"
           if [ "$current_delta" = "$orphan_expected" ]; then
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "b4722657371d37fda14a01cf0d76100dd12845df"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "6c4e30c8cd3e2282f61027a9ae6d757f88ccd1d4"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "4df29a4392562b0623eec448506ca4c794f156e1"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "09e06b49d52175ba0ecabf9e0def7acec3428922"
             orphan_backup_successor=true
           fi
 
