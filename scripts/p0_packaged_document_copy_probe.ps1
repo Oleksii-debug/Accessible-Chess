@@ -314,7 +314,49 @@ try {
     try {
       $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
       if($null -eq $candidatePattern){continue}
-      if(([string]$candidatePattern.SupportedTextSelection) -match 'None
+      if(([string]$candidatePattern.SupportedTextSelection) -match 'None$'){continue}
+      $candidateElements=ControlElements @($candidate)
+      $candidateTarget=$null
+      $candidatePhrase=''
+      $candidateTargetType=''
+      foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів')){
+        $namedTargets=@($candidateElements | Where-Object {
+          try {
+            $type=[string]$_.Current.ControlType.ProgrammaticName
+            $name=[string]$_.Current.Name
+            $bounds=$_.Current.BoundingRectangle
+            $name -ceq $phrase -and
+            ($type -eq 'ControlType.Header' -or $type -eq 'ControlType.Text') -and
+            -not [bool]$_.Current.IsOffscreen -and
+            [double]$bounds.Width -gt 0 -and
+            [double]$bounds.Height -gt 0
+          } catch {$false}
+        })
+        if($namedTargets.Count -ne 1){continue}
+        try {$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])}
+        catch {continue}
+        if($null -eq $probeRange){continue}
+        $probeText=[string]$probeRange.GetText(-1)
+        if($probeText -cne $phrase){continue}
+        if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}
+        $candidateTarget=$probeRange
+        $candidatePhrase=$phrase
+        $candidateTargetType=[string]$namedTargets[0].Current.ControlType.ProgrammaticName
+        break
+      }
+      if($null -eq $candidateTarget){continue}
+      $usableDocuments += ,[pscustomobject]@{
+        document=$candidate
+        text_pattern=$candidatePattern
+        target=$candidateTarget
+        target_phrase=$candidatePhrase
+        target_control_type=$candidateTargetType
+      }
+    } catch {
+      continue
+    }
+  }
+  if($usableDocuments.Count -eq 0){
     throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
   }
   if($usableDocuments.Count -ne 1){
@@ -413,172 +455,6 @@ try {
     static_document_target_phrase=$targetPhrase
     static_document_target_control_type=$targetControlType
     static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'
-    static_document_outside_edit=$true
-    static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')
-    static_text_visibility_evidence=$visibilityEvidence
-    native_copy_focus_verified=$true
-    foreground_product_verified=$true
-    manifest_product_sha_verified=$true
-    executable_checksum_verified=$true
-    textpattern_selection_supported=$true
-    textpattern_target_selected=$true
-    textpattern_selection_equality='UIA exact range endpoints and case-sensitive text equality'
-    clipboard_equality='case-sensitive exact string equality'
-    ctrl_c_exact_clipboard=$true
-    move_input_focus_verified=$true
-    move_input_native_ctrl_a_ctrl_c=$true
-    document_process_id=[int]$document.Current.ProcessId
-    launched_process_id=$process.Id
-    human_tested=$false
-    nvda_verified=$false
-  }
-  $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
-}
-finally {
-  $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
-  if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
-}
-
-if(-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)){throw 'Packaged document-copy evidence missing'}
-$bounded=Get-Content -LiteralPath $OutputPath -Raw
-if($bounded.Contains(':\') -or $bounded -match '(?i)/home/|/Users/|/tmp/'){throw 'Local path leaked into document-copy evidence'}){continue}
-      $candidateElements=ControlElements @($candidate)
-      $candidateTarget=$null
-      $candidatePhrase=''
-      $candidateTargetType=''
-      foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів')){
-        $namedTargets=@($candidateElements | Where-Object {
-          try {
-            $type=[string]$_.Current.ControlType.ProgrammaticName
-            $name=[string]$_.Current.Name
-            $bounds=$_.Current.BoundingRectangle
-            $name -ceq $phrase -and
-            ($type -eq 'ControlType.Header' -or $type -eq 'ControlType.Text') -and
-            -not [bool]$_.Current.IsOffscreen -and
-            [double]$bounds.Width -gt 0 -and
-            [double]$bounds.Height -gt 0
-          } catch {$false}
-        })
-        if($namedTargets.Count -ne 1){continue}
-        try {$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])}
-        catch {continue}
-        if($null -eq $probeRange){continue}
-        $probeText=[string]$probeRange.GetText(-1)
-        if($probeText -cne $phrase){continue}
-        if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}
-        $candidateTarget=$probeRange
-        $candidatePhrase=$phrase
-        $candidateTargetType=[string]$namedTargets[0].Current.ControlType.ProgrammaticName
-        break
-      }
-      if($null -eq $candidateTarget){continue}
-      $usableDocuments += ,[pscustomobject]@{
-        document=$candidate
-        text_pattern=$candidatePattern
-        target=$candidateTarget
-        target_phrase=$candidatePhrase
-        target_control_type=$candidateTargetType
-      }
-    } catch {
-      continue
-    }
-  }
-  if($usableDocuments.Count -eq 0){
-    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
-  }
-  if($usableDocuments.Count -ne 1){
-    throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
-  }
-  $document=$usableDocuments[0].document
-  $textPattern=$usableDocuments[0].text_pattern
-  $target=$usableDocuments[0].target
-  $targetPhrase=[string]$usableDocuments[0].target_phrase
-
-  $selected=[string]$target.GetText(-1)
-  if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}
-  if($selected -cne $targetPhrase){throw 'Static TextPattern target drifted from exact single-line phrase'}
-  if($selected.Contains("`r") -or $selected.Contains("`n")){throw 'Static TextPattern exact-copy target must be single-line'}
-  $enclosing=$target.GetEnclosingElement()
-  if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
-    throw 'Static text proof accidentally targeted an edit control'
-  }
-
-  $shell=New-Object -ComObject WScript.Shell
-  ActivateProduct $shell $process 'static document copy'
-  try {$document.SetFocus()} catch {throw "Accessible Chess Document could not receive focus for native Ctrl+C: $($_.Exception.Message)"}
-  Start-Sleep -Milliseconds 100
-  $focused=AssertProviderFocus $roots 'static document copy'
-  if([string]$focused.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
-    throw 'Static document copy focus landed in an edit control'
-  }
-  try {$target.ScrollIntoView($true)}
-  catch {throw "Static TextPattern target could not be scrolled into view: $($_.Exception.Message)"}
-  Start-Sleep -Milliseconds 100
-  $visibilityEvidence=AssertVisibleTextRange $target
-  $null=AssertProviderFocus $roots 'static document visibility proof'
-  $target.Select()
-  Start-Sleep -Milliseconds 100
-  $activeSelections=@($textPattern.GetSelection())
-  if($activeSelections.Count -ne 1){
-    throw "Static TextPattern selection cardinality mismatch after Select(): $($activeSelections.Count)"
-  }
-  $activeSelection=$activeSelections[0]
-  $activeSelectedText=[string]$activeSelection.GetText(-1)
-  $targetText=[string]$target.GetText(-1)
-  if($activeSelectedText -cne $targetText){
-    throw "Static TextPattern active selection text differs from target range"
-  }
-  $startDelta=$activeSelection.CompareEndpoints(
-    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start,
-    $target,
-    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start
-  )
-  $endDelta=$activeSelection.CompareEndpoints(
-    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End,
-    $target,
-    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
-  )
-  if($startDelta -ne 0 -or $endDelta -ne 0){
-    throw "Static TextPattern active selection endpoints differ from target range"
-  }
-  Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
-  Start-Sleep -Milliseconds 150
-  $null=AssertProviderFocus $roots 'static document copy dispatch'
-  AssertProductForeground $process 'static document copy dispatch'
-  [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
-  $null=WaitClipboard $selected
-  Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
-
-  $elements=ControlElements $roots
-  $move=FindControl $elements 'move-input' 'ControlType.Edit'
-  if($null -eq $move){throw 'Move Input UIA element not found from connected provider roots'}
-  try {$value=$move.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)}
-  catch {throw "Move Input lacks ValuePattern: $($_.Exception.Message)"}
-  if($null -eq $value){throw 'Move Input lacks ValuePattern'}
-  $value.SetValue('e2e4')
-  ActivateProduct $shell $process 'move input copy'
-  $move.SetFocus()
-  Start-Sleep -Milliseconds 100
-  $null=AssertProviderFocus $roots 'move input copy' 'move-input'
-  Set-Clipboard -Value 'P0_COPY_EDIT_SENTINEL'
-  Start-Sleep -Milliseconds 100
-  $null=AssertProviderFocus $roots 'move input copy dispatch' 'move-input'
-  AssertProductForeground $process 'move input copy dispatch'
-  [AccessibleChessCopyKeys]::Ctrl([byte]0x41)
-  AssertProductForeground $process 'move input copy dispatch after Ctrl+A'
-  $null=AssertProviderFocus $roots 'move input copy dispatch after Ctrl+A' 'move-input'
-  [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
-  $null=WaitClipboard 'e2e4'
-  $value.SetValue('')
-  Write-Host 'PACKAGED_MOVE_INPUT_NATIVE_CTRL_A_CTRL_C=PASS'
-
-  $summary=[ordered]@{
-    product_sha=$ProductSha
-    discovery='connected provider-root ControlView from retained topology handles'
-    document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'
-    focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
-    static_document_text=$selected
-    static_document_target_phrase=$targetPhrase
     static_document_outside_edit=$true
     static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')
     static_text_visibility_evidence=$visibilityEvidence
