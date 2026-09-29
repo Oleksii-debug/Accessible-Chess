@@ -8,9 +8,6 @@ on:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
       - '.github/workflows/book-variation-fen-equivalence.yml'
-  push:
-    branches:
-      - fix/book-variation-fen-equivalence-20260929
   workflow_dispatch:
 
 permissions:
