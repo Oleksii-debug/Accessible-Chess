@@ -212,6 +212,84 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
                 self.assertEqual(session.bookmark(), before_context)
                 self.assertTrue(session.dirty)
 
+    def _active_dirty_session(self) -> PgnDocumentSession:
+        session = PgnDocumentSession.from_text(
+            """[Event "Active one"]
+[Result "*"]
+
+1. e4 e5 *
+
+[Event "Active two"]
+[Result "*"]
+
+1. d4 d5 2. c4 *
+"""
+        )
+        session.workspace.select_game(1)
+        session.workspace.set_cursor(GameTreeCursor((), 1))
+        session.edit_tag("Annotator", "Unsaved active context")
+        self.assertTrue(session.dirty)
+        return session
+
+    def _assert_session_snapshot_unchanged(
+        self,
+        session: PgnDocumentSession,
+        before: tuple[str, str, int, GameTreeCursor, bool, int],
+    ) -> None:
+        view = session.view()
+        self.assertEqual(
+            (
+                session.copy_pgn(),
+                session.workspace.content_digest,
+                view.selected_game_index,
+                view.cursor,
+                view.dirty,
+                view.document_revision,
+            ),
+            before,
+        )
+
+    def test_invalid_position_constructor_leaves_active_session_unchanged(self) -> None:
+        session = self._active_dirty_session()
+        view = session.view()
+        before = (
+            session.copy_pgn(),
+            session.workspace.content_digest,
+            view.selected_game_index,
+            view.cursor,
+            view.dirty,
+            view.document_revision,
+        )
+        invalid = PositionState.from_fen("8/8/8/8/8/8/8/8 w - - 0 1")
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            session.new_game_from_position(invalid, {"Event": "Rejected replacement"})
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_POSITION)
+        self._assert_session_snapshot_unchanged(session, before)
+
+    def test_position_tag_smuggling_leaves_active_session_unchanged(self) -> None:
+        session = self._active_dirty_session()
+        view = session.view()
+        before = (
+            session.copy_pgn(),
+            session.workspace.content_digest,
+            view.selected_game_index,
+            view.cursor,
+            view.dirty,
+            view.document_revision,
+        )
+        valid_position = PositionState.from_fen(CUSTOM_FEN)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            session.new_game_from_position(
+                valid_position,
+                {"Event": "Rejected replacement", "SetUp": "1"},
+            )
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_TAG)
+        self._assert_session_snapshot_unchanged(session, before)
+
     def test_position_workflow_custom_start_survives_save_and_reopen(self) -> None:
         session = PgnDocumentSession.new_game_from_position(
             PositionState.from_fen(CUSTOM_FEN),
