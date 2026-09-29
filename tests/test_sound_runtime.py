@@ -191,6 +191,23 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertTrue(first.is_file())
             self.assertTrue(second.is_file())
 
+    def test_scaled_cache_publish_failure_leaves_no_partial_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            with patch("acs.sound_windows.os.replace", side_effect=OSError("publish failed")):
+                with self.assertRaises(OSError):
+                    adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertEqual(list(cache.glob("move-v50-*.wav")), [])
+            self.assertEqual(list(cache.glob("*.tmp")), [])
+
     def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
