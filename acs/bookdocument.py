@@ -358,6 +358,12 @@ class BookDocument:
                 "Book blocks must be a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        # Semantic blocks are mutable for authoring. Initial construction must
+        # enforce the same live-state validator already used by append()/extend()
+        # so a block corrupted after its own __post_init__ cannot become part of
+        # a canonical BookDocument and fail only later at export or resolution.
+        for block in self.blocks:
+            block.as_dict()
         if not isinstance(self.warnings, list) or not all(
             isinstance(warning, str) and warning.strip()
             for warning in self.warnings
