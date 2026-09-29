@@ -233,17 +233,43 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
 }
 
 function AssertVisibleTextRange($Range) {
+  $rectangles=@()
   try {$rectangles=@($Range.GetBoundingRectangles())}
-  catch {throw "Static TextPattern target bounding rectangles unavailable: $($_.Exception.Message)"}
-  if($rectangles.Count -lt 4 -or ($rectangles.Count % 4) -ne 0){
-    throw "Static TextPattern target has malformed/empty bounding rectangles"
+  catch {$rectangles=@()}
+
+  if($rectangles.Count -ge 4 -and ($rectangles.Count % 4) -eq 0){
+    for($index=0;$index -lt $rectangles.Count;$index+=4){
+      $width=[double]$rectangles[$index+2]
+      $height=[double]$rectangles[$index+3]
+      if($width -gt 0 -and $height -gt 0){return 'text-range'}
+    }
   }
-  for($index=0;$index -lt $rectangles.Count;$index+=4){
-    $width=[double]$rectangles[$index+2]
-    $height=[double]$rectangles[$index+3]
-    if($width -gt 0 -and $height -gt 0){return $true}
+
+  # WebView2 can expose a fully selectable TextPattern range while omitting
+  # per-range rectangles. Keep the visibility requirement fail-closed by
+  # requiring the range's enclosing UIA element to be onscreen with positive
+  # geometry after ScrollIntoView. Selection endpoints and native clipboard
+  # equality remain independently decisive below.
+  try {$enclosing=$Range.GetEnclosingElement()}
+  catch {throw "Static TextPattern target enclosing UIA element unavailable"}
+  if($null -eq $enclosing){
+    throw "Static TextPattern target has no enclosing UIA element for visibility proof"
   }
-  throw "Static TextPattern target has no positive-area visible bounding rectangle"
+  try {
+    if([bool]$enclosing.Current.IsOffscreen){
+      throw "Static TextPattern target enclosing UIA element is offscreen"
+    }
+    $bounds=$enclosing.Current.BoundingRectangle
+    $width=[double]$bounds.Width
+    $height=[double]$bounds.Height
+  }
+  catch {
+    throw "Static TextPattern target enclosing UIA visibility unavailable"
+  }
+  if($width -le 0 -or $height -le 0){
+    throw "Static TextPattern target enclosing UIA element has no positive-area bounding rectangle"
+  }
+  return 'enclosing-element'
 }
 
 $root=(Resolve-Path -LiteralPath $ProductRoot).Path
@@ -309,7 +335,7 @@ try {
   try {$target.ScrollIntoView($true)}
   catch {throw "Static TextPattern target could not be scrolled into view: $($_.Exception.Message)"}
   Start-Sleep -Milliseconds 100
-  $null=AssertVisibleTextRange $target
+  $visibilityEvidence=AssertVisibleTextRange $target
   $null=AssertProviderFocus $roots 'static document visibility proof'
   $target.Select()
   Start-Sleep -Milliseconds 100
@@ -374,7 +400,8 @@ try {
     focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
     static_document_text=$selected
     static_document_outside_edit=$true
-    static_text_visible_rectangle=$true
+    static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')
+    static_text_visibility_evidence=$visibilityEvidence
     native_copy_focus_verified=$true
     foreground_product_verified=$true
     manifest_product_sha_verified=$true

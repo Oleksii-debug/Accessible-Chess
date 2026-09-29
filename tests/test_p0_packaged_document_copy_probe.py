@@ -77,9 +77,15 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("TextPattern]::Pattern", self.text)
         self.assertIn("function AssertVisibleTextRange", self.text)
         self.assertIn("$Range.GetBoundingRectangles()", self.text)
+        self.assertIn("$Range.GetEnclosingElement()", self.text)
+        self.assertIn("$enclosing.Current.IsOffscreen", self.text)
+        self.assertIn("$enclosing.Current.BoundingRectangle", self.text)
+        self.assertIn("return 'text-range'", self.text)
+        self.assertIn("return 'enclosing-element'", self.text)
         self.assertIn("$target.ScrollIntoView($true)", self.text)
-        self.assertIn("$null=AssertVisibleTextRange $target", self.text)
-        self.assertIn("static_text_visible_rectangle=$true", self.text)
+        self.assertIn("$visibilityEvidence=AssertVisibleTextRange $target", self.text)
+        self.assertIn("static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')", self.text)
+        self.assertIn("static_text_visibility_evidence=$visibilityEvidence", self.text)
         self.assertLess(
             self.text.index("$null=AssertVisibleTextRange $target"),
             self.text.index("$target.Select()"),
@@ -107,6 +113,18 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("move-input", self.text)
         self.assertIn("ValuePattern]::Pattern", self.text)
         self.assertIn("WaitClipboard 'e2e4'", self.text)
+
+    def test_visibility_fallback_keeps_provider_geometry_fail_closed(self) -> None:
+        self.assertIn("catch {$rectangles=@()}", self.text)
+        self.assertIn("if([bool]$enclosing.Current.IsOffscreen)", self.text)
+        self.assertIn("if($width -le 0 -or $height -le 0)", self.text)
+        self.assertIn("no positive-area bounding rectangle", self.text)
+        self.assertLess(
+            self.text.index("$visibilityEvidence=AssertVisibleTextRange $target"),
+            self.text.index("$target.Select()"),
+        )
+        self.assertIn("$activeSelection.CompareEndpoints(", self.text)
+        self.assertIn("WaitClipboard $selected", self.text)
 
     def test_probe_fails_closed_if_native_copy_focus_leaves_connected_provider_roots(self) -> None:
         self.assertIn("function AssertProviderFocus", self.text)
