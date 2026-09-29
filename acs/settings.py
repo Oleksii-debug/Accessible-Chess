@@ -70,21 +70,38 @@ class _SettingsSaveLock:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if self.handle is None:
+        handle = self.handle
+        self.handle = None
+        if handle is None:
             return
+
+        # The protected body is the transaction authority. In Settings.save()
+        # it ends only after tmp.replace() has atomically published the new
+        # settings bytes. A later unlock/close failure cannot undo that replace;
+        # propagating a cleanup error would falsely report save failure after
+        # durable state changed and can split runtime state from settings.json.
+        #
+        # Acquisition remains fail-closed in __enter__, and exceptions raised by
+        # the protected body still propagate normally because this method does
+        # not return True.
         try:
-            self.handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
 
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
 
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
         finally:
-            self.handle.close()
-            self.handle = None
+            try:
+                handle.close()
+            except Exception:
+                pass
 
 
 def _validated_value(key: str, value: Any) -> Any:

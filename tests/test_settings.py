@@ -1,7 +1,9 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.settings import DEFAULTS, SCHEMA_VERSION, Settings, SettingsError
 
@@ -41,6 +43,21 @@ class SettingsTests(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(raw["schema_version"], SCHEMA_VERSION)
             self.assertEqual(raw["values"]["volume"], 42)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_post_publication_unlock_failure_does_not_turn_save_into_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            lock_target = "msvcrt.locking" if os.name == "nt" else "fcntl.flock"
+            with mock.patch(
+                lock_target,
+                side_effect=[None, OSError("simulated post-publication unlock failure")],
+            ):
+                settings.set("language", "en")
+
+            self.assertEqual(settings.get("language"), "en")
+            self.assertEqual(Settings(path).get("language"), "en")
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
     def test_invalid_value_does_not_persist_or_mutate(self):
