@@ -341,6 +341,22 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
         self.assertEqual(self.path.read_bytes(), reappeared_bytes)
 
+    def test_remove_does_not_report_missing_when_orphan_backup_contains_book(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:remove-orphan", reader)
+        reader.go_to(3)
+        self.store.save("book:remove-orphan", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.remove("book:remove-orphan")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
     def test_future_schema_orphan_backup_is_preserved_and_never_downgraded(self) -> None:
         self.path.parent.mkdir(parents=True)
         future_backup = b'{"entries":{},"generation":9,"schema_version":999}'
