@@ -231,7 +231,10 @@ def _assert_bound_source_path(path: Path, expected_identity: tuple[int, int]) ->
 
 def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     expected_identity = _preliminary_source_identity(path)
-    before = fingerprint(path)
+    try:
+        before = fingerprint(path)
+    except (OSError, ValueError) as exc:
+        raise PgnFileError("PGN source could not be fingerprinted safely") from exc
     if before.size > MAX_PGN_SOURCE_BYTES:
         raise PgnResourceLimitError(
             f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
@@ -283,7 +286,10 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
             decode_replaced = True
 
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    after = fingerprint(path)
+    try:
+        after = fingerprint(path)
+    except (OSError, ValueError) as exc:
+        raise PgnSourceChangedError("PGN source changed while being read") from exc
     if before.size != after.size or before.sha256 != after.sha256:
         raise PgnSourceChangedError("PGN changed while being read")
     if opened_identity is not None:
