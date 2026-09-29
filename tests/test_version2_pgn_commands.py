@@ -45,6 +45,68 @@ class PgnCommandsTests(unittest.TestCase):
             with self.assertRaises(ValueError): commands.export_selected(replace(request, content_revision=view.content_revision + 1), destination)
             self.assertFalse(destination.exists())
 
+    def test_export_binds_one_session_across_validation_and_publication(self):
+        first = PgnDocumentSession.from_text("1. e4 *")
+        second = PgnDocumentSession.from_text("1. d4 *")
+        first.workspace.next_move()
+        view = first.workspace.view()
+        request = PgnSelectionExportRequest(
+            0,
+            (),
+            0,
+            view.current_record_digest,
+            view.content_revision,
+        )
+        calls = 0
+
+        def get_session():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        commands = Version2PgnCommands(get_session)
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "selection.pgn"
+            commands.export_selected(request, destination)
+            exported = open_pgn(destination).games[0]
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(exported.line.moves[0].san, "e4")
+        self.assertEqual(first.workspace.current_game().line.moves[0].san, "e4")
+        self.assertEqual(second.workspace.current_game().line.moves[0].san, "d4")
+
+    def test_mutating_command_validates_and_edits_same_session(self):
+        first = PgnDocumentSession.from_text("1. e4 *")
+        second = PgnDocumentSession.from_text("1. d4 *")
+        first.workspace.next_move()
+        view = first.workspace.view()
+        payload = {
+            "game_index": 0,
+            "line_path": (),
+            "move_index": 0,
+            "expected_record_digest": view.current_record_digest,
+            "content_revision": view.content_revision,
+            "text": "bound to first document",
+        }
+        calls = 0
+
+        def get_session():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        commands = Version2PgnCommands(get_session)
+        commands("pgn.comment_edit", payload)
+
+        self.assertEqual(calls, 1)
+        first_move = first.workspace.current_game().line.moves[0]
+        second_move = second.workspace.current_game().line.moves[0]
+        self.assertEqual(
+            [comment.text for comment in first_move.comments_after],
+            ["bound to first document"],
+        )
+        self.assertEqual(second_move.comments_after, [])
+
     def test_illegal_move_never_produces_a_board_position(self):
         session = PgnDocumentSession.from_text('1. e5 *')
         session.workspace.next_move()
