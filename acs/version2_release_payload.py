@@ -27,6 +27,10 @@ from .sound_windows import (
     PackagedSoundAssetResolver,
     SOUND_MANIFEST_SCHEMA_VERSION,
 )
+from .version2_package_preflight import (
+    Version2PackagePreflightError,
+    validate_winforms_accessibility_app_config,
+)
 from .stockfish_runtime import (
     PACKAGED_STOCKFISH_RELATIVE_PATH,
     StockfishRuntimeConfig,
@@ -574,6 +578,12 @@ def _require_standalone_contract(standalone: Path) -> None:
         raise Version2ReleasePayloadError(
             "standalone WinForms accessibility app-config is missing or empty"
         )
+    try:
+        validate_winforms_accessibility_app_config(app_config)
+    except Version2PackagePreflightError as exc:
+        raise Version2ReleasePayloadError(
+            "standalone WinForms accessibility app-config is invalid"
+        ) from exc
     for relative in _REQUIRED_WEB_FILES:
         path = standalone / relative
         if not path.is_file() or path.stat().st_size <= 0:
