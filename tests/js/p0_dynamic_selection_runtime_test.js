@@ -222,6 +222,7 @@ let currentRoute = null;
 
 const documentRef = {
   activeElement: null,
+  documentElement: { lang: "en" },
   getElementById(id) {
     if (main.id === id) return main;
     if (nav.id === id) return nav;
@@ -355,6 +356,93 @@ async function proveStage1RefreshAnalysis() {
   console.log("P0_STAGE1_REFRESH_SELECTION_SURVIVES=PASS");
 }
 
+function createStage1Control(id, tagName) {
+  const control = new FakeElement(tagName || "button");
+  control.id = id;
+  main.appendChild(control);
+  return control;
+}
+
+function proveStage1AnalysisListRerender() {
+  currentRoute = null;
+  workspace.hidden = true;
+
+  const list = createStage1Control("analysis-lines", "ul");
+  const li = new FakeElement("li");
+  const button = new FakeElement("button");
+  button.textContent = "Variation 1. Depth 16. Evaluation +0.20. e4 e5";
+  li.appendChild(button);
+  list.appendChild(li);
+
+  [
+    "engine-toggle", "analysis-restart", "analysis-lock", "analysis-multipv",
+    "analysis-depth", "analysis-return", "analysis-explore-prev",
+    "analysis-explore-next", "analysis-exploration-status", "analysis-prev-pv",
+    "analysis-next-pv", "analysis-read", "analysis-explore",
+    "analysis-insert-move", "analysis-insert-line"
+  ].forEach(id => createStage1Control(id, id === "analysis-multipv" || id === "analysis-depth" ? "input" : "button"));
+
+  selectSubstring(list, "e4 e5");
+
+  const indexSource = fs.readFileSync("web/index.html", "utf8");
+  const lineStart = indexSource.indexOf("function analysisLineText(line)");
+  const lineEnd = indexSource.indexOf("\nfunction setAnalysisMutationLock", lineStart);
+  const renderStart = indexSource.indexOf("function renderAnalysis(s)");
+  const renderEnd = indexSource.indexOf("\nfunction render(s)", renderStart);
+  assert.ok(lineStart >= 0 && lineEnd > lineStart, "shipping analysisLineText function was not found");
+  assert.ok(renderStart >= 0 && renderEnd > renderStart, "shipping renderAnalysis function was not found");
+
+  context.el = id => documentRef.getElementById(id);
+  context.setText = function (id, text) {
+    const node = documentRef.getElementById(id);
+    if (node && node.textContent !== String(text || "")) node.textContent = String(text || "");
+  };
+  context.setAnalysisMutationLock = function () {};
+  context.apiAction = async function () {};
+
+  const executable =
+    indexSource.slice(lineStart, lineEnd) + "\n" +
+    indexSource.slice(renderStart, renderEnd) + "\nrenderAnalysis";
+  const renderAnalysis = vm.runInContext(executable, context, { filename: "index.renderAnalysis.js" });
+
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 18,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 18, scoreText: "+0.35", pvText: "e4 e5" }]
+    }
+  });
+  assert.strictEqual(
+    selection.toString(),
+    "e4 e5",
+    "Stage1 renderAnalysis must preserve surviving semantic analysis text selection through the canonical P0 runtime"
+  );
+
+  selectSubstring(list, "e4 e5");
+  renderAnalysis({
+    analysis: {
+      enabled: true,
+      selectedPv: 1,
+      exploring: false,
+      multipv: 1,
+      depth: 19,
+      targetLocked: false,
+      lines: [{ multipv: 1, depth: 19, scoreText: "+0.40", pvText: "d4 d5" }]
+    }
+  });
+  assert.strictEqual(
+    selection.toString(),
+    "",
+    "Stage1 renderAnalysis must not fabricate a selection after the selected analysis text disappears"
+  );
+  console.log("P0_STAGE1_ANALYSIS_RERENDER_SELECTION_SURVIVES=PASS");
+  console.log("P0_STAGE1_ANALYSIS_DISAPPEARING_SELECTION_NOT_RESTORED=PASS");
+}
+
 function emptyPgnSnapshot(message) {
   return { status: "empty", empty_message: message };
 }
@@ -424,6 +512,7 @@ function provePgnLocalRerender() {
 
 (async function run() {
   await proveStage1RefreshAnalysis();
+  proveStage1AnalysisListRerender();
   proveNavigationLocalRerender();
   provePgnLocalRerender();
   console.log("P0_DYNAMIC_SELECTION_EXECUTABLE_ORACLE=PASS");
