@@ -387,7 +387,19 @@ class EngineGameSessionCoordinator:
             raise ValueError("active clock does not match moved side")
         return clock
 
-    def request_engine_move(self) -> EngineMoveResult:
+    def request_engine_move(
+        self,
+        *,
+        timeout_opponent_can_mate: bool | None = None,
+    ) -> EngineMoveResult:
+        if (
+            timeout_opponent_can_mate is not None
+            and type(timeout_opponent_can_mate) is not bool
+        ):
+            raise EngineContractError(
+                "timeout_opponent_can_mate must be an exact boolean or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         snap = self.snapshot()
         if snap.turn_state is EngineTurnState.FINISHED:
             raise ValueError("engine game session is finished")
@@ -395,7 +407,9 @@ class EngineGameSessionCoordinator:
             raise ValueError("engine move requested when it is not the engine turn")
         self.assert_move_allowed(snap.side_to_move)
         fen = self._current_fen()
-        result = self._play_service.choose_move(EngineMoveRequest(fen, level=snap.config.level.level))
+        result = self._play_service.choose_move(
+            EngineMoveRequest(fen, level=snap.config.level.level)
+        )
         if result.move is None:
             self._resolve_no_engine_move(fen, snap.side_to_move)
             return result
@@ -409,7 +423,16 @@ class EngineGameSessionCoordinator:
         self._commit_engine_move(result.move)
         self._lifecycle.on_move_committed()
         assert self._clock is not None
-        self._clock.switch_after_move(moved_side)
+        switched = self._clock.switch_after_move(moved_side)
+        if (
+            switched.flagged is not None
+            and timeout_opponent_can_mate is not None
+            and self._lifecycle.snapshot().status is GameStatus.ACTIVE
+        ):
+            self._record_timeout(
+                switched.flagged,
+                opponent_can_mate=timeout_opponent_can_mate,
+            )
         return result
 
     def on_human_move_committed(
