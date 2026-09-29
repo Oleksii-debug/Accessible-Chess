@@ -218,6 +218,33 @@ print("not chess")
         self.assertTrue(any(block.note_type == "code:python" and "not chess" in block.text for block in notes))
         self.assertFalse(any(isinstance(block, Diagram) for block in result.document.blocks))
 
+    def test_markdown_chess_fence_requires_unambiguous_fence_indentation(self) -> None:
+        accepted = import_text_book(
+            f"   ```fen\n{Board.START}\n   ```",
+            source_name="three-space-fence.md",
+            source_format="markdown",
+        )
+        self.assertEqual(accepted.positions, 1)
+
+        for prefix in ("    ", "\t"):
+            source = (
+                f"{prefix}```fen\n"
+                f"{Board.START}\n"
+                f"{prefix}```"
+            )
+            rejected_as_semantics = import_text_book(
+                source,
+                source_name="indented-code.md",
+                source_format="markdown",
+            )
+            self.assertEqual(rejected_as_semantics.positions, 0)
+            self.assertFalse(
+                any(
+                    isinstance(block, (Position, Diagram, Game))
+                    for block in rejected_as_semantics.document.blocks
+                )
+            )
+
     def test_explicit_diagram_fen_requires_canonical_board_and_preserves_alt(self) -> None:
         source = f'''# Diagram
 
