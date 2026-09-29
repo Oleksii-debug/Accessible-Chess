@@ -32,6 +32,10 @@ class LocalProfileContractTests(unittest.TestCase):
             "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
             workflow,
         )
+        self.assertIn("push:", workflow)
+        self.assertIn("work/local-profile-identity-foundation-20260929", workflow)
+        self.assertIn("group: local-profile-identity-${{ github.ref }}", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
         self.assertIn("event_base='${{ github.event.pull_request.base.sha }}'", workflow)
         self.assertIn("base_ref='${{ github.event.pull_request.base.ref }}'", workflow)
         self.assertIn(
