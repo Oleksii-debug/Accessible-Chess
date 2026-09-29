@@ -52,6 +52,8 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("test -f product-source/packaging/AccessibleChess.exe.config", self.text)
         self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING", self.text)
         self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
+        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=", self.text)
+        self.assertIn("WINFORMS_CONFIG_SHA256=", self.text)
         self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS", self.text)
         self.assertIn("run_accessible_chess_v2.py", self.text)
         self.assertIn("prepare_version2_release_payload", self.text)
@@ -69,6 +71,18 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(source, include)
         self.assertLess(include, byte_proof)
         self.assertLess(byte_proof, prepare)
+
+    def test_winforms_accessibility_config_bytes_survive_fresh_package_readback(self) -> None:
+        standalone = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
+        extracted = self.text.index("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
+        metadata = self.text.index("W4_RUN_METADATA_WINFORMS_CONFIG_SHA256=")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(standalone, extracted)
+        self.assertLess(extracted, metadata)
+        self.assertLess(metadata, upload)
+        self.assertIn("WINFORMS_ACCESSIBILITY_CONFIG_AUTHORITY_HASH_INVALID", self.text)
+        self.assertIn("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
+        self.assertIn('"winforms_accessibility_config_sha256": config_sha', self.text)
 
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
@@ -205,6 +219,8 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(metadata_pass, upload)
         self.assertIn('"product_sha": product_sha', self.text)
         self.assertIn('"workflow_sha": workflow_sha', self.text)
+        self.assertIn('"winforms_accessibility_config_sha256": config_sha', self.text)
+        self.assertIn("RUN_METADATA_WINFORMS_CONFIG_SHA_INVALID", self.text)
         self.assertIn('"pre_upload_product_freshness": True', self.text)
         self.assertIn('"pre_upload_workflow_freshness": True', self.text)
         self.assertIn('"human_tested": False', self.text)
