@@ -180,7 +180,8 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         )
     index: dict[str, zipfile.ZipInfo] = {}
     seen: set[str] = set()
-    canonical_prefixes: dict[tuple[str, ...], tuple[str, ...]] = {}
+    canonical_children: dict[tuple[int, str], tuple[int, str]] = {}
+    next_canonical_node = 1
     total_uncompressed = 0
     for info in infos:
         name = _safe_entry_name(info.filename)
@@ -191,18 +192,23 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
             )
         seen.add(name)
 
-        raw_parts = tuple(name.split("/"))
-        canonical_parts = tuple(_canonical_casefold_name(part) for part in raw_parts)
-        for depth in range(1, len(raw_parts) + 1):
-            canonical_prefix = canonical_parts[:depth]
-            raw_prefix = raw_parts[:depth]
-            previous = canonical_prefixes.get(canonical_prefix)
-            if previous is not None and previous != raw_prefix:
-                raise _error(
-                    "EPUB package entry names collide after Unicode canonical case folding",
-                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
-                )
-            canonical_prefixes[canonical_prefix] = raw_prefix
+        parent_node = 0
+        for raw_part in name.split("/"):
+            canonical_part = _canonical_casefold_name(raw_part)
+            edge = (parent_node, canonical_part)
+            previous = canonical_children.get(edge)
+            if previous is None:
+                child_node = next_canonical_node
+                next_canonical_node += 1
+                canonical_children[edge] = (child_node, raw_part)
+            else:
+                child_node, previous_raw_part = previous
+                if previous_raw_part != raw_part:
+                    raise _error(
+                        "EPUB package entry names collide after Unicode canonical case folding",
+                        BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                    )
+            parent_node = child_node
         mode = (info.external_attr >> 16) & 0xFFFF
         if mode and stat.S_ISLNK(mode):
             raise _error(
