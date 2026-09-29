@@ -347,6 +347,10 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
                 self.assertEqual(opened["kind"], "delegated")
                 self.assertNotIn(str(self.root), json.dumps(opened, ensure_ascii=False))
                 self.assertNotIn(source.name, json.dumps(opened, ensure_ascii=False))
+                self.assertNotIn(
+                    str(self.root),
+                    json.dumps(app.snapshot(), ensure_ascii=False),
+                )
                 moved = app.reader.next_block()
                 app.save_book_progress()
                 saved_key = app.book_key
@@ -363,6 +367,10 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
                 self.assertEqual(reopened["kind"], "delegated")
                 self.assertNotIn(str(self.root), json.dumps(reopened, ensure_ascii=False))
                 self.assertNotIn(source.name, json.dumps(reopened, ensure_ascii=False))
+                self.assertNotIn(
+                    str(self.root),
+                    json.dumps(restarted.snapshot(), ensure_ascii=False),
+                )
                 self.assertEqual(restarted.book_key, saved_key)
                 self.assertEqual(restarted.reader.location(), moved)
 
