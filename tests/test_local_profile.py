@@ -76,7 +76,7 @@ class LocalProfileContractTests(unittest.TestCase):
         self.assertIn('git diff --name-only "$live_base" HEAD', workflow)
         self.assertIn('git diff --check "$live_base" HEAD', workflow)
         self.assertIn("feature/local-profile-first-launch-ui-20260929", workflow)
-        self.assertIn("EXACT_MUTATION_SUCCESSOR_SEVEN_PATHS", workflow)
+        self.assertIn("EXACT_MUTATION_SUCCESSOR_FIFTEEN_PATHS", workflow)
         self.assertIn("EXACT_ROOT_ELEVEN_PATHS", workflow)
         self.assertIn("'.github/workflows/local-profile-first-launch-ui.yml'", workflow)
         self.assertIn("'.github/workflows/p0-release-critical-triad-convergence.yml'", workflow)
