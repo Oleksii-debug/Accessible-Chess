@@ -60,6 +60,34 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(Settings(path).get("language"), "en")
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
+    def test_lock_acquisition_failure_still_prevents_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            lock_target = "msvcrt.locking" if os.name == "nt" else "fcntl.flock"
+            with mock.patch(
+                lock_target,
+                side_effect=OSError("simulated lock contention"),
+            ):
+                with self.assertRaises(SettingsError):
+                    settings.set("language", "en")
+
+            self.assertFalse(path.exists())
+
+    def test_prepublication_replace_failure_still_propagates(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            with mock.patch.object(
+                Path,
+                "replace",
+                side_effect=OSError("simulated settings replace failure"),
+            ):
+                with self.assertRaises(OSError):
+                    settings.set("language", "en")
+
+            self.assertFalse(path.exists())
+
     def test_invalid_value_does_not_persist_or_mutate(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
