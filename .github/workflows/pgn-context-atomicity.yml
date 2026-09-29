@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/pgn_document.py'
       - 'tests/test_pgn_document*.py'
+      - 'tests/test_pgn_context_atomicity_workflow.py'
       - '.github/workflows/pgn-context-atomicity.yml'
   workflow_dispatch:
 
