@@ -157,6 +157,7 @@ async function run() {
   master.dispatch("change");
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
   assert.deepStrictEqual(calls[0], ["set_master", {enabled: false}]);
 
   movePreview = elements.get("sound-event-move-preview");

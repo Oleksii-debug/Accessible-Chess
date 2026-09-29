@@ -75,6 +75,7 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_books_training.js",
     Path("web") / "full_product_teacher.js",
     Path("web") / "full_product_education.js",
+    Path("web") / "full_product_sound_settings.js",
     Path("web") / "version2_final_product_bootstrap.js",
     Path("web") / "version2_release_bootstrap.js",
 )

@@ -151,11 +151,14 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                     return_value=mock.Mock(),
                 ),
                 mock.patch.object(release_app, "Settings", return_value=settings),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
                 mock.patch.object(
                     release_app,
-                    "GameSoundRuntime",
-                    return_value=mock.Mock(),
+                    "create_local_sound_composition",
+                    return_value=mock.Mock(
+                        game_runtime=mock.Mock(),
+                        profiled_runtime=mock.Mock(),
+                        settings=mock.Mock(),
+                    ),
                 ),
                 mock.patch.object(
                     release_app,
@@ -208,11 +211,14 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                     return_value=mock.Mock(),
                 ),
                 mock.patch.object(release_app, "Settings", return_value=settings),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
                 mock.patch.object(
                     release_app,
-                    "GameSoundRuntime",
-                    return_value=mock.Mock(),
+                    "create_local_sound_composition",
+                    return_value=mock.Mock(
+                        game_runtime=mock.Mock(),
+                        profiled_runtime=mock.Mock(),
+                        settings=mock.Mock(),
+                    ),
                 ),
                 mock.patch.object(
                     release_app,
