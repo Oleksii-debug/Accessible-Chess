@@ -464,9 +464,9 @@ class _SemanticHtmlParser(HTMLParser):
                     self._warning(
                         "malformed HTML mismatched suppressed elements; readable text may have been omitted"
                     )
+                    return
                 self._suppressed_depth -= 1
-                if self._suppressed_tags:
-                    self._suppressed_tags.pop()
+                self._suppressed_tags.pop()
             return
         if self._suppressed_depth:
             return

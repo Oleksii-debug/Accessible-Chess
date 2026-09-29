@@ -224,10 +224,30 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_unmatched_suppressed_close_cannot_publish_explicit_chess_semantics(self) -> None:
+        result = import_html_book(
+            f'''<html><body><p>Before.</p><template>
+</script><div data-acs-fen="{Board.START}">must stay suppressed</div>
+</template><p>After.</p></body></html>''',
+            source_name="unmatched-suppressed-close.html",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertTrue(any("Before." in text for text in paragraphs))
+        self.assertTrue(any("After." in text for text in paragraphs))
+        self.assertFalse(any(isinstance(block, Position) for block in result.document.blocks))
+        self.assertFalse(any(isinstance(block, Diagram) for block in result.document.blocks))
+        self.assertTrue(
+            any("mismatched suppressed elements" in warning for warning in result.warnings)
+        )
+
     def test_mismatched_suppressed_markup_reports_possible_reading_text_loss(self) -> None:
         result = import_html_book(
             "<html><body><p>Before.</p><template><noscript>Hidden.</template>"
-            "<p>Ambiguous middle.</p></noscript><p>After.</p></body></html>",
+            "<p>Ambiguous middle.</p></noscript></template><p>After.</p></body></html>",
             source_name="mismatched-suppressed.html",
         )
         paragraphs = [
