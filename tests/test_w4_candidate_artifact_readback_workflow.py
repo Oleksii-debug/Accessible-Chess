@@ -60,6 +60,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn('metadata.get("pre_upload_product_freshness") is not True', self.text)
         self.assertIn('metadata.get("pre_upload_workflow_freshness") is not True', self.text)
         self.assertIn('stream.write(f"product_sha={product}\\n")', self.text)
+        self.assertIn('stream.write(f"config_sha={config_sha}\\n")', self.text)
         self.assertIn("W4_READBACK_RUN_IDENTITY=PASS", self.text)
         self.assertNotIn("FULL_PRODUCT_BRANCH:", self.text)
 
@@ -85,6 +86,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn('test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
         self.assertNotIn(".w4-readback-source/acs/acsdb.py", self.text)
         self.assertIn('PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}', self.text)
+        self.assertIn('PRODUCT_CONFIG_SHA256: ${{ steps.product.outputs.config_sha }}', self.text)
         self.assertIn('git fetch --no-tags origin "$PRODUCT_SHA"', self.text)
         self.assertIn('git worktree add --detach .w4-product-source "$PRODUCT_SHA"', self.text)
         self.assertIn('test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"', self.text)
@@ -92,6 +94,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
             "acs/acsdb.py",
             "acs/gametree.py",
             "acs/pgn_roundtrip.py",
+            "packaging/AccessibleChess.exe.config",
         ):
             self.assertIn(dependency, self.text)
         self.assertIn(
@@ -105,6 +108,8 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         )
         self.assertIn('test "$copied_blob" = "$W4_VERIFIER_BLOB_SHA"', self.text)
         self.assertIn("W4_READBACK_VERIFIER_AUTHORITY=PASS", self.text)
+        self.assertIn("W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS", self.text)
+        self.assertIn("sha256sum .w4-product-source/packaging/AccessibleChess.exe.config", self.text)
         self.assertIn("W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:
