@@ -346,12 +346,23 @@ class _Builder:
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+
+def _is_fence_close(line: str, marker: str) -> bool:
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    if leading_spaces > 3:
+        return False
+    candidate = line[leading_spaces:].rstrip(" \t")
+    return (
+        len(candidate) >= len(marker)
+        and bool(candidate)
+        and set(candidate) == {marker[0]}
+    )
 
 
 def _parse_txt(text: str, builder: _Builder) -> None:
@@ -411,7 +422,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             closed = False
             while index < len(lines):
                 current = lines[index]
-                if current.strip() and current.strip()[0] == marker[0] and len(current.strip()) >= len(marker) and set(current.strip()) == {marker[0]}:
+                if _is_fence_close(current, marker):
                     closed = True
                     break
                 body_lines.append(current)
