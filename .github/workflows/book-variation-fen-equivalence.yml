@@ -27,6 +27,7 @@ jobs:
     timeout-minutes: 45
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,9 +55,19 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            upstream="$PR_BASE_SHA"
+            event_base="$PR_BASE_SHA"
+            base_ref="$PR_BASE_REF"
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "$base_ref"
+            live_base="$(git rev-parse "origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            upstream="$live_base"
           else
-            upstream="3c69ac281915418574d84c62d928d26db567cd5a"
+            upstream="$(git rev-parse HEAD^)"
           fi
           git cat-file -e "$upstream^{commit}"
           git merge-base --is-ancestor "$upstream" HEAD
