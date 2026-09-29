@@ -93,7 +93,13 @@ def _error(message: str, code: PgnDocumentErrorCode) -> PgnDocumentError:
 def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
     values = dict(_STANDARD_TAGS)
     if tags is not None:
-        values.update(dict(tags))
+        supplied_tags = dict(tags)
+        if _POSITION_TAGS.intersection(supplied_tags):
+            raise _error(
+                "PGN start position must be created through the position workflow",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
+        values.update(supplied_tags)
     result = values.get("Result", "*")
     if result not in RESULTS:
         raise _error("game result is not a valid PGN result", PgnDocumentErrorCode.INVALID_RESULT)
