@@ -140,7 +140,7 @@ Before ![Board](board.png) after.
             restored = store.restore(first.book_key, reopened.document)
 
         self.assertEqual(restored.location(), target)
-        self.assertEqual(reopened.blocks[target_index].text, "after.")
+        self.assertEqual(reopened.document.blocks[target_index].text, "after.")
 
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
