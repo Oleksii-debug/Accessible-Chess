@@ -1,6 +1,14 @@
 (function (global) {
   "use strict";
 
+  const TRAINING_ACTION_IDS = Object.freeze({
+    "training.hint": "training-action-hint",
+    "training.reveal": "training-action-reveal",
+    "training.retry": "training-action-retry",
+    "training.continue": "training-action-continue",
+    "training.reset.request": "training-action-reset"
+  });
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
@@ -144,6 +152,18 @@
     main.appendChild(section);
   }
 
+  function applySnapshotLanguage(element, snapshot) {
+    const documentState = snapshot && snapshot.document && typeof snapshot.document === "object"
+      ? snapshot.document
+      : {};
+    const language = typeof documentState.lang === "string"
+      ? documentState.lang.trim().toLowerCase()
+      : "";
+    if (language === "en" || language === "uk") {
+      element.setAttribute("lang", language);
+    }
+  }
+
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("Book root must support replaceChildren");
@@ -154,6 +174,7 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
+    applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
@@ -287,6 +308,7 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
+    applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("h3", snapshot.title || ""));
 
@@ -336,7 +358,12 @@
 
     if (Array.isArray(solution) && solution.length) {
       const solutionSection = node("section");
-      solutionSection.appendChild(node("h3", snapshot.solution_label || ""));
+      solutionSection.id = "training-solution";
+      solutionSection.tabIndex = -1;
+      const solutionHeading = node("h3", snapshot.solution_label || "");
+      solutionHeading.id = "training-solution-heading";
+      solutionSection.setAttribute("aria-labelledby", solutionHeading.id);
+      solutionSection.appendChild(solutionHeading);
       const list = node("ul");
       solution.forEach(function (move) { list.appendChild(node("li", move)); });
       solutionSection.appendChild(list);
@@ -351,8 +378,11 @@
       const button = node("button", action.label || action.command || "");
       button.type = "button";
       button.disabled = !action.enabled;
+      const command = String(action.command || "");
+      if (Object.prototype.hasOwnProperty.call(TRAINING_ACTION_IDS, command)) {
+        button.id = TRAINING_ACTION_IDS[command];
+      }
       button.addEventListener("click", function () {
-        const command = String(action.command || "");
         if (command === "training.reset.request") {
           resetDialog.open(button);
           return;
