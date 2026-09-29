@@ -104,7 +104,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
             target.mkdir()
             (target / "foreign.txt").write_text("foreign", encoding="utf-8")
             source.write_text(_SAMPLE_PGN, encoding="utf-8", newline="")
-            real_validate = import_contract._validate_source_path
+            real_validate = pgn_service._validate_source_path
             validations = 0
 
             def validate_then_swap(path):
@@ -116,7 +116,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
                 return result
 
             with patch.object(
-                import_contract,
+                pgn_service,
                 "_validate_source_path",
                 side_effect=validate_then_swap,
             ), patch.object(
@@ -191,7 +191,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="",
             )
-            real_validate = import_contract._validate_source_path
+            real_validate = pgn_service._validate_source_path
             real_fdopen = pgn_service.os.fdopen
             validations = 0
             swapped = False
@@ -227,7 +227,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
 
             try:
                 with patch.object(
-                    import_contract,
+                    pgn_service,
                     "_validate_source_path",
                     side_effect=validate_then_swap,
                 ), patch.object(
@@ -262,7 +262,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
                 (original.st_dev, original.st_ino),
             )
 
-            real_validate = import_contract._validate_source_path
+            real_validate = pgn_service._validate_source_path
             real_fdopen = pgn_service.os.fdopen
             validations = 0
             swapped = False
@@ -305,7 +305,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
 
             try:
                 with patch.object(
-                    import_contract,
+                    pgn_service,
                     "_validate_source_path",
                     side_effect=validate_then_swap,
                 ), patch.object(
