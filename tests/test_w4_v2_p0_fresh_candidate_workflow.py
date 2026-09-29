@@ -77,11 +77,16 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         qualify = self.text.index("Qualify exact Product source before compilation")
         diff = self.text.index("git diff --exit-code -- packaging/AccessibleChess.exe.config")
         bind = self.text.index("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=")
+        semantic = self.text.index("validate_winforms_accessibility_app_config")
+        semantic_pass = self.text.index("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
         diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
         self.assertLess(qualify, diff)
         self.assertLess(diff, bind)
-        self.assertLess(bind, diagnostic)
+        self.assertLess(bind, semantic)
+        self.assertLess(semantic, semantic_pass)
+        self.assertLess(semantic_pass, diagnostic)
         self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
+        self.assertIn("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS_FAILURE", self.text)
 
     def test_winforms_accessibility_config_bytes_survive_fresh_package_readback(self) -> None:
         standalone = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
