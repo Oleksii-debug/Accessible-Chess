@@ -33,10 +33,16 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
-    def test_current_w4_release_base_is_explicitly_admitted(self) -> None:
+    def test_pull_request_gate_binds_exact_synthetic_merge_identity(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml").read_text(encoding="utf-8")
-        self.assertIn("release/w4-v2-current-p0-candidate-20260926", workflow)
-        self.assertIn(CANONICAL_FULL_PRODUCT_BASE, workflow)
+        self.assertIn("github.event.pull_request.base.sha", workflow)
+        self.assertIn("github.event.pull_request.head.sha", workflow)
+        self.assertIn("git rev-list --parents -n 1 HEAD", workflow)
+        self.assertIn('test "$parent_one" = "$base_sha"', workflow)
+        self.assertIn('test "$parent_two" = "$head_sha"', workflow)
+        self.assertIn('git diff --check "$base_sha" "$merge_sha"', workflow)
+        self.assertNotIn("unexpected convergence base:", workflow)
+        self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("base='*'", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
