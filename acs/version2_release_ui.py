@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
-from .full_product_ui_shell import UILanguage
+from .full_product_ui_shell import UILanguage, concise_user_error
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
 from .ui_review_adapter import ReviewView
@@ -569,6 +569,20 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         command: str,
         payload: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
+        # Persisted Settings is the only release language owner. The reusable
+        # lower Training bridge keeps its local language command for isolated
+        # composition/testing, but packaged WebView ingress must not split one
+        # live surface from the persisted shell/PGN/Library/Books transaction.
+        if area == "training" and command == "training.language":
+            return {
+                "kind": "error",
+                "payload": {
+                    "message": concise_user_error(
+                        "",
+                        language=UILanguage(self.lang),
+                    )
+                },
+            }
         return self._version2().browser_command(area, command, payload)
 
     def v2_drain_events(self) -> tuple[dict[str, object], ...]:
