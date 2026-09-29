@@ -389,13 +389,9 @@ class BookBoardWorkflow:
                     "book reading location changed while opening the board",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 )
-            try:
-                self._reader.save_return_point(self._RETURN_POINT)
-            except Exception as exc:
-                raise self._error(
-                    "book return point could not be saved",
-                    BookBoardWorkflowCode.RETURN_FAILED,
-                ) from exc
+            # Board review is read-only with respect to durable BookReader
+            # progress. The exact origin already belongs to the transient session;
+            # do not publish an implementation-only return point into BookReader.
             self._session = candidate
             self._revision += 1
             return self._view_locked()
@@ -559,12 +555,27 @@ class BookBoardWorkflow:
         """Restore the exact durable BookReader origin and close the board session."""
 
         with self._lock:
-            self._require_session()
+            session = self._require_session()
+            origin = session.origin
             try:
-                restored = self._reader.restore_return_point(self._RETURN_POINT)
+                # Validate the immutable BookReader index before restoring the
+                # transient Board origin. An in-place document mutation can keep
+                # the same numeric index while changing its semantic identity;
+                # snapshot() is the canonical fail-closed revision boundary.
+                self._reader.snapshot()
+                current = self._reader.location()
+                if current == origin:
+                    restored = current
+                else:
+                    # Board review does not publish a durable return point, but
+                    # an external/presentation cursor move must still be recoverable
+                    # to the exact semantic origin captured by this transient session.
+                    restored = self._reader.go_to(origin.index)
+                    if restored != origin:
+                        raise LookupError("book Board origin no longer matches")
             except Exception as exc:
-                # Keep the session alive if its Book revision changed; silently
-                # dropping it would destroy the user's only deterministic return.
+                # Keep the session alive if the Book revision/origin became
+                # unreadable; silently dropping it would destroy deterministic return.
                 raise self._error(
                     "original book reading location is unavailable",
                     BookBoardWorkflowCode.RETURN_FAILED,
@@ -573,7 +584,7 @@ class BookBoardWorkflow:
             self._revision += 1
         # Suppress any in-flight assisted result after the Board context closes.
         self._engine.invalidate()
-        return restored
+        return origin
 
     @staticmethod
     def _command(value: BookBoardCommand | str) -> BookBoardCommand:

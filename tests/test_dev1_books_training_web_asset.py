@@ -31,6 +31,15 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         for token in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
             self.assertNotIn(token, text)
 
+    def test_book_lists_render_as_native_selectable_list_dom(self) -> None:
+        text = self.text
+        self.assertIn('content = node(block.list.ordered ? "ol" : "ul")', text)
+        self.assertIn('content.setAttribute("start", String(block.list.start))', text)
+        self.assertIn('content.appendChild(node("li", text))', text)
+        self.assertIn('element.textContent = String(text)', text)
+        self.assertNotIn('content.setAttribute("role", "list")', text)
+        self.assertNotIn('setAttribute("role", "listitem")', text)
+
     def test_passive_messages_are_not_background_live_regions(self) -> None:
         text = self.text
         self.assertIn('warning.setAttribute("aria-live", "off")', text)

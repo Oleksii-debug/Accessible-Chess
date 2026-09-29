@@ -13,13 +13,25 @@ import json
 from typing import Mapping
 
 from .book_index import BookIndex
-from .bookdocument import BookDocument, Diagram, Exercise, Game, Heading, Position, VariationTree
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Exercise,
+    Game,
+    Heading,
+    Position,
+    VariationTree,
+    block_from_dict,
+)
 
 
 BOOK_READER_SNAPSHOT_SCHEMA_VERSION = 2
 _BOOK_READER_SNAPSHOT_FIELDS = frozenset(
     {"schema_version", "current_target", "return_points", "fallback_digests"}
 )
+_MAX_RETURN_POINTS = 1000
+_MAX_RETURN_POINT_NAME_CHARS = 256
+_MAX_TARGET_KEY_CHARS = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,19 +62,33 @@ class BookReader:
     """
 
     def __init__(self, document: BookDocument):
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be a BookDocument")
         self.document = document
-        self._index = 0 if document.blocks else -1
-        self._book_index = BookIndex(document)
+        self._indexed_document = BookDocument.from_dict(document.as_dict())
+        self._index = 0 if self._indexed_document.blocks else -1
+        self._book_index = BookIndex(self._indexed_document)
         self._return_points: dict[str, str] = {}
-        self._indexed_revision_digest = self._document_revision_digest()
+        self._indexed_revision_digest = self._revision_digest(self._indexed_document.blocks)
+        self._require_indexed_revision()
 
     @property
     def index(self) -> int:
         return self._index
 
     def _require_content(self) -> None:
-        if not self.document.blocks:
+        self._require_indexed_revision()
+        if not self._book_index.entries:
             raise LookupError("BookDocument has no readable blocks")
+
+    def block_snapshot(self, index: int):
+        """Return a detached canonical block from the reader's indexed revision."""
+        self._require_indexed_revision()
+        if type(index) is not int:
+            raise TypeError("Book reading index must be an integer")
+        if not 0 <= index < len(self._indexed_document.blocks):
+            raise IndexError("Book reading index is outside the document")
+        return block_from_dict(self._indexed_document.blocks[index].as_dict())
 
     @staticmethod
     def _return_point_name(name: str) -> str:
@@ -70,7 +96,21 @@ class BookReader:
             raise TypeError("Return point name must be a string")
         if not name.strip():
             raise ValueError("Return point name must not be empty")
+        if len(name) > _MAX_RETURN_POINT_NAME_CHARS:
+            raise ValueError(
+                f"Return point name exceeds {_MAX_RETURN_POINT_NAME_CHARS} characters"
+            )
         return name
+
+    @staticmethod
+    def _durable_target(value: object, *, name: str = "Book target key") -> str:
+        if type(value) is not str:
+            raise TypeError(f"{name} must be a string")
+        if not value:
+            raise ValueError(f"{name} must not be empty")
+        if len(value) > _MAX_TARGET_KEY_CHARS:
+            raise ValueError(f"{name} exceeds {_MAX_TARGET_KEY_CHARS} characters")
+        return value
 
     @staticmethod
     def _fallback_digest_for_block(block) -> str:
@@ -83,19 +123,33 @@ class BookReader:
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
-    def _document_revision_digest(self) -> str:
-        """Fingerprint semantic blocks used by the immutable ``BookIndex``."""
+    @staticmethod
+    def _revision_digest(blocks) -> str:
         payload = json.dumps(
-            [block.as_dict() for block in self.document.blocks],
+            [block.as_dict() for block in blocks],
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
+    def _document_revision_digest(self) -> str:
+        """Fingerprint the current live authoring blocks."""
+        return self._revision_digest(self.document.blocks)
+
     def _require_indexed_revision(self) -> None:
         """Reject durable target work after the indexed document changed in place."""
-        if self._document_revision_digest() != self._indexed_revision_digest:
+        try:
+            current_revision = self._document_revision_digest()
+        except Exception:
+            # Mutable authoring code can temporarily put BookDocument into an
+            # invalid state. Treat an uncanonicalizable live revision exactly as
+            # semantic drift instead of leaking parser/attribute failures through
+            # an otherwise fail-closed reader.
+            raise RuntimeError(
+                "BookDocument changed after BookReader creation; create a fresh reader for this revision"
+            ) from None
+        if current_revision != self._indexed_revision_digest:
             raise RuntimeError(
                 "BookDocument changed after BookReader creation; create a fresh reader for this revision"
             )
@@ -115,7 +169,7 @@ class BookReader:
         return-point state or publishing a snapshot so every emitted target is
         immediately restorable against the same document snapshot.
         """
-        key = self._target_key(index)
+        key = self._durable_target(self._target_key(index))
         self._book_index.resolve(key)
         return key
 
@@ -124,60 +178,40 @@ class BookReader:
         if not key.startswith("index:"):
             raise ValueError("fallback digest is only defined for index targets")
         entry = self._book_index.resolve(key)
-        return self._fallback_digest_for_block(self.document.blocks[entry.target.index])
+        return self._fallback_digest_for_block(self._indexed_document.blocks[entry.target.index])
 
     def _go_to_target(self, key: str) -> ReadingLocation:
         self._require_indexed_revision()
-        if type(key) is not str:
-            raise TypeError("Book target key must be a string")
-        entry = self._book_index.resolve(key)
+        validated_key = self._durable_target(key)
+        entry = self._book_index.resolve(validated_key)
         return self.go_to(entry.target.index)
-
-    def _heading_path(self, index: int) -> tuple[str, ...]:
-        levels: list[str | None] = [None] * 6
-        for block in self.document.blocks[: index + 1]:
-            if isinstance(block, Heading):
-                level = block.level - 1
-                levels[level] = block.text
-                for deeper in range(level + 1, 6):
-                    levels[deeper] = None
-        return tuple(item for item in levels if item is not None)
 
     def location(self) -> ReadingLocation:
         self._require_content()
-        block = self.document.blocks[self._index]
-        fen = None
-        if isinstance(block, (Position, Diagram, Exercise)):
-            fen = block.fen
-        elif isinstance(block, VariationTree):
-            fen = block.root_fen
-        side = None
-        if fen:
-            fields = fen.split()
-            if len(fields) >= 2 and fields[1] in {"w", "b"}:
-                side = "white" if fields[1] == "w" else "black"
+        entry = self._book_index.entries[self._index]
+        block = self._indexed_document.blocks[self._index]
         return ReadingLocation(
             index=self._index,
             kind=block.kind,
-            block_id=block.block_id,
-            source_anchor=block.source_anchor,
-            heading_path=self._heading_path(self._index),
-            position_fen=fen,
-            side_to_move=side,
+            block_id=entry.target.block_id,
+            source_anchor=entry.target.source_anchor,
+            heading_path=entry.heading_path,
+            position_fen=entry.position_fen,
+            side_to_move=entry.side_to_move,
         )
 
     def go_to(self, index: int) -> ReadingLocation:
         self._require_content()
         if type(index) is not int:
             raise TypeError("Book reading index must be an integer")
-        if not 0 <= index < len(self.document.blocks):
+        if not 0 <= index < len(self._book_index.entries):
             raise IndexError("Book reading index is outside the document")
         self._index = index
         return self.location()
 
     def next_block(self) -> ReadingLocation:
         self._require_content()
-        if self._index >= len(self.document.blocks) - 1:
+        if self._index >= len(self._book_index.entries) - 1:
             raise LookupError("End of book")
         return self.go_to(self._index + 1)
 
@@ -190,11 +224,49 @@ class BookReader:
     def _next_matching(self, predicate, *, direction: int) -> ReadingLocation:
         self._require_content()
         cursor = self._index + direction
-        while 0 <= cursor < len(self.document.blocks):
-            if predicate(self.document.blocks[cursor]):
+        while 0 <= cursor < len(self._indexed_document.blocks):
+            if predicate(self._indexed_document.blocks[cursor]):
                 return self.go_to(cursor)
             cursor += direction
         raise LookupError("No matching semantic block in that direction")
+
+    def navigation_availability(self) -> dict[str, bool]:
+        """Return non-mutating semantic navigation reachability at the cursor.
+
+        Each side of the cursor is scanned at most once. WebView snapshots request
+        all semantic directions together, so six independent linear scans would
+        add avoidable keyboard-navigation latency for large books.
+        """
+        self._require_content()
+        availability = {
+            "previous": self._index > 0,
+            "next": self._index < len(self._indexed_document.blocks) - 1,
+            "previous_heading": False,
+            "next_heading": False,
+            "previous_position": False,
+            "next_position": False,
+            "previous_game": False,
+            "next_game": False,
+        }
+
+        for direction, prefix in ((-1, "previous"), (1, "next")):
+            cursor = self._index + direction
+            while 0 <= cursor < len(self._indexed_document.blocks):
+                block = self._indexed_document.blocks[cursor]
+                if isinstance(block, Heading):
+                    availability[f"{prefix}_heading"] = True
+                if isinstance(block, (Position, Diagram, Exercise, VariationTree)):
+                    availability[f"{prefix}_position"] = True
+                if isinstance(block, Game):
+                    availability[f"{prefix}_game"] = True
+                if (
+                    availability[f"{prefix}_heading"]
+                    and availability[f"{prefix}_position"]
+                    and availability[f"{prefix}_game"]
+                ):
+                    break
+                cursor += direction
+        return availability
 
     def next_heading(self) -> ReadingLocation:
         return self._next_matching(lambda block: isinstance(block, Heading), direction=1)
@@ -207,12 +279,22 @@ class BookReader:
             lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=1
         )
 
+    def previous_position(self) -> ReadingLocation:
+        return self._next_matching(
+            lambda block: isinstance(block, (Position, Diagram, Exercise, VariationTree)), direction=-1
+        )
+
     def next_game(self) -> ReadingLocation:
         return self._next_matching(lambda block: isinstance(block, Game), direction=1)
+
+    def previous_game(self) -> ReadingLocation:
+        return self._next_matching(lambda block: isinstance(block, Game), direction=-1)
 
     def save_return_point(self, name: str = "default") -> ReadingLocation:
         self._require_content()
         validated_name = self._return_point_name(name)
+        if validated_name not in self._return_points and len(self._return_points) >= _MAX_RETURN_POINTS:
+            raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         key = self._durable_target_key()
         self._return_points[validated_name] = key
         return self.location()
@@ -226,14 +308,22 @@ class BookReader:
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v2 reading progress without positional drift."""
         self._require_indexed_revision()
+        if len(self._return_points) > _MAX_RETURN_POINTS:
+            raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         current_target = None if self._index < 0 else self._durable_target_key()
-        referenced_targets = set(self._return_points.values())
+        validated_return_points: dict[str, str] = {}
+        for name, key in self._return_points.items():
+            validated_name = self._return_point_name(name)
+            validated_key = self._durable_target(
+                key,
+                name="Book reader return point target key",
+            )
+            self._book_index.resolve(validated_key)
+            validated_return_points[validated_name] = validated_key
+
+        referenced_targets = set(validated_return_points.values())
         if current_target is not None:
             referenced_targets.add(current_target)
-        # Return points may predate later authoring/import mutations. Never publish
-        # a durable snapshot containing a target that is now missing or ambiguous.
-        for key in referenced_targets:
-            self._book_index.resolve(key)
         fallback_digests = {
             key: self._fallback_digest(key)
             for key in sorted(referenced_targets)
@@ -242,7 +332,7 @@ class BookReader:
         return {
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": current_target,
-            "return_points": dict(sorted(self._return_points.items())),
+            "return_points": dict(sorted(validated_return_points.items())),
             "fallback_digests": fallback_digests,
         }
 
@@ -258,7 +348,13 @@ class BookReader:
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("Book reader snapshot must be a mapping")
+        if len(snapshot) != len(_BOOK_READER_SNAPSHOT_FIELDS):
+            raise ValueError("invalid BookReader snapshot field count")
         fields = set(snapshot)
+        if any(type(field) is not str for field in fields):
+            raise ValueError(
+                "invalid BookReader snapshot fields (field names must be strings)"
+            )
         if fields != _BOOK_READER_SNAPSHOT_FIELDS:
             missing = sorted(_BOOK_READER_SNAPSHOT_FIELDS - fields)
             unknown = sorted(fields - _BOOK_READER_SNAPSHOT_FIELDS)
@@ -276,31 +372,44 @@ class BookReader:
             raise ValueError(f"unsupported BookReader snapshot schema_version: {schema_version}")
 
         current_target = snapshot["current_target"]
-        if current_target is not None and type(current_target) is not str:
-            raise TypeError("Book reader snapshot current_target must be a string or null")
+        if current_target is not None:
+            current_target = cls._durable_target(
+                current_target,
+                name="Book reader snapshot current_target",
+            )
 
         raw_return_points = snapshot["return_points"]
         if not isinstance(raw_return_points, Mapping):
             raise TypeError("Book reader snapshot return_points must be a mapping")
+        if len(raw_return_points) > _MAX_RETURN_POINTS:
+            raise ValueError(f"Book reader snapshot exceeds {_MAX_RETURN_POINTS} return points")
         return_points: dict[str, str] = {}
         for name, key in raw_return_points.items():
             validated_name = cls._return_point_name(name)
-            if type(key) is not str:
-                raise TypeError("Book reader snapshot target keys must be strings")
-            return_points[validated_name] = key
+            validated_key = cls._durable_target(
+                key,
+                name="Book reader snapshot target key",
+            )
+            return_points[validated_name] = validated_key
 
         raw_fallback_digests = snapshot["fallback_digests"]
         if not isinstance(raw_fallback_digests, Mapping):
             raise TypeError("Book reader snapshot fallback_digests must be a mapping")
+        if len(raw_fallback_digests) > _MAX_RETURN_POINTS + 1:
+            raise ValueError("Book reader snapshot contains too many fallback digests")
         fallback_digests: dict[str, str] = {}
         for key, digest in raw_fallback_digests.items():
-            if type(key) is not str or type(digest) is not str:
+            validated_key = cls._durable_target(
+                key,
+                name="Book reader fallback digest key",
+            )
+            if type(digest) is not str:
                 raise TypeError("Book reader fallback digest keys and values must be strings")
-            if not key.startswith("index:"):
+            if not validated_key.startswith("index:"):
                 raise ValueError("Book reader fallback digests may only bind index targets")
             if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
                 raise ValueError("Book reader fallback digest must be lowercase SHA-256 hex")
-            fallback_digests[key] = digest
+            fallback_digests[validated_key] = digest
 
         reader = cls(document)
         referenced_targets = set(return_points.values())
@@ -310,7 +419,7 @@ class BookReader:
         if set(fallback_digests) != required_fallbacks:
             raise ValueError("Book reader snapshot fallback_digests do not match referenced index targets")
 
-        if not document.blocks:
+        if not reader._book_index.entries:
             if current_target is not None or return_points or fallback_digests:
                 raise LookupError("Book reader snapshot targets require readable content")
             return reader
