@@ -13,6 +13,7 @@ on:
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - 'tests/test_version2_application.py'
   workflow_dispatch:
 
 permissions:
@@ -61,7 +62,8 @@ jobs:
             '.github/workflows/books-progress-backup-recovery.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/book_progress_store.py' \
-            'tests/test_v2_book_progress_store.py' | sort)"
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
           echo 'BOOK_PROGRESS_ORPHAN_BACKUP_SCOPE=PASS'
 
