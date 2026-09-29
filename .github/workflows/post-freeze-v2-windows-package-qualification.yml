@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 35d8858 / p0g a770d52 / p0-document e0a75db
+# exact-package-reconvergence: 35d8858 / p0g a770d52 / p0-document ecdddad
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -29,8 +29,8 @@ env:
   P0G_QA_SHA: a770d525f7c789cbf53f6174210fde7c7b3583c7
   P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: e0a75dbc65db31a256865915b5dade263d621803
-  P0_DOCUMENT_PROBE_BLOB_SHA: 502483364568f1bf6706729e6f535154650f03d4
+  P0_DOCUMENT_QA_SHA: ecdddad1c884adfdd2fa20132619eb4fa87585ed
+  P0_DOCUMENT_PROBE_BLOB_SHA: 356659004faa3a2db89a3d7ca9f6d226afaa0722
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
