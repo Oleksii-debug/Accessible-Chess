@@ -3,7 +3,16 @@ name: V2 Native Dialog Language Current Runtime
 on:
   push:
     branches:
-      - work/v2-native-dialog-language-20260907
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_library_export.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'tests/test_v2_library_export_dialog_language.py'
+      - 'tests/test_v2_native_dialog_language.py'
+      - 'tests/test_v2_native_dialog_language_workflow.py'
+      - '.github/workflows/v2-native-dialog-language.yml'
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
