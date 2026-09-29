@@ -177,7 +177,13 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
                 dialogs,
                 focus="pgn-tree",
             )
-            previous = PgnDocumentSession.new_game({"Event": "Keep me"})
+            previous_source = Path(tmp) / "previous.pgn"
+            previous_source.write_text(
+                PGN_TEXT.replace("UI journey", "Keep me"),
+                encoding="utf-8",
+            )
+            previous = PgnDocumentSession.open(previous_source)
+            self.assertFalse(previous.dirty)
             session_box["value"] = previous
 
             real_view = PgnDocumentSession.view
