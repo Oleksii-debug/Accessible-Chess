@@ -77,6 +77,28 @@ class BookReaderTests(unittest.TestCase):
             reader.go_to(0)
         self.assertEqual(reader.index, 3)
 
+    def test_go_to_rolls_back_cursor_if_revision_changes_between_checks(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        before_index = reader.index
+        original_check = reader._require_indexed_revision
+        checks = 0
+
+        def mutate_after_initial_check():
+            nonlocal checks
+            checks += 1
+            original_check()
+            if checks == 1:
+                book.blocks[2].text = "Concurrent chapter"
+
+        reader._require_indexed_revision = mutate_after_initial_check
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.go_to(6)
+
+        self.assertEqual(reader.index, before_index)
+
     def test_location_stays_on_one_indexed_revision_if_live_document_changes_after_validation(self):
         book = self.make_book()
         reader = BookReader(book)
