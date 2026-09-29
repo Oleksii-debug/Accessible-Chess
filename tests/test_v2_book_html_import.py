@@ -302,6 +302,36 @@ class BookHtmlImportTests(unittest.TestCase):
             reopened_game = reopened.next_game()
             self.assertEqual(reopened_game.block_id, game_location.block_id)
 
+    def test_semantic_marker_workflow_uses_live_inherited_product_base(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "book-html-semantic-marker-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'PR_BASE_REF: ${{ github.event.pull_request.base.ref }}',
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$base_ref"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$live_base"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            workflow,
+        )
+        self.assertIn('upstream="$live_base"', workflow)
+        self.assertIn(
+            ".github/workflows/book-html-semantic-marker-integrity.yml|"
+            "acs/book_html_import.py|tests/test_v2_book_html_import.py",
+            workflow,
+        )
+        self.assertNotIn("w6-v2-package-assembler.yml", workflow)
+
     def test_capability_profile_does_not_claim_unimplemented_or_implicit_semantics(self) -> None:
         self.assertEqual(SUPPORTED_HTML_BOOK_CAPABILITY["format"], "HTML/XHTML")
         self.assertIn(
