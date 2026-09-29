@@ -134,6 +134,15 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertNotIn("function restoreTextSelection(root,snapshot)", self.index)
         self.assertNotIn("function nearestTextOccurrence(text,needle,offset)", self.index)
 
+    def test_canonical_runtime_preserves_backward_selection_direction(self) -> None:
+        self.assertIn("backward: backward", self.p0_runtime)
+        self.assertIn('typeof selection.setBaseAndExtent === "function"', self.p0_runtime)
+        self.assertIn('typeof selection.collapse === "function"', self.p0_runtime)
+        self.assertIn('typeof selection.extend === "function"', self.p0_runtime)
+        self.assertIn("selection.setBaseAndExtent(", self.p0_runtime)
+        self.assertIn("selection.collapse(endPoint.node, endPoint.offset)", self.p0_runtime)
+        self.assertIn("selection.extend(startPoint.node, startPoint.offset)", self.p0_runtime)
+
     def test_selection_restore_never_crosses_product_routes(self) -> None:
         self.assertIn("routeId: currentRouteId", self.v2_bootstrap)
         self.assertIn("snapshot.routeId !== routeId", self.v2_bootstrap)
