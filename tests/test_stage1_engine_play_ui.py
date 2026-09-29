@@ -38,6 +38,17 @@ class _LegalMoveEngine:
         self.closed = True
 
 
+class _FakeTime:
+    def __init__(self, value: float) -> None:
+        self.value = float(value)
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += float(seconds)
+
+
 class Stage1EnginePlayUiTests(unittest.TestCase):
     def make_api(self, engine: _LegalMoveEngine | None = None):
         temp = tempfile.TemporaryDirectory()
@@ -71,6 +82,77 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(len(engine.calls), 1)
         self.assertEqual(engine.calls[0][1:], (6, 325))
         self.assertIn("Stockfish зіграв", played["announcement"])
+
+    def test_timed_text_move_expiring_after_preflight_is_rolled_back(self) -> None:
+        api, engine = self.make_api()
+        started = api.start_engine_game("white", 5, 1, 0)
+        self.assertTrue(started["ok"], started)
+        session = api._engine_session
+        self.assertIsNotNone(session)
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        now = _FakeTime(clock._last_tick)
+        clock._now = now
+        clock.set_remaining("w", 1)
+        before_tree = api.review_history.export_tree()
+        original_guard = api._human_engine_move_guard
+
+        def race_guard():
+            result = original_guard()
+            if result is None:
+                now.advance(0.002)
+            return result
+
+        api._human_engine_move_guard = race_guard
+        expired = api.make_move("e4")
+
+        self.assertFalse(expired["ok"], expired)
+        self.assertIn("Час вичерпано", expired["announcement"])
+        self.assertEqual(expired["historyLength"], 0)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.board.turn, "w")
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.board.redo_stack, [])
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(expired["engineGame"]["phase"], "finished")
+
+    def test_timed_board_move_expiring_after_preflight_is_rolled_back(self) -> None:
+        api, engine = self.make_api()
+        started = api.start_engine_game("white", 5, 1, 0)
+        self.assertTrue(started["ok"], started)
+        session = api._engine_session
+        self.assertIsNotNone(session)
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        now = _FakeTime(clock._last_tick)
+        clock._now = now
+        clock.set_remaining("w", 1)
+        before_tree = api.review_history.export_tree()
+        original_guard = api._human_engine_move_guard
+        guard_calls = 0
+
+        def race_guard():
+            nonlocal guard_calls
+            result = original_guard()
+            guard_calls += 1
+            if result is None and guard_calls == 2:
+                now.advance(0.002)
+            return result
+
+        api._human_engine_move_guard = race_guard
+        selected = api.activate_square("e2")
+        self.assertTrue(selected["ok"], selected)
+        expired = api.activate_square("e4")
+
+        self.assertFalse(expired["ok"], expired)
+        self.assertIn("Час вичерпано", expired["announcement"])
+        self.assertEqual(expired["historyLength"], 0)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.board.turn, "w")
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.board.redo_stack, [])
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(expired["engineGame"]["phase"], "finished")
 
     def test_human_black_receives_opening_engine_move_before_focus_handoff(self) -> None:
         api, engine = self.make_api()
