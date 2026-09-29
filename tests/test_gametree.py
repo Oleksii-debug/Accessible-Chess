@@ -65,11 +65,20 @@ class GameTreeTests(unittest.TestCase):
             serialize_games([invalid])
         self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
 
-        invalid.line.moves[0].move_number = "1."
-        invalid.line.moves[0].san = "1.."
-        with self.assertRaises(GameTreeSerializationError) as caught:
-            serialize_games([invalid])
-        self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
+        invalid.line.moves[0].move_number = None
+        for structural_san in (
+            "1.",
+            "1.e4",
+            "1..",
+            "1..e4",
+            "1...e5",
+            "1....e4",
+        ):
+            with self.subTest(structural_san=structural_san):
+                invalid.line.moves[0].san = structural_san
+                with self.assertRaises(GameTreeSerializationError) as caught:
+                    serialize_games([invalid])
+                self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
 
     def test_multi_game_collection_stays_separate(self):
         text = '''[Event "G1"]
