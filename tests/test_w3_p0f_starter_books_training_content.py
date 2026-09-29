@@ -232,6 +232,86 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_start_normalizes_mid_derivation_malformed_revision(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-start-mid-drift-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Start mid-derivation drift",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Exercise",
+                        answer_text="e4",
+                        block_id="exercise",
+                    )
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+
+            def fail_after_live_mutation(_reader):
+                document.blocks.append(object())
+                raise AttributeError("internal mutable-document failure")
+
+            with patch(
+                "acs.version2_training_workspace.build_current_book_training_material",
+                side_effect=fail_after_live_mutation,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "changed after BookReader creation",
+                ):
+                    workspace.start_current()
+
+            self.assertIsNone(workspace.material)
+            self.assertIsNone(workspace.bridge)
+            self.assertIsNone(workspace._session)
+
+
+    def test_training_successor_probe_normalizes_mid_provenance_malformed_revision(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-successor-mid-drift-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Successor mid-provenance drift",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="First",
+                        answer_text="e4",
+                        block_id="first",
+                    ),
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Second",
+                        answer_text="d4",
+                        block_id="second",
+                    ),
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+
+            def fail_after_live_mutation(_document, _origin):
+                document.blocks.append(object())
+                raise AttributeError("internal provenance failure")
+
+            with patch(
+                "acs.version2_training_workspace.resolve_book_training_origin",
+                side_effect=fail_after_live_mutation,
+            ):
+                self.assertFalse(workspace.has_next())
+
+            self.assertIsNotNone(workspace.material)
+            self.assertIsNotNone(workspace.bridge)
+
+
     def test_training_successor_probe_rejects_malformed_live_revision_before_provenance_or_persistence(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-malformed-revision-") as raw:
             root = Path(raw)

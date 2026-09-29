@@ -129,7 +129,14 @@ class Version2BookTrainingWorkspace:
         message_key: str | None = None,
     ) -> TrainingWebViewBridge:
         location = self.reader.location()
-        material = build_current_book_training_material(self.reader)
+        try:
+            material = build_current_book_training_material(self.reader)
+        except Exception:
+            # If mutable authoring drift caused material derivation to fail, expose
+            # only the canonical revision boundary. If the indexed revision is
+            # still valid, preserve the original domain/programming exception.
+            self.reader.block_snapshot(location.index)
+            raise
         # BookReader is bound to one immutable indexed revision. Revalidate the
         # live authoring document after Training material derivation so a mutable
         # BookDocument cannot change between the reader check and publication.
@@ -162,7 +169,14 @@ class Version2BookTrainingWorkspace:
         # must surface as canonical revision drift, never as an internal parser/
         # attribute exception on the Training/NVDA path.
         self.reader.block_snapshot(self.reader.index)
-        current = resolve_book_training_origin(self.reader.document, material.origin)
+        try:
+            current = resolve_book_training_origin(self.reader.document, material.origin)
+        except Exception:
+            # Provenance resolution reads the mutable authoring document. If it
+            # failed because that document changed mid-call, normalize the failure
+            # to BookReader's canonical revision-drift boundary.
+            self.reader.block_snapshot(self.reader.index)
+            raise
         # resolve_book_training_origin() operates on BookDocument for provenance
         # compatibility. Cross-check again because the live document may change
         # while semantic provenance is being resolved.
@@ -175,9 +189,16 @@ class Version2BookTrainingWorkspace:
             try:
                 candidate = build_book_training_material(self.reader.document, index)
             except BookTrainingError:
-                # Keep malformed authored chess content readable as a Book block,
-                # but never advertise or fabricate it as a Training exercise.
+                # Distinguish stable malformed authored chess content from a live
+                # revision that changed during derivation. The former stays a
+                # readable Book block; the latter must fail closed.
+                self.reader.block_snapshot(index)
                 continue
+            except Exception:
+                # Never leak implementation exceptions caused by concurrent
+                # malformed authoring state before checking revision authority.
+                self.reader.block_snapshot(index)
+                raise
             # The material builder consumes the mutable BookDocument. Revalidate
             # the whole indexed revision after derivation so a concurrent/in-place
             # authoring mutation cannot become the next Training publication.
