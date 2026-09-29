@@ -72,7 +72,15 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
 
     def test_first_launch_requires_explicit_save_or_skip(self) -> None:
         source = self.source
-        self.assertIn('if (!profileState || !profileState.exists) event.preventDefault()', source)
+        self.assertIn(
+            'profileDialog.addEventListener("cancel", function (event) {',
+            source,
+        )
+        self.assertIn(
+            "if (profileMutationPending || !profileState || !profileState.exists) {",
+            source,
+        )
+        self.assertIn("event.preventDefault();", source)
         self.assertIn('bridge.profile_create(profileName.value, false)', source)
         self.assertIn('bridge.profile_create("", true)', source)
         self.assertIn('bridge.profile_rename(profileName.value)', source)
