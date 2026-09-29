@@ -15,6 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  ARTIFACT_ROOT_PARENT_SHA: f4de31d88851df5a4a1a2747c5f84ee5e4b38c7b
+  ARTIFACT_ROOT_PARENT_WORKFLOW_BLOB_SHA: 168c870ff6256a0d4bc3d8cebb8d1db3d76f3882
   AUDITED_PARENT_SHA: 036e72bcec14a0b070c30fa846bc353ac08176ef
   PACKAGE_ANCHOR_SHA: 6559b5f5018ef51beb50b3c38515d2b6777b4ffa
   PRODUCT_PARENT_SHA: 0c9036f3f3a445d3d518825cd620583b29af755a
@@ -62,6 +64,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git cat-file -e "$ARTIFACT_ROOT_PARENT_SHA^{commit}"
           git cat-file -e "$AUDITED_PARENT_SHA^{commit}"
           git cat-file -e "$PACKAGE_ANCHOR_SHA^{commit}"
           git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
@@ -69,7 +72,8 @@ jobs:
           git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
           git cat-file -e "$P0G_QA_SHA^{commit}"
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
-          test "$(git rev-parse HEAD^1)" = "$AUDITED_PARENT_SHA"
+          test "$(git rev-parse HEAD^1)" = "$ARTIFACT_ROOT_PARENT_SHA"
+          test "$(git rev-parse "$ARTIFACT_ROOT_PARENT_SHA^1")" = "$AUDITED_PARENT_SHA"
           test "$(git rev-parse "$AUDITED_PARENT_SHA^1")" = "$PACKAGE_ANCHOR_SHA"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^1")" = "$PRODUCT_PARENT_SHA"
           test "$(git rev-parse "$PACKAGE_ANCHOR_SHA^2")" = "$PREVIOUS_PACKAGE_SHA"
@@ -87,6 +91,8 @@ jobs:
           fi
           config_blob="$(git rev-parse "$PRODUCT_PARENT_SHA:packaging/AccessibleChess.exe.config")"
           test "$config_blob" = "$WINFORMS_ACCESSIBILITY_CONFIG_BLOB"
+          artifact_root_parent_blob="$(git rev-parse "$ARTIFACT_ROOT_PARENT_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$artifact_root_parent_blob" = "$ARTIFACT_ROOT_PARENT_WORKFLOW_BLOB_SHA"
           previous_blob="$(git rev-parse "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH")"
           test "$previous_blob" = "$PREVIOUS_WORKFLOW_BLOB_SHA"
           executor_template_blob="$(git rev-parse "$EXECUTOR_TEMPLATE_SHA:$QUALIFICATION_SOURCE_PATH")"
