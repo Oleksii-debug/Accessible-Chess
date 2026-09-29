@@ -165,14 +165,14 @@ def _source_identity(st: os.stat_result) -> tuple[int, int]:
 
 
 def _preliminary_source_identity(path: Path) -> tuple[int, int]:
-    """Capture the original regular-file object before path-based fingerprinting."""
+    """Capture one direct regular-file object before any source bytes are read."""
 
     try:
-        source_stat = path.stat()
+        source_stat = os.stat(path, follow_symlinks=False)
     except OSError as exc:
         raise PgnFileError("PGN source is unavailable") from exc
-    if not stat.S_ISREG(source_stat.st_mode):
-        raise PgnFileError("PGN source must be a regular file")
+    if not stat.S_ISREG(source_stat.st_mode) or _is_reparse_point(source_stat):
+        raise PgnFileError("PGN source must be a direct regular file")
     if source_stat.st_size > MAX_PGN_SOURCE_BYTES:
         raise PgnResourceLimitError(
             f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
