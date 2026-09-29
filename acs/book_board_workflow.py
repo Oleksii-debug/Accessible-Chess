@@ -582,8 +582,11 @@ class BookBoardWorkflow:
                 ) from exc
             self._session = None
             self._revision += 1
-        # Suppress any in-flight assisted result after the Board context closes.
-        self._engine.invalidate()
+            # Suppress any in-flight result from the closing Board context before
+            # another session can acquire this workflow lock and begin analysis.
+            # AnalysisService.invalidate() advances a shared generation; calling it
+            # after releasing the lock could invalidate the newer session instead.
+            self._engine.invalidate()
         return origin
 
     @staticmethod
