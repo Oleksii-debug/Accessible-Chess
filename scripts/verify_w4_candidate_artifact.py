@@ -1068,13 +1068,6 @@ def verify(
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "Stockfish executable",
         )
-        config_name = "AccessibleChess/AccessibleChess.exe.config"
-        config_info = members[config_name]
-        if config_info.is_dir() or config_info.file_size <= 0 or config_info.file_size > MAX_CANDIDATE_METADATA_BYTES:
-            raise CandidateArtifactError(
-                "WinForms accessibility app-config size is outside accepted bounds"
-            )
-
         for metadata_name in (
             "RELEASE_MANIFEST.json",
             "SHA256SUMS.txt",
@@ -1085,6 +1078,13 @@ def verify(
                 raise CandidateArtifactError(
                     f"candidate metadata size is outside accepted bounds: {metadata_name}"
                 )
+
+        config_name = "AccessibleChess/AccessibleChess.exe.config"
+        config_info = members[config_name]
+        if config_info.is_dir() or config_info.file_size <= 0 or config_info.file_size > MAX_CANDIDATE_METADATA_BYTES:
+            raise CandidateArtifactError(
+                "WinForms accessibility app-config size is outside accepted bounds"
+            )
 
         manifest = _load_json(candidate.read("RELEASE_MANIFEST.json"), "release manifest")
         integration_sha = manifest.get("integration_sha")
