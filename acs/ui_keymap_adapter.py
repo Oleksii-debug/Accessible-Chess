@@ -27,6 +27,7 @@ _UI_CONTEXT = {
 }
 
 _UK_LABELS = {
+    "screen.help": "Довідка",
     "history.previous": "Попередня позиція в історії",
     "history.next": "Наступна позиція в історії",
     "history.go_to_move": "Перейти до ходу",
@@ -92,6 +93,7 @@ _UK_LABELS = {
 }
 
 _EN_LABELS: dict[str, str] = {
+    "screen.help": "Help",
     "history.commit_go_to_move": "Confirm typed history move",
     "move.submit": "Submit move",
     "board.cursor_left": "Move board cursor left",
