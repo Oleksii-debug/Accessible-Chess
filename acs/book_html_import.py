@@ -233,10 +233,15 @@ class _SemanticHtmlParser(HTMLParser):
         self.visible_parts.append(text)
 
     def _append_text_boundary(self) -> None:
-        """Preserve one semantic separator in visible and active capture text."""
+        """Preserve one semantic separator without all-capture fan-out."""
         self._append_visible("\n")
-        for capture in self._captures:
-            capture.parts.append("\n")
+        if self._captures:
+            # Only the innermost active capture directly owns this edge. Starting
+            # a nested captured block first separates its parent; closing it pops
+            # the child before this helper separates the resumed parent. This
+            # keeps valid BR/table/pre semantics while avoiding a new O(depth *
+            # boundaries) path for adversarial malformed nesting.
+            self._captures[-1].parts.append("\n")
 
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
@@ -367,8 +372,8 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if tag in _BLOCK_BOUNDARY_TAGS:
             # HTMLParser does not place markup in capture.parts. Preserve the
-            # same block boundary already published to visible_text inside every
-            # active semantic capture so adjacent source words cannot collapse.
+            # same block boundary already published to visible_text inside the
+            # directly containing semantic capture so adjacent words cannot collapse.
             self._append_text_boundary()
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
