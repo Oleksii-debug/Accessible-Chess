@@ -232,6 +232,60 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_training_successor_probe_rejects_malformed_live_revision_before_provenance_or_persistence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-malformed-revision-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Malformed live revision",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="First",
+                        answer_text="e4",
+                        block_id="first",
+                    ),
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Second",
+                        answer_text="d4",
+                        block_id="second",
+                    ),
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+            current = workspace.material.definition.steps[0]
+            workspace.session.submit(next(iter(current.accepted_moves)))
+            self.assertTrue(workspace.session.completed)
+
+            document.blocks.append(object())
+            with patch(
+                "acs.version2_training_workspace.resolve_book_training_origin",
+                side_effect=AssertionError(
+                    "malformed live revision must be rejected before provenance resolution"
+                ),
+            ) as resolve, patch.object(
+                workspace._store,
+                "save",
+                side_effect=AssertionError(
+                    "malformed live revision must be rejected before Training persistence"
+                ),
+            ) as save:
+                self.assertFalse(workspace.has_next())
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "changed after BookReader creation",
+                ):
+                    workspace.continue_next()
+
+            resolve.assert_not_called()
+            save.assert_not_called()
+
+
     def test_training_continue_fails_closed_on_live_book_revision_drift(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-revision-") as raw:
             root = Path(raw)

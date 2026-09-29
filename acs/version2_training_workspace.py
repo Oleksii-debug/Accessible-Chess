@@ -157,10 +157,15 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if material is None:
             raise RuntimeError("no Training exercise is active")
+        # Fail closed through BookReader before provenance code touches the mutable
+        # live BookDocument. Authoring can temporarily make blocks malformed; that
+        # must surface as canonical revision drift, never as an internal parser/
+        # attribute exception on the Training/NVDA path.
+        self.reader.block_snapshot(self.reader.index)
         current = resolve_book_training_origin(self.reader.document, material.origin)
         # resolve_book_training_origin() operates on BookDocument for provenance
-        # compatibility. Immediately cross-check through BookReader's detached
-        # indexed revision before scanning or publishing any successor.
+        # compatibility. Cross-check again because the live document may change
+        # while semantic provenance is being resolved.
         self.reader.block_snapshot(current.index)
         upper_bound = len(self.reader.document.blocks)
         for index in range(current.index + 1, upper_bound):
