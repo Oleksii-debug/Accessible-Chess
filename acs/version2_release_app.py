@@ -19,6 +19,7 @@ from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
+from .position_editor import PositionState
 from .release_app import _sound_cache_dir, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
@@ -216,6 +217,19 @@ def _install_close_guard_or_shutdown(
             ) from cleanup_error
         raise
     return file_runtime
+
+
+def _current_display_position(api: Version2ReleaseAccessibleChessAPI) -> PositionState:
+    """Materialize the current visible canonical Board as PositionState.
+
+    The provider stays inside the trusted Python composition boundary. It does
+    not reconstruct chess state from WebView/DOM data and does not expose FEN
+    through the browser bridge.
+    """
+
+    if not isinstance(api, Version2ReleaseAccessibleChessAPI):
+        raise TypeError("Version 2 release API is invalid")
+    return PositionState.from_fen(api._display_board().fen())
 
 
 def _copy_text_to_windows_clipboard(value: str) -> None:
@@ -451,6 +465,7 @@ def create_version2_release_application(
                 engine_assistance=EngineAssistedWorkflowService(analysis),
                 board_dispatch=api.v2_board_dispatch,
                 board_position_projector=api.project_review_fen,
+                board_position_provider=lambda: _current_display_position(api),
                 copy_text=copy_text,
                 language=language,
             )
