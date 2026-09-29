@@ -53,6 +53,10 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}", self.text)
         self.assertIn('target = "p0-evidence/w4-run-metadata.json"', self.text)
         self.assertIn('if workflow != expected_workflow:', self.text)
+        self.assertIn('"winforms_accessibility_config_sha256"', self.text)
+        self.assertIn('config_sha = metadata.get("winforms_accessibility_config_sha256")', self.text)
+        self.assertIn("run metadata WinForms accessibility config SHA-256 is invalid", self.text)
+        self.assertIn("W4_READBACK_RUN_WINFORMS_CONFIG_SHA256=", self.text)
         self.assertIn('metadata.get("pre_upload_product_freshness") is not True', self.text)
         self.assertIn('metadata.get("pre_upload_workflow_freshness") is not True', self.text)
         self.assertIn('stream.write(f"product_sha={product}\\n")', self.text)
@@ -69,7 +73,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
     def test_verifier_bytes_and_product_dependencies_have_separate_exact_authorities(self) -> None:
         self.assertNotIn("W4_VERIFIER_COMMIT:", self.text)
         self.assertIn(
-            "W4_VERIFIER_BLOB_SHA: 45219a753090d822ec95c5766c8ad94586793da2",
+            "W4_VERIFIER_BLOB_SHA: 7f2a0275eafdca4177cf1c1317b0fea0d2880fa3",
             self.text,
         )
         self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
@@ -104,7 +108,7 @@ class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):
         self.assertIn("W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS", self.text)
 
     def test_declared_verifier_blob_matches_exact_checked_out_script(self) -> None:
-        declared = "45219a753090d822ec95c5766c8ad94586793da2"
+        declared = "7f2a0275eafdca4177cf1c1317b0fea0d2880fa3"
         actual = subprocess.run(
             ["git", "rev-parse", "HEAD:scripts/verify_w4_candidate_artifact.py"],
             cwd=ROOT,
