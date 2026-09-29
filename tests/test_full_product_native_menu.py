@@ -40,6 +40,7 @@ class FakeMenuItem:
         self.Text = label
         self.DropDownItems = ItemCollection()
         self.Click = EventHook()
+        self.DropDownOpening = EventHook()
 
 
 class FakeSeparator:
@@ -166,6 +167,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
             registry.definition(item.action_id)
         restart = next(item for item in menus[7].items if item.action_id == "analysis.restart")
         self.assertTrue(restart.label.endswith("\tCtrl+Alt+R"))
+        help_item = next(item for item in menus[13].items if item.action_id == "screen.help")
+        self.assertTrue(help_item.label.endswith("\tF1"))
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
         self.assertEqual("&Файл", ua[0].label)
         self.assertEqual("&Учитель/Клас", ua[11].label)
@@ -191,6 +194,48 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
+
+    def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        analysis_top = next(top for top in menu.Items if top.Text == "&Engine")
+        restart = next(
+            item for item in analysis_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Restart analysis")
+        )
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+
+        controller._adapter.registry.set_binding("analysis.restart", "Ctrl+Alt+R")
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+        analysis_top.DropDownOpening.fire()
+        self.assertTrue(restart.Text.endswith("\tCtrl+Alt+R"))
+        self.assertNotIn("\tAlt+R", restart.Text)
+
+    def test_native_help_caption_tracks_live_global_remap(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        help_top = next(top for top in menu.Items if top.Text == "&Help")
+        help_item = next(
+            item for item in help_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Keyboard and help")
+        )
+        self.assertTrue(help_item.Text.endswith("\tF1"))
+
+        controller._adapter.registry.set_binding("screen.help", "Ctrl+F1")
+        self.assertTrue(help_item.Text.endswith("\tF1"))
+        help_top.DropDownOpening.fire()
+        self.assertTrue(help_item.Text.endswith("\tCtrl+F1"))
+        self.assertNotIn("\tF1", help_item.Text.removesuffix("\tCtrl+F1"))
 
     def test_real_menu_installer_attaches_one_extended_menustrip_to_owner(self) -> None:
         controller, _calls, commands, _exits = make_controller()

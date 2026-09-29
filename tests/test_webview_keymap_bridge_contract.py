@@ -5,6 +5,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.ui_keymap_adapter import build_web_keymap
+from acs.version2_profile import build_version2_action_registry
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
@@ -22,6 +24,63 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
         self.assertNotIn("localStorage.getItem", html)
         self.assertNotIn("function conflictsFor", html)
         self.assertNotIn("const alias=keymap.find", html)
+
+    def test_help_uses_canonical_global_binding_and_accessible_dynamic_surface(self):
+        registry = build_version2_action_registry()
+        self.assertEqual(registry.get_binding("screen.help"), "F1")
+
+        snapshot = build_web_keymap(registry)
+        help_item = next(item for item in snapshot["actions"] if item["id"] == "screen.help")
+        self.assertEqual(help_item["registryContext"], "global")
+        self.assertEqual(help_item["context"], "document")
+        self.assertEqual(help_item["labelUk"], "Довідка")
+        self.assertEqual(help_item["labelEn"], "Help")
+        self.assertEqual(help_item["binding"], "F1")
+
+        root = Path(__file__).resolve().parents[1]
+        fallback = json.loads((root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        fallback_help = next(item for item in fallback["actions"] if item["id"] == "screen.help")
+        self.assertEqual(fallback_help["binding"], "F1")
+        self.assertEqual(fallback_help["registryContext"], "global")
+
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(
+            'id="help" class="block" role="document" aria-labelledby="help-title" '
+            'aria-live="off" tabindex="-1"',
+            html,
+        )
+        self.assertIn("function openHelp()", html)
+        self.assertIn("helpReturnFocus=document.activeElement", html)
+        self.assertIn("el('help').focus()", html)
+        self.assertIn("addEventListener('close',restoreHelpFocus)", html)
+        self.assertIn("keymap.filter(x=>x.binding||x.alias).map", html)
+        self.assertIn("resolveBinding(chord,'global','document')", html)
+        self.assertIn("if(id==='screen.help'){openHelp();return}", html)
+        self.assertNotIn("line('history.previous')", html)
+
+    def test_board_grid_remap_uses_same_persisted_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            self.assertEqual(api.keymap_resolve_binding("board", "ArrowLeft")["actionId"], "board.cursor_left")
+            changed = api.keymap_save("board.cursor_left", "Ctrl+Alt+Left")
+            self.assertTrue(changed["ok"])
+            self.assertIsNone(api.keymap_resolve_binding("board", "ArrowLeft"))
+            self.assertEqual(
+                api.keymap_resolve_binding("board", "Ctrl+Alt+Left")["actionId"],
+                "board.cursor_left",
+            )
+
+    def test_input_submission_keys_use_persisted_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            self.assertEqual(api.keymap_resolve_binding("move_entry", "Enter")["actionId"], "move.submit")
+            self.assertEqual(api.keymap_resolve_binding("history", "Enter")["actionId"], "history.commit_go_to_move")
+            self.assertTrue(api.keymap_save("move.submit", "Ctrl+Enter")["ok"])
+            self.assertTrue(api.keymap_save("history.commit_go_to_move", "Alt+Enter")["ok"])
+            self.assertIsNone(api.keymap_resolve_binding("move_entry", "Enter"))
+            self.assertIsNone(api.keymap_resolve_binding("history", "Enter"))
+            self.assertEqual(api.keymap_resolve_binding("move_entry", "Ctrl+Enter")["actionId"], "move.submit")
+            self.assertEqual(api.keymap_resolve_binding("history", "Alt+Enter")["actionId"], "history.commit_go_to_move")
 
     def test_runtime_resolution_follows_persisted_remap_without_js_cache(self):
         with tempfile.TemporaryDirectory() as td:

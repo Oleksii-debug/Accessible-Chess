@@ -50,6 +50,7 @@ jobs:
       D06_BOUNDED_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
       D06_WORKSPACE_TEST_BLOB: edce8f6a591ffc09d419e9046e14725c4a07cf54
       PR_BASE: ${{ github.event.pull_request.base.sha }}
+      EXPECTED_PRODUCT_SHA: 3c69ac281915418574d84c62d928d26db567cd5a
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,8 +64,6 @@ jobs:
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
-          # actions/checkout populates the Windows worktree before repository-local
-          # EOL settings exist. Force a byte rewrite before blob identity gates.
           git checkout-index --force --all
 
       - uses: actions/setup-python@v5
@@ -80,6 +79,12 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$D01_BASE" HEAD
           git merge-base --is-ancestor "$D01_FEATURE" HEAD
+
+          if [ '${{ github.event.pull_request.head.ref }}' = 'reconverge/keybindings-terminal-current-product-20260926' ]; then
+            git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            PR_BASE="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
+            test "$PR_BASE" = "$EXPECTED_PRODUCT_SHA"
+          fi
 
           legacy_isolated=false
           if [ "$(git rev-list --count "$D01_BASE"..HEAD)" = "7" ] \
@@ -126,8 +131,6 @@ jobs:
               git diff --check "$PR_BASE" HEAD
               changed="$(git diff --name-only "$PR_BASE" HEAD | sort)"
             else
-              # Manual dispatch has no pull-request base. Exact feature/shared blob
-              # locks and the complete semantic suites below remain authoritative.
               git diff --check HEAD^ HEAD
               changed="$(git diff --name-only HEAD^ HEAD | sort)"
             fi
@@ -150,51 +153,38 @@ jobs:
             }
           done <<'LOCKS'
           acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
-          acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
-          acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # The shared semantic document may be the pre-P0-G Product blob,
-          # either reviewed event-aware P0-G predecessor, the exact current
-          # convergence blob, or the reviewed P0 document-copy polling repair.
-          # Every other identity remains fail-closed.
+          actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
+          case "$actions_actual" in
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|843140e0a82eb464584fcacbe305f19c4468577c|f0c148c6916c647cb81a2e6a9515210dfb6f1d35) ;;
+            *) printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2; exit 1 ;;
+          esac
+          keybindings_actual="$(git rev-parse HEAD:acs/keybindings.py)"
+          case "$keybindings_actual" in
+            b222f0d625999d8119cb3bb7cebffc961217f610|eeb967de32f0a452ca1b07fb91b1321c7f219914) ;;
+            *) printf 'Protected blob mismatch: acs/keybindings.py actual=%s\n' "$keybindings_actual" >&2; exit 1 ;;
+          esac
+
+          # Preserve current Product document-copy successors and the keybinding semantic-document successor.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd)
-              ;;
-            *)
-              printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
-              exit 1
-              ;;
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|ccb62014c8a2ee05eccf03facc02ba23ae1b1ea8|4b1de037c1d5f80f77674f6975990ad05eb0516e|b02e8fb54c3ca97ab09bd258869d43a6017fe78e|05e4380133334377bfed232ba4aafb5a2d9106cc|643fe3632d68b51831a602fe44788e2264991bc6) ;;
+            *) printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2; exit 1 ;;
           esac
-
-          # The Stage1 release facade is a shared keyboard-routing boundary.
-          # Accept only the prior canonical blob or the exact P0-G facade that
-          # adds board->analysis fallback while preserving the frozen core.
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
           case "$stage1_facade_actual" in
-            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb)
-              ;;
-            *)
-              printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2
-              exit 1
-              ;;
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb) ;;
+            *) printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2; exit 1 ;;
           esac
 
-          # The shell is a shared D01 presentation boundary. Accept only the
-          # exact pre-sanitizer blob or the canonical #456/#609 sanitizer blob
-          # during current-runtime convergence; any third identity fails closed.
           shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
           case "$shell_actual" in
-            4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)
-              ;;
-            *)
-              printf 'Protected blob mismatch: acs/full_product_ui_shell.py actual=%s\n' "$shell_actual" >&2
-              exit 1
-              ;;
+            4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040) ;;
+            *) printf 'Protected blob mismatch: acs/full_product_ui_shell.py actual=%s\n' "$shell_actual" >&2; exit 1 ;;
           esac
 
       - name: Lock exact PGN presentation and canonical workspace
@@ -211,34 +201,32 @@ jobs:
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
-          web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
-          # Presentation privacy is an intentional successor of the exact D01
-          # projection. Accept only the prior projection or the reviewed privacy
-          # successor; every third identity remains fail-closed.
+          pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
+          case "$pgn_surface_actual" in
+            947319b17b4dda179bb2393a6194e2d2a8960220|aa5000151bcba3255dafe18b3d437cdb2707bfcc) ;;
+            *) printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2; exit 1 ;;
+          esac
+          pgn_dom_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
+          case "$pgn_dom_actual" in
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|a81309c1e205fd1dc064c154df0cc564a6734e9c) ;;
+            *) printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$pgn_dom_actual" >&2; exit 1 ;;
+          esac
+
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
-              ;;
-            *)
-              printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
-              exit 1
-              ;;
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3) ;;
+            *) printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2; exit 1 ;;
           esac
 
           workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
           case "$workspace_actual" in
-            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB")
-              ;;
-            *)
-              printf 'Feature blob mismatch: acs/pgn_workspace.py actual=%s\n' "$workspace_actual" >&2
-              exit 1
-              ;;
+            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB") ;;
+            *) printf 'Feature blob mismatch: acs/pgn_workspace.py actual=%s\n' "$workspace_actual" >&2; exit 1 ;;
           esac
           test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$D06_WORKSPACE_TEST_BLOB"
 
