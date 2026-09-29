@@ -162,6 +162,20 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
             ],
         )
 
+    def test_markdown_code_span_backslash_does_not_swallow_closing_delimiter(self) -> None:
+        source = r"Before `code\` then ![Real](real.png) after."
+        result = import_text_book(
+            source,
+            source_name="code-backslash-close.md",
+            source_format="markdown",
+        )
+        image_notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(image_notes, ["Real"])
+
     def test_markdown_even_backslash_parity_keeps_unescaped_image_semantics(self) -> None:
         source = r"Prefix \\![Board](board.png) suffix."
         result = import_text_book(

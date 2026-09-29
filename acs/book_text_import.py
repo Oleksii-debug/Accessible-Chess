@@ -368,9 +368,6 @@ def _iter_semantic_images(line: str):
     length = len(line)
     while index < length:
         char = line[index]
-        if char == "\\":
-            index = min(length, index + 2)
-            continue
         if char == "`":
             end = index + 1
             while end < length and line[end] == "`":
@@ -383,7 +380,12 @@ def _iter_semantic_images(line: str):
             index = end
             continue
         if code_ticks:
+            # Backslashes are literal inside a code span; they must not escape
+            # the matching closing backtick run.
             index += 1
+            continue
+        if char == "\\":
+            index = min(length, index + 2)
             continue
         match = _IMAGE_RE.match(line, index)
         if match is not None:
