@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import tempfile
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
@@ -20,6 +21,18 @@ _ALIAS_RE = re.compile(r"^Player-[0-9A-F]{8}$")
 _REQUIRED_FIELDS = frozenset(
     {"schema_version", "profile_id", "display_name", "generated_alias", "revision"}
 )
+_PROCESS_MUTATION_LOCKS: dict[str, threading.RLock] = {}
+_PROCESS_MUTATION_LOCKS_GUARD = threading.Lock()
+
+
+def _process_mutation_lock(path: Path) -> threading.RLock:
+    key = os.path.normcase(os.path.abspath(os.fspath(path)))
+    with _PROCESS_MUTATION_LOCKS_GUARD:
+        lock = _PROCESS_MUTATION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PROCESS_MUTATION_LOCKS[key] = lock
+        return lock
 
 
 class LocalProfileError(ValueError):
@@ -191,62 +204,65 @@ class LocalProfileStore:
 
     @contextmanager
     def _mutation_lock(self):
-        """Serialize profile mutations across windows/processes.
+        """Serialize profile mutations across threads, windows and processes.
 
-        The stable sibling lock file is intentionally separate from the profile
-        because atomic profile replacement changes the primary file identity.
+        The process-local lock makes same-process callers deterministic on every
+        platform. The stable sibling file lock is the cross-process authority and
+        is intentionally separate from the atomically replaced profile file.
         No profile data is written to the lock file.
         """
-        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.lock_path.is_symlink():
-            raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
-        flags = os.O_RDWR | os.O_CREAT
-        no_follow = getattr(os, "O_NOFOLLOW", 0)
-        if no_follow:
-            flags |= no_follow
-        try:
-            fd = os.open(self.lock_path, flags, 0o600)
-        except OSError as exc:
-            raise LocalProfileError("local profile mutation lock is unavailable") from exc
-
-        locked = False
-        try:
-            # Reject a link swapped into place around open where the platform can
-            # still report it. On POSIX O_NOFOLLOW closes the open-time race.
+        process_lock = _process_mutation_lock(self.lock_path)
+        with process_lock:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
             if self.lock_path.is_symlink():
                 raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
-            os.lseek(fd, 0, os.SEEK_SET)
+            flags = os.O_RDWR | os.O_CREAT
+            no_follow = getattr(os, "O_NOFOLLOW", 0)
+            if no_follow:
+                flags |= no_follow
             try:
-                if os.name == "nt":
-                    import msvcrt
-
-                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
-                else:
-                    import fcntl
-
-                    fcntl.flock(fd, fcntl.LOCK_EX)
+                fd = os.open(self.lock_path, flags, 0o600)
             except OSError as exc:
                 raise LocalProfileError("local profile mutation lock is unavailable") from exc
-            locked = True
-            yield
-        finally:
-            if locked:
+
+            locked = False
+            try:
+                # Reject a link swapped into place around open where the platform
+                # can still report it. POSIX O_NOFOLLOW also closes the open-time
+                # symlink race.
+                if self.lock_path.is_symlink():
+                    raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
+                os.lseek(fd, 0, os.SEEK_SET)
                 try:
-                    os.lseek(fd, 0, os.SEEK_SET)
                     if os.name == "nt":
                         import msvcrt
 
-                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
                     else:
                         import fcntl
 
-                        fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError:
-                    # The mutation has already completed. Unlock failure must not
-                    # rewrite or roll back durable profile state; process close
-                    # still releases the OS-level advisory lock.
-                    pass
-            os.close(fd)
+                        fcntl.flock(fd, fcntl.LOCK_EX)
+                except OSError as exc:
+                    raise LocalProfileError("local profile mutation lock is unavailable") from exc
+                locked = True
+                yield
+            finally:
+                if locked:
+                    try:
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        if os.name == "nt":
+                            import msvcrt
+
+                            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                        else:
+                            import fcntl
+
+                            fcntl.flock(fd, fcntl.LOCK_UN)
+                    except OSError:
+                        # Durable profile state is already decided. Process/handle
+                        # close still releases the OS advisory lock.
+                        pass
+                os.close(fd)
 
     @staticmethod
     def _read_bounded(path: Path) -> bytes:
