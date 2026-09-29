@@ -265,6 +265,53 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
+    def test_live_switch_relocalizes_training_presentation_feedback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            native_refresh = mock.Mock(return_value=True)
+            api.bind_version2_language_refresh(native_refresh)
+            try:
+                event = application.training_workspace.dispatch(
+                    "training.submit",
+                    {"answer": "e3"},
+                )
+                self.assertEqual(event.kind, "render")
+                before = application.training_workspace.session.snapshot()
+                self.assertEqual(
+                    application.training_workspace.presenter_message,
+                    "Спробуйте ще раз.",
+                )
+                self.assertEqual(
+                    application.training.projection.snapshot()["message"],
+                    "Спробуйте ще раз.",
+                )
+
+                result = api.set_language("en")
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(
+                    application.training_workspace.session.snapshot(),
+                    before,
+                )
+                self.assertEqual(
+                    application.training_workspace.presenter_message,
+                    "Try again.",
+                )
+                self.assertEqual(
+                    application.training.projection.snapshot()["message"],
+                    "Try again.",
+                )
+                self.assertEqual(
+                    application.training_workspace.language,
+                    UILanguage.EN,
+                )
+                native_refresh.assert_called_once_with()
+            finally:
+                self._close_real_application(api, application, analysis)
+
     def test_persistence_failure_restores_settings_memory_and_leaves_real_surfaces_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
