@@ -66,6 +66,7 @@ jobs:
             'acs/version2_release_app.py'
             'tests/test_pgn_document_new_game_position_integrity.py'
             'tests/test_pgn_position_new_document_reachability.py'
+            'tests/test_version2_application.py'
           )
           mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
           test "${actual[*]}" = "${wanted[*]}"
