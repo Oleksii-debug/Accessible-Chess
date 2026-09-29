@@ -50,7 +50,9 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
             html,
         )
         self.assertIn("function openHelp()", html)
-        self.assertIn("if(!d.open)d.showModal();el('help').focus()", html)
+        self.assertIn("helpReturnFocus=document.activeElement", html)
+        self.assertIn("el('help').focus()", html)
+        self.assertIn("addEventListener('close',restoreHelpFocus)", html)
         self.assertIn("keymap.filter(x=>x.binding||x.alias).map", html)
         self.assertIn("resolveBinding(chord,'global','document')", html)
         self.assertIn("if(id==='screen.help'){openHelp();return}", html)
