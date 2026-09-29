@@ -243,6 +243,11 @@ def tokenize_movetext(text: str) -> list[_Token]:
         while j < n and not text[j].isspace() and text[j] not in "{};()$":
             j += 1
         value = text[i:j]
+        if MOVE_NUMBER_TOKEN_RE.fullmatch(value):
+            out.append(_Token("MOVE_NUMBER", value))
+            i = j
+            continue
+
         attached_number = MOVE_NUMBER_ATTACHED_RE.fullmatch(value)
         if attached_number is not None:
             out.append(_Token("MOVE_NUMBER", attached_number.group(1)))
@@ -250,8 +255,6 @@ def tokenize_movetext(text: str) -> list[_Token]:
 
         if value in RESULTS:
             kind = "RESULT"
-        elif MOVE_NUMBER_TOKEN_RE.fullmatch(value):
-            kind = "MOVE_NUMBER"
         elif MOVE_NUMBER_PERIODS_RE.fullmatch(value):
             kind = "MOVE_NUMBER_PERIODS"
         elif value in NAG_SYMBOLS:
