@@ -29,7 +29,10 @@ jobs:
       - name: Checkout proposed convergence merge
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 2
+          # Exact event base/head commits may be older than the shallow merge
+          # checkout boundary after Product advances. Full history keeps the
+          # event-bound identities and diff tree available on both OSes.
+          fetch-depth: 0
       - name: Prove exact pull-request merge identity
         shell: bash
         run: |
