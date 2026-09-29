@@ -149,6 +149,71 @@ class BookBoardWorkflowTests(unittest.TestCase):
                 with self.assertRaises(LookupError):
                     reader.restore_return_point(workflow._RETURN_POINT)
 
+    def test_open_current_rejects_revision_race_before_mutated_block_is_consumed(self) -> None:
+        position = Position(fen=Board.START, block_id="race-pos")
+        document = BookDocument(title="Book", blocks=[position])
+        reader = BookReader(document)
+        workflow, engine, _analysis = self._workflow(reader)
+        original_location = reader.location
+        first_call = True
+        changed = Board()
+        changed.push_text("e4")
+        changed_fen = changed.fen()
+
+        def location_then_mutate():
+            nonlocal first_call
+            location = original_location()
+            if first_call:
+                first_call = False
+                position.fen = changed_fen
+            return location
+
+        canonical_inputs: list[object] = []
+        real_canonical = workflow._canonical_fen
+
+        def guarded_canonical(value: object) -> str:
+            canonical_inputs.append(value)
+            return real_canonical(value)
+
+        reader.location = location_then_mutate  # type: ignore[method-assign]
+        workflow._canonical_fen = guarded_canonical  # type: ignore[method-assign]
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.open_current()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertEqual(
+            canonical_inputs,
+            [],
+            "revision drift must fail before mutated chess/content is consumed",
+        )
+        self.assertEqual(engine.calls, [])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_open_current_sanitizes_revision_drift_after_indexed_snapshot(self) -> None:
+        position = Position(fen=Board.START, block_id="post-snapshot-race")
+        document = BookDocument(title="Book", blocks=[position])
+        reader = BookReader(document)
+        workflow, engine, _analysis = self._workflow(reader)
+        real_snapshot = reader.block_snapshot
+
+        def snapshot_then_mutate(index: int):
+            block = real_snapshot(index)
+            position.caption = "changed after indexed snapshot"
+            return block
+
+        reader.block_snapshot = snapshot_then_mutate  # type: ignore[method-assign]
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.open_current()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertNotIn("BookDocument changed", str(caught.exception))
+        self.assertEqual(engine.calls, [])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_embedded_game_uses_canonical_gametree_navigation_and_rav_return(self) -> None:
         reader = BookReader(
             BookDocument(
