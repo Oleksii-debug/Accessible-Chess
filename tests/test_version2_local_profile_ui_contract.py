@@ -22,6 +22,7 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileSave.type = "button"', source)
         self.assertIn('profileSkip.type = "button"', source)
         self.assertIn('profileRepair.id = "v2-profile-repair"', source)
+        self.assertIn('profileRepair.setAttribute("aria-describedby", "v2-profile-status")', source)
         self.assertIn('profileRepair.hidden = !recoveryRequired', source)
         self.assertIn('if (profileState && profileState.recoveryRequired)', source)
         self.assertIn('profileRepair.focus()', source)
