@@ -185,6 +185,14 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
+        if command == "training.continue" and not (
+            self.session.completed and self.has_next()
+        ):
+            # Continue is disabled unless a completed exercise has a validated
+            # successor. Enforce that same authority before the callback can save
+            # current progress, so stale/forged WebView activation of a disabled
+            # Continue control cannot perform durable I/O.
+            return bridge.projection.generic_error()
         if (
             self.session.completed
             and command in ("training.hint", "training.reveal", "training.retry")

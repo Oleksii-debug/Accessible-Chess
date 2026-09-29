@@ -9,7 +9,8 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.book_training import build_book_training_material
-from acs.bookdocument import Exercise, Heading, Paragraph
+from acs.bookdocument import BookDocument, Exercise, Heading, Paragraph
+from acs.bookreader import BookReader
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.starter_books_training_content import STARTER_COURSE_BOOK_KEY
 from acs.starter_books_training_release import (
@@ -1014,6 +1015,58 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             finally:
                 analysis.close()
                 database.close()
+
+
+    def test_disabled_continue_without_successor_rejects_before_persistence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-no-successor-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Single exercise",
+                language="uk",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Знайдіть хід.",
+                        answer_text="e4",
+                        block_id="single-exercise",
+                    )
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+            current = workspace.material.definition.steps[0]
+            completed = workspace.dispatch(
+                "training.submit",
+                {"answer": next(iter(current.accepted_moves))},
+            )
+            self.assertEqual("render", completed.kind)
+            self.assertTrue(workspace.session.completed)
+            actions = {
+                item["command"]: item
+                for item in workspace.snapshot()["actions"]
+            }
+            self.assertFalse(actions["training.continue"]["enabled"])
+
+            session_before = workspace.session.snapshot()
+            surface_before = workspace.snapshot()
+            revision_before = workspace._revision
+            with patch.object(
+                workspace._store,
+                "save",
+                side_effect=AssertionError(
+                    "disabled Continue without a successor must not persist"
+                ),
+            ) as save:
+                rejected = workspace.dispatch("training.continue", {})
+
+            self.assertEqual("error", rejected.kind)
+            save.assert_not_called()
+            self.assertEqual(session_before, workspace.session.snapshot())
+            self.assertEqual(surface_before, workspace.snapshot())
+            self.assertEqual(revision_before, workspace._revision)
 
 
     def test_training_language_survives_bridge_rebuild_after_render_rollback(self) -> None:
