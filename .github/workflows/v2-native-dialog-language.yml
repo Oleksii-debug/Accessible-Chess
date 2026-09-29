@@ -5,10 +5,15 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/settings.py'
+      - 'acs/version2_application.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_file_workflows.py'
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_pgn_export.py'
       - 'tests/test_v2_library_export_dialog_language.py'
       - 'tests/test_v2_native_dialog_language.py'
       - 'tests/test_v2_native_dialog_language_workflow.py'
@@ -17,10 +22,15 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/settings.py'
+      - 'acs/version2_application.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_file_workflows.py'
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_pgn_export.py'
       - 'tests/test_v2_library_export_dialog_language.py'
       - 'tests/test_v2_native_dialog_language.py'
       - 'tests/test_v2_native_dialog_language_workflow.py'
