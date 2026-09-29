@@ -304,8 +304,21 @@ class BookReader:
         if validated_name not in self._return_points and len(self._return_points) >= _MAX_RETURN_POINTS:
             raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         key = self._durable_target_key()
+        had_previous = validated_name in self._return_points
+        previous_key = self._return_points.get(validated_name)
         self._return_points[validated_name] = key
-        return self.location()
+        try:
+            return self.location()
+        except Exception:
+            # The final location() call is also a live-revision barrier. A
+            # concurrent BookDocument edit after target validation must not leave
+            # behind a bookmark that the failed save never successfully published.
+            if had_previous:
+                assert previous_key is not None
+                self._return_points[validated_name] = previous_key
+            else:
+                self._return_points.pop(validated_name, None)
+            raise
 
     def restore_return_point(self, name: str = "default") -> ReadingLocation:
         validated_name = self._return_point_name(name)
