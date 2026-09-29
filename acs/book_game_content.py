@@ -21,6 +21,7 @@ from enum import Enum
 from typing import Protocol
 
 from .bookdocument import Game, VariationTree
+from .chesscore import Board
 from .gametree import GameTreeSerializationError, PgnGame, serialize_game
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
@@ -36,6 +37,7 @@ class BookGameContentErrorCode(str, Enum):
     INVALID_CANONICAL_GAME = "invalid_canonical_game"
     MULTI_GAME_BLOCK = "multi_game_block"
     ROOT_FEN_CONFLICT = "root_fen_conflict"
+    INVALID_ROOT_FEN = "invalid_root_fen"
 
 
 class BookGameContentError(ValueError):
@@ -243,6 +245,24 @@ def resolve_book_game(
     )
 
 
+def _canonical_root_fen(value: object) -> tuple[str, str]:
+    """Return preserved and canonical FEN forms through the shared Board authority."""
+    if type(value) is not str or not value.strip():
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
+    preserved = value.strip()
+    try:
+        canonical = Board(preserved).fen()
+    except (TypeError, ValueError) as exc:
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        ) from exc
+    return preserved, canonical
+
+
 def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
     """Resolve a semantic variation block with its explicit root position.
 
@@ -257,15 +277,28 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
             "book variation resolver requires a VariationTree block",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    # VariationTree is mutable for authoring, so revalidate the live root at this
+    # application boundary. Compare semantic positions canonically instead of raw
+    # strings: BookDocument intentionally accepts equivalent four- and six-field
+    # FEN spellings, while PGN FEN tags normally carry all six fields.
+    preserved_root_fen, canonical_root_fen = _canonical_root_fen(block.root_fen)
     game = _one_embedded_game(block.pgn)
     tagged_fen = game.tags.get("FEN")
-    if tagged_fen is not None and tagged_fen.strip() != block.root_fen:
-        raise BookGameContentError(
-            "book variation root position conflicts with its PGN FEN tag",
-            code=BookGameContentErrorCode.ROOT_FEN_CONFLICT,
-        )
+    if tagged_fen is not None:
+        try:
+            canonical_tagged_fen = Board(tagged_fen.strip()).fen()
+        except (TypeError, ValueError) as exc:
+            raise BookGameContentError(
+                "book variation PGN carries an invalid canonical FEN tag",
+                code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+            ) from exc
+        if canonical_tagged_fen != canonical_root_fen:
+            raise BookGameContentError(
+                "book variation root position conflicts with its PGN FEN tag",
+                code=BookGameContentErrorCode.ROOT_FEN_CONFLICT,
+            )
     return ResolvedBookVariation(
-        root_fen=block.root_fen,
+        root_fen=preserved_root_fen,
         game=game,
         block_id=block.block_id,
         source_anchor=block.source_anchor,
