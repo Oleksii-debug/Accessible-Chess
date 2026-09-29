@@ -65,9 +65,9 @@ jobs:
             esac
           done <<< "$changed"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            expected="$(printf '%s\\n' \\
-              '.github/workflows/book-html-semantic-marker-integrity.yml' \\
-              'acs/book_html_import.py' \\
+            expected="$(printf '%s\n' \
+              '.github/workflows/book-html-semantic-marker-integrity.yml' \
+              'acs/book_html_import.py' \
               'tests/test_v2_book_html_import.py' | sort)"
             test "$changed" = "$expected"
           fi
