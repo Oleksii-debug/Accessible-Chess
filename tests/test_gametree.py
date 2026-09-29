@@ -37,6 +37,34 @@ class GameTreeTests(unittest.TestCase):
         self.assertEqual([m.san for m in reparsed.line.moves], ['e4', 'e5', 'Nf3', 'Nc6'])
         self.assertEqual([m.san for m in reparsed.line.moves[1].variations[0].moves], ['c5', 'Nf3'])
 
+    def test_move_number_dot_grammar_recovers_malformed_and_serializes_only_canonical(self):
+        recovered = parse_games('[Result "*"]\n\n1..e4 1....e5 *')[0]
+        self.assertEqual([move.san for move in recovered.line.moves], ["e4", "e5"])
+        self.assertEqual(
+            [move.move_number for move in recovered.line.moves],
+            [None, None],
+        )
+        self.assertEqual(
+            sum("malformed move-number indicator" in warning for warning in recovered.warnings),
+            2,
+        )
+
+        canonical = parse_games('[Result "*"]\n\n1.e4 1...e5 *')[0]
+        self.assertEqual(
+            [move.move_number for move in canonical.line.moves],
+            ["1.", "1..."],
+        )
+
+        invalid = PgnGame(
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1..")],
+                result="*",
+            )
+        )
+        with self.assertRaises(GameTreeSerializationError) as caught:
+            serialize_games([invalid])
+        self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
+
     def test_multi_game_collection_stays_separate(self):
         text = '''[Event "G1"]
 [Result "1-0"]
