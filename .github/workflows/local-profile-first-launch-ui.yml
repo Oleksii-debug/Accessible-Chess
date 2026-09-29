@@ -1,0 +1,75 @@
+name: Local Profile First Launch UI
+
+on:
+  pull_request:
+    paths:
+      - "acs/local_profile.py"
+      - "acs/version2_local_profile_api.py"
+      - "acs/version2_release_app.py"
+      - "web/version2_release_bootstrap.js"
+      - "tests/test_local_profile.py"
+      - "tests/test_version2_local_profile_api.py"
+      - "tests/test_version2_local_profile_ui_contract.py"
+      - ".github/workflows/local-profile-first-launch-ui.yml"
+  workflow_dispatch:
+
+jobs:
+  profile-ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove exact head, parent ancestry and owned scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || {
+            printf 'Expected exact candidate %s, got %s\n' "$expected" "$actual" >&2
+            exit 1
+          }
+          echo "LOCAL_PROFILE_UI_EXACT_HEAD=$actual"
+
+          if test '${{ github.event_name }}' = 'pull_request'; then
+            event_base='${{ github.event.pull_request.base.sha }}'
+            base_ref='${{ github.event.pull_request.base.ref }}'
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "${event_base}^{commit}"
+            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+            live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            git diff --check "$live_base" HEAD
+            changed="$(git diff --name-only "$live_base" HEAD | sort)"
+            expected_paths="$(printf '%s\n'               '.github/workflows/local-profile-first-launch-ui.yml'               'acs/version2_local_profile_api.py'               'acs/version2_release_app.py'               'tests/test_version2_local_profile_api.py'               'tests/test_version2_local_profile_ui_contract.py'               'web/version2_release_bootstrap.js' | sort)"
+            test "$changed" = "$expected_paths" || {
+              printf 'Unexpected local-profile UI scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            echo "LOCAL_PROFILE_UI_EVENT_BASE=$event_base"
+            echo "LOCAL_PROFILE_UI_EXACT_BASE=$live_base"
+            echo 'LOCAL_PROFILE_UI_SCOPE=EXACT_SIX_PATHS'
+          fi
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Compile profile and release composition
+        run: python -m py_compile acs/local_profile.py acs/version2_local_profile_api.py acs/version2_release_app.py
+      - name: Focused persistence and UI bridge regressions
+        run: python -m unittest -v tests.test_local_profile tests.test_version2_local_profile_api tests.test_version2_local_profile_ui_contract tests.test_version2_release_ui tests.test_version2_release_app
+      - name: Full unittest suite
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Install pinned pytest
+        run: python -m pip install pytest==8.4.2
+      - name: Full pytest suite
+        run: python -m pytest -q tests
