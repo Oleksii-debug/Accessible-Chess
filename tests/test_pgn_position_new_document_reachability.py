@@ -12,7 +12,7 @@ from acs.book_progress_store import BookProgressStore
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.keybindings import BindingContext
-from acs.pgn_document import PgnDocumentSession
+from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from acs.position_editor import PositionState, standard_position
 from acs.version2_application import Version2Application
 from acs.version2_profile import build_version2_action_registry, build_version2_menu_spec
@@ -117,7 +117,7 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         self.assertEqual(calls, [True])
         self.assertIs(self.app.session, existing)
         self.assertEqual(self.app.session.copy_pgn(), before_text)
-        self.assertEqual(self.app.shell.current_route.route_id, "pgn")
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
 
 
     def test_route_publication_failure_keeps_existing_document_authoritative(self) -> None:
@@ -160,6 +160,28 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         self.assertEqual(calls, [True])
         self.assertIsNot(self.app.session, existing)
         self.assertEqual(self.app.session.workspace.current_game().tags["FEN"], CUSTOM_FEN)
+
+    def test_canonical_position_rejection_never_enters_replacement_or_swaps_document(self) -> None:
+        existing = PgnDocumentSession.new_game({"Event": "Keep active document"})
+        self.app.set_document(existing)
+        self.app.shell.open_route("board")
+        existing_bridge = self.app.pgn
+        existing_text = existing.copy_pgn()
+        confirmations: list[bool] = []
+
+        self.app.confirm_document_replace = lambda: confirmations.append(True) or True
+        self.current_position = PositionState.from_fen("8/8/8/8/8/8/8/8 w - - 0 1")
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            self.app.router.dispatch("pgn.new_from_position")
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_POSITION)
+        self.assertEqual(confirmations, [])
+        self.assertIs(self.app.session, existing)
+        self.assertIs(self.app.pgn, existing_bridge)
+        self.assertEqual(self.app.session.copy_pgn(), existing_text)
+        self.assertTrue(self.app.session.dirty)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
 
     def test_invalid_position_provider_never_replaces_document(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Keep me"})
