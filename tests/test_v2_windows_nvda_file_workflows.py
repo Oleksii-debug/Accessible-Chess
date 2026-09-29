@@ -167,6 +167,45 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
                 "UI journey",
             )
 
+    def test_open_view_failure_keeps_previous_active_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs()
+            dialogs.open_path = source
+            controller, events, session_box, _ = self._controller(
+                dialogs,
+                focus="pgn-tree",
+            )
+            previous = PgnDocumentSession.new_game({"Event": "Keep me"})
+            session_box["value"] = previous
+
+            real_view = PgnDocumentSession.view
+
+            def fail_only_replacement(bound_session):
+                if bound_session is previous:
+                    return real_view(bound_session)
+                raise RuntimeError("private replacement projection failure")
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=fail_only_replacement,
+            ):
+                result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_open_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(
+                session_box["value"].workspace.current_game().tags["Event"],
+                "Keep me",
+            )
+            self.assertEqual(events[-1], result)
+            self.assertNotIn("private replacement projection failure", repr(result))
+
     def test_real_pgn_open_edit_save_reopen_uses_canonical_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "private-source-name.pgn"
@@ -197,6 +236,35 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             for event in events:
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-source-name", repr(event))
+
+    def test_save_view_failure_is_sanitized_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "must-remain-original.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+            dialogs = _Dialogs()
+            controller, events, session_box, _ = self._controller(
+                dialogs,
+                focus="pgn-tree",
+            )
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Must not publish")
+            session_box["value"] = session
+
+            with mock.patch.object(
+                session,
+                "view",
+                side_effect=RuntimeError("private save projection failure"),
+            ):
+                result = controller("pgn.save", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(source.read_bytes(), original)
+            self.assertTrue(session.dirty)
+            self.assertEqual(events[-1], result)
+            self.assertNotIn("private save projection failure", repr(result))
 
     def test_save_does_not_requery_view_after_durable_publication(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
