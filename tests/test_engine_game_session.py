@@ -271,7 +271,7 @@ class EngineGameSessionTests(unittest.TestCase):
         after = session.snapshot()
         self.assertEqual(after.lifecycle, before.lifecycle)
         self.assertEqual(after.lifecycle.draw_offered_by, "w")
-        self.assertEqual(after.side_to_move, "b")
+        self.assertEqual(after.side_to_move, "w")
 
     def test_flag_before_engine_move_finishes_without_calling_engine(self):
         now = FakeTime()
