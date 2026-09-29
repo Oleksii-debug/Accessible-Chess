@@ -73,6 +73,14 @@ class ChessBaseMetadataCurrentStackWorkflowTests(unittest.TestCase):
         )
         self.assertIn("LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696", self.workflow)
         self.assertIn("UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57", self.workflow)
+        self.assertIn(
+            "TWIC1134_PGN_ZIP_EXPECTED_SHA256: e5ed447adaff1c06f9d646f5dec93c68d89bf1b7a761537cf2533be2e11f5984",
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$zip_sha256" = "$TWIC1134_PGN_ZIP_EXPECTED_SHA256"',
+            self.workflow,
+        )
 
     def test_combined_bridge_real_d09_proof_is_mandatory(self) -> None:
         self.assertIn(

@@ -20,6 +20,7 @@ concurrency:
 env:
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
+  TWIC1134_PGN_ZIP_EXPECTED_SHA256: e5ed447adaff1c06f9d646f5dec93c68d89bf1b7a761537cf2533be2e11f5984
 
 jobs:
   metadata-regressions:
@@ -208,7 +209,72 @@ jobs:
             https://theweekinchess.com/zips/twic1134g.zip \
             -o transient-corpus/twic1134g.zip
           zip_sha256="$(sha256sum transient-corpus/twic1134g.zip | cut -d' ' -f1)"
-          pgn_member="$(unzip -Z1 transient-corpus/twic1134g.zip | grep -Ei '\.pgn$' | head -n 1)"
+          test "$zip_sha256" = "$TWIC1134_PGN_ZIP_EXPECTED_SHA256" || {
+            printf 'TWIC1134 PGN oracle SHA256 mismatch: expected=%s actual=%s\n' \
+              "$TWIC1134_PGN_ZIP_EXPECTED_SHA256" "$zip_sha256" >&2
+            exit 1
+          }
+          pgn_member="$(unzip -Z1 transient-corpus/twic1134g.zip | grep -Ei '\.pgn          test -n "$pgn_member"
+          unzip -q transient-corpus/twic1134g.zip -d transient-corpus/twic1134
+          pgn_path="$(realpath "transient-corpus/twic1134/$pgn_member")"
+          test -s "$pgn_path"
+          echo "TWIC_PGN_ZIP_SHA256=$zip_sha256" >> "$GITHUB_ENV"
+          echo "TWIC_PGN_FIXTURE=$pgn_path" >> "$GITHUB_ENV"
+          printf 'TWIC1134_PGN_ZIP_SHA256=%s\nTWIC1134_PGN_MEMBER=%s\n' "$zip_sha256" "$pgn_member"
+
+      - name: Prove existing real libcbh semantic fixture
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+        run: python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+
+      - name: Prove inherited D09 real annotation and RAV semantics on combined bridge
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+          LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+        run: python -m unittest -v tests.test_v2_dev09_cbh_annotations_variations
+
+      - name: Run exhaustive real 6117-game metadata oracle through D07 Search and bounded Export Reopen
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          UNCBV_BINARY: ${{ github.workspace }}/upstream/uncbv/target/release/uncbv
+          UNCBV_FIXTURE: ${{ github.workspace }}/upstream/uncbv/tests/twic1134.cbv
+        run: |
+          set -o pipefail
+          python -m tests.v2_chessbase_metadata_probe 2>&1 | tee chessbase-metadata.log
+
+      - name: Default package still excludes optional external backends
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test ! -e uncbv
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Remove transient copyrighted corpus before artifact publication
+        if: always()
+        shell: bash
+        run: rm -rf transient-corpus upstream/uncbv/tests/*.cbv upstream/uncbv/tests/*.cbz || true
+
+      - name: Upload metadata evidence summary only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-chessbase-metadata-d07-evidence
+          path: |
+            product/chessbase-metadata-summary.json
+            product/chessbase-metadata.log
+          if-no-files-found: ignore
+          retention-days: 7
+ | head -n 1)"
           test -n "$pgn_member"
           unzip -q transient-corpus/twic1134g.zip -d transient-corpus/twic1134
           pgn_path="$(realpath "transient-corpus/twic1134/$pgn_member")"
