@@ -143,6 +143,15 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         self.assertIn("selection.collapse(endPoint.node, endPoint.offset)", self.p0_runtime)
         self.assertIn("selection.extend(startPoint.node, startPoint.offset)", self.p0_runtime)
 
+    def test_v2_bootstrap_preserves_backward_selection_direction(self) -> None:
+        self.assertIn("backward: backward", self.v2_bootstrap)
+        self.assertIn('typeof selection.setBaseAndExtent === "function"', self.v2_bootstrap)
+        self.assertIn('typeof selection.collapse === "function"', self.v2_bootstrap)
+        self.assertIn('typeof selection.extend === "function"', self.v2_bootstrap)
+        self.assertIn("selection.setBaseAndExtent(", self.v2_bootstrap)
+        self.assertIn("selection.collapse(endPoint.node, endPoint.offset)", self.v2_bootstrap)
+        self.assertIn("selection.extend(startPoint.node, startPoint.offset)", self.v2_bootstrap)
+
     def test_selection_restore_never_crosses_product_routes(self) -> None:
         self.assertIn("routeId: currentRouteId", self.v2_bootstrap)
         self.assertIn("snapshot.routeId !== routeId", self.v2_bootstrap)
