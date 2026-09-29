@@ -69,6 +69,18 @@ class GameTreeTests(unittest.TestCase):
                     )
                 )
 
+        for damaged in (
+            '1 2 e4 *',
+            '1 {between move numbers} 2 e4 *',
+            '1. 2... e4 *',
+            '1 *',
+        ):
+            with self.subTest(damaged=damaged):
+                recovered = parse_games(f'[Result "*"]\n\n{damaged}')[0]
+                self.assertTrue(
+                    any("orphan move number" in warning for warning in recovered.warnings)
+                )
+
         game = PgnGame(
             line=VariationLine(
                 moves=[MoveNode("e4")],
