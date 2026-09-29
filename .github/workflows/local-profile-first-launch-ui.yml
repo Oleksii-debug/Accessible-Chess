@@ -54,13 +54,15 @@ jobs:
             if test "$base_ref" = 'feature/local-profile-first-launch-ui-20260929'; then
               expected_paths="$(printf '%s\n' \
                 '.github/workflows/local-profile-first-launch-ui.yml' \
+                '.github/workflows/local-profile-identity.yml' \
                 'acs/local_profile.py' \
                 'tests/test_local_profile.py' \
                 'tests/test_version2_local_profile_ui_contract.py' | sort)"
-              scope='EXACT_MUTATION_SUCCESSOR_FOUR_PATHS'
+              scope='EXACT_MUTATION_SUCCESSOR_FIVE_PATHS'
             elif test "$base_ref" = 'work/local-profile-identity-foundation-20260929'; then
               expected_paths="$(printf '%s\n' \
                 '.github/workflows/local-profile-first-launch-ui.yml' \
+                '.github/workflows/local-profile-identity.yml' \
                 'acs/local_profile.py' \
                 'acs/version2_local_profile_api.py' \
                 'acs/version2_release_app.py' \
@@ -68,7 +70,7 @@ jobs:
                 'tests/test_version2_local_profile_api.py' \
                 'tests/test_version2_local_profile_ui_contract.py' \
                 'web/version2_release_bootstrap.js' | sort)"
-              scope='EXACT_ROOT_EIGHT_PATHS'
+              scope='EXACT_ROOT_NINE_PATHS'
             else
               printf 'Unexpected local-profile qualification base: %s\n' "$base_ref" >&2
               exit 1
