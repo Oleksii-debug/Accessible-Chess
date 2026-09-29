@@ -484,6 +484,8 @@ class Version2Application:
         if action == "pgn.new_from_position":
             if payload:
                 raise ValueError("PGN position creation accepts no payload")
+            if self.shell.current_route.route_id != "board":
+                raise ValueError("PGN position creation requires the visible Board")
             if self._board_position_provider is None:
                 raise ValueError("current board position is unavailable")
             position = self._board_position_provider()
