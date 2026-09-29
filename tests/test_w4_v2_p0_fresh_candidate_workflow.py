@@ -52,6 +52,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("test -f product-source/packaging/AccessibleChess.exe.config", self.text)
         self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING", self.text)
         self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
+        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
         self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=", self.text)
         self.assertIn("WINFORMS_CONFIG_SHA256=", self.text)
         self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS", self.text)
@@ -71,6 +72,16 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(source, include)
         self.assertLess(include, byte_proof)
         self.assertLess(byte_proof, prepare)
+
+    def test_winforms_accessibility_config_authority_is_bound_before_product_code_runs(self) -> None:
+        qualify = self.text.index("Qualify exact Product source before compilation")
+        diff = self.text.index("git diff --exit-code -- packaging/AccessibleChess.exe.config")
+        bind = self.text.index("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=")
+        diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
+        self.assertLess(qualify, diff)
+        self.assertLess(diff, bind)
+        self.assertLess(bind, diagnostic)
+        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
 
     def test_winforms_accessibility_config_bytes_survive_fresh_package_readback(self) -> None:
         standalone = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
