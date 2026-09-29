@@ -263,8 +263,14 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(first.workspace.cursor, GameTreeCursor((), 1))
         self.assertEqual(second.workspace.cursor, GameTreeCursor((), 0))
 
-        first = PgnDocumentSession.from_text("1. e4 *\n\n1. c4 *")
-        second = PgnDocumentSession.from_text("1. d4 *\n\n1. Nf3 *")
+        first = PgnDocumentSession.from_text(
+            '[Event "First A"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "First B"]\n[Result "*"]\n\n1. c4 *\n'
+        )
+        second = PgnDocumentSession.from_text(
+            '[Event "Second A"]\n[Result "*"]\n\n1. d4 *\n\n'
+            '[Event "Second B"]\n[Result "*"]\n\n1. Nf3 *\n'
+        )
         calls = 0
 
         def get_session_for_game_navigation():
