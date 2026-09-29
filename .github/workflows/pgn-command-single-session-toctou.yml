@@ -36,16 +36,23 @@ jobs:
 
       - name: Prove exact current-Product ancestry and bounded scope
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
-          base="3c69ac281915418574d84c62d928d26db567cd5a"
+          base="${PR_BASE_SHA:-}"
+          if test -z "$base"; then
+            base="$(git merge-base HEAD origin/work/full-product-teacher-education-reachability-20260911)"
+          fi
+          git cat-file -e "$base^{commit}"
           test "$(git merge-base HEAD "$base")" = "$base"
-          python - <<'PY'
+          BASE_SHA="$base" python - <<'PY'
+          import os
           import subprocess
 
-          base = "3c69ac281915418574d84c62d928d26db567cd5a"
+          base = os.environ["BASE_SHA"]
           expected = {
               ".github/workflows/pgn-command-single-session-toctou.yml",
               "acs/version2_pgn_commands.py",
