@@ -122,6 +122,37 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
             )
             self.assertTrue(session.dirty)
 
+    def test_real_recovered_file_warning_reaches_whole_application_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "legacy whole product.pgn"
+            source.write_bytes(PGN.encode("utf-8") + b"\n{broken byte: \xff}\n")
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_args: None,
+                    language=UILanguage.EN,
+                )
+
+                app.set_document(PgnDocumentSession.open(source))
+                snapshot = app.snapshot()
+
+                self.assertEqual("pgn", app.shell.current_route.route_id)
+                self.assertTrue(snapshot["document_dirty"])
+                self.assertIsNotNone(snapshot["pgn"])
+                warnings = snapshot["pgn"]["game"]["warnings"]
+                self.assertTrue(
+                    any("Invalid UTF-8 bytes were replaced" in warning for warning in warnings)
+                )
+                self.assertNotIn(str(source), repr(snapshot["pgn"]))
+            finally:
+                analysis.close()
+                database.close()
+
     def test_clean_document_does_not_invent_warning(self) -> None:
         session = PgnDocumentSession.from_text(PGN)
         projection = PgnDocumentWebViewProjection(
