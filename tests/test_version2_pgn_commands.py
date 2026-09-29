@@ -240,6 +240,43 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(second.copy_pgn(), second_before)
         self.assertEqual(second.workspace.view(), second_view)
 
+    def test_navigation_command_families_resolve_provider_once(self):
+        first = PgnDocumentSession.from_text("1. e4 *")
+        second = PgnDocumentSession.from_text("1. d4 *")
+        view = first.workspace.view()
+        payload = {
+            "game_index": 0,
+            "line_path": (),
+            "move_index": 0,
+            "expected_record_digest": view.current_record_digest,
+            "content_revision": view.content_revision,
+        }
+        calls = 0
+
+        def get_session():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        Version2PgnCommands(get_session)("pgn.select_item", payload)
+        self.assertEqual(calls, 1)
+        self.assertEqual(first.workspace.cursor, GameTreeCursor((), 1))
+        self.assertEqual(second.workspace.cursor, GameTreeCursor((), 0))
+
+        first = PgnDocumentSession.from_text("1. e4 *\n\n1. c4 *")
+        second = PgnDocumentSession.from_text("1. d4 *\n\n1. Nf3 *")
+        calls = 0
+
+        def get_session_for_game_navigation():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        Version2PgnCommands(get_session_for_game_navigation)("pgn.next_game", {})
+        self.assertEqual(calls, 1)
+        self.assertEqual(first.workspace.selected_game_index, 1)
+        self.assertEqual(second.workspace.selected_game_index, 0)
+
     def test_illegal_move_never_produces_a_board_position(self):
         session = PgnDocumentSession.from_text('1. e5 *')
         session.workspace.next_move()
