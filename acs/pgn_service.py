@@ -185,9 +185,12 @@ def _opened_source_identity(handle: object) -> tuple[int, int] | None:
 
     try:
         fileno = handle.fileno()  # type: ignore[attr-defined]
-        opened = os.fstat(fileno)
-    except (AttributeError, OSError, ValueError):
+    except (AttributeError, ValueError):
         return None
+    try:
+        opened = os.fstat(fileno)
+    except OSError as exc:
+        raise PgnSourceChangedError("PGN source identity could not be verified") from exc
     if not stat.S_ISREG(opened.st_mode):
         raise PgnSourceChangedError("PGN source changed while being opened")
     return _source_identity(opened)
