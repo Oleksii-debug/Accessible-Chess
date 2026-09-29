@@ -6,12 +6,33 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts" / "p0_packaged_document_copy_probe.ps1"
+WORKFLOW = ROOT / ".github" / "workflows" / "p0-packaged-document-copy-probe-contract.yml"
 
 
 class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = PROBE.read_text(encoding="utf-8")
+
+    def test_contract_resolves_textpattern_endpoint_enum_at_runtime_on_windows(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Resolve UIAutomation TextPattern endpoint enum on Windows", workflow)
+        self.assertIn("if: runner.os == 'Windows'", workflow)
+        self.assertIn("Add-Type -AssemblyName UIAutomationClient", workflow)
+        self.assertIn("Add-Type -AssemblyName UIAutomationTypes", workflow)
+        self.assertIn(
+            "$start=[System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start",
+            workflow,
+        )
+        self.assertIn(
+            "$end=[System.Windows.Automation.Text.TextPatternRangeEndpoint]::End",
+            workflow,
+        )
+        self.assertIn("UIAUTOMATION_TEXTPATTERN_RANGE_ENDPOINT_RUNTIME=PASS", workflow)
+        self.assertNotIn(
+            "$start=[System.Windows.Automation.TextPatternRangeEndpoint]::Start",
+            workflow,
+        )
 
     def test_probe_binds_claimed_sha_to_release_manifest_and_launched_exe_checksum(self) -> None:
         self.assertIn("function AssertExactPackageBinding", self.text)
