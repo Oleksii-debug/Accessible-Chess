@@ -58,6 +58,7 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
 
     def test_stage1_analysis_refresh_preserves_native_text_selection(self) -> None:
         self.assertIn("function captureTextSelection(root)", self.index)
+        self.assertIn("function nearestTextOccurrence(text,needle,offset)", self.index)
         self.assertIn("function restoreTextSelection(root,snapshot)", self.index)
         self.assertIn("document.createRange()", self.index)
         self.assertIn("selection.addRange(range)", self.index)
@@ -84,8 +85,15 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         restore_end = self.index.index("\nfunction renderAnalysis", restore_start)
         restore = self.index[restore_start:restore_end]
         self.assertIn("if(!root||!snapshot)return", restore)
+        self.assertIn("nearestTextOccurrence(current,snapshot.text,start)", restore)
         self.assertIn("if(end<=start)return", restore)
         self.assertNotIn("preventDefault", restore)
+
+        nearest_start = self.index.index("function nearestTextOccurrence(text,needle,offset)")
+        nearest_end = self.index.index("\nfunction restoreTextSelection", nearest_start)
+        nearest = self.index[nearest_start:nearest_end]
+        self.assertIn("Math.abs(candidate-offset)", nearest)
+        self.assertIn("candidate<=upper", nearest)
 
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
