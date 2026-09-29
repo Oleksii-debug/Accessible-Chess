@@ -107,6 +107,52 @@ class PgnCommandsTests(unittest.TestCase):
         )
         self.assertEqual(second_move.comments_after, [])
 
+    def test_stale_export_rejection_acquires_session_once(self):
+        first = PgnDocumentSession.from_text("1. e4 *")
+        second = PgnDocumentSession.from_text("1. d4 *")
+        first.workspace.next_move()
+        view = first.workspace.view()
+        stale = PgnSelectionExportRequest(
+            0,
+            (),
+            0,
+            view.current_record_digest,
+            view.content_revision + 1,
+        )
+        calls = 0
+
+        def get_session():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        commands = Version2PgnCommands(get_session)
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "stale-once.pgn"
+            with self.assertRaises(ValueError):
+                commands.export_selected(stale, destination)
+            self.assertFalse(destination.exists())
+
+        self.assertEqual(calls, 1)
+
+    def test_invalid_command_payload_acquires_session_once(self):
+        first = PgnDocumentSession.from_text("1. e4 *")
+        second = PgnDocumentSession.from_text("1. d4 *")
+        calls = 0
+
+        def get_session():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        commands = Version2PgnCommands(get_session)
+        with self.assertRaises(ValueError):
+            commands("pgn.comment_edit", {"unexpected": "field"})
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(first.workspace.current_game().line.moves[0].comments_after, [])
+        self.assertEqual(second.workspace.current_game().line.moves[0].comments_after, [])
+
     def test_illegal_move_never_produces_a_board_position(self):
         session = PgnDocumentSession.from_text('1. e5 *')
         session.workspace.next_move()
