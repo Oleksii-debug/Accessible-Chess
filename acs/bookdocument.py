@@ -412,15 +412,15 @@ class BookDocument:
 
     def validate_structure(self) -> list[str]:
         """Return non-destructive semantic warnings suitable for import reports."""
+        # BookDocument and its blocks remain mutable for authoring. Reuse the
+        # canonical live export-state validator before warning inspection so
+        # malformed containers, metadata or block fields fail through the stable
+        # BookDocumentError boundary rather than leaking raw Python exceptions.
+        self._validate_export_state()
         warnings = list(self.warnings)
         previous_level = 0
         seen_ids: set[str] = set()
         for index, block in enumerate(self.blocks):
-            # Blocks remain mutable for authoring after document construction.
-            # Revalidate live state before structural inspection so malformed
-            # mutable fields fail through BookDocumentError rather than leaking
-            # raw hashing/comparison/type errors from the warning pass.
-            block.as_dict()
             if block.block_id:
                 if block.block_id in seen_ids:
                     warnings.append(f"duplicate block_id {block.block_id!r} at block {index}")
