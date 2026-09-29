@@ -95,7 +95,7 @@ class BookBlock:
         data = {"kind": self.kind}
         for name in self.__dataclass_fields__:
             value = getattr(self, name)
-            if value is not None and value != []:
+            if value is not None:
                 data[name] = value
         # Dataclass instances are intentionally mutable for authoring. Rebuild
         # the exact current payload before export so post-construction mutation
@@ -104,7 +104,7 @@ class BookBlock:
         canonical = {"kind": rebuilt.kind}
         for name in rebuilt.__dataclass_fields__:
             value = getattr(rebuilt, name)
-            if value is not None and value != []:
+            if value is not None:
                 canonical[name] = value
         return canonical
 
