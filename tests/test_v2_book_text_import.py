@@ -79,6 +79,39 @@ class BookTextImportTests(unittest.TestCase):
         )
         self.assertEqual(result.document.title, "C#")
 
+    def test_markdown_inline_images_preserve_source_reading_order(self) -> None:
+        source = """# Images
+
+Before ![Board](board.png) middle ![Arrow](arrow.png) after.
+"""
+        result = import_text_book(
+            source,
+            source_name="inline-images.md",
+            source_format="markdown",
+        )
+        semantic = [
+            (
+                "image" if isinstance(block, Note) and block.note_type == "image"
+                else "paragraph" if isinstance(block, Paragraph)
+                else "heading" if isinstance(block, Heading)
+                else type(block).__name__
+            ,
+                block.text if isinstance(block, (Heading, Note, Paragraph)) else None,
+            )
+            for block in result.document.blocks
+        ]
+        self.assertEqual(
+            semantic,
+            [
+                ("heading", "Images"),
+                ("paragraph", "Before"),
+                ("image", "Board"),
+                ("paragraph", "middle"),
+                ("image", "Arrow"),
+                ("paragraph", "after."),
+            ],
+        )
+
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
 
