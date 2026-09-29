@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 35d8858 / p0g a770d52 / p0-document ecdddad
+# exact-package-reconvergence: 35d8858 / p0g a770d52 / p0-document 3c837a0
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,11 +15,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AUDITED_PARENT_SHA: 785bb98bf5aadec63e52640ab8a7ee756a1b1416
-  PACKAGE_ANCHOR_SHA: fcd74d3ac119920faa8f82100ec457c02c8d7d70
+  AUDITED_PARENT_SHA: 86c2308f297d76b50a3b993bed8d4aa454838eae
+  PACKAGE_ANCHOR_SHA: 053fd6b311256d10e5a3f24b982dc91bc03059a1
   PRODUCT_PARENT_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
-  PREVIOUS_PACKAGE_SHA: ba9619184d520d586af2368e26a1315e91c472d0
-  PREVIOUS_WORKFLOW_BLOB_SHA: e883a5461da7012e5ad52a6e53ca5055f7bc952d
+  PREVIOUS_PACKAGE_SHA: df6285aa28a0363bd6c402ade62a0cb6a84eea27
+  PREVIOUS_WORKFLOW_BLOB_SHA: 73634da7ed5070fb8593b5b05d3ddb734081e76b
   EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
@@ -29,8 +29,8 @@ env:
   P0G_QA_SHA: a770d525f7c789cbf53f6174210fde7c7b3583c7
   P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: ecdddad1c884adfdd2fa20132619eb4fa87585ed
-  P0_DOCUMENT_PROBE_BLOB_SHA: 356659004faa3a2db89a3d7ca9f6d226afaa0722
+  P0_DOCUMENT_QA_SHA: 3c837a0e913ba8a286a6688ddedf434501b07c62
+  P0_DOCUMENT_PROBE_BLOB_SHA: 569eb9c069c57f2f82e096c11e85d49c4864b09d
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -137,6 +137,9 @@ jobs:
             exit 1
           fi
           grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'first_mismatch_index=$mismatch' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "expected_code_units='$expectedUnits'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "actual_code_units='$actualUnits'" .p0-packaged-document-copy-probe.ps1
           short="${PRODUCT_PARENT_SHA:0:7}"
           echo "AUDITED_PACKAGE_PARENT=$AUDITED_PARENT_SHA"
           echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
