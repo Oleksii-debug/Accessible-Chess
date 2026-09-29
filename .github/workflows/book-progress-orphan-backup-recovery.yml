@@ -11,6 +11,8 @@ on:
       - 'acs/book_progress_store.py'
       - 'tests/test_v2_book_progress_store.py'
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
+      - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
 permissions:
@@ -56,6 +58,8 @@ jobs:
           changed="$(git diff --name-only "$PRODUCT_BASE_SHA" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+            '.github/workflows/books-progress-backup-recovery.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/book_progress_store.py' \
             'tests/test_v2_book_progress_store.py' | sort)"
           test "$changed" = "$expected"
@@ -71,6 +75,10 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_books_progress_backup_recovery_workflow
+          tests.test_book_board_progress_failure_exact
+          tests.test_version2_application
           tests.test_bookreader
           tests.test_v2_book_text_import
           tests.test_v2_book_html_import
