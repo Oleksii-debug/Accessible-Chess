@@ -13,6 +13,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CURRENT_PRODUCT_BASE: 0c9036f3f3a445d3d518825cd620583b29af755a
+
 concurrency:
   group: pgn-move-number-grammar-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -50,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           head='${{ github.event.pull_request.head.sha }}'
-          base='${{ github.event.pull_request.base.sha }}'
+          base="$CURRENT_PRODUCT_BASE"
           test -n "$head"
           test -n "$base"
           test "$(git rev-parse HEAD)" = "$head"
