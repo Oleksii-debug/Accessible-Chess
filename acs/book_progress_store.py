@@ -696,8 +696,11 @@ class BookProgressStore:
 
     def _require_no_orphan_backup_unlocked(self) -> None:
         """Do not destroy recoverable history when the primary store is missing."""
-        backup_raw = self._read_raw_file_unlocked(self.backup_path, missing_ok=True)
-        if backup_raw is not None:
+        backup_payload, _, _ = self._read_state_unlocked(
+            self.backup_path,
+            missing_ok=True,
+        )
+        if backup_payload is not None:
             raise BookProgressStoreError(
                 "book progress primary data is missing while recovery data remains",
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
