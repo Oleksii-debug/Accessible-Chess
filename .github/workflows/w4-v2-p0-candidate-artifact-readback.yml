@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
-      W4_VERIFIER_BLOB_SHA: 7f2a0275eafdca4177cf1c1317b0fea0d2880fa3
+      W4_VERIFIER_BLOB_SHA: 50056ca618abc42450512d7cb0dbc3efa9442809
     steps:
       - name: Checkout exact default-branch workflow authority from completed run
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
