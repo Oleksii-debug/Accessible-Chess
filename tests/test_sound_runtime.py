@@ -273,6 +273,28 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertEqual(rebuilt, destination)
             self.assertEqual(rebuilt.read_bytes(), expected)
 
+    def test_scaled_cache_rebuilds_same_length_payload_corruption(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            destination = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+            expected = destination.read_bytes()
+            corrupted = bytearray(expected)
+            corrupted[-2:] = b"\xff\x7f"
+            self.assertEqual(len(corrupted), len(expected))
+            destination.write_bytes(corrupted)
+
+            rebuilt = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertEqual(rebuilt, destination)
+            self.assertEqual(rebuilt.read_bytes(), expected)
+
     def test_scaled_cache_rejects_truncated_source_without_publishing_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
