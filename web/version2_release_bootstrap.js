@@ -69,6 +69,7 @@
   const profileRepair = documentRef.createElement("button");
   profileRepair.type = "button";
   profileRepair.id = "v2-profile-repair";
+  profileRepair.setAttribute("aria-describedby", "v2-profile-status");
   profileRepair.hidden = true;
   const profileClose = documentRef.createElement("button");
   profileClose.type = "button";
