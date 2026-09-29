@@ -103,6 +103,36 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
             any("Recovered damaged source." in warning for warning in warnings)
         )
 
+    def test_document_warning_survives_multi_game_navigation(self) -> None:
+        multi = PGN + """
+[Event "Second"]
+[White "Gamma"]
+[Black "Delta"]
+[Result "*"]
+
+1. d4 *
+"""
+        session = PgnDocumentSession(
+            PgnWorkspace.from_text(multi),
+            global_warnings=("Recovered document warning.",),
+            source_overwrite_safe=False,
+            saved_digest=None,
+        )
+        projection = PgnDocumentWebViewProjection(
+            session,
+            self._router(),
+            language=UILanguage.EN,
+        )
+
+        event = projection.next_game()
+
+        self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+        self.assertIn(
+            "Recovered document warning.",
+            event.payload["snapshot"]["game"]["warnings"],
+        )
+        self.assertEqual(1, session.view().selected_game_index)
+
     def test_real_invalid_utf8_open_warning_reaches_accessible_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "legacy source.pgn"
