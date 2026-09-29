@@ -375,7 +375,7 @@ def _parse_line(
         if tok.kind in {"NAG", "NAG_SYMBOL"}:
             if tok.kind == "NAG" and not _numeric_nag_is_in_range(tok.value):
                 warnings.append(f"numeric annotation glyph out of range {tok.value}")
-            if last is None:
+            if last is None or pending_number is not None:
                 warnings.append(f"orphan annotation {tok.value}")
             else:
                 last.nags.append(tok.value)
