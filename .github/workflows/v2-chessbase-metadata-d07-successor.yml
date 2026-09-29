@@ -20,7 +20,6 @@ concurrency:
 env:
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
-  TWIC1134_PGN_ZIP_EXPECTED_SHA256: e5ed447adaff1c06f9d646f5dec93c68d89bf1b7a761537cf2533be2e11f5984
 
 jobs:
   metadata-regressions:
@@ -205,13 +204,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p transient-corpus/twic1134
+          expected_zip_sha256='e5ed447adaff1c06f9d646f5dec93c68d89bf1b7a761537cf2533be2e11f5984'
           curl --fail --location --retry 3 --connect-timeout 30 \
             https://theweekinchess.com/zips/twic1134g.zip \
             -o transient-corpus/twic1134g.zip
           zip_sha256="$(sha256sum transient-corpus/twic1134g.zip | cut -d' ' -f1)"
-          test "$zip_sha256" = "$TWIC1134_PGN_ZIP_EXPECTED_SHA256" || {
+          test "$zip_sha256" = "$expected_zip_sha256" || {
             printf 'TWIC1134 PGN oracle SHA256 mismatch: expected=%s actual=%s\n' \
-              "$TWIC1134_PGN_ZIP_EXPECTED_SHA256" "$zip_sha256" >&2
+              "$expected_zip_sha256" "$zip_sha256" >&2
             exit 1
           }
           pgn_member="$(unzip -Z1 transient-corpus/twic1134g.zip | grep -Ei '\.pgn          test -n "$pgn_member"
