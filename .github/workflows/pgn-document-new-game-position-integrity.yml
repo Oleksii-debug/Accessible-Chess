@@ -1,0 +1,83 @@
+name: PGN Document New Game Position Integrity
+
+on:
+  pull_request:
+    paths:
+      - "acs/pgn_document.py"
+      - "tests/test_pgn_document.py"
+      - "tests/test_pgn_document_context_atomicity.py"
+      - "tests/test_pgn_document_setup_fen_integrity.py"
+      - "tests/test_pgn_document_new_game_position_integrity.py"
+      - ".github/workflows/pgn-document-new-game-position-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-document-new-game-position-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prove exact current-Product ancestry and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="3c69ac281915418574d84c62d928d26db567cd5a"
+          test "$(git merge-base HEAD "$base")" = "$base"
+          python - <<'PY'
+          import subprocess
+
+          base = "3c69ac281915418574d84c62d928d26db567cd5a"
+          expected = {
+              ".github/workflows/pgn-document-new-game-position-integrity.yml",
+              "acs/pgn_document.py",
+              "tests/test_pgn_document_new_game_position_integrity.py",
+          }
+          changed = {
+              line
+              for line in subprocess.check_output(
+                  ["git", "diff", "--name-only", f"{base}...HEAD"],
+                  text=True,
+              ).splitlines()
+              if line
+          }
+          if changed != expected:
+              raise SystemExit(
+                  "unexpected scope: "
+                  + repr(sorted(changed))
+                  + " expected="
+                  + repr(sorted(expected))
+              )
+          PY
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/pgn_document.py
+          tests/test_pgn_document_new_game_position_integrity.py
+
+      - name: Run focused PGN document integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_setup_fen_integrity
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document
