@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -111,6 +112,36 @@ class Version2ReleaseAppTests(unittest.TestCase):
             rows = {item["id"]: item for item in snapshot["actions"]}
             self.assertEqual(rows["pgn.next_item"]["binding"], "J")
             self.assertEqual(rows["pgn.next_item"]["context"], "pgn_tree")
+
+    def test_full_product_keymap_swap_rebind_is_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            profile = Path(temp) / "keymap.json"
+            source = build_version2_action_registry()
+            payload = source.to_profile()
+            payload["bindings"]["pgn.previous_item"] = "Down"
+            payload["bindings"]["pgn.next_item"] = "Up"
+            profile.write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            restarted_service = KeymapService(profile)
+            restarted_v2 = build_version2_action_registry()
+            shared = _share_v2_action_registry(
+                SimpleNamespace(keymap_service=restarted_service),
+                SimpleNamespace(adapter=SimpleNamespace(registry=restarted_v2)),
+            )
+
+            self.assertIs(shared, restarted_v2)
+            context = restarted_v2.definition("pgn.previous_item").context
+            self.assertEqual(
+                restarted_v2.resolve_binding(context, "Down").action_id,
+                "pgn.previous_item",
+            )
+            self.assertEqual(
+                restarted_v2.resolve_binding(context, "Up").action_id,
+                "pgn.next_item",
+            )
 
     def test_custom_settings_and_library_share_one_v2_data_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
