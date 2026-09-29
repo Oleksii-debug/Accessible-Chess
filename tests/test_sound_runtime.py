@@ -191,6 +191,60 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertTrue(first.is_file())
             self.assertTrue(second.is_file())
 
+    def test_scaled_cache_prunes_superseded_variant_for_same_event_and_volume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            first = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+            with wave.open(str(source), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\\x20\\x00" * 8)
+
+            second = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertNotEqual(first, second)
+            self.assertFalse(first.exists())
+            self.assertTrue(second.is_file())
+            self.assertEqual(list(cache.glob("move-v50-*.wav")), [second])
+
+    def test_scaled_cache_prune_failure_does_not_break_new_playable_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+            first = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            with wave.open(str(source), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\\x30\\x00" * 8)
+
+            original_unlink = Path.unlink
+
+            def fail_only_for_old_variant(path, *args, **kwargs):
+                if path == first:
+                    raise PermissionError("cache entry busy")
+                return original_unlink(path, *args, **kwargs)
+
+            with patch("acs.sound_windows.Path.unlink", autospec=True, side_effect=fail_only_for_old_variant):
+                second = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertTrue(first.is_file())
+            self.assertTrue(second.is_file())
+
     def test_scaled_cache_publish_failure_leaves_no_partial_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
