@@ -76,10 +76,12 @@ class KeymapService:
     def __init__(self, path: str | Path, *, lang: str = "uk") -> None:
         self.path = Path(path)
         recovery = None
+        loaded_profile: Mapping[str, object] | None = None
         if self.path.exists():
             try:
                 profile = _decode_user_keymap_profile(self.path.read_text(encoding="utf-8"))
                 registry = ActionRegistry.from_profile(profile)
+                loaded_profile = dict(profile)
             except Exception:
                 registry = ActionRegistry()
                 recovery = "invalid keymap profile"
@@ -87,6 +89,40 @@ class KeymapService:
             registry = ActionRegistry()
         self.editor = KeymapEditorModel(registry, lang=lang)
         self.recovery_message = recovery
+        self._loaded_profile = loaded_profile
+
+    @staticmethod
+    def _copy_registry_values(target: ActionRegistry, source: ActionRegistry) -> None:
+        for definition in source.definitions():
+            action_id = definition.action_id
+            try:
+                target.definition(action_id)
+            except KeyError:
+                continue
+            target.set_binding(action_id, source.get_binding(action_id), allow_warnings=True)
+            target.set_alias(action_id, source.get_alias(action_id))
+
+    def rebind_registry(self, registry: ActionRegistry) -> ActionRegistry:
+        """Bind a wider action catalog without dropping persisted successor actions.
+
+        Startup first constructs the Stage 1 API, whose registry intentionally
+        ignores unknown full-product action IDs.  Keep the already validated raw
+        profile so Version 2 can replay those values against its wider catalog,
+        then overlay any current in-memory Stage 1 edits before sharing one object.
+        """
+
+        if not isinstance(registry, ActionRegistry):
+            raise TypeError("keymap registry must be ActionRegistry")
+        current = self.editor.registry
+        if self._loaded_profile is not None:
+            persisted = ActionRegistry.from_profile(
+                self._loaded_profile,
+                registry.definitions(),
+            )
+            self._copy_registry_values(registry, persisted)
+        self._copy_registry_values(registry, current)
+        self.editor.registry = registry
+        return registry
 
     def snapshot(self) -> dict[str, Any]:
         data = build_web_keymap(self.editor.registry)
@@ -305,6 +341,7 @@ class KeymapService:
 
     def _persist(self) -> None:
         self.editor.registry.save(self.path)
+        self._loaded_profile = self.editor.registry.to_profile()
         self.recovery_message = None
 
     def _capture_control(self, reason: str, key: str) -> dict[str, Any]:

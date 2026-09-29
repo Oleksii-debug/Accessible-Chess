@@ -4,6 +4,7 @@ import unittest
 
 from acs.full_product_actions import build_full_product_action_registry
 from acs.keybindings import ActionRegistry, BindingContext
+from acs.ui_keymap_adapter import build_web_keymap
 
 
 def _action_for(registry: ActionRegistry, binding: str) -> str | None:
@@ -23,6 +24,18 @@ class FullProductPgnKeybindingTests(unittest.TestCase):
             registry.resolve_binding(BindingContext.BOARD, "Up").action_id,
         )
         self.assertIsNone(registry.resolve_binding(BindingContext.DOCUMENT, "Up"))
+
+    def test_pgn_tree_actions_project_into_the_live_web_keymap(self) -> None:
+        payload = build_web_keymap(build_full_product_action_registry())
+        rows = {item["id"]: item for item in payload["actions"]}
+
+        self.assertEqual(rows["pgn.previous_item"]["context"], "pgn_tree")
+        self.assertEqual(rows["pgn.next_item"]["registryContext"], "pgn_tree")
+        self.assertEqual(rows["pgn.parent_variation"]["binding"], "Left")
+        self.assertEqual(
+            rows["pgn.next_item"]["labelUk"],
+            "Наступний елемент дерева партії",
+        )
 
     def test_remap_replaces_old_binding_and_survives_profile_roundtrip(self) -> None:
         registry = build_full_product_action_registry()

@@ -25,6 +25,9 @@ on:
       - 'tests/test_keybindings.py'
       - 'tests/test_stage1_board_action_integration.py'
       - 'tests/test_webview_keymap_bridge_contract.py'
+      - 'acs/ui_keymap_service.py'
+      - 'acs/version2_release_app.py'
+      - 'tests/test_version2_release_app.py'
       - 'web/full_product_pgn.js'
       - 'web/index.html'
       - 'web/keybindings.json'
@@ -86,6 +89,9 @@ jobs:
             'tests/test_keybindings.py' \
             'tests/test_stage1_board_action_integration.py' \
             'tests/test_webview_keymap_bridge_contract.py' \
+            'acs/ui_keymap_service.py' \\
+            'acs/version2_release_app.py' \\
+            'tests/test_version2_release_app.py' \\
             'web/full_product_pgn.js' \
             'web/index.html' \
             'web/keybindings.json' | sort)"
@@ -108,6 +114,8 @@ jobs:
           acs/full_product_native_menu.py
           acs/keybindings.py
           acs/ui_keymap_adapter.py
+          acs/ui_keymap_service.py
+          acs/version2_release_app.py
           tests/test_full_product_native_menu.py
           tests/test_full_product_pgn_keybindings.py
           tests/test_keybindings.py
@@ -122,6 +130,8 @@ jobs:
           tests.test_webview_keymap_bridge_contract
           tests.test_full_product_native_menu
           tests.test_full_product_pgn_keybindings
+          tests.test_version2_release_app
+          tests.test_ui_keymap_adapter
 
       - name: Execute browser keybinding regressions
         run: |

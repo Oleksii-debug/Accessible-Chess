@@ -24,6 +24,7 @@ _UI_CONTEXT = {
     BindingContext.ENGINE_GAME: "engine-game",
     BindingContext.DATABASE: "database",
     BindingContext.BOOK_READER: "book-reader",
+    BindingContext.PGN_TREE: "pgn_tree",
 }
 
 _UK_LABELS = {
@@ -89,6 +90,9 @@ _UK_LABELS = {
     "move.clear": "Команда очищення дошки",
     "move.standard": "Команда стандартної позиції",
     "move.empty": "Команда порожньої позиції",
+    "pgn.previous_item": "Попередній елемент дерева партії",
+    "pgn.next_item": "Наступний елемент дерева партії",
+    "pgn.parent_variation": "Повернутися до батьківського варіанта",
 }
 
 _EN_LABELS: dict[str, str] = {
