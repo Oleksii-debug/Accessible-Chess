@@ -358,7 +358,12 @@
 
     if (Array.isArray(solution) && solution.length) {
       const solutionSection = node("section");
-      solutionSection.appendChild(node("h3", snapshot.solution_label || ""));
+      solutionSection.id = "training-solution";
+      solutionSection.tabIndex = -1;
+      const solutionHeading = node("h3", snapshot.solution_label || "");
+      solutionHeading.id = "training-solution-heading";
+      solutionSection.setAttribute("aria-labelledby", solutionHeading.id);
+      solutionSection.appendChild(solutionHeading);
       const list = node("ul");
       solution.forEach(function (move) { list.appendChild(node("li", move)); });
       solutionSection.appendChild(list);

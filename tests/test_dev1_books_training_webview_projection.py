@@ -134,6 +134,7 @@ class TrainingProjectionTests(unittest.TestCase):
 
         revealed = self.projection.reveal()
         self.assertEqual(("e4",), revealed.payload["solution"])
+        self.assertEqual("training-solution", revealed.payload["focus_target"])
         self.assertEqual(before["step_index"], self.presenter.snapshot()["step_index"])
         self.assertNotIn(FEN, repr(revealed))
 

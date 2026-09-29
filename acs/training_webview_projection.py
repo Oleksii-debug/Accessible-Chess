@@ -267,6 +267,7 @@ class TrainingWebViewProjection:
         view = self._presenter.view()
         return self._render(
             view,
+            focus_target="training-solution",
             announcement=view.message,
             solution=solution,
         )

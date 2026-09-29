@@ -226,6 +226,25 @@ async function run() {
 
   window.AccessibleChessTrainingSurface.render(
     trainingRoot,
+    trainingSnapshot(),
+    trainingInvoke,
+    announce,
+    "training-solution",
+    "Action failed",
+    ["e4", "Nf3"]
+  );
+  const solutionSection = trainingRoot.querySelector("#training-solution");
+  const solutionHeading = trainingRoot.querySelector("#training-solution-heading");
+  check(solutionSection !== null, "revealed Training solution section missing");
+  check(solutionHeading !== null && solutionHeading.textContent === "Solution",
+    "revealed Training solution heading missing");
+  check(solutionSection.attributes["aria-labelledby"] === "training-solution-heading",
+    "revealed Training solution lacks an accessible name");
+  check(document.activeElement === solutionSection,
+    "revealed Training solution did not receive focus");
+
+  window.AccessibleChessTrainingSurface.render(
+    trainingRoot,
     trainingSnapshot(true, true),
     trainingInvoke,
     announce,
