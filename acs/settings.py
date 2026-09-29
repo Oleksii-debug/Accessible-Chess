@@ -218,19 +218,44 @@ class Settings:
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
 
+    def _save_with_rollback(
+        self,
+        original_data: dict[str, Any],
+        previous_data: dict[str, Any],
+        previous_warning: str | None,
+    ) -> None:
+        try:
+            self.save()
+        except Exception:
+            # After _SettingsSaveLock release cleanup became non-raising, a
+            # Settings.save() exception means publication did not complete.
+            # Restore the exact live object/value state so callers cannot observe
+            # a setting that failed to reach settings.json.
+            original_data.clear()
+            original_data.update(previous_data)
+            self.data = original_data
+            self.warning = previous_warning
+            raise
+
     def set(self, key: str, value: Any) -> None:
         validated = _validated_value(key, value)
+        original_data = self.data
+        previous_data = dict(original_data)
+        previous_warning = self.warning
         self.data[key] = validated
-        self.save()
+        self._save_with_rollback(original_data, previous_data, previous_warning)
 
     def reset(self, key: str | None = None) -> None:
+        original_data = self.data
+        previous_data = dict(original_data)
+        previous_warning = self.warning
         if key is None:
             self.data = dict(DEFAULTS)
         else:
             if key not in DEFAULTS:
                 raise KeyError(f"unknown setting: {key}")
             self.data[key] = DEFAULTS[key]
-        self.save()
+        self._save_with_rollback(original_data, previous_data, previous_warning)
 
     def to_profile(self) -> dict[str, Any]:
         values = {key: self.data[key] for key in DEFAULTS}
@@ -248,10 +273,17 @@ class Settings:
         for key, value in values.items():
             if key in DEFAULTS:
                 candidate[key] = _validated_value(key, value)
+        original_data = self.data
+        previous_data = dict(original_data)
+        previous_warning = self.warning
         self.data = candidate
         self.warning = "; ".join(warnings) if warnings else None
         if persist:
-            self.save()
+            self._save_with_rollback(
+                original_data,
+                previous_data,
+                previous_warning,
+            )
         return warnings
 
     def save(self) -> None:
