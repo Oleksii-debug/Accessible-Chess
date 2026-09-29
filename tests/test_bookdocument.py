@@ -2,6 +2,8 @@ import unittest
 
 from acs.bookdocument import (
     BookDocument,
+    BookDocumentError,
+    BookDocumentErrorCode,
     Diagram,
     Exercise,
     Game,
@@ -61,6 +63,37 @@ class BookDocumentTests(unittest.TestCase):
             BookDocument.from_dict({"title": "Book", "blocks": [{"kind": "Video", "url": "x"}]})
         with self.assertRaisesRegex(ValueError, "Unsupported fields for Paragraph"):
             BookDocument.from_dict({"title": "Book", "blocks": [{"kind": "Paragraph", "text": "ok", "lost": "no"}]})
+
+    def test_constructor_revalidates_mutated_initial_semantic_blocks(self):
+        cases = []
+
+        paragraph = Paragraph(text="Initially valid")
+        paragraph.text = ""
+        cases.append(paragraph)
+
+        heading = Heading(text="Initially valid", level=2)
+        heading.level = 7
+        cases.append(heading)
+
+        game = Game(pgn='[Result "*"]\n\n*')
+        game.pgn = None  # type: ignore[assignment]
+        cases.append(game)
+
+        for block in cases:
+            with self.subTest(kind=block.kind):
+                with self.assertRaises(BookDocumentError) as caught:
+                    BookDocument("Book", blocks=[block])
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_FIELD,
+                )
+
+    def test_constructor_preserves_valid_initial_block_objects(self):
+        paragraph = Paragraph(text="Readable text", block_id="p1")
+        book = BookDocument("Book", blocks=[paragraph])
+
+        self.assertIs(book.blocks[0], paragraph)
+        self.assertEqual(book.as_dict()["blocks"][0]["text"], "Readable text")
 
     def test_diagram_requires_accessibility_warning_when_alt_missing(self):
         book = BookDocument("Book")
