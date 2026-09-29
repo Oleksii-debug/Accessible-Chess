@@ -223,6 +223,17 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
         self.assertIn("clipboard_equality='case-sensitive exact string equality'", self.text)
 
+    def test_exact_clipboard_failure_reports_utf16_mismatch_without_weakening_equality(self) -> None:
+        self.assertIn("function ClipboardCodeUnits", self.text)
+        self.assertIn("expected_length=$($Expected.Length)", self.text)
+        self.assertIn("actual_length=$($last.Length)", self.text)
+        self.assertIn("first_mismatch_index=$mismatch", self.text)
+        self.assertIn("expected_code_units='$expectedUnits'", self.text)
+        self.assertIn("actual_code_units='$actualUnits'", self.text)
+        self.assertIn("if([int][char]$Expected[$index] -ne [int][char]$last[$index])", self.text)
+        self.assertIn("if($last -ceq $Expected){return $last}", self.text)
+        self.assertNotIn("$last.Trim() -eq $Expected.Trim()", self.text)
+
     def test_probe_records_document_provider_identity_without_claiming_nvda(self) -> None:
         self.assertIn("document_process_id=[int]$document.Current.ProcessId", self.text)
         self.assertIn("launched_process_id=$process.Id", self.text)
