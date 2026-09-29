@@ -124,6 +124,44 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
     def test_current_final_product_still_loads_the_repaired_v2_bootstrap(self) -> None:
         self.assertIn('root / "version2_final_product_bootstrap.js"', self.final_release)
 
+    def test_current_final_product_loads_canonical_p0_selection_runtime(self) -> None:
+        bootstrap = self.final_release.index('root / "version2_final_product_bootstrap.js"')
+        runtime = self.final_release.index('root / "p0_accessibility_runtime.js"')
+        self.assertLess(bootstrap, runtime)
+
+    def test_stage1_does_not_duplicate_canonical_selection_runtime(self) -> None:
+        self.assertNotIn("function captureTextSelection(root)", self.index)
+        self.assertNotIn("function restoreTextSelection(root,snapshot)", self.index)
+        self.assertNotIn("function nearestTextOccurrence(text,needle,offset)", self.index)
+
+    def test_canonical_runtime_preserves_backward_selection_direction(self) -> None:
+        self.assertIn("backward: backward", self.p0_runtime)
+        self.assertIn('typeof selection.setBaseAndExtent === "function"', self.p0_runtime)
+        self.assertIn('typeof selection.collapse === "function"', self.p0_runtime)
+        self.assertIn('typeof selection.extend === "function"', self.p0_runtime)
+        self.assertIn("selection.setBaseAndExtent(", self.p0_runtime)
+        self.assertIn("selection.collapse(endPoint.node, endPoint.offset)", self.p0_runtime)
+        self.assertIn("selection.extend(startPoint.node, startPoint.offset)", self.p0_runtime)
+
+    def test_v2_bootstrap_preserves_backward_selection_direction(self) -> None:
+        self.assertIn("backward: backward", self.v2_bootstrap)
+        self.assertIn('typeof selection.setBaseAndExtent === "function"', self.v2_bootstrap)
+        self.assertIn('typeof selection.collapse === "function"', self.v2_bootstrap)
+        self.assertIn('typeof selection.extend === "function"', self.v2_bootstrap)
+        self.assertIn("selection.setBaseAndExtent(", self.v2_bootstrap)
+        self.assertIn("selection.collapse(endPoint.node, endPoint.offset)", self.v2_bootstrap)
+        self.assertIn("selection.extend(startPoint.node, startPoint.offset)", self.v2_bootstrap)
+
+    def test_duplicate_selection_restore_uses_bounded_semantic_context(self) -> None:
+        for source in (self.p0_runtime, self.v2_bootstrap):
+            self.assertIn("SELECTION_CONTEXT_CHARS = 48", source)
+            self.assertIn("function selectionContext(fullText, start, end)", source)
+            self.assertIn("function contextMatchScore(fullText, selectedText, start, before, after)", source)
+            self.assertIn("before: context.before", source)
+            self.assertIn("after: context.after", source)
+            self.assertIn("snapshot.before", source)
+            self.assertIn("snapshot.after", source)
+
     def test_selection_restore_never_crosses_product_routes(self) -> None:
         self.assertIn("routeId: currentRouteId", self.v2_bootstrap)
         self.assertIn("snapshot.routeId !== routeId", self.v2_bootstrap)
