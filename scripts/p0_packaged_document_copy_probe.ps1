@@ -221,6 +221,16 @@ function AssertProviderFocus($Roots,[string]$Phase,[string]$ExpectedAutomationId
   return $focused
 }
 
+function ClipboardCodeUnits([string]$Value,[int]$Limit=96) {
+  $units=@()
+  $count=[Math]::Min($Value.Length,$Limit)
+  for($index=0;$index -lt $count;$index++){
+    $units += ('U+{0:X4}' -f [int][char]$Value[$index])
+  }
+  if($Value.Length -gt $Limit){$units += '...'}
+  return ($units -join ',')
+}
+
 function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
   $last=''
@@ -229,7 +239,18 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
     if($last -ceq $Expected){return $last}
     Start-Sleep -Milliseconds 100
   }
-  throw "Clipboard did not receive exact selected text; expected='$Expected' actual='$last'"
+  $mismatch=-1
+  $common=[Math]::Min($Expected.Length,$last.Length)
+  for($index=0;$index -lt $common;$index++){
+    if([int][char]$Expected[$index] -ne [int][char]$last[$index]){
+      $mismatch=$index
+      break
+    }
+  }
+  if($mismatch -lt 0 -and $Expected.Length -ne $last.Length){$mismatch=$common}
+  $expectedUnits=ClipboardCodeUnits $Expected
+  $actualUnits=ClipboardCodeUnits $last
+  throw "Clipboard did not receive exact selected text; expected_length=$($Expected.Length) actual_length=$($last.Length) first_mismatch_index=$mismatch expected_code_units='$expectedUnits' actual_code_units='$actualUnits' expected='$Expected' actual='$last'"
 }
 
 function AssertVisibleTextRange($Range) {
