@@ -232,6 +232,67 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_workspace_continue_render_error_restores_exact_local_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-workspace-continue-atomic-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Workspace Continue atomicity",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="First",
+                        answer_text="e4",
+                        block_id="first",
+                    ),
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Second",
+                        answer_text="d4",
+                        block_id="second",
+                    ),
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+            current = workspace.material.definition.steps[0]
+            completed = workspace.dispatch(
+                "training.submit",
+                {"answer": next(iter(current.accepted_moves))},
+            )
+            self.assertEqual("render", completed.kind)
+            self.assertTrue(workspace.session.completed)
+
+            before_index = workspace.reader.index
+            before_material = workspace.material
+            before_session = workspace._session
+            before_bridge = workspace.bridge
+            before_store = workspace._store
+            before_revision = workspace._revision
+            before_snapshot = workspace.snapshot()
+            progress_path = before_store.path
+            durable_before = progress_path.read_bytes()
+
+            with patch(
+                "acs.training_webview_projection.TrainingWebViewProjection.retry",
+                side_effect=RuntimeError("simulated next Training render failure"),
+            ):
+                rejected = workspace.dispatch("training.continue", {})
+
+            self.assertEqual("error", rejected.kind)
+            self.assertEqual(before_index, workspace.reader.index)
+            self.assertIs(before_material, workspace.material)
+            self.assertIs(before_session, workspace._session)
+            self.assertIs(before_bridge, workspace.bridge)
+            self.assertIs(before_store, workspace._store)
+            self.assertEqual(before_revision, workspace._revision)
+            self.assertEqual(before_snapshot, workspace.snapshot())
+            self.assertEqual(durable_before, progress_path.read_bytes())
+
+
     def test_training_start_normalizes_mid_derivation_malformed_revision(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-training-start-mid-drift-") as raw:
             root = Path(raw)

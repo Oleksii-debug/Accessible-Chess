@@ -258,13 +258,33 @@ class Version2BookTrainingWorkspace:
             return bridge.projection.generic_error()
         before = self.session.snapshot()
         revision = self._revision
+        before_session = self._session
+        before_store = self._store
+        before_reader_index = self.reader.index
         before_language = bridge.projection.language
         before_message = bridge.projection.presenter_message
         before_message_key = bridge.projection.presenter_message_key
+
+        def restore_continue_state() -> None:
+            # Continue can move the canonical BookReader and replace every active
+            # Training object before the next surface renders. Keep the workspace
+            # independently atomic; callers must not need Version2Application to
+            # repair a failed render/callback.
+            if self.reader.index != before_reader_index:
+                self.reader.go_to(before_reader_index)
+            self.material = material
+            self._session = before_session
+            self.bridge = bridge
+            self._store = before_store
+            self._revision = revision
+            self.language = before_language
+
         try:
             event = bridge.dispatch(command, payload)
         except Exception:
-            if command != "training.continue":
+            if command == "training.continue":
+                restore_continue_state()
+            else:
                 # The bridge normally sanitizes projection failures. If the
                 # sanitizing error projection itself raises after a presenter or
                 # session mutation, restore the exact pre-command Training state
@@ -280,6 +300,8 @@ class Version2BookTrainingWorkspace:
                 self._revision = revision
             raise
         if command == "training.continue":
+            if event.kind == "error":
+                restore_continue_state()
             return event
         if event.kind == "error":
             # Projection/render failures can happen after submit/hint/reset or
