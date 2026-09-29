@@ -102,6 +102,23 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         super()._play_game_end_sound()
 
     def _engine_game_projection(self) -> dict[str, Any]:
+        context = getattr(self, "_engine_human_commit_context", None)
+        if (
+            isinstance(context, dict)
+            and self._engine_game_phase == "active"
+            and len(self.sans) == context.get("sans_len", -2) + 1
+        ):
+            # The base move helper builds an intermediate state after mutating
+            # Board/history but before _after_human_engine_move() establishes
+            # clock/lifecycle acceptance.  Calling session.snapshot() here can
+            # observe a newly flagged clock, finalize the lifecycle, and change
+            # the phase to finished before the acceptance hook gets a chance to
+            # roll the unaccepted Board move back.  Reuse the exact pre-commit
+            # projection until the acceptance hook completes.
+            projection = context.get("precommit_projection")
+            if isinstance(projection, dict):
+                return dict(projection)
+
         previous_phase = self._engine_game_phase
         previous_suppress = getattr(
             self,
@@ -125,9 +142,14 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     def make_move(self, text: str) -> dict[str, Any]:
         if self._engine_game_phase != "active":
             return super().make_move(text)
+        precommit_projection = self._engine_game_projection()
+        if self._engine_game_phase != "active":
+            return super().make_move(text)
         previous_context = getattr(self, "_engine_human_commit_context", None)
         previous_defer = getattr(self, "_defer_engine_game_move_sound", False)
-        self._engine_human_commit_context = self._capture_engine_commit_context()
+        context = self._capture_engine_commit_context()
+        context["precommit_projection"] = precommit_projection
+        self._engine_human_commit_context = context
         self._defer_engine_game_move_sound = True
         try:
             return super().make_move(text)
@@ -138,9 +160,14 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     def activate_square(self, square: str) -> dict[str, Any]:
         if self._engine_game_phase != "active":
             return super().activate_square(square)
+        precommit_projection = self._engine_game_projection()
+        if self._engine_game_phase != "active":
+            return super().activate_square(square)
         previous_context = getattr(self, "_engine_human_commit_context", None)
         previous_defer = getattr(self, "_defer_engine_game_move_sound", False)
-        self._engine_human_commit_context = self._capture_engine_commit_context()
+        context = self._capture_engine_commit_context()
+        context["precommit_projection"] = precommit_projection
+        self._engine_human_commit_context = context
         self._defer_engine_game_move_sound = True
         try:
             return super().activate_square(square)
