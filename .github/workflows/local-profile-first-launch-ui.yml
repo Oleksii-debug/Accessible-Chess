@@ -51,14 +51,35 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             git diff --check "$live_base" HEAD
             changed="$(git diff --name-only "$live_base" HEAD | sort)"
-            expected_paths="$(printf '%s\n'               '.github/workflows/local-profile-first-launch-ui.yml'               'acs/version2_local_profile_api.py'               'acs/version2_release_app.py'               'tests/test_version2_local_profile_api.py'               'tests/test_version2_local_profile_ui_contract.py'               'web/version2_release_bootstrap.js' | sort)"
+            if test "$base_ref" = 'feature/local-profile-first-launch-ui-20260929'; then
+              expected_paths="$(printf '%s\n' \
+                '.github/workflows/local-profile-first-launch-ui.yml' \
+                'acs/local_profile.py' \
+                'tests/test_local_profile.py' \
+                'tests/test_version2_local_profile_ui_contract.py' | sort)"
+              scope='EXACT_MUTATION_SUCCESSOR_FOUR_PATHS'
+            elif test "$base_ref" = 'work/local-profile-identity-foundation-20260929'; then
+              expected_paths="$(printf '%s\n' \
+                '.github/workflows/local-profile-first-launch-ui.yml' \
+                'acs/local_profile.py' \
+                'acs/version2_local_profile_api.py' \
+                'acs/version2_release_app.py' \
+                'tests/test_local_profile.py' \
+                'tests/test_version2_local_profile_api.py' \
+                'tests/test_version2_local_profile_ui_contract.py' \
+                'web/version2_release_bootstrap.js' | sort)"
+              scope='EXACT_ROOT_EIGHT_PATHS'
+            else
+              printf 'Unexpected local-profile qualification base: %s\n' "$base_ref" >&2
+              exit 1
+            fi
             test "$changed" = "$expected_paths" || {
               printf 'Unexpected local-profile UI scope:\n%s\n' "$changed" >&2
               exit 1
             }
             echo "LOCAL_PROFILE_UI_EVENT_BASE=$event_base"
             echo "LOCAL_PROFILE_UI_EXACT_BASE=$live_base"
-            echo 'LOCAL_PROFILE_UI_SCOPE=EXACT_SIX_PATHS'
+            echo "LOCAL_PROFILE_UI_SCOPE=$scope"
           fi
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
