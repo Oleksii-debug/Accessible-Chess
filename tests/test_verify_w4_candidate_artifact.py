@@ -14,7 +14,11 @@ import zipfile
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.gametree import serialize_game
 from acs.pgn_roundtrip import parse_pgn_text
-from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
+from scripts.verify_w4_candidate_artifact import (
+    CandidateArtifactError,
+    MAX_CANDIDATE_METADATA_BYTES,
+    verify,
+)
 
 
 SHA = "f" * 40
