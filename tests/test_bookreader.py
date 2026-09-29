@@ -99,6 +99,58 @@ class BookReaderTests(unittest.TestCase):
 
         self.assertEqual(reader.index, before_index)
 
+    def test_save_return_point_rolls_back_new_name_on_revision_drift(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        original_text = book.blocks[2].text
+        original_check = reader._require_indexed_revision
+        checks = 0
+
+        def mutate_after_target_validation():
+            nonlocal checks
+            checks += 1
+            original_check()
+            if checks == 3:
+                book.blocks[2].text = "Concurrent chapter"
+
+        reader._require_indexed_revision = mutate_after_target_validation
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.save_return_point("race")
+
+        book.blocks[2].text = original_text
+        with self.assertRaisesRegex(LookupError, "Unknown return point"):
+            reader.restore_return_point("race")
+        self.assertEqual(reader.index, 3)
+
+    def test_save_return_point_restores_previous_target_on_revision_drift(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        reader.save_return_point("analysis")
+        reader.go_to(6)
+        original_text = book.blocks[2].text
+        original_check = reader._require_indexed_revision
+        checks = 0
+
+        def mutate_after_target_validation():
+            nonlocal checks
+            checks += 1
+            original_check()
+            if checks == 3:
+                book.blocks[2].text = "Concurrent chapter"
+
+        reader._require_indexed_revision = mutate_after_target_validation
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.save_return_point("analysis")
+
+        book.blocks[2].text = original_text
+        restored = reader.restore_return_point("analysis")
+        self.assertEqual(restored.index, 3)
+        self.assertEqual(restored.block_id, "diagram")
+
     def test_location_stays_on_one_indexed_revision_if_live_document_changes_after_validation(self):
         book = self.make_book()
         reader = BookReader(book)
