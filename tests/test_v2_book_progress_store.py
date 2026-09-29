@@ -243,7 +243,7 @@ class BookProgressStoreTests(unittest.TestCase):
         replacement.go_to(2)
         with self.assertRaises(BookProgressStoreError) as caught:
             self.store.save("book:new-state", replacement)
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
 
@@ -318,7 +318,7 @@ class BookProgressStoreTests(unittest.TestCase):
 
         with self.assertRaises(BookProgressStoreError) as caught:
             self.store.save("book:new", BookReader(self.original_document()))
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), corrupt_backup)
 
