@@ -27,10 +27,10 @@ class NativeDialogLanguageWorkflowTests(unittest.TestCase):
 
     def test_exact_pull_request_base_drives_geometry_check(self) -> None:
         self.assertIn(
-            "PR_BASE_SHA: \${{ github.event.pull_request.base.sha }}",
+            "PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             self.workflow,
         )
-        self.assertIn('base="\${PR_BASE_SHA:-}"', self.workflow)
+        self.assertIn('base="${PR_BASE_SHA:-}"', self.workflow)
         self.assertIn('git cat-file -e "$base^{commit}"', self.workflow)
         self.assertIn('git merge-base --is-ancestor "$base" HEAD', self.workflow)
         self.assertIn(
