@@ -19,6 +19,8 @@ from scripts.verify_w4_candidate_artifact import CandidateArtifactError, verify
 
 SHA = "f" * 40
 WORKFLOW_SHA = "a" * 40
+WINFORMS_CONFIG = b'<?xml version="1.0" encoding="utf-8"?>\n<configuration />\n'
+WINFORMS_CONFIG_SHA256 = hashlib.sha256(WINFORMS_CONFIG).hexdigest()
 STARTER_ROOT = "AccessibleChess/release-content/w2-starter"
 STARTER_GAMES = 240
 STRESS_GAMES = 1200
@@ -311,6 +313,7 @@ def _candidate_bytes(
         "AccessibleChess/AccessibleChess.exe": (
             _pe_fixture(b"app") if app_executable is None else app_executable
         ),
+        "AccessibleChess/AccessibleChess.exe.config": WINFORMS_CONFIG,
         "AccessibleChess/engines/stockfish/stockfish.exe": (
             _pe_fixture(b"stockfish") if stockfish_executable is None else stockfish_executable
         ),
@@ -416,6 +419,7 @@ def _run_metadata(
         "schema_version": 1,
         "product_sha": product_sha,
         "workflow_sha": workflow_sha,
+        "winforms_accessibility_config_sha256": WINFORMS_CONFIG_SHA256,
         "pre_upload_product_freshness": True,
         "pre_upload_workflow_freshness": True,
         "human_tested": False,
@@ -480,6 +484,61 @@ class VerifyW4CandidateArtifactTests(unittest.TestCase):
     def test_run_metadata_workflow_identity_is_required(self) -> None:
         self.path.write_bytes(_outer_bytes(metadata_workflow_sha="b" * 40))
         with self.assertRaisesRegex(CandidateArtifactError, "run metadata workflow_sha mismatch"):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_run_metadata_config_digest_must_be_lowercase_sha256(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(
+                metadata_overrides={"winforms_accessibility_config_sha256": "not-a-digest"}
+            )
+        )
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "winforms_accessibility_config_sha256 must be lowercase exact 64-hex",
+        ):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_run_metadata_config_digest_must_match_packaged_config(self) -> None:
+        self.path.write_bytes(
+            _outer_bytes(
+                metadata_overrides={"winforms_accessibility_config_sha256": "b" * 64}
+            )
+        )
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "WinForms accessibility app-config SHA-256 mismatch",
+        ):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_candidate_requires_winforms_accessibility_config(self) -> None:
+        with zipfile.ZipFile(io.BytesIO(_candidate_bytes()), "r") as archive:
+            files = {
+                name: archive.read(name)
+                for name in archive.namelist()
+                if name != "AccessibleChess/AccessibleChess.exe.config"
+            }
+        self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
+        with self.assertRaisesRegex(CandidateArtifactError, "missing release-critical files"):
+            verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
+
+    def test_self_consistent_config_tamper_still_fails_metadata_authority(self) -> None:
+        with zipfile.ZipFile(io.BytesIO(_candidate_bytes()), "r") as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        files["AccessibleChess/AccessibleChess.exe.config"] = b"<configuration><tampered /></configuration>\n"
+        checksummed = {
+            name: payload
+            for name, payload in files.items()
+            if name != "SHA256SUMS.txt"
+        }
+        files["SHA256SUMS.txt"] = "".join(
+            f"{hashlib.sha256(payload).hexdigest()}  {name}\n"
+            for name, payload in sorted(checksummed.items())
+        ).encode()
+        self.path.write_bytes(_outer_bytes(candidate=_zip_bytes(files)))
+        with self.assertRaisesRegex(
+            CandidateArtifactError,
+            "WinForms accessibility app-config SHA-256 mismatch",
+        ):
             verify(self.path, SHA, expected_workflow_sha=WORKFLOW_SHA)
 
     def test_run_metadata_requires_both_pre_upload_freshness_proofs(self) -> None:
