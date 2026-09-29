@@ -261,9 +261,14 @@ class LibraryWebAssetTests(unittest.TestCase):
         self.assertIn('option.addEventListener("keydown"', source)
         self.assertNotIn('document.addEventListener("keydown"', source)
         self.assertNotIn('window.addEventListener("keydown"', source)
-        self.assertIn('event.key === "ArrowUp"', source)
-        self.assertIn('event.key === "ArrowDown"', source)
-        self.assertIn('event.key === "Enter"', source)
+        self.assertIn("global.accessibleChessKeymapAction", source)
+        self.assertIn('resolve(event, "library_results")', source)
+        self.assertIn('"library.previous_result"', source)
+        self.assertIn('"library.next_result"', source)
+        self.assertIn('"library.open_game"', source)
+        self.assertNotIn('event.key === "ArrowUp"', source)
+        self.assertNotIn('event.key === "ArrowDown"', source)
+        self.assertNotIn('event.key === "Enter"', source)
 
     def test_renderer_does_not_create_background_live_region_spam(self) -> None:
         source = self.source
