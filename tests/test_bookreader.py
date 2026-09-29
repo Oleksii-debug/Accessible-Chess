@@ -107,6 +107,59 @@ class BookReaderTests(unittest.TestCase):
 
         self.assertEqual(reader.index, before_index)
 
+    def test_no_match_semantic_scan_rechecks_revision_before_boundary_error(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        before_index = reader.index
+
+        class MutatingIndexedBlocks(list):
+            def __init__(self, values):
+                super().__init__(values)
+                self.mutated = False
+
+            def __getitem__(self, index):
+                value = super().__getitem__(index)
+                if isinstance(index, int) and not self.mutated:
+                    self.mutated = True
+                    book.blocks[0].text = "Concurrent heading"
+                return value
+
+        reader._indexed_document.blocks = MutatingIndexedBlocks(
+            reader._indexed_document.blocks
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "changed after BookReader creation",
+        ):
+            reader.previous_game()
+
+        self.assertEqual(reader.index, before_index)
+
+    def test_snapshot_rechecks_revision_after_return_point_traversal(self):
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(3)
+        reader.save_return_point("analysis")
+
+        class MutatingReturnPoints(dict):
+            def items(self):
+                mutated = False
+                for item in super().items():
+                    if not mutated:
+                        mutated = True
+                        book.blocks[0].text = "Concurrent heading"
+                    yield item
+
+        reader._return_points = MutatingReturnPoints(reader._return_points)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "changed after BookReader creation",
+        ):
+            reader.snapshot()
+
     def test_go_to_rolls_back_cursor_if_revision_changes_between_checks(self):
         book = self.make_book()
         reader = BookReader(book)

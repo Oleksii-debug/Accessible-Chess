@@ -236,6 +236,7 @@ class BookReader:
             if predicate(self._indexed_document.blocks[cursor]):
                 return self.go_to(cursor)
             cursor += direction
+        self._require_indexed_revision()
         raise LookupError("No matching semantic block in that direction")
 
     def navigation_availability(self) -> dict[str, bool]:
@@ -354,12 +355,14 @@ class BookReader:
             for key in sorted(referenced_targets)
             if key.startswith("index:")
         }
-        return {
+        result = {
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": current_target,
             "return_points": dict(sorted(validated_return_points.items())),
             "fallback_digests": fallback_digests,
         }
+        self._require_indexed_revision()
+        return result
 
     @classmethod
     def restore_snapshot(cls, document: BookDocument, snapshot: Mapping[str, object]) -> "BookReader":
