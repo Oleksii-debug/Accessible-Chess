@@ -1,0 +1,110 @@
+name: Book HTML BR Text Integrity
+
+on:
+  push:
+    branches:
+      - fix/book-html-br-text-integrity-20260929
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_v2_book_html_import.py'
+      - 'tests/test_v2_book_epub_import.py'
+      - '.github/workflows/book-html-br-text-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-html-br-text-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact bounded ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            upstream="$PR_BASE_SHA"
+          else
+            upstream="$(git rev-parse HEAD^)"
+          fi
+          test -n "$upstream"
+          git merge-base --is-ancestor "$upstream" HEAD
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          test -n "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/book-html-br-text-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py|tests/test_v2_book_epub_import.py)
+                ;;
+              *)
+                echo "Unexpected path outside Book HTML BR text-integrity ownership: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/book-html-br-text-integrity.yml' \
+              'acs/book_html_import.py' \
+              'tests/test_v2_book_epub_import.py' \
+              'tests/test_v2_book_html_import.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+          git diff --quiet "$upstream" HEAD -- \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_index.py \
+            acs/book_progress_store.py \
+            acs/book_game_content.py \
+            acs/book_board_workflow.py \
+            acs/pgn_roundtrip.py \
+            acs/chesscore.py \
+            acs/acsdb.py \
+            acs/version2_application.py
+
+      - name: Compile changed Python
+        run: >-
+          python -m compileall -q
+          acs/book_html_import.py
+          tests/test_v2_book_html_import.py
+          tests/test_v2_book_epub_import.py
+
+      - name: Focused HTML EPUB and canonical regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_game_content
+          tests.test_d06_pgn_roundtrip
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Core selftest
+        run: python -m acs.selftest
