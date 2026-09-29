@@ -187,6 +187,37 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(engine.calls, [])
         self.assertEqual(expired["engineGame"]["phase"], "finished")
 
+    def test_human_clock_acceptance_exception_rolls_back_without_move_sound(self) -> None:
+        sounds = _RecordingGameSounds()
+        api, engine = self.make_api(game_sounds=sounds)
+        started = api.start_engine_game("white", 5, 5, 0)
+        self.assertTrue(started["ok"], started)
+        session = api._engine_session
+        self.assertIsNotNone(session)
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        before_tree = api.review_history.export_tree()
+
+        def fail_switch(_side):
+            raise RuntimeError("clock acceptance failed")
+
+        clock.switch_after_move = fail_switch
+        failed = api.make_move("e4")
+
+        self.assertFalse(failed["ok"], failed)
+        self.assertIn("Хід скасовано", failed["announcement"])
+        self.assertEqual(failed["historyLength"], 0)
+        self.assertEqual(api.board.fen(), Board.START)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.board.redo_stack, [])
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(sounds.move_events, [])
+        self.assertEqual(sounds.end_events, 0)
+        self.assertEqual(failed["engineGame"]["phase"], "error")
+        self.assertTrue(failed["engineGame"]["canStop"])
+
     def test_engine_move_expiring_during_clock_switch_is_rolled_back(self) -> None:
         sounds = _RecordingGameSounds()
         api, engine = self.make_api(game_sounds=sounds)
