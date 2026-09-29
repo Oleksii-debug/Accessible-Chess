@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 35d8858 / p0g a770d52 / p0-document 3c837a0
+# exact-package-reconvergence: 0c9036f / p0g 48cae7e / p0-document 680a25a
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,22 +15,22 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AUDITED_PARENT_SHA: 86c2308f297d76b50a3b993bed8d4aa454838eae
-  PACKAGE_ANCHOR_SHA: 053fd6b311256d10e5a3f24b982dc91bc03059a1
-  PRODUCT_PARENT_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
-  PREVIOUS_PACKAGE_SHA: df6285aa28a0363bd6c402ade62a0cb6a84eea27
-  PREVIOUS_WORKFLOW_BLOB_SHA: 73634da7ed5070fb8593b5b05d3ddb734081e76b
+  AUDITED_PARENT_SHA: 036e72bcec14a0b070c30fa846bc353ac08176ef
+  PACKAGE_ANCHOR_SHA: 6559b5f5018ef51beb50b3c38515d2b6777b4ffa
+  PRODUCT_PARENT_SHA: 0c9036f3f3a445d3d518825cd620583b29af755a
+  PREVIOUS_PACKAGE_SHA: fa9e6e42cbaf1580bc7242821d7e53de35e0707b
+  PREVIOUS_WORKFLOW_BLOB_SHA: 55694421bb33ef48568cdcf2d433503f8d534a61
   EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: a770d525f7c789cbf53f6174210fde7c7b3583c7
+  P0G_QA_SHA: 48cae7ed5d2915912a6e98806e787be126f8cff7
   P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 3c837a0e913ba8a286a6688ddedf434501b07c62
-  P0_DOCUMENT_PROBE_BLOB_SHA: 569eb9c069c57f2f82e096c11e85d49c4864b09d
+  P0_DOCUMENT_QA_SHA: 680a25af277026c5910ccccb3639e309050cf2b0
+  P0_DOCUMENT_PROBE_BLOB_SHA: b7814aa4eca183c6baa8737a52415d0c46036f9d
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -261,6 +261,10 @@ jobs:
           if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Hardened document-copy summary Product SHA mismatch'}
           if(-not [bool]$summary.static_document_outside_edit -or -not [bool]$summary.textpattern_selection_supported){throw 'Hardened document-copy semantic selection proof incomplete'}
           if([string]$summary.document_provider_cardinality -ne 'exactly one selectable Accessible Chess document containing stable static target text'){throw 'Hardened document-copy provider cardinality proof incomplete'}
+          if(-not [string]$summary.static_document_target_phrase){throw 'Hardened document-copy exact target phrase missing'}
+          if([string]$summary.static_document_text -cne [string]$summary.static_document_target_phrase){throw 'Hardened document-copy exact target phrase/text mismatch'}
+          $targetPhrase=[string]$summary.static_document_target_phrase
+          if($targetPhrase.Contains("`r") -or $targetPhrase.Contains("`n")){throw 'Hardened document-copy target phrase is not single-line'}
           if(-not [bool]$summary.ctrl_c_exact_clipboard -or -not [bool]$summary.native_copy_focus_verified -or -not [bool]$summary.foreground_product_verified){throw 'Hardened native Ctrl+C focus/foreground/copy proof incomplete'}
           if(-not [bool]$summary.manifest_product_sha_verified -or -not [bool]$summary.executable_checksum_verified){throw 'Hardened document-copy package identity proof incomplete'}
           if(-not [bool]$summary.move_input_native_ctrl_a_ctrl_c -or -not [bool]$summary.move_input_focus_verified){throw 'Hardened Move Input focus/copy proof incomplete'}
