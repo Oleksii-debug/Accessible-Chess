@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'acs/teaching_session.py'
+      - 'acs/teaching_session_adapter.py'
       - 'tests/test_teaching_session.py'
+      - 'tests/test_teaching_session_adapter.py'
       - '.github/workflows/teaching-session-timer-expiry.yml'
   workflow_dispatch:
 
@@ -38,9 +40,12 @@ jobs:
         run: >-
           python -m py_compile
           acs/teaching_session.py
+          acs/teaching_session_adapter.py
           tests/test_teaching_session.py
+          tests/test_teaching_session_adapter.py
       - name: Run teaching timer and education integration regressions
         run: >-
           python -m unittest -v
           tests.test_teaching_session
+          tests.test_teaching_session_adapter
           tests.test_education_records
