@@ -11,7 +11,7 @@ from acs.chessbase_decoder import _decode_game, _decode_move
 from acs.chesscore import Board
 from acs.gametree import parse_games, serialize_game
 from acs.gametree_legality import GameTreeLegalityCode, validate_game_legality
-from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
+from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
 class CurrentCanonicalNullMoveConvergenceTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class CurrentCanonicalNullMoveConvergenceTests(unittest.TestCase):
             ("en", "A null move cannot be played manually."),
         ):
             with self.subTest(language=language), tempfile.TemporaryDirectory() as temp:
-                api = KeymapAwareAccessibleChessAPI(
+                api = Version2ReleaseAccessibleChessAPI(
                     lang=language,
                     keymap_path=Path(temp) / "keymap.json",
                 )
