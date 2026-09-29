@@ -50,6 +50,24 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
         self.assertNotIn("SetUp", game.tags)
         self.assertNotIn("FEN", game.tags)
 
+    def test_invalid_generic_metadata_stays_in_document_error_domain(self) -> None:
+        cases = (
+            {"Bad Tag": "value"},
+            {"Event": "line one\nline two"},
+        )
+
+        for supplied in cases:
+            with self.subTest(tags=supplied):
+                with self.assertRaises(PgnDocumentError) as caught:
+                    PgnDocumentSession.new_game(supplied)
+                self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_TAG)
+                self.assertNotIn("workspace", str(caught.exception).lower())
+
+    def test_invalid_result_keeps_specific_result_error(self) -> None:
+        with self.assertRaises(PgnDocumentError) as caught:
+            PgnDocumentSession.new_game({"Result": "draw"})
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_RESULT)
+
     def test_existing_canonical_custom_start_pgn_ingress_is_unchanged(self) -> None:
         session = PgnDocumentSession.from_text(CUSTOM_POSITION)
         game = session.workspace.current_game()
