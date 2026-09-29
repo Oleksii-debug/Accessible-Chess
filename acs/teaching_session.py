@@ -461,7 +461,9 @@ def current_step(plan: LessonSession, state: TeachingSessionState) -> TeachingSt
     _match(plan, state)
     if state.step_index >= len(plan.steps):
         raise TeachingSessionError("session step index is outside lesson plan")
-    return plan.steps[state.step_index]
+    step = plan.steps[state.step_index]
+    _validate_timer_state(step, state)
+    return step
 
 
 def pause_session(plan: LessonSession, state: TeachingSessionState, expected_revision: int) -> TeachingSessionState:
@@ -700,6 +702,20 @@ def _student_input_open(state: TeachingSessionState) -> None:
     _active(state)
     if state.remaining_seconds == 0:
         raise TeachingSessionError("current teaching step timer has expired")
+
+
+def _validate_timer_state(step: TeachingStep, state: TeachingSessionState) -> None:
+    if state.phase is TeachingSessionPhase.COMPLETED:
+        return
+    timer = step.policy.timer_seconds
+    if timer is None:
+        if state.remaining_seconds is not None:
+            raise TeachingSessionError("untimed teaching step cannot retain timer state")
+        return
+    if state.remaining_seconds is None:
+        raise TeachingSessionError("timed teaching step is missing timer state")
+    if state.remaining_seconds > timer:
+        raise TeachingSessionError("teaching timer state exceeds configured step duration")
 
 
 def _session_student(plan: LessonSession, value: object) -> str:
