@@ -140,15 +140,18 @@ class WindowsSoundPlaybackAdapter:
         destination = self._cache_dir / (
             f"{event.value}-v{volume}-s{SCALED_SOUND_CACHE_FORMAT_VERSION}-{source_digest}.wav"
         )
-        if destination.is_file():
-            self._prune_scaled_variants(destination, event, volume)
-            return destination
-
         with wave.open(io.BytesIO(source_bytes), "rb") as reader:
             params = reader.getparams()
             if params.sampwidth != 2:
                 raise ValueError("only 16-bit PCM WAV assets support volume scaling")
             frames = reader.readframes(reader.getnframes())
+        expected_frame_bytes = params.nframes * params.nchannels * params.sampwidth
+        if len(frames) != expected_frame_bytes:
+            raise ValueError("truncated 16-bit PCM WAV asset")
+
+        if destination.is_file() and self._cached_scaled_wave_is_valid(destination, params):
+            self._prune_scaled_variants(destination, event, volume)
+            return destination
 
         samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
         factor = volume / 100.0
@@ -184,6 +187,25 @@ class WindowsSoundPlaybackAdapter:
                 )
         self._prune_scaled_variants(destination, event, volume)
         return destination
+
+    @staticmethod
+    def _cached_scaled_wave_is_valid(destination: Path, expected_params) -> bool:
+        """Return whether an existing derived WAV is complete and reusable."""
+
+        try:
+            with wave.open(str(destination), "rb") as reader:
+                params = reader.getparams()
+                if params != expected_params:
+                    return False
+                frames = reader.readframes(reader.getnframes())
+        except (EOFError, OSError, ValueError, struct.error, wave.Error):
+            return False
+        expected_frame_bytes = (
+            expected_params.nframes
+            * expected_params.nchannels
+            * expected_params.sampwidth
+        )
+        return len(frames) == expected_frame_bytes
 
     def _prune_scaled_variants(
         self,
