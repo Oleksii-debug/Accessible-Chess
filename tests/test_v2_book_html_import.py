@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from io import BytesIO
 import tempfile
 from pathlib import Path
 import unittest
+import zipfile
 
+from acs.book_epub_import import import_epub_book
 from acs.book_game_content import resolve_book_game
 from acs.book_html_import import (
     MAX_HTML_SOURCE_BYTES,
@@ -106,6 +109,35 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertEqual(paragraphs, ["First line Second line"])
         self.assertNotIn("Whiteto", "\n".join(headings))
         self.assertNotIn("lineSecond", "\n".join(paragraphs))
+
+    def test_epub_inherits_br_semantic_text_boundaries(self) -> None:
+        buffer = BytesIO()
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        opf = b'''<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:title>Boundary EPUB</dc:title><dc:language>en</dc:language></metadata>
+  <manifest><item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>'''
+        chapter = b"<html><body><h1>White<br>to move</h1><p>First<br/>Second</p></body></html>"
+        with zipfile.ZipFile(buffer, "w") as archive:
+            mimetype = zipfile.ZipInfo("mimetype")
+            mimetype.compress_type = zipfile.ZIP_STORED
+            archive.writestr(mimetype, b"application/epub+zip")
+            archive.writestr("META-INF/container.xml", container, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("OEBPS/Text/chapter.xhtml", chapter, compress_type=zipfile.ZIP_DEFLATED)
+
+        result = import_epub_book(buffer.getvalue(), source_name="breaks.epub")
+        headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(headings, ["White to move"])
+        self.assertEqual(paragraphs, ["First Second"])
 
     def test_table_cells_do_not_collapse_inside_row_text(self) -> None:
         result = import_html_book(

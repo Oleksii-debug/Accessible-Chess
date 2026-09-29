@@ -141,19 +141,6 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(len({block.block_id for block in result.document.blocks}), len(result.document.blocks))
         self.assertEqual(result.document.validate_structure(), list(result.warnings))
 
-    def test_spine_br_preserves_readable_text_boundary(self) -> None:
-        result = import_epub_book(
-            _simple_epub(
-                b"<html><body><h1>White<br>to move</h1><p>First<br/>Second</p></body></html>"
-            ),
-            source_name="breaks.epub",
-        )
-
-        headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]
-        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
-        self.assertEqual(headings, ["White to move"])
-        self.assertEqual(paragraphs, ["First Second"])
-
     def test_unmarked_valid_pgn_in_spine_stays_readable_text(self) -> None:
         chapter = b'''<html><body><h1>Quoted game</h1><pre>[Event "Quoted"]
 [White "A"]

@@ -10,7 +10,6 @@ on:
     paths:
       - 'acs/book_html_import.py'
       - 'tests/test_v2_book_html_import.py'
-      - 'tests/test_v2_book_epub_import.py'
       - '.github/workflows/book-html-br-text-integrity.yml'
   workflow_dispatch:
 
@@ -63,7 +62,7 @@ jobs:
           test -n "$changed"
           while IFS= read -r path; do
             case "$path" in
-              .github/workflows/book-html-br-text-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py|tests/test_v2_book_epub_import.py)
+              .github/workflows/book-html-br-text-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py)
                 ;;
               *)
                 echo "Unexpected path outside Book HTML semantic text-boundary ownership: $path" >&2
@@ -75,7 +74,6 @@ jobs:
             expected="$(printf '%s\n' \
               '.github/workflows/book-html-br-text-integrity.yml' \
               'acs/book_html_import.py' \
-              'tests/test_v2_book_epub_import.py' \
               'tests/test_v2_book_html_import.py' | sort)"
             test "$changed" = "$expected"
           fi
@@ -96,7 +94,6 @@ jobs:
           python -m compileall -q
           acs/book_html_import.py
           tests/test_v2_book_html_import.py
-          tests/test_v2_book_epub_import.py
 
       - name: Focused HTML EPUB and canonical regressions
         run: >-
