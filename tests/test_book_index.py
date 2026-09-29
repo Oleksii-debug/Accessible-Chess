@@ -184,6 +184,24 @@ class BookIndexTests(unittest.TestCase):
             ["block:compatibility"],
         )
 
+    def test_find_reuses_canonical_query_whitespace_and_length_policy(self):
+        document = BookDocument(
+            title="Query policy",
+            blocks=[
+                Heading(text="Open file strategy", level=1, block_id="spacing"),
+            ],
+        )
+        index = BookIndex(document)
+
+        spaced = index.find("  Open   file   strategy  ")
+        self.assertEqual(
+            [entry.target.key for entry in spaced],
+            ["block:spacing"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "maximum search term length"):
+            index.find("x" * 257)
+
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
         for value in (None, 7, True, b"model"):
