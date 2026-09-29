@@ -6,6 +6,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/book_index.py'
+      - 'acs/search_policy.py'
       - 'tests/test_book_index.py'
       - '.github/workflows/v2-book-index-snapshot-integrity.yml'
   push:
@@ -64,6 +65,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/book_index.py
+          acs/search_policy.py
           tests/test_book_index.py
 
       - name: Run focused Book semantic regressions
