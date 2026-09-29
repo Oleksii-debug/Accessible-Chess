@@ -224,6 +224,16 @@ class TrainingWebViewProjection:
         solution: tuple[str, ...] = (),
     ) -> TrainingWebViewEvent:
         snapshot = self._snapshot_from_view(view)
+        if focus_target == "training-answer" and snapshot["answer"]["disabled"]:
+            enabled_actions = {
+                item["command"]: item["enabled"]
+                for item in snapshot["actions"]
+            }
+            focus_target = (
+                "training-action-continue"
+                if enabled_actions.get("training.continue", False)
+                else "training-action-reset"
+            )
         safe_solution = tuple(
             _safe_text(move, language=self._language, limit=_MAX_ANSWER)
             for move in solution

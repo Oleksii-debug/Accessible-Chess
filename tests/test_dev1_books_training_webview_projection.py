@@ -154,6 +154,32 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertTrue(completed.payload["clear_answer"])
         self.assertTrue(completed.payload["snapshot"]["progress"]["completed"])
         self.assertTrue(completed.payload["snapshot"]["answer"]["disabled"])
+        self.assertEqual("training-action-reset", completed.payload["focus_target"])
+
+    def test_completed_submit_focuses_continue_when_successor_is_available(self) -> None:
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+        )
+        projection = TrainingWebViewProjection(
+            presenter,
+            language=UILanguage.EN,
+            can_continue=lambda: True,
+        )
+        projection.submit("e4")
+        completed = projection.submit("Kh2")
+        self.assertTrue(completed.payload["snapshot"]["progress"]["completed"])
+        self.assertTrue(
+            next(
+                action["enabled"]
+                for action in completed.payload["snapshot"]["actions"]
+                if action["command"] == "training.continue"
+            )
+        )
+        self.assertEqual(
+            "training-action-continue",
+            completed.payload["focus_target"],
+        )
 
     def test_answer_bound_and_type_fail_before_session_mutation(self) -> None:
         before = self.presenter.snapshot()

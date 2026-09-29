@@ -1,6 +1,14 @@
 (function (global) {
   "use strict";
 
+  const TRAINING_ACTION_IDS = Object.freeze({
+    "training.hint": "training-action-hint",
+    "training.reveal": "training-action-reveal",
+    "training.retry": "training-action-retry",
+    "training.continue": "training-action-continue",
+    "training.reset.request": "training-action-reset"
+  });
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
@@ -365,8 +373,11 @@
       const button = node("button", action.label || action.command || "");
       button.type = "button";
       button.disabled = !action.enabled;
+      const command = String(action.command || "");
+      if (Object.prototype.hasOwnProperty.call(TRAINING_ACTION_IDS, command)) {
+        button.id = TRAINING_ACTION_IDS[command];
+      }
       button.addEventListener("click", function () {
-        const command = String(action.command || "");
         if (command === "training.reset.request") {
           resetDialog.open(button);
           return;
