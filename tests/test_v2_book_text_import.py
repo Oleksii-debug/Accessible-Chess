@@ -89,17 +89,16 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
             source_name="inline-images.md",
             source_format="markdown",
         )
-        semantic = [
-            (
-                "image" if isinstance(block, Note) and block.note_type == "image"
-                else "paragraph" if isinstance(block, Paragraph)
-                else "heading" if isinstance(block, Heading)
-                else type(block).__name__
-            ,
-                block.text if isinstance(block, (Heading, Note, Paragraph)) else None,
-            )
-            for block in result.document.blocks
-        ]
+        semantic = []
+        for block in result.document.blocks:
+            if isinstance(block, Note) and block.note_type == "image":
+                semantic.append(("image", block.text))
+            elif isinstance(block, Paragraph):
+                semantic.append(("paragraph", block.text))
+            elif isinstance(block, Heading):
+                semantic.append(("heading", block.text))
+            else:
+                semantic.append((type(block).__name__, None))
         self.assertEqual(
             semantic,
             [
