@@ -36,6 +36,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
             route.open_action_id,
             BindingContext.GLOBAL,
             route.heading[UILanguage.EN],
+            binding="F1" if route.open_action_id == "screen.help" else None,
         )
         for route in ROUTES
     ),
