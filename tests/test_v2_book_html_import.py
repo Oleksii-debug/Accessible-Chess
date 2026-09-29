@@ -91,6 +91,22 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn("(", canonical)
         self.assertIn("Білі", canonical)
 
+    def test_br_preserves_semantic_text_boundaries_for_reading_and_copy(self) -> None:
+        result = import_html_book(
+            """<html><head><title>Breaks</title></head><body>
+<h1>White<br>to move</h1>
+<p>First line<br/>Second line</p>
+</body></html>""",
+            source_name="breaks.html",
+        )
+
+        headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(headings, ["White to move"])
+        self.assertEqual(paragraphs, ["First line Second line"])
+        self.assertNotIn("Whiteto", "\n".join(headings))
+        self.assertNotIn("lineSecond", "\n".join(paragraphs))
+
     def test_unmarked_valid_pgn_is_readable_text_and_never_fabricates_game(self) -> None:
         source = f'''<!doctype html>
 <html><head><title>Quoted PGN</title></head><body>
