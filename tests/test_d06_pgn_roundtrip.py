@@ -141,7 +141,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 self.assert_code(expected, parse_pgn_text, source)
 
     def test_import_move_number_period_flexibility_round_trips_structurally(self):
-        source = '[Result "*"]\n\n1 e4 1 .. e5 2....Nf3 2 ... Nc6 *'
+        source = '[Result "*"]\n\n1 e4 1 ..e5 2....Nf3 2 ... Nc6 *'
         games = parse_pgn_text(source)
         self.assertEqual(
             [move.move_number for move in games[0].line.moves],
@@ -157,6 +157,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
 
         for damaged in (
             '... e4 *',
+            '....e4 *',
             '1 . . e4 *',
             '1 {between integer and periods} .. e4 *',
         ):
