@@ -73,11 +73,19 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
         return self._invoke_ui(self._profile_snapshot_ui)
 
     def _profile_create_ui(self, display_name: object, skip: object) -> dict[str, object]:
-        if type(skip) is not bool or not isinstance(display_name, str):
+        if (
+            type(skip) is not bool
+            or not isinstance(display_name, str)
+            or (not skip and not display_name.strip())
+        ):
             return {
                 "ok": False,
                 "exists": False,
-                "announcement": self._profile_error_message(),
+                "announcement": (
+                    "Enter a profile name or choose Skip."
+                    if self.lang == "en"
+                    else "Введіть ім’я профілю або виберіть «Пропустити»."
+                ),
             }
         try:
             profile = self._profile_store().create(None if skip else display_name)
