@@ -154,6 +154,43 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             self.assertTrue(renamed["ok"])
             self.assertEqual(renamed["displayName"], "Third")
 
+    def test_rename_conflict_reloads_current_durable_profile_state(self) -> None:
+        class RacingStore(LocalProfileStore):
+            def __init__(self, path: Path) -> None:
+                super().__init__(path)
+                self._raced = False
+
+            def rename(self, current, display_name):
+                if not self._raced:
+                    self._raced = True
+                    durable = self.load()
+                    assert durable is not None
+                    super().rename(durable, "Other Window")
+                return super().rename(current, display_name)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = RacingStore(root / "profile.json")
+            original = store.create("Initial")
+            api = Version2ProfileAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                profile_store=store,
+            )
+
+            result = api.profile_rename("My Draft")
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["stateChanged"])
+            self.assertTrue(result["exists"])
+            self.assertEqual(result["displayName"], "Other Window")
+            self.assertEqual(
+                result["announcement"],
+                "Локальний профіль змінено в іншому вікні. Завантажено поточний профіль.",
+            )
+            durable = store.load()
+            self.assertEqual(durable.profile_id, original.profile_id)
+            self.assertEqual(durable.display_name, "Other Window")
+
     def test_blank_explicit_name_is_rejected_but_skip_is_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

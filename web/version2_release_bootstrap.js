@@ -153,6 +153,7 @@
 
   function applyProfileResult(result, closeOnSuccess) {
     if (!result || result.ok !== true) {
+      if (result && result.stateChanged === true) renderProfileState(result);
       announce(result && result.announcement
         ? result.announcement
         : uiText("Не вдалося оновити профіль.", "Could not update the profile."));

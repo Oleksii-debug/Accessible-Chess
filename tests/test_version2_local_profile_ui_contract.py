@@ -36,6 +36,13 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileRepair.id = "v2-profile-repair"', source)
         self.assertIn('profileRepair.setAttribute("aria-describedby", "v2-profile-status")', source)
 
+    def test_conflict_result_can_refresh_canonical_state_without_closing_dialog(self) -> None:
+        source = self.source
+        self.assertIn(
+            "if (result && result.stateChanged === true) renderProfileState(result);",
+            source,
+        )
+
     def test_successful_reconvergence_does_not_close_when_recovery_is_required(self) -> None:
         source = self.source
         self.assertIn(

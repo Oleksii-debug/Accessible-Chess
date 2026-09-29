@@ -215,6 +215,41 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
                 blocked["ok"] = False
                 return blocked
             profile = store.rename(current, display_name)
+        except LocalProfileConflict:
+            try:
+                current, recovery_required = self._load_profile_state(store)
+            except LocalProfileError:
+                return {
+                    "ok": False,
+                    "exists": True,
+                    "announcement": self._profile_error_message(),
+                }
+            if current is None:
+                return {
+                    "ok": False,
+                    "exists": False,
+                    "displayName": "",
+                    "generatedAlias": False,
+                    "recoveryRequired": False,
+                    "stateChanged": True,
+                    "announcement": (
+                        "The local profile changed in another window. No current profile remains."
+                        if self.lang == "en"
+                        else "Локальний профіль змінено в іншому вікні. Поточного профілю більше немає."
+                    ),
+                }
+            conflict = self._profile_payload(
+                current,
+                recovery_required=recovery_required,
+                announcement=(
+                    "The local profile changed in another window. The current profile was reloaded."
+                    if self.lang == "en"
+                    else "Локальний профіль змінено в іншому вікні. Завантажено поточний профіль."
+                ),
+            )
+            conflict["ok"] = False
+            conflict["stateChanged"] = True
+            return conflict
         except LocalProfileError:
             return {
                 "ok": False,
