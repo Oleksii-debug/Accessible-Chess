@@ -205,6 +205,7 @@ class _SemanticHtmlParser(HTMLParser):
         self._captures: list[_Capture] = []
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
+        self._suppressed_tags: list[str] = []
         self._node_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
@@ -355,6 +356,7 @@ class _SemanticHtmlParser(HTMLParser):
             )
         if tag in _SUPPRESSED_TAGS:
             self._suppressed_depth += 1
+            self._suppressed_tags.append(tag)
             return
         if self._suppressed_depth:
             return
@@ -458,7 +460,13 @@ class _SemanticHtmlParser(HTMLParser):
         tag = tag.lower()
         if tag in _SUPPRESSED_TAGS:
             if self._suppressed_depth:
+                if not self._suppressed_tags or self._suppressed_tags[-1] != tag:
+                    self._warning(
+                        "malformed HTML mismatched suppressed elements; readable text may have been omitted"
+                    )
                 self._suppressed_depth -= 1
+                if self._suppressed_tags:
+                    self._suppressed_tags.pop()
             return
         if self._suppressed_depth:
             return
@@ -541,6 +549,7 @@ class _SemanticHtmlParser(HTMLParser):
                 "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"
             )
             self._suppressed_depth = 0
+            self._suppressed_tags.clear()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
         while self._lists:

@@ -224,6 +224,28 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_mismatched_suppressed_markup_reports_possible_reading_text_loss(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Before.</p><template><script>Hidden.</template>"
+            "<p>Ambiguous middle.</p></script><p>After.</p></body></html>",
+            source_name="mismatched-suppressed.html",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertTrue(any("Before." in text for text in paragraphs))
+        self.assertFalse(any("Ambiguous middle." in text for text in paragraphs))
+        self.assertTrue(any("After." in text for text in paragraphs))
+        self.assertTrue(
+            any(
+                "mismatched suppressed elements" in warning
+                and "may have been omitted" in warning
+                for warning in result.warnings
+            )
+        )
+
     def test_import_navigation_game_board_return_and_progress_reopen(self) -> None:
         source = _html()
         result = import_html_book(source, source_name="journey.html")
