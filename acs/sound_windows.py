@@ -149,16 +149,19 @@ class WindowsSoundPlaybackAdapter:
         if len(frames) != expected_frame_bytes:
             raise ValueError("truncated 16-bit PCM WAV asset")
 
-        if destination.is_file() and self._cached_scaled_wave_is_valid(destination, params):
-            self._prune_scaled_variants(destination, event, volume)
-            return destination
-
         samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
         factor = volume / 100.0
         scaled = b"".join(
             struct.pack("<h", max(-32768, min(32767, int(sample * factor))))
             for sample in samples
         )
+        if destination.is_file() and self._cached_scaled_wave_is_valid(
+            destination,
+            params,
+            scaled,
+        ):
+            self._prune_scaled_variants(destination, event, volume)
+            return destination
         fd, temporary_name = tempfile.mkstemp(
             dir=self._cache_dir,
             prefix=f".{destination.name}.",
@@ -189,8 +192,12 @@ class WindowsSoundPlaybackAdapter:
         return destination
 
     @staticmethod
-    def _cached_scaled_wave_is_valid(destination: Path, expected_params) -> bool:
-        """Return whether an existing derived WAV is complete and reusable."""
+    def _cached_scaled_wave_is_valid(
+        destination: Path,
+        expected_params,
+        expected_frames: bytes,
+    ) -> bool:
+        """Return whether an existing derived WAV exactly matches this transform."""
 
         try:
             with wave.open(str(destination), "rb") as reader:
@@ -200,12 +207,7 @@ class WindowsSoundPlaybackAdapter:
                 frames = reader.readframes(reader.getnframes())
         except (EOFError, OSError, ValueError, struct.error, wave.Error):
             return False
-        expected_frame_bytes = (
-            expected_params.nframes
-            * expected_params.nchannels
-            * expected_params.sampwidth
-        )
-        return len(frames) == expected_frame_bytes
+        return frames == expected_frames
 
     def _prune_scaled_variants(
         self,
