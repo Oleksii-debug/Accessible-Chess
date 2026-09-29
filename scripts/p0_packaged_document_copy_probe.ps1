@@ -350,14 +350,14 @@ try {
     throw "Static TextPattern active selection text differs from target range"
   }
   $startDelta=$activeSelection.CompareEndpoints(
-    [System.Windows.Automation.TextPatternRangeEndpoint]::Start,
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start,
     $target,
-    [System.Windows.Automation.TextPatternRangeEndpoint]::Start
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start
   )
   $endDelta=$activeSelection.CompareEndpoints(
-    [System.Windows.Automation.TextPatternRangeEndpoint]::End,
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End,
     $target,
-    [System.Windows.Automation.TextPatternRangeEndpoint]::End
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
   )
   if($startDelta -ne 0 -or $endDelta -ne 0){
     throw "Static TextPattern active selection endpoints differ from target range"
