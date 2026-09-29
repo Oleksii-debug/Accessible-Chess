@@ -141,11 +141,15 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
         return self._invoke_ui(self._profile_repair_ui)
 
     def _profile_rename_ui(self, display_name: object) -> dict[str, object]:
-        if not isinstance(display_name, str):
+        if not isinstance(display_name, str) or not display_name.strip():
             return {
                 "ok": False,
                 "exists": True,
-                "announcement": self._profile_error_message(),
+                "announcement": (
+                    "Enter a profile name."
+                    if self.lang == "en"
+                    else "Введіть ім’я профілю."
+                ),
             }
         try:
             store = self._profile_store()
