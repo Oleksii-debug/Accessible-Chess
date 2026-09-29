@@ -76,6 +76,8 @@ jobs:
         run: >-
           python -m py_compile
           acs/pgn_document.py
+          acs/chesscore.py
+          acs/position_editor.py
           tests/test_pgn_document_new_game_position_integrity.py
 
       - name: Run focused PGN document integrity regressions
@@ -85,3 +87,5 @@ jobs:
           tests.test_pgn_document_setup_fen_integrity
           tests.test_pgn_document_context_atomicity
           tests.test_pgn_document
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor

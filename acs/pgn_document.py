@@ -19,9 +19,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Mapping
 
+from .chesscore import Board
 from .gametree import PgnGame, RESULTS, VariationLine
 from .gametree_navigation import GameTreeCursor
 from .import_contract import SourceFingerprint, fingerprint
+from .position_editor import PositionState
 from .pgn_service import (
     PgnConcurrentWriteError,
     PgnOpenResult,
@@ -38,6 +40,7 @@ class PgnDocumentErrorCode(str, Enum):
     DESTINATION_VERSION_REQUIRED = "destination_version_required"
     INVALID_TAG = "invalid_tag"
     INVALID_RESULT = "invalid_result"
+    INVALID_POSITION = "invalid_position"
     CONTEXT_STALE = "context_stale"
 
 
@@ -106,6 +109,24 @@ def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
     values["Result"] = result
     # PgnWorkspace performs the canonical strict validation of tag names/values.
     return PgnGame(tags=values, line=VariationLine(result=result))
+
+
+def _validated_new_game(
+    tags: Mapping[str, str] | None = None,
+) -> tuple[PgnGame, PgnWorkspace]:
+    """Build one metadata-valid new game through the canonical workspace gate."""
+
+    try:
+        game = _new_game(tags)
+        workspace = PgnWorkspace((game,))
+    except PgnDocumentError:
+        raise
+    except (PgnWorkspaceError, TypeError, ValueError) as exc:
+        raise _error(
+            "PGN new-game metadata is not valid",
+            PgnDocumentErrorCode.INVALID_TAG,
+        ) from exc
+    return game, workspace
 
 
 def _recover_malformed_result_placeholder(game: PgnGame) -> str | None:
@@ -186,17 +207,51 @@ class PgnDocumentSession:
 
     @classmethod
     def new_game(cls, tags: Mapping[str, str] | None = None) -> "PgnDocumentSession":
+        _game, workspace = _validated_new_game(tags)
+        # No backing file exists, so a new document is intentionally dirty.
+        return cls(workspace, saved_digest=None)
+
+    @classmethod
+    def new_game_from_position(
+        cls,
+        position: PositionState,
+        tags: Mapping[str, str] | None = None,
+    ) -> "PgnDocumentSession":
+        """Create a PGN document from the canonical Position workflow state.
+
+        Generic callers cannot inject SetUp/FEN through metadata.  This explicit
+        seam converts the already-materialized PositionState to FEN and then
+        revalidates that FEN through chesscore.Board, which remains the canonical
+        chess/FEN authority.  Standard-start positions stay ordinary PGN games;
+        non-standard starts publish SetUp/FEN atomically as one pair.
+        """
+
+        game, _metadata_workspace = _validated_new_game(tags)
+        if not isinstance(position, PositionState):
+            raise _error(
+                "PGN start position must be canonical PositionState",
+                PgnDocumentErrorCode.INVALID_POSITION,
+            )
+
         try:
-            game = _new_game(tags)
+            canonical_fen = Board(position.to_fen()).fen()
+        except ValueError as exc:
+            raise _error(
+                "PGN start position is not valid",
+                PgnDocumentErrorCode.INVALID_POSITION,
+            ) from exc
+
+        if canonical_fen != Board.START:
+            game.tags["SetUp"] = "1"
+            game.tags["FEN"] = canonical_fen
+
+        try:
             workspace = PgnWorkspace((game,))
-        except PgnDocumentError:
-            raise
         except (PgnWorkspaceError, TypeError, ValueError) as exc:
             raise _error(
-                "PGN new-game metadata is not valid",
-                PgnDocumentErrorCode.INVALID_TAG,
+                "PGN start position is not representable",
+                PgnDocumentErrorCode.INVALID_POSITION,
             ) from exc
-        # No backing file exists, so a new document is intentionally dirty.
         return cls(workspace, saved_digest=None)
 
     @classmethod
