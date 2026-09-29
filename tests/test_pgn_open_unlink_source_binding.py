@@ -31,8 +31,6 @@ class PgnOpenUnlinkSourceBindingTests(unittest.TestCase):
                 try:
                     source.unlink()
                 except PermissionError:
-                    # Windows may deny deletion while the trusted read handle
-                    # is open. That is a stronger valid invariant.
                     unlink_blocked = True
                 else:
                     unlinked = True
