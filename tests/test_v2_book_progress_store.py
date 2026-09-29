@@ -341,6 +341,27 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
         self.assertEqual(self.path.read_bytes(), reappeared_bytes)
 
+    def test_future_schema_orphan_backup_is_preserved_and_never_downgraded(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        future_backup = b'{"entries":{},"generation":9,"schema_version":999}'
+        self.store.backup_path.write_bytes(future_backup)
+
+        with self.assertRaises(BookProgressStoreError) as read_error:
+            self.store.has("book:future")
+        self.assertEqual(
+            read_error.exception.code,
+            BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA,
+        )
+
+        with self.assertRaises(BookProgressStoreError) as save_error:
+            self.store.save("book:new", BookReader(self.original_document()))
+        self.assertEqual(
+            save_error.exception.code,
+            BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), future_backup)
+
     def test_corrupt_orphan_backup_is_preserved_instead_of_erased_by_save(self) -> None:
         self.path.parent.mkdir(parents=True)
         corrupt_backup = b'{"schema_version":2,"generation":'
