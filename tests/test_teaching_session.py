@@ -326,6 +326,7 @@ class TeachingSessionDomainTests(unittest.TestCase):
         self.assertEqual(expired.position_fen, Board.START)
         self.assertEqual(expired.presentation.board_permission, BoardPermissionState.LOCKED)
         expired_snapshot = expired.to_json()
+        self.assertEqual(TeachingSessionState.from_json(expired_snapshot), expired)
         with self.assertRaises(TeachingSessionError):
             submit_selection(timed_plan, expired, "student-1", "e4", expired.revision)
         self.assertEqual(expired.to_json(), expired_snapshot)
