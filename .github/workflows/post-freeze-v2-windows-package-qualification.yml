@@ -303,12 +303,25 @@ jobs:
           if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine P0-G evidence must not claim physical NVDA acceptance'}
           Write-Host 'PACKAGED_P0G_CAUSAL_SELECTED_STATE_ACTION_OCCURRED_ACCESSIBLE_RESULT_EXPOSED=PASS'
 
+      - name: Stage package ZIP at artifact root for inherited readback contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path (Join-Path 'candidate-output' $env:CANDIDATE_FILE)).Path
+          $target=Join-Path $PWD $env:CANDIDATE_FILE
+          if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Force}
+          Copy-Item -LiteralPath $source -Destination $target
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash
+          if($sourceHash -ne $targetHash){throw 'STAGED_ARTIFACT_ROOT_ZIP_SHA256_MISMATCH'}
+          Write-Host "STAGED_ARTIFACT_ROOT_ZIP=PASS sha256=$($sourceHash.ToLowerInvariant())"
+
       - name: Upload post-freeze Windows package qualification artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Accessible-Chess-V2-post-freeze-package-qualification
           path: |
-            candidate-output/Accessible-Chess-V2-*-post-freeze-package-qualification.zip
+            Accessible-Chess-V2-*-post-freeze-package-qualification.zip
             packaged-uia-strict-summary.json
             packaged-v2-current-native-menu-summary.json
             packaged-v2-document-copy-summary.json
