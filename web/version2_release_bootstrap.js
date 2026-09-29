@@ -35,6 +35,7 @@
   nav.appendChild(navList);
 
   let profileState = null;
+  let profileMutationPending = false;
   const profileButton = documentRef.createElement("button");
   profileButton.type = "button";
   profileButton.id = "v2-profile-button";
@@ -109,8 +110,12 @@
     profileSkip.hidden = exists;
     const recoveryRequired = exists && profileState.recoveryRequired === true;
     profileRepair.hidden = !recoveryRequired;
-    profileSave.disabled = false;
-    profileName.disabled = false;
+    profileDialog.setAttribute("aria-busy", profileMutationPending ? "true" : "false");
+    profileSave.disabled = profileMutationPending;
+    profileSkip.disabled = profileMutationPending;
+    profileRepair.disabled = profileMutationPending;
+    profileClose.disabled = profileMutationPending;
+    profileName.disabled = profileMutationPending;
     profileClose.hidden = !exists;
     profileStatus.textContent = exists
       ? (recoveryRequired
@@ -127,6 +132,18 @@
       profileName.focus();
       profileName.select();
     }, 0);
+  }
+
+  function beginProfileMutation() {
+    if (profileMutationPending) return false;
+    profileMutationPending = true;
+    renderProfileState(profileState, true);
+    return true;
+  }
+
+  function endProfileMutation() {
+    profileMutationPending = false;
+    renderProfileState(profileState, true);
   }
 
   function applyProfileResult(result, closeOnSuccess) {
@@ -171,17 +188,33 @@
     loadProfile(false).then(function (ok) { if (ok) showProfileDialog(); });
   });
   profileDialog.addEventListener("cancel", function (event) {
-    if (!profileState || !profileState.exists) event.preventDefault();
+    if (profileMutationPending || !profileState || !profileState.exists) {
+      event.preventDefault();
+    }
   });
   function saveProfileName() {
     const bridge = api();
-    if (!bridge) return;
-    const call = profileState && profileState.exists
-      ? bridge.profile_rename(profileName.value)
-      : bridge.profile_create(profileName.value, false);
+    const rename = !!(profileState && profileState.exists);
+    const method = rename ? "profile_rename" : "profile_create";
+    if (!bridge || typeof bridge[method] !== "function") return;
+    if (!beginProfileMutation()) return;
+    let call;
+    try {
+      call = rename
+        ? bridge.profile_rename(profileName.value)
+        : bridge.profile_create(profileName.value, false);
+    } catch (_error) {
+      endProfileMutation();
+      announce(uiText("Не вдалося оновити профіль.", "Could not update the profile."));
+      profileName.focus();
+      return;
+    }
     Promise.resolve(call).then(function (result) {
-      if (!applyProfileResult(result, true)) profileName.focus();
+      const ok = applyProfileResult(result, true);
+      endProfileMutation();
+      if (!ok) profileName.focus();
     }, function () {
+      endProfileMutation();
       announce(uiText("Не вдалося оновити профіль.", "Could not update the profile."));
       profileName.focus();
     });
@@ -195,22 +228,52 @@
   profileSkip.addEventListener("click", function () {
     const bridge = api();
     if (!bridge || typeof bridge.profile_create !== "function") return;
-    bridge.profile_create("", true).then(function (result) {
-      applyProfileResult(result, true);
-    }, function () {
+    if (!beginProfileMutation()) return;
+    let call;
+    try {
+      call = bridge.profile_create("", true);
+    } catch (_error) {
+      endProfileMutation();
       announce(uiText("Не вдалося створити псевдонім.", "Could not create an alias."));
+      profileName.focus();
+      return;
+    }
+    Promise.resolve(call).then(function (result) {
+      const ok = applyProfileResult(result, true);
+      endProfileMutation();
+      if (!ok) profileName.focus();
+    }, function () {
+      endProfileMutation();
+      announce(uiText("Не вдалося створити псевдонім.", "Could not create an alias."));
+      profileName.focus();
     });
   });
   profileRepair.addEventListener("click", function () {
     const bridge = api();
     if (!bridge || typeof bridge.profile_repair !== "function") return;
-    bridge.profile_repair().then(function (result) {
-      if (!applyProfileResult(result, false)) return;
-      profileName.disabled = false;
+    if (!beginProfileMutation()) return;
+    let call;
+    try {
+      call = bridge.profile_repair();
+    } catch (_error) {
+      endProfileMutation();
+      announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
+      profileName.focus();
+      return;
+    }
+    Promise.resolve(call).then(function (result) {
+      const ok = applyProfileResult(result, false);
+      endProfileMutation();
+      if (!ok) {
+        profileName.focus();
+        return;
+      }
       profileName.focus();
       profileName.select();
     }, function () {
+      endProfileMutation();
       announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
+      profileName.focus();
     });
   });
   profileClose.addEventListener("click", function () {
