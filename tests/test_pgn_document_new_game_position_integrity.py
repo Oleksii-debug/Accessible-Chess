@@ -103,6 +103,28 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
         self.assertNotIn("SetUp", game.tags)
         self.assertNotIn("FEN", game.tags)
 
+    def test_standard_piece_placement_with_nondefault_fen_state_keeps_setup_fen(self) -> None:
+        cases = (
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 7 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 23",
+        )
+
+        for fen in cases:
+            with self.subTest(fen=fen):
+                session = PgnDocumentSession.new_game_from_position(
+                    PositionState.from_fen(fen),
+                    {"Event": "Full FEN state"},
+                )
+
+                game = session.workspace.current_game()
+                self.assertEqual(game.tags["SetUp"], "1")
+                self.assertEqual(game.tags["FEN"], fen)
+                pgn = session.copy_pgn()
+                self.assertIn('[SetUp "1"]', pgn)
+                self.assertIn(f'[FEN "{fen}"]', pgn)
+
     def test_position_workflow_uses_canonical_board_fen_validation(self) -> None:
         structurally_editable_but_not_board_valid = PositionState.from_fen(
             "8/8/8/8/8/8/8/8 w - - 0 1"
