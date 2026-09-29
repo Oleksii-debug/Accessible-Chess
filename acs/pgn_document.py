@@ -29,7 +29,7 @@ from .pgn_service import (
     open_pgn,
     save_pgn_atomic,
 )
-from .pgn_workspace import PgnWorkspace, PgnWorkspaceView
+from .pgn_workspace import PgnWorkspace, PgnWorkspaceError, PgnWorkspaceView
 
 
 class PgnDocumentErrorCode(str, Enum):
@@ -186,7 +186,16 @@ class PgnDocumentSession:
 
     @classmethod
     def new_game(cls, tags: Mapping[str, str] | None = None) -> "PgnDocumentSession":
-        workspace = PgnWorkspace((_new_game(tags),))
+        try:
+            game = _new_game(tags)
+            workspace = PgnWorkspace((game,))
+        except PgnDocumentError:
+            raise
+        except (PgnWorkspaceError, TypeError, ValueError) as exc:
+            raise _error(
+                "PGN new-game metadata is not valid",
+                PgnDocumentErrorCode.INVALID_TAG,
+            ) from exc
         # No backing file exists, so a new document is intentionally dirty.
         return cls(workspace, saved_digest=None)
 
