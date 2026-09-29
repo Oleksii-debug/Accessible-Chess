@@ -153,6 +153,93 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(first.workspace.current_game().line.moves[0].comments_after, [])
         self.assertEqual(second.workspace.current_game().line.moves[0].comments_after, [])
 
+    def test_public_read_and_copy_paths_resolve_provider_once(self):
+        def make_bound_commands(*, copy_text=lambda _: None):
+            first = PgnDocumentSession.from_text("1. e4 *")
+            second = PgnDocumentSession.from_text("1. d4 *")
+            first.workspace.next_move()
+            view = first.workspace.view()
+            request = PgnSelectionExportRequest(
+                0,
+                (),
+                0,
+                view.current_record_digest,
+                view.content_revision,
+            )
+            calls = 0
+
+            def get_session():
+                nonlocal calls
+                calls += 1
+                return first if calls == 1 else second
+
+            commands = Version2PgnCommands(get_session, copy_text=copy_text)
+            return commands, request, first, second, lambda: calls
+
+        commands, request, first, second, calls = make_bound_commands()
+        selected = commands.selection_game(request)
+        self.assertEqual(calls(), 1)
+        self.assertEqual(selected.line.moves[0].san, "e4")
+        self.assertEqual(second.workspace.current_game().line.moves[0].san, "d4")
+
+        commands, _request, first, second, calls = make_bound_commands()
+        expected = Board()
+        expected.push_text("e4")
+        self.assertEqual(commands.current_fen(), expected.fen())
+        self.assertEqual(calls(), 1)
+        self.assertEqual(second.workspace.current_game().line.moves[0].san, "d4")
+
+        copied = []
+        commands, request, first, second, calls = make_bound_commands(copy_text=copied.append)
+        payload = {
+            "game_index": request.game_index,
+            "line_path": request.line_path,
+            "move_index": request.move_index,
+            "expected_record_digest": request.expected_record_digest,
+            "content_revision": request.content_revision,
+        }
+        commands("pgn.copy_selection", payload)
+        self.assertEqual(calls(), 1)
+        self.assertEqual(len(copied), 1)
+        self.assertIn("e4", copied[0])
+        self.assertNotIn("d4", copied[0])
+        self.assertEqual(second.workspace.current_game().line.moves[0].san, "d4")
+
+    def test_stale_mutation_rejection_is_bound_and_side_effect_free(self):
+        first = PgnDocumentSession.from_text("1. e4 *")
+        second = PgnDocumentSession.from_text("1. d4 *")
+        first.workspace.next_move()
+        view = first.workspace.view()
+        payload = {
+            "game_index": 0,
+            "line_path": (),
+            "move_index": 0,
+            "expected_record_digest": view.current_record_digest,
+            "content_revision": view.content_revision + 1,
+            "text": "must not be written",
+        }
+        calls = 0
+
+        def get_session():
+            nonlocal calls
+            calls += 1
+            return first if calls == 1 else second
+
+        first_before = first.copy_pgn()
+        first_view = first.workspace.view()
+        second_before = second.copy_pgn()
+        second_view = second.workspace.view()
+        commands = Version2PgnCommands(get_session)
+
+        with self.assertRaisesRegex(ValueError, "selection is stale"):
+            commands("pgn.comment_edit", payload)
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(first.copy_pgn(), first_before)
+        self.assertEqual(first.workspace.view(), first_view)
+        self.assertEqual(second.copy_pgn(), second_before)
+        self.assertEqual(second.workspace.view(), second_view)
+
     def test_illegal_move_never_produces_a_board_position(self):
         session = PgnDocumentSession.from_text('1. e5 *')
         session.workspace.next_move()
