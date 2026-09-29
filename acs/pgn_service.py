@@ -28,6 +28,8 @@ from .import_contract import (
     ImportedRecord,
     SourceFingerprint,
     _open_readonly_no_reparse,
+    _publish_opened_fingerprint,
+    _validate_source_path,
     fingerprint,
 )
 from .pgn_roundtrip import PgnRoundTripError, PgnRoundTripErrorCode, parse_pgn_text
@@ -165,22 +167,6 @@ def _source_identity(st: os.stat_result) -> tuple[int, int]:
     return int(st.st_dev), int(st.st_ino)
 
 
-def _preliminary_source_identity(path: Path) -> tuple[int, int]:
-    """Capture one direct regular-file object before any source bytes are read."""
-
-    try:
-        source_stat = os.stat(path, follow_symlinks=False)
-    except OSError as exc:
-        raise PgnFileError("PGN source is unavailable") from exc
-    if not stat.S_ISREG(source_stat.st_mode) or _is_reparse_point(source_stat):
-        raise PgnFileError("PGN source must be a direct regular file")
-    if source_stat.st_size > MAX_PGN_SOURCE_BYTES:
-        raise PgnResourceLimitError(
-            f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
-        )
-    return _source_identity(source_stat)
-
-
 def _open_direct_source(path: Path):
     """Open one submitted source through the canonical no-follow source primitive."""
 
@@ -215,54 +201,138 @@ def _opened_source_identity(handle: object) -> tuple[int, int] | None:
 
 
 def _assert_bound_source_path(path: Path, expected_identity: tuple[int, int]) -> None:
-    """Require the public path to still name the held regular-file object."""
+    """Require the public path to still name the held direct regular-file object."""
 
     try:
-        current = os.stat(path, follow_symlinks=False)
-    except OSError as exc:
+        _, current = _validate_source_path(path)
+    except (OSError, ValueError) as exc:
         raise PgnSourceChangedError("PGN source changed while being read") from exc
-    if (
-        not stat.S_ISREG(current.st_mode)
-        or _is_reparse_point(current)
-        or _source_identity(current) != expected_identity
-    ):
+    if _source_identity(current) != expected_identity:
         raise PgnSourceChangedError("PGN source changed while being read")
 
 
-def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
-    expected_identity = _preliminary_source_identity(path)
+def _rehash_open_source(handle: object) -> tuple[str, int]:
+    """Re-hash the exact held source object with a finite second pass."""
+
     try:
-        before = fingerprint(path)
-    except (OSError, ValueError) as exc:
-        raise PgnFileError("PGN source could not be fingerprinted safely") from exc
-    if before.size > MAX_PGN_SOURCE_BYTES:
+        handle.seek(0)  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError) as exc:
+        raise PgnSourceChangedError("PGN source could not be revalidated") from exc
+
+    digest = hashlib.sha256()
+    total = 0
+    while True:
+        remaining = MAX_PGN_SOURCE_BYTES + 1 - total
+        if remaining <= 0:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        try:
+            chunk = handle.read(min(1024 * 1024, remaining))  # type: ignore[attr-defined]
+        except OSError as exc:
+            raise PgnSourceChangedError("PGN source could not be revalidated") from exc
+        if not chunk:
+            return digest.hexdigest(), total
+        if not isinstance(chunk, bytes):
+            raise PgnSourceChangedError("PGN source verification returned unsupported payload")
+        total += len(chunk)
+        if total > MAX_PGN_SOURCE_BYTES:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        digest.update(chunk)
+
+
+def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
+    submitted = Path(path)
+    try:
+        absolute, path_before = _validate_source_path(submitted)
+    except ValueError as exc:
+        raise PgnFileError("PGN source must be a direct regular file") from exc
+    except OSError as exc:
+        raise PgnFileError("PGN source is unavailable") from exc
+    if path_before.st_size > MAX_PGN_SOURCE_BYTES:
         raise PgnResourceLimitError(
             f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
         )
 
+    source: SourceFingerprint
     try:
-        with _open_direct_source(path) as handle:
+        with _open_direct_source(absolute) as handle:
             opened_identity = _opened_source_identity(handle)
-            if opened_identity is not None:
+
+            if opened_identity is None:
+                # Focused bounded-text test doubles do not expose a descriptor.
+                # Preserve that seam without using it in production file reads.
+                try:
+                    before = fingerprint(absolute)
+                except (OSError, ValueError) as exc:
+                    raise PgnFileError("PGN source could not be fingerprinted safely") from exc
+                payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                try:
+                    after = fingerprint(absolute)
+                except (OSError, ValueError) as exc:
+                    raise PgnSourceChangedError("PGN source changed while being read") from exc
+                if before.size != after.size or before.sha256 != after.sha256:
+                    raise PgnSourceChangedError("PGN changed while being read")
+                source = before
+            else:
+                expected_identity = _source_identity(path_before)
                 if opened_identity != expected_identity:
                     raise PgnSourceChangedError("PGN source changed while being opened")
-                _assert_bound_source_path(path, opened_identity)
 
-            payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                try:
+                    fd_before = os.fstat(handle.fileno())
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise PgnSourceChangedError(
+                        "PGN source identity could not be verified"
+                    ) from exc
+                if (
+                    not stat.S_ISREG(fd_before.st_mode)
+                    or _source_identity(fd_before) != opened_identity
+                ):
+                    raise PgnSourceChangedError("PGN source changed while being opened")
+                if fd_before.st_size > MAX_PGN_SOURCE_BYTES:
+                    raise PgnResourceLimitError(
+                        f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
+                    )
+                _assert_bound_source_path(absolute, opened_identity)
 
-            if opened_identity is not None:
-                # Keep the descriptor alive until all source bytes have been
-                # consumed. A path replacement therefore cannot redirect the
-                # bytes being parsed; the public path must still identify that
-                # same regular-file object before the snapshot is accepted.
-                _assert_bound_source_path(path, opened_identity)
+                payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                if not isinstance(payload, bytes):
+                    raise PgnFileError("PGN source returned an unsupported payload")
+                if len(payload) > MAX_PGN_SOURCE_BYTES:
+                    raise PgnResourceLimitError("PGN source exceeds the safety limit")
+
+                first_sha256 = hashlib.sha256(payload).hexdigest()
+                verified_sha256, verified_size = _rehash_open_source(handle)
+                try:
+                    fd_after = os.fstat(handle.fileno())
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise PgnSourceChangedError(
+                        "PGN source identity could not be verified"
+                    ) from exc
+                if (
+                    verified_size != len(payload)
+                    or fd_after.st_size != verified_size
+                    or first_sha256 != verified_sha256
+                ):
+                    raise PgnSourceChangedError("PGN source changed while being read")
+
+                _assert_bound_source_path(absolute, opened_identity)
+                try:
+                    source = _publish_opened_fingerprint(
+                        submitted,
+                        absolute,
+                        path_before,
+                        fd_before,
+                        fd_after,
+                        verified_sha256,
+                    )
+                except (OSError, ValueError) as exc:
+                    raise PgnSourceChangedError("PGN source changed while being read") from exc
+                _assert_bound_source_path(absolute, opened_identity)
     except PgnFileError:
         raise
     except OSError as exc:
         raise PgnFileError("PGN source could not be read safely") from exc
 
-    # Some focused tests provide a bounded text-handle double. Real file reads
-    # are bytes; accepting exact text here preserves that existing test seam.
     if isinstance(payload, str):
         text = payload
         decode_replaced = False
@@ -271,13 +341,6 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     else:
         if not isinstance(payload, bytes):
             raise PgnFileError("PGN source returned an unsupported payload")
-        if len(payload) > MAX_PGN_SOURCE_BYTES:
-            raise PgnResourceLimitError("PGN source exceeds the safety limit")
-        if opened_identity is not None and (
-            len(payload) != before.size
-            or hashlib.sha256(payload).hexdigest() != before.sha256
-        ):
-            raise PgnSourceChangedError("PGN source changed while being read")
         try:
             text = payload.decode("utf-8-sig", errors="strict")
             decode_replaced = False
@@ -286,15 +349,7 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
             decode_replaced = True
 
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    try:
-        after = fingerprint(path)
-    except (OSError, ValueError) as exc:
-        raise PgnSourceChangedError("PGN source changed while being read") from exc
-    if before.size != after.size or before.sha256 != after.sha256:
-        raise PgnSourceChangedError("PGN changed while being read")
-    if opened_identity is not None:
-        _assert_bound_source_path(path, opened_identity)
-    return before, text, decode_replaced
+    return source, text, decode_replaced
 
 
 def _parse_file_games(text: str) -> tuple[PgnGame, ...]:

@@ -96,7 +96,7 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
 
             digest.assert_not_called()
 
-    def test_open_rejects_junction_swap_after_fingerprint_before_reader_identity(self) -> None:
+    def test_open_rejects_junction_swap_after_validation_before_reader_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.pgn"
@@ -104,21 +104,21 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
             target.mkdir()
             (target / "foreign.txt").write_text("foreign", encoding="utf-8")
             source.write_text(_SAMPLE_PGN, encoding="utf-8", newline="")
-            real_fingerprint = pgn_service.fingerprint
-            fingerprint_calls = 0
+            real_validate = pgn_service._validate_source_path
+            validations = 0
 
-            def fingerprint_then_swap(path, *args, **kwargs):
-                nonlocal fingerprint_calls
-                result = real_fingerprint(path, *args, **kwargs)
-                fingerprint_calls += 1
-                if fingerprint_calls == 1:
+            def validate_then_swap(path):
+                nonlocal validations
+                result = real_validate(path)
+                validations += 1
+                if validations == 1:
                     self._replace_file_with_junction(source, target)
                 return result
 
             with patch.object(
                 pgn_service,
-                "fingerprint",
-                side_effect=fingerprint_then_swap,
+                "_validate_source_path",
+                side_effect=validate_then_swap,
             ), patch.object(
                 pgn_service,
                 "_opened_source_identity",
@@ -191,9 +191,9 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="",
             )
-            real_fingerprint = pgn_service.fingerprint
+            real_validate = pgn_service._validate_source_path
             real_fdopen = pgn_service.os.fdopen
-            fingerprint_calls = 0
+            validations = 0
             swapped = False
 
             class ReadForbiddenHandle:
@@ -213,11 +213,11 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
                 def read(self, *args, **kwargs):
                     raise AssertionError("foreign source bytes must not be read")
 
-            def fingerprint_then_swap(path, *args, **kwargs):
-                nonlocal fingerprint_calls, swapped
-                result = real_fingerprint(path, *args, **kwargs)
-                fingerprint_calls += 1
-                if fingerprint_calls == 1:
+            def validate_then_swap(path):
+                nonlocal validations, swapped
+                result = real_validate(path)
+                validations += 1
+                if validations == 1:
                     self._replace_directory_with_junction(submitted, foreign)
                     swapped = True
                 return result
@@ -228,8 +228,8 @@ class PgnOpenWindowsReparseTests(unittest.TestCase):
             try:
                 with patch.object(
                     pgn_service,
-                    "fingerprint",
-                    side_effect=fingerprint_then_swap,
+                    "_validate_source_path",
+                    side_effect=validate_then_swap,
                 ), patch.object(
                     pgn_service.os,
                     "fdopen",

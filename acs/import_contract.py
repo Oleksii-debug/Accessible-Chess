@@ -240,6 +240,53 @@ def _open_readonly_no_reparse(path: Path) -> int:
     return os.open(os.fspath(path), flags)
 
 
+def _publish_opened_fingerprint(
+    submitted: Path,
+    absolute: Path,
+    path_before: os.stat_result,
+    fd_before: os.stat_result,
+    fd_after: os.stat_result,
+    verified_sha256: str,
+) -> SourceFingerprint:
+    """Publish provenance only when one opened object and its public path stay stable."""
+
+    path_after = absolute.lstat()
+    stable_fd = (
+        fd_before.st_dev == fd_after.st_dev
+        and fd_before.st_ino == fd_after.st_ino
+        and fd_before.st_size == fd_after.st_size
+        and fd_before.st_mtime_ns == fd_after.st_mtime_ns
+    )
+    stable_path = (
+        path_before.st_dev == path_after.st_dev
+        and path_before.st_ino == path_after.st_ino
+        and path_before.st_size == path_after.st_size
+        and path_before.st_mtime_ns == path_after.st_mtime_ns
+        and not stat.S_ISLNK(path_after.st_mode)
+        and not _is_reparse_point(path_after)
+    )
+    if not stable_fd or not stable_path:
+        raise ValueError("Import source changed while fingerprinting")
+
+    public_path = absolute.resolve(strict=True)
+    _, absolute_publication_stat = _validate_source_path(absolute)
+    public_absolute, public_stat = _validate_source_path(public_path)
+    expected_identity = (fd_after.st_dev, fd_after.st_ino)
+    if (
+        (absolute_publication_stat.st_dev, absolute_publication_stat.st_ino)
+        != expected_identity
+        or (public_stat.st_dev, public_stat.st_ino) != expected_identity
+    ):
+        raise ValueError("Import source changed before provenance publication")
+
+    return SourceFingerprint(
+        path=str(public_absolute),
+        size=fd_after.st_size,
+        sha256=verified_sha256,
+        suffix=submitted.suffix.lower(),
+    )
+
+
 def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFingerprint:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
@@ -276,45 +323,13 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
     finally:
         os.close(fd)
 
-    path_after = absolute.lstat()
-    stable_fd = (
-        fd_before.st_dev == fd_after.st_dev
-        and fd_before.st_ino == fd_after.st_ino
-        and fd_before.st_size == fd_after.st_size
-        and fd_before.st_mtime_ns == fd_after.st_mtime_ns
-    )
-    stable_path = (
-        path_before.st_dev == path_after.st_dev
-        and path_before.st_ino == path_after.st_ino
-        and path_before.st_size == path_after.st_size
-        and path_before.st_mtime_ns == path_after.st_mtime_ns
-        and not stat.S_ISLNK(path_after.st_mode)
-        and not _is_reparse_point(path_after)
-    )
-    if not stable_fd or not stable_path:
-        raise ValueError("Import source changed while fingerprinting")
-
-    # Windows can expose an 8.3 alias (for example ``RUNNER~1``) through the
-    # lexical path used by the no-follow checks. Resolve the public provenance
-    # spelling only after hashing, then revalidate both spellings and bind them
-    # to the exact inode that was read. This expands aliases without weakening
-    # the symlink/reparse-point boundary.
-    public_path = absolute.resolve(strict=True)
-    _, absolute_publication_stat = _validate_source_path(absolute)
-    public_absolute, public_stat = _validate_source_path(public_path)
-    expected_identity = (fd_after.st_dev, fd_after.st_ino)
-    if (
-        (absolute_publication_stat.st_dev, absolute_publication_stat.st_ino)
-        != expected_identity
-        or (public_stat.st_dev, public_stat.st_ino) != expected_identity
-    ):
-        raise ValueError("Import source changed before provenance publication")
-
-    return SourceFingerprint(
-        path=str(public_absolute),
-        size=fd_after.st_size,
-        sha256=verified_sha256,
-        suffix=submitted.suffix.lower(),
+    return _publish_opened_fingerprint(
+        submitted,
+        absolute,
+        path_before,
+        fd_before,
+        fd_after,
+        verified_sha256,
     )
 
 

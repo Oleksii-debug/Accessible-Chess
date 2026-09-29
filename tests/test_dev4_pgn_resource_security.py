@@ -57,19 +57,14 @@ class Dev4PgnResourceSecurityTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "huge.pgn"
-            path.write_text("*\n", encoding="utf-8")
-            source = SourceFingerprint(
-                path=str(path),
-                size=8 * 1024**6,
-                sha256="1" * 64,
-                suffix=".pgn",
-            )
+            with path.open("wb") as handle:
+                handle.truncate(64 * 1024 * 1024 + 1)
 
-            with patch("acs.pgn_service.fingerprint", return_value=source), patch(
+            with patch(
                 "acs.pgn_service._open_direct_source",
                 side_effect=AssertionError("oversized PGN payload must not be opened"),
             ) as open_mock:
-                with self.assertRaises((PgnFileError, ValueError, OSError)):
+                with self.assertRaises(PgnFileError):
                     open_pgn(path)
 
             open_mock.assert_not_called()
