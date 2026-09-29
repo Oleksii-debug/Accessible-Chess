@@ -117,6 +117,16 @@ class TrainingWebViewProjection:
     def language(self) -> UILanguage:
         return self._language
 
+    @property
+    def presenter_message(self) -> str:
+        """Exact transient presenter feedback for local transactional rollback."""
+        return self._presenter.message
+
+    @property
+    def presenter_message_key(self) -> str | None:
+        """Internal presentation-message provenance for transactional rollback."""
+        return self._presenter.message_key
+
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
         if isinstance(language, str):
             try:
@@ -219,6 +229,16 @@ class TrainingWebViewProjection:
         solution: tuple[str, ...] = (),
     ) -> TrainingWebViewEvent:
         snapshot = self._snapshot_from_view(view)
+        if focus_target == "training-answer" and snapshot["answer"]["disabled"]:
+            enabled_actions = {
+                item["command"]: item["enabled"]
+                for item in snapshot["actions"]
+            }
+            focus_target = (
+                "training-action-continue"
+                if enabled_actions.get("training.continue", False)
+                else "training-action-reset"
+            )
         safe_solution = tuple(
             _safe_text(move, language=self._language, limit=_MAX_ANSWER)
             for move in solution
@@ -252,6 +272,7 @@ class TrainingWebViewProjection:
         view = self._presenter.view()
         return self._render(
             view,
+            focus_target="training-solution",
             announcement=view.message,
             solution=solution,
         )
