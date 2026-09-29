@@ -65,6 +65,27 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
         self.assertNotIn("/home/", warnings[0])
         self.assertNotIn("Oleksii", warnings[0])
 
+    def test_real_invalid_utf8_open_warning_reaches_accessible_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "legacy source.pgn"
+            source.write_bytes(PGN.encode("utf-8") + b"\n{broken byte: \xff}\n")
+
+            session = PgnDocumentSession.open(source)
+            self.assertFalse(session.view().source_overwrite_safe)
+            self.assertTrue(session.view().global_warnings)
+            projection = PgnDocumentWebViewProjection(
+                session,
+                self._router(),
+                language=UILanguage.EN,
+            )
+
+            warnings = projection.snapshot()["game"]["warnings"]
+
+            self.assertTrue(
+                any("Invalid UTF-8 bytes were replaced" in warning for warning in warnings)
+            )
+            self.assertTrue(session.dirty)
+
     def test_clean_document_does_not_invent_warning(self) -> None:
         session = PgnDocumentSession.from_text(PGN)
         projection = PgnDocumentWebViewProjection(
