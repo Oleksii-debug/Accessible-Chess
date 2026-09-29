@@ -75,6 +75,44 @@ class SettingsTests(unittest.TestCase):
             self.assertFalse(path.exists())
             self.assertEqual(settings.get("language"), "uk")
 
+    def test_lock_setup_failure_closes_handle_and_rolls_back_memory(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            handle = mock.Mock()
+            handle.seek.return_value = 0
+            handle.write.side_effect = OSError("simulated lock-file initialization failure")
+
+            with mock.patch.object(Path, "open", return_value=handle):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "temporarily unavailable for Version 2 persistence",
+                ):
+                    settings.set("language", "en")
+
+            handle.close.assert_called_once_with()
+            self.assertEqual(settings.get("language"), "uk")
+            self.assertFalse(path.exists())
+
+    def test_lock_directory_failure_is_stable_settings_error_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+
+            with mock.patch.object(
+                Path,
+                "mkdir",
+                side_effect=OSError("simulated settings directory failure"),
+            ):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "temporarily unavailable for Version 2 persistence",
+                ):
+                    settings.set("language", "en")
+
+            self.assertEqual(settings.get("language"), "uk")
+            self.assertFalse(path.exists())
+
     def test_prepublication_replace_failure_still_propagates(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
