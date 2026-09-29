@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from .local_profile import LocalProfile, LocalProfileError, LocalProfileStore
+from .local_profile import (
+    LocalProfile,
+    LocalProfileConflict,
+    LocalProfileError,
+    LocalProfileStore,
+)
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
@@ -111,7 +116,33 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
                 ),
             }
         try:
-            profile = self._profile_store().create(None if skip else display_name)
+            store = self._profile_store()
+            profile = store.create(None if skip else display_name)
+        except LocalProfileConflict:
+            try:
+                profile, recovery_required = self._load_profile_state(store)
+            except LocalProfileError:
+                return {
+                    "ok": False,
+                    "exists": False,
+                    "announcement": self._profile_error_message(),
+                }
+            if profile is None:
+                return {
+                    "ok": False,
+                    "exists": False,
+                    "announcement": self._profile_error_message(),
+                }
+            announcement = (
+                "A local profile already exists. The current profile was loaded."
+                if self.lang == "en"
+                else "Локальний профіль уже існує. Завантажено поточний профіль."
+            )
+            return self._profile_payload(
+                profile,
+                announcement=announcement,
+                recovery_required=recovery_required,
+            )
         except LocalProfileError:
             return {
                 "ok": False,

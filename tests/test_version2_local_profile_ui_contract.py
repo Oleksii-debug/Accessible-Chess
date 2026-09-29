@@ -36,6 +36,13 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileRepair.id = "v2-profile-repair"', source)
         self.assertIn('profileRepair.setAttribute("aria-describedby", "v2-profile-status")', source)
 
+    def test_successful_reconvergence_does_not_close_when_recovery_is_required(self) -> None:
+        source = self.source
+        self.assertIn(
+            "closeOnSuccess && result.recoveryRequired !== true && profileDialog.open",
+            source,
+        )
+
     def test_profile_dialog_restores_keyboard_focus_after_close(self) -> None:
         source = self.source
         self.assertIn('let profileReturnFocusId = "";', source)

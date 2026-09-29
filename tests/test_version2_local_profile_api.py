@@ -36,6 +36,46 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             self.assertFalse(reopened["recoveryRequired"])
             self.assertEqual(reopened["revision"], 1)
 
+    def test_stale_first_launch_create_reloads_existing_profile_instead_of_locking_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stale_api = self.make_api(root)
+            self.assertFalse(stale_api.profile_snapshot()["exists"])
+
+            competing_store = LocalProfileStore(root / "profile.json")
+            competing = competing_store.create("Other Window")
+
+            result = stale_api.profile_create("Stale Draft", False)
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["exists"])
+            self.assertEqual(result["displayName"], "Other Window")
+            self.assertEqual(
+                result["announcement"],
+                "Локальний профіль уже існує. Завантажено поточний профіль.",
+            )
+            durable = competing_store.load()
+            self.assertEqual(durable.profile_id, competing.profile_id)
+            self.assertEqual(durable.display_name, "Other Window")
+
+    def test_stale_create_with_backup_only_surfaces_recovery_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stale_api = self.make_api(root)
+            store = LocalProfileStore(root / "profile.json")
+            original = store.create("First")
+            store.rename(original, "Second")
+            store.path.unlink()
+
+            result = stale_api.profile_create("Replacement", False)
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["exists"])
+            self.assertTrue(result["recoveryRequired"])
+            self.assertEqual(result["displayName"], "First")
+            self.assertFalse(store.path.exists())
+            self.assertTrue(store.backup_path.exists())
+
     def test_skip_creates_private_generated_alias_and_rename_preserves_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

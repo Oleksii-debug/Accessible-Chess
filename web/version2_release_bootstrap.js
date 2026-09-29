@@ -160,7 +160,9 @@
     }
     renderProfileState(result);
     if (result.announcement) announce(result.announcement);
-    if (closeOnSuccess && profileDialog.open) profileDialog.close();
+    if (closeOnSuccess && result.recoveryRequired !== true && profileDialog.open) {
+      profileDialog.close();
+    }
     return true;
   }
 
