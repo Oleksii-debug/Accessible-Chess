@@ -206,8 +206,16 @@ class BookReader:
             raise TypeError("Book reading index must be an integer")
         if not 0 <= index < len(self._book_index.entries):
             raise IndexError("Book reading index is outside the document")
+        previous_index = self._index
         self._index = index
-        return self.location()
+        try:
+            return self.location()
+        except Exception:
+            # location() performs the second live-revision check. If authoring
+            # mutates the BookDocument after the initial validation, navigation
+            # must fail without publishing a cursor that was never accepted.
+            self._index = previous_index
+            raise
 
     def next_block(self) -> ReadingLocation:
         self._require_content()
