@@ -397,6 +397,49 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
+    def test_release_browser_ingress_sanitizes_malformed_language_guard_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            application.shell.open_route("training")
+            before = application.training_workspace.session.snapshot()
+            try:
+                malformed = (
+                    (["training"], "training.language"),
+                    ("training", ["training.language"]),
+                    ({"area": "training"}, "training.language"),
+                    ("training", {"command": "training.language"}),
+                )
+                for area, command in malformed:
+                    with self.subTest(area=area, command=command):
+                        result = api.v2_browser_command(
+                            area,
+                            command,
+                            {"language": "en"},
+                        )
+                        self.assertEqual(result["kind"], "error")
+                        self.assertTrue(result["payload"]["message"])
+
+                self.assertEqual(Settings(root / "settings.json").get("language"), "uk")
+                self.assertEqual(settings.get("language"), "uk")
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(
+                    application.training_workspace.session.snapshot(),
+                    before,
+                )
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                self.assertEqual(application.pgn.projection.language, UILanguage.UA)
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(application.training.projection.language, UILanguage.UA)
+                self._assert_all_snapshot_languages(application, "uk")
+                self.assertFalse(application.drain_events())
+            finally:
+                self._close_real_application(api, application, analysis)
+
     def test_persistence_failure_restores_settings_memory_and_leaves_real_surfaces_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

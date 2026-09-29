@@ -618,8 +618,16 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             ("books", "book.language"),
             ("training", "training.language"),
         }
-        command_id = command.strip() if isinstance(command, str) else command
-        if (area, command_id) in local_language_commands:
+        # Validate types before set membership. Browser JSON can carry arrays or
+        # objects here; unhashable values must reach the application's existing
+        # sanitized error boundary rather than escaping this release-level guard
+        # as a raw TypeError through pywebview.
+        command_id = command.strip() if isinstance(command, str) else None
+        if (
+            isinstance(area, str)
+            and command_id is not None
+            and (area, command_id) in local_language_commands
+        ):
             return {
                 "kind": "error",
                 "payload": {
