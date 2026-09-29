@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import acs.pgn_service as pgn_service
-from acs.pgn_service import PgnFileError, open_pgn
+from acs.pgn_service import PgnFileError, PgnSourceChangedError, open_pgn
 
 
 _SAMPLE_PGN = """[Event "Direct"]
@@ -43,6 +43,46 @@ class PgnOpenDirectSourceTests(unittest.TestCase):
 
             fingerprint.assert_not_called()
             path_open.assert_not_called()
+
+    def test_fingerprint_validation_error_stays_in_pgn_file_error_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pgn"
+            source.write_text(_SAMPLE_PGN, encoding="utf-8", newline="")
+
+            with patch.object(
+                pgn_service,
+                "fingerprint",
+                side_effect=ValueError("indirect source path"),
+            ):
+                with self.assertRaises(PgnFileError) as caught:
+                    open_pgn(source)
+
+            self.assertNotIsInstance(caught.exception, PgnSourceChangedError)
+            self.assertIn("fingerprinted safely", str(caught.exception))
+
+    def test_post_read_fingerprint_validation_error_is_source_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pgn"
+            source.write_text(_SAMPLE_PGN, encoding="utf-8", newline="")
+            real_fingerprint = pgn_service.fingerprint
+            calls = 0
+
+            def fail_revalidation(path, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return real_fingerprint(path, *args, **kwargs)
+                raise ValueError("path became indirect")
+
+            with patch.object(
+                pgn_service,
+                "fingerprint",
+                side_effect=fail_revalidation,
+            ):
+                with self.assertRaises(PgnSourceChangedError):
+                    open_pgn(source)
+
+            self.assertEqual(calls, 2)
 
 
 if __name__ == "__main__":
