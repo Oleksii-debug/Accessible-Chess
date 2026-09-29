@@ -231,10 +231,10 @@ class EngineGameSessionTests(unittest.TestCase):
         )
         session._clock._now = SequenceTime(100.0, 100.0, 100.0, 102.0)
 
-        result = session.request_engine_move(timeout_opponent_can_mate=False)
+        with self.assertRaisesRegex(ValueError, "engine move acceptance"):
+            session.request_engine_move(timeout_opponent_can_mate=False)
         after = session.snapshot()
 
-        self.assertEqual(result.move, "e2e4")
         self.assertEqual(state["moves"], ["e2e4"])
         self.assertEqual(after.lifecycle.status, GameStatus.FINISHED)
         self.assertEqual(after.lifecycle.outcome.reason, EndReason.TIMEOUT)
