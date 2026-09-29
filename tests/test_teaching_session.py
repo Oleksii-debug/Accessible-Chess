@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 
@@ -327,6 +328,17 @@ class TeachingSessionDomainTests(unittest.TestCase):
         self.assertEqual(expired.presentation.board_permission, BoardPermissionState.LOCKED)
         expired_snapshot = expired.to_json()
         self.assertEqual(TeachingSessionState.from_json(expired_snapshot), expired)
+
+        unlocked_record = state.to_record()
+        unlocked_record["remaining_seconds"] = 0
+        body = dict(unlocked_record)
+        body.pop("digest")
+        unlocked_record["digest"] = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        with self.assertRaises(TeachingSessionError):
+            TeachingSessionState.from_record(unlocked_record)
+
         with self.assertRaises(TeachingSessionError):
             tick_timer(timed_plan, expired, 1, expired.revision)
         with self.assertRaises(TeachingSessionError):
