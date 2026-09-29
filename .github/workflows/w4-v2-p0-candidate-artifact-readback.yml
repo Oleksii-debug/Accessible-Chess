@@ -230,6 +230,7 @@ jobs:
               raise SystemExit("run metadata overclaims human or NVDA acceptance")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
               stream.write(f"product_sha={product}\n")
+              stream.write(f"config_sha={config_sha}\n")
           print(f"W4_READBACK_RUN_PRODUCT_SHA={product}")
           print(f"W4_READBACK_RUN_WORKFLOW_SHA={workflow}")
           print(f"W4_READBACK_RUN_WINFORMS_CONFIG_SHA256={config_sha}")
@@ -240,18 +241,26 @@ jobs:
         shell: bash
         env:
           PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
+          PRODUCT_CONFIG_SHA256: ${{ steps.product.outputs.config_sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin "$PRODUCT_SHA"
           rm -rf .w4-product-source
           git worktree add --detach .w4-product-source "$PRODUCT_SHA"
           test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"
-          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py; do
+          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py packaging/AccessibleChess.exe.config; do
             test -s ".w4-product-source/$dependency" || {
               printf 'Exact Product semantic dependency missing: %s\n' "$dependency" >&2
               exit 1
             }
           done
+          actual_config_sha="$(sha256sum .w4-product-source/packaging/AccessibleChess.exe.config | awk '{print $1}')"
+          test "$actual_config_sha" = "$PRODUCT_CONFIG_SHA256" || {
+            printf 'Exact Product WinForms config digest mismatch metadata=%s product=%s\n' "$PRODUCT_CONFIG_SHA256" "$actual_config_sha" >&2
+            exit 1
+          }
+          echo "W4_READBACK_PRODUCT_CONFIG_SHA256=$actual_config_sha"
+          echo 'W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS'
           mkdir -p .w4-product-source/scripts
           cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py .w4-product-source/scripts/verify_w4_candidate_artifact.py
           copied_blob="$(git hash-object .w4-product-source/scripts/verify_w4_candidate_artifact.py)"
