@@ -266,6 +266,32 @@ class WindowsUnicodePathPortabilityTests(unittest.TestCase):
             self.assertNotIn(selected_destination.name, rendered)
             self.assertNotIn(filtered_destination.name, rendered)
 
+            blocked_parent = export_dir / "заблокований каталог"
+            blocked_parent.write_text("occupied", encoding="utf-8")
+            failed_destination = blocked_parent / "приватна назва партій.pgn"
+            failure_events = []
+            failure_delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_ExportDialogs(failed_destination),
+                service=service,
+                event_sink=failure_events.append,
+                next_delegate=lambda action_id, payload: ("fallback", action_id),
+                current_focus_provider=lambda: "library-results",
+            )
+            failed_event = failure_delegate(
+                "library.export",
+                selected_request.browser_payload(),
+            )
+            self.assertEqual(failed_event.kind, LibraryExportHostEventKind.FAILED)
+            self.assertEqual(failed_event.error_code, "library_export_failed")
+            self.assertEqual(
+                database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                2,
+            )
+            failed_rendered = repr(failure_events)
+            self.assertNotIn(str(self.root), failed_rendered)
+            self.assertNotIn(blocked_parent.name, failed_rendered)
+            self.assertNotIn(failed_destination.name, failed_rendered)
+
         with AcsDatabase(database_path) as reopened_database:
             self.assertEqual(
                 reopened_database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
