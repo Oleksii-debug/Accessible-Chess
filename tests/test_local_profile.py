@@ -21,6 +21,36 @@ from acs.local_profile import (
 
 
 class LocalProfileContractTests(unittest.TestCase):
+    def test_identity_workflow_uses_exact_head_and_live_product_base(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "local-profile-identity.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            workflow,
+        )
+        self.assertIn("event_base='${{ github.event.pull_request.base.sha }}'", workflow)
+        self.assertIn("base_ref='${{ github.event.pull_request.base.ref }}'", workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$event_base" "$live_base"', workflow)
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            workflow,
+        )
+        self.assertIn('git diff --name-only "$live_base" HEAD', workflow)
+        self.assertIn('git diff --check "$live_base" HEAD', workflow)
+        self.assertNotIn(
+            'git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD',
+            workflow,
+        )
+
     def test_explicit_unicode_name_round_trips(self) -> None:
         profile = new_local_profile("  Олексій   Шахіст  ")
         self.assertEqual(profile.display_name, "Олексій Шахіст")
