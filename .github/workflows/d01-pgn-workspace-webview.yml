@@ -155,12 +155,12 @@ jobs:
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # Book reverse semantic navigation is an exact reviewed successor of
-          # the shared presenter/action registry. Keep both prior and reviewed
-          # successor identities fail-closed.
+          # Book reverse semantic navigation and the reviewed Training
+          # presentation-feedback successor share this presenter boundary.
+          # Accept only exact reviewed identities; every other blob fails closed.
           presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
           case "$presenter_actual" in
-            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c)
+            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
