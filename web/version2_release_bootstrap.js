@@ -107,12 +107,15 @@
       : uiText("Налаштувати профіль", "Set up profile");
     if (!preserveDraft) profileName.value = displayName;
     profileSkip.hidden = exists;
-    profileRepair.hidden = !exists;
+    const recoveryRequired = exists && profileState.recoveryRequired === true;
+    profileRepair.hidden = !recoveryRequired;
     profileSave.disabled = false;
     profileName.disabled = false;
     profileClose.hidden = !exists;
     profileStatus.textContent = exists
-      ? (profileState.generatedAlias
+      ? (recoveryRequired
+        ? uiText("Профіль відкрито з резервної копії. Виберіть відновлення перед перейменуванням.", "The profile was opened from its recovery copy. Recover it before renaming.")
+        : profileState.generatedAlias
         ? uiText("Використовується випадковий локальний псевдонім.", "A random local alias is in use.")
         : uiText("Профіль збережено локально.", "The profile is stored locally."))
       : uiText("Профіль ще не створено.", "No profile has been created yet.");
