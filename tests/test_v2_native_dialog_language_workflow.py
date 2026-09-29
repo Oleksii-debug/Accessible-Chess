@@ -14,16 +14,21 @@ class NativeDialogLanguageWorkflowTests(unittest.TestCase):
             ROOT / ".github" / "workflows" / "v2-native-dialog-language.yml"
         ).read_text(encoding="utf-8")
 
-    def test_pull_requests_target_current_full_product(self) -> None:
-        marker = "  pull_request:\n"
-        start = self.workflow.index(marker)
-        end = self.workflow.index("\npermissions:", start)
-        pull_request_block = self.workflow[start:end]
-        self.assertIn(
-            "work/full-product-teacher-education-reachability-20260911",
-            pull_request_block,
-        )
-        self.assertNotIn("codex/v2-runtime-completion-20260907", pull_request_block)
+    def test_current_full_product_is_push_and_pull_request_authority(self) -> None:
+        current = "work/full-product-teacher-education-reachability-20260911"
+        push_start = self.workflow.index("  push:\n")
+        pull_start = self.workflow.index("  pull_request:\n")
+        permissions = self.workflow.index("\npermissions:", pull_start)
+        push_block = self.workflow[push_start:pull_start]
+        pull_request_block = self.workflow[pull_start:permissions]
+        self.assertIn(current, push_block)
+        self.assertIn(current, pull_request_block)
+        self.assertNotIn("work/v2-native-dialog-language-20260907", self.workflow)
+        self.assertNotIn("codex/v2-runtime-completion-20260907", self.workflow)
+        for block in (push_block, pull_request_block):
+            with self.subTest(block=block.splitlines()[0]):
+                self.assertIn("paths:", block)
+                self.assertIn("tests/test_v2_native_dialog_language_workflow.py", block)
 
     def test_exact_pull_request_base_drives_geometry_check(self) -> None:
         self.assertIn(
