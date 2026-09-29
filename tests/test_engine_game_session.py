@@ -206,6 +206,34 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertEqual(after.clock.active, 'b')
         self.assertEqual(after.turn_state, EngineTurnState.ENGINE)
 
+    def test_failed_human_clock_switch_preserves_lifecycle_requests(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="black",
+            time_control=TimeControl(10_000, 2_000),
+            now=now,
+        )
+        before = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="w")
+        )
+        self.assertEqual(before.lifecycle.draw_offered_by, "w")
+        clock = session._clock
+        self.assertIsNotNone(clock)
+
+        def fail_switch(_side):
+            raise RuntimeError("clock acceptance failed")
+
+        clock.switch_after_move = fail_switch
+        state["side"] = "b"
+
+        with self.assertRaisesRegex(RuntimeError, "clock acceptance failed"):
+            session.on_human_move_committed("w")
+
+        after = session.snapshot()
+        self.assertEqual(after.lifecycle, before.lifecycle)
+        self.assertEqual(after.lifecycle.draw_offered_by, "w")
+        self.assertEqual(after.side_to_move, "b")
+
     def test_flag_before_engine_move_finishes_without_calling_engine(self):
         now = FakeTime()
         session, snap, state, engine, analysis, review = self.make_session(
