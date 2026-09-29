@@ -111,6 +111,37 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
             ],
         )
 
+    def test_markdown_inline_image_order_progress_reopens_same_semantic_block(self) -> None:
+        source = """# Images
+
+Before ![Board](board.png) after.
+"""
+        first = import_text_book(
+            source,
+            source_name="inline-progress.md",
+            source_format="markdown",
+        )
+        reader = BookReader(first.document)
+        target_index = next(
+            index
+            for index, block in enumerate(first.document.blocks)
+            if isinstance(block, Paragraph) and block.text == "after."
+        )
+        target = reader.go_to(target_index)
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save(first.book_key, reader)
+            reopened = import_text_book(
+                source,
+                source_name="inline-progress.md",
+                source_format="markdown",
+            )
+            restored = store.restore(first.book_key, reopened.document)
+
+        self.assertEqual(restored.location(), target)
+        self.assertEqual(reopened.blocks[target_index].text, "after.")
+
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
 
