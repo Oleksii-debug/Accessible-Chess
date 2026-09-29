@@ -112,7 +112,7 @@
     const recoveryRequired = exists && profileState.recoveryRequired === true;
     profileRepair.hidden = !recoveryRequired;
     profileDialog.setAttribute("aria-busy", profileMutationPending ? "true" : "false");
-    profileSave.disabled = profileMutationPending;
+    profileSave.disabled = profileMutationPending || recoveryRequired;
     profileSkip.disabled = profileMutationPending;
     profileRepair.disabled = profileMutationPending;
     profileClose.disabled = profileMutationPending;
@@ -204,6 +204,14 @@
     if (!profileButton.disabled) profileButton.focus({ preventScroll: true });
   });
   function saveProfileName() {
+    if (profileState && profileState.recoveryRequired === true) {
+      announce(uiText(
+        "Відновіть локальний профіль перед зміною імені.",
+        "Recover the local profile before renaming it."
+      ));
+      profileRepair.focus({ preventScroll: true });
+      return;
+    }
     const bridge = api();
     const rename = !!(profileState && profileState.exists);
     const method = rename ? "profile_rename" : "profile_create";

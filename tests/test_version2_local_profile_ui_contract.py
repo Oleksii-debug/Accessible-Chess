@@ -51,10 +51,27 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('profileDialog.setAttribute("aria-busy", profileMutationPending ? "true" : "false")', source)
         self.assertEqual(source.count("if (!beginProfileMutation()) return;"), 3)
         self.assertIn("if (profileMutationPending || !profileState || !profileState.exists)", source)
-        self.assertIn("profileSave.disabled = profileMutationPending;", source)
+        self.assertIn("profileSave.disabled = profileMutationPending || recoveryRequired;", source)
         self.assertIn("profileSkip.disabled = profileMutationPending;", source)
         self.assertIn("profileRepair.disabled = profileMutationPending;", source)
         self.assertIn("profileClose.disabled = profileMutationPending;", source)
+        self.assertIn("profileName.disabled = profileMutationPending;", source)
+
+    def test_recovery_required_state_routes_rename_to_repair(self) -> None:
+        source = self.source
+        self.assertIn(
+            "profileSave.disabled = profileMutationPending || recoveryRequired;",
+            source,
+        )
+        self.assertIn("if (profileState && profileState.recoveryRequired === true)", source)
+        self.assertIn(
+            'profileRepair.focus({ preventScroll: true });',
+            source,
+        )
+        self.assertIn(
+            "Відновіть локальний профіль перед зміною імені.",
+            source,
+        )
         self.assertIn("profileName.disabled = profileMutationPending;", source)
 
     def test_ambient_refresh_preserves_unsaved_profile_name(self) -> None:

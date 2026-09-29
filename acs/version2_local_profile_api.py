@@ -60,20 +60,27 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
             raise LocalProfileError("local profile store is unavailable")
         return store
 
+    def _load_profile_state(
+        self,
+        store: LocalProfileStore,
+    ) -> tuple[LocalProfile | None, bool]:
+        profile = store.load()
+        recovery_required = False
+        if profile is not None:
+            primary_exists = store.path.exists() or store.path.is_symlink()
+            if not primary_exists:
+                recovery_required = True
+            else:
+                try:
+                    store._read_profile(store.path)
+                except LocalProfileError:
+                    recovery_required = True
+        return profile, recovery_required
+
     def _profile_snapshot_ui(self) -> dict[str, object]:
         try:
             store = self._profile_store()
-            profile = store.load()
-            recovery_required = False
-            if profile is not None:
-                primary_exists = store.path.exists() or store.path.is_symlink()
-                if not primary_exists:
-                    recovery_required = True
-                else:
-                    try:
-                        store._read_profile(store.path)
-                    except LocalProfileError:
-                        recovery_required = True
+            profile, recovery_required = self._load_profile_state(store)
             return self._profile_payload(profile, recovery_required=recovery_required)
         except LocalProfileError:
             return {
@@ -153,7 +160,7 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
             }
         try:
             store = self._profile_store()
-            current = store.load()
+            current, recovery_required = self._load_profile_state(store)
             if current is None:
                 return {
                     "ok": False,
@@ -164,6 +171,18 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
                         else "Спочатку створіть профіль."
                     ),
                 }
+            if recovery_required:
+                blocked = self._profile_payload(
+                    current,
+                    recovery_required=True,
+                    announcement=(
+                        "Recover the local profile before renaming it."
+                        if self.lang == "en"
+                        else "Відновіть локальний профіль перед зміною імені."
+                    ),
+                )
+                blocked["ok"] = False
+                return blocked
             profile = store.rename(current, display_name)
         except LocalProfileError:
             return {

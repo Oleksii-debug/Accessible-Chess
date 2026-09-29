@@ -97,6 +97,11 @@ class Version2LocalProfileApiTests(unittest.TestCase):
 
             rejected = api.profile_rename("Third")
             self.assertFalse(rejected["ok"])
+            self.assertTrue(rejected["recoveryRequired"])
+            self.assertEqual(
+                rejected["announcement"],
+                "Відновіть локальний профіль перед зміною імені.",
+            )
             self.assertEqual(profile_path.read_text(encoding="utf-8"), "{broken")
 
             repaired = api.profile_repair()
