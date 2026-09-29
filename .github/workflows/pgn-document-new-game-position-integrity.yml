@@ -42,7 +42,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -50,9 +50,12 @@ jobs:
 
           authority_branch="fix/pgn-new-game-position-tag-integrity-20260929"
           if [[ "$EVENT_NAME" == "pull_request" && "$PR_HEAD_REF" == "$authority_branch" ]]; then
-            base="$PR_BASE_SHA"
-            test -n "$base"
-            test "$(git merge-base HEAD "$base")" = "$base"
+            base_branch="$PR_BASE_REF"
+            test -n "$base_branch"
+            git fetch --no-tags origin \
+              "+refs/heads/${base_branch}:refs/remotes/origin/${base_branch}"
+            base="$(git rev-parse "refs/remotes/origin/${base_branch}")"
+            git merge-base --is-ancestor "$base" HEAD
             BASE="$base" python - <<'PY'
           import os
           import subprocess
