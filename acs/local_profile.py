@@ -225,6 +225,31 @@ class LocalProfileStore:
 
         raise LocalProfileError("local profile is unreadable and has no recovery copy") from primary_error
 
+    def recovery_required(self) -> bool:
+        """Return whether a verified backup is currently serving as identity state.
+
+        This is read-only. It never publishes backup bytes or fabricates a new
+        identity; callers must obtain explicit user consent before repair.
+        """
+
+        primary_exists = self.path.exists() or self.path.is_symlink()
+        backup_exists = self.backup_path.exists() or self.backup_path.is_symlink()
+        if primary_exists:
+            try:
+                self._read_profile(self.path)
+                return False
+            except UnsupportedLocalProfileSchema:
+                raise
+            except LocalProfileError:
+                if not backup_exists:
+                    raise
+                self._read_profile(self.backup_path)
+                return True
+        if backup_exists:
+            self._read_profile(self.backup_path)
+            return True
+        return False
+
     def create(self, display_name: str | None = None) -> LocalProfile:
         if self.path.exists() or self.path.is_symlink() or self.backup_path.exists() or self.backup_path.is_symlink():
             # Do not fabricate a new identity over unknown/corrupt persisted bytes.
