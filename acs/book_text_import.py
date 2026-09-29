@@ -431,16 +431,21 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        images = _IMAGE_RE.findall(line)
-        if images:
+        image_matches = list(_IMAGE_RE.finditer(line))
+        if image_matches:
             flush()
-            for alt in images:
-                alt = alt.strip()
+            cursor = 0
+            for match in image_matches:
+                leading = line[cursor:match.start()].strip()
+                if leading:
+                    builder.paragraph(leading, number)
+                alt = match.group(1).strip()
                 if alt:
                     builder.image_note(alt, number)
-            remaining = _IMAGE_RE.sub("", line).strip()
-            if remaining:
-                builder.paragraph(remaining, number)
+                cursor = match.end()
+            trailing = line[cursor:].strip()
+            if trailing:
+                builder.paragraph(trailing, number)
             index += 1
             continue
 
