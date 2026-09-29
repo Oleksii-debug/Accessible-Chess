@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from acs.book_game_content import (
     BookGameContentError,
@@ -277,6 +278,37 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         resolved = resolve_book_variation(VariationTree(root_fen=AFTER_E4_FEN, pgn=pgn))
         self.assertEqual(resolved.game.tags["FEN"], AFTER_E4_FEN)
         self.assertEqual(resolved.root_fen, AFTER_E4_FEN)
+
+    def test_fen_equivalence_workflow_uses_live_inherited_product_base(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "book-variation-fen-equivalence.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'PR_BASE_REF: ${{ github.event.pull_request.base.ref }}',
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$base_ref"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$live_base"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            workflow,
+        )
+        self.assertIn('upstream="$live_base"', workflow)
+        self.assertIn(
+            "'.github/workflows/book-variation-fen-equivalence.yml'",
+            workflow,
+        )
+        self.assertIn("'acs/book_game_content.py'", workflow)
+        self.assertIn("'tests/test_v2_book_game_content.py'", workflow)
+        self.assertNotIn("w6-v2-package-assembler.yml", workflow)
 
     def test_parser_recovery_warnings_are_not_silently_dropped(self) -> None:
         block = Game(pgn="1. e4 {unterminated")
