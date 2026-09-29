@@ -248,6 +248,10 @@ def tokenize_movetext(text: str) -> list[_Token]:
             out.append(_Token("MOVE_NUMBER", value))
             i = j
             continue
+        if MOVE_NUMBER_PERIODS_RE.fullmatch(value):
+            out.append(_Token("MOVE_NUMBER_PERIODS", value))
+            i = j
+            continue
 
         attached_number = MOVE_NUMBER_ATTACHED_RE.fullmatch(value)
         if attached_number is not None:
