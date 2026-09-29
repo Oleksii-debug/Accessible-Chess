@@ -32,7 +32,9 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('bridge.profile_rename(profileName.value)', source)
         self.assertIn('if (event.key !== "Enter") return;', source)
         self.assertIn('bridge.profile_repair()', source)
-        self.assertIn('profileRepair.hidden = !exists', source)
+        self.assertIn('const recoveryRequired = exists && profileState.recoveryRequired === true', source)
+        self.assertIn('profileRepair.hidden = !recoveryRequired', source)
+        self.assertIn('Профіль відкрито з резервної копії.', source)
 
     def test_ambient_refresh_preserves_unsaved_profile_name(self) -> None:
         source = self.source
