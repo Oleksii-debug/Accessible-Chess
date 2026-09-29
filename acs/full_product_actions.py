@@ -42,7 +42,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.open", BindingContext.DOCUMENT, "Open PGN"),
     _action("pgn.save", BindingContext.DOCUMENT, "Save PGN"),
     _action("pgn.save_as", BindingContext.DOCUMENT, "Save PGN As"),
-    _action("pgn.new_from_position", BindingContext.GLOBAL, "Create PGN from current position"),
+    _action("pgn.new_from_position", BindingContext.BOARD, "Create PGN from current position"),
     _action("pgn.open_on_board", BindingContext.DOCUMENT, "Review PGN on board"),
     _action("pgn.return", BindingContext.DOCUMENT, "Return to PGN"),
     _action("pgn.board_next_move", BindingContext.DOCUMENT, "Next PGN board move"),
