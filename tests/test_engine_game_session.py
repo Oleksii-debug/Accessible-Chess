@@ -30,6 +30,17 @@ class FakeTime:
         self.value += seconds
 
 
+class SequenceTime:
+    def __init__(self, *values):
+        self.values = list(values)
+        self.last = float(values[-1])
+
+    def __call__(self):
+        if self.values:
+            self.last = float(self.values.pop(0))
+        return self.last
+
+
 class FakeMoveEngine:
     def __init__(self, move='e7e5'):
         self.move = move
@@ -208,6 +219,28 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertEqual(after.lifecycle.status, GameStatus.FINISHED)
         self.assertEqual(after.lifecycle.outcome.reason, EndReason.TIMEOUT)
         self.assertEqual(after.clock.flagged, 'w')
+
+    def test_engine_timeout_during_clock_switch_uses_precommit_position_evidence(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="white",
+            move="e2e4",
+            time_control=TimeControl(1_000),
+            now=now,
+            opponent_can_mate=True,
+        )
+        session._clock._now = SequenceTime(100.0, 100.0, 100.0, 102.0)
+
+        result = session.request_engine_move(timeout_opponent_can_mate=False)
+        after = session.snapshot()
+
+        self.assertEqual(result.move, "e2e4")
+        self.assertEqual(state["moves"], ["e2e4"])
+        self.assertEqual(after.lifecycle.status, GameStatus.FINISHED)
+        self.assertEqual(after.lifecycle.outcome.reason, EndReason.TIMEOUT)
+        self.assertEqual(after.lifecycle.outcome.result, "1/2-1/2")
+        self.assertIsNone(after.lifecycle.outcome.winner)
+        self.assertEqual(after.clock.flagged, "w")
 
     def test_no_legal_engine_move_uses_neutral_terminal_resolution(self):
         handoffs = []
