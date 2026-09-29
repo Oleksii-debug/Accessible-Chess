@@ -29,6 +29,7 @@ env:
   EDUCATION_RELEASE_BLOB: 7a772b33f01709eb5f7ab7db447aa0a48594b3de
   P0_RUNTIME_BLOB: 14565e8b97f0dcd995a764127bd1badc17ff7e30
   P0_RUNTIME_DIRECTION_BLOB: ffd62735480c6b26a01aeeec672c020b9815c40c
+  P0_RUNTIME_CONTEXT_BLOB: ffb190c333ee0cf5f211ad2739b329872a81d197
   REACHABILITY_TEST_BLOB: 28ccda2a560e34ea5b014de1b36c6ceb344b71f2
 
 jobs:
@@ -93,7 +94,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$EDUCATION_RELEASE_BLOB"
           runtime_blob="$(git rev-parse HEAD:web/p0_accessibility_runtime.js)"
           case "$runtime_blob" in
-            "$P0_RUNTIME_BLOB"|"$P0_RUNTIME_DIRECTION_BLOB")
+            "$P0_RUNTIME_BLOB"|"$P0_RUNTIME_DIRECTION_BLOB"|"$P0_RUNTIME_CONTEXT_BLOB")
               ;;
             *)
               printf 'Unexpected P0 runtime blob: %s\n' "$runtime_blob" >&2
