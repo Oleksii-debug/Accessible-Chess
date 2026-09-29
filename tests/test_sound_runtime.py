@@ -254,6 +254,41 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertFalse(first.exists())
             self.assertTrue(second.is_file())
 
+    def test_scaled_cache_rebuilds_truncated_content_addressed_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            destination = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+            expected = destination.read_bytes()
+            destination.write_bytes(expected[:-4])
+
+            rebuilt = adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertEqual(rebuilt, destination)
+            self.assertEqual(rebuilt.read_bytes(), expected)
+
+    def test_scaled_cache_rejects_truncated_source_without_publishing_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move.wav"
+            self._write_silent_wav(source)
+            source.write_bytes(source.read_bytes()[:-4])
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            with self.assertRaisesRegex(ValueError, "truncated 16-bit PCM WAV asset"):
+                adapter._scaled_copy(source, SoundEvent.MOVE, 50)
+
+            self.assertEqual(list(cache.glob("move-v50-*.wav")), [])
+
     def test_scaled_cache_prune_failure_does_not_break_new_playable_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
