@@ -507,6 +507,22 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_zip_readback_rejects_debug_build_artifact_before_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            (root / "AccessibleChess" / "symbols.PDB").write_bytes(b"development artifact")
+            _write_checksums(root)
+            archive = base / "debug-artifact.zip"
+            _zip_tree(root, archive)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "debug/build artifact",
+            ):
+                _validate_zip(archive)
+
     def test_private_paths_and_credentials_in_text_are_rejected_without_echo(self):
         samples = (
             b"diagnostic=C:\\Users\\Developer\\secret\\build",
