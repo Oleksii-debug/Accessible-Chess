@@ -15,6 +15,7 @@ from acs.gametree import PgnGame, parse_games, serialize_game
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 AFTER_E4_FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+AFTER_E4_FEN_4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -"
 
 EMBEDDED_PGN = """[Event \"Book example\"]
 [Result \"*\"]
@@ -209,6 +210,30 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_variation(block)
         self.assertEqual(caught.exception.code, BookGameContentErrorCode.ROOT_FEN_CONFLICT)
+
+    def test_equivalent_four_and_six_field_variation_fens_do_not_conflict(self) -> None:
+        pgn = f'''[SetUp "1"]
+[FEN "{AFTER_E4_FEN}"]
+[Result "*"]
+
+1... c5 *
+'''
+        resolved = resolve_book_variation(
+            VariationTree(root_fen=AFTER_E4_FEN_4, pgn=pgn)
+        )
+        self.assertEqual(resolved.root_fen, AFTER_E4_FEN_4)
+        self.assertEqual(resolved.game.tags["FEN"], AFTER_E4_FEN)
+
+    def test_mutated_invalid_variation_root_fen_fails_closed_at_resolution(self) -> None:
+        block = VariationTree(
+            root_fen=AFTER_E4_FEN,
+            pgn="1... c5 *",
+        )
+        block.root_fen = "not a FEN"
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_variation(block)
+        self.assertEqual(caught.exception.code, BookGameContentErrorCode.INVALID_ROOT_FEN)
 
     def test_matching_variation_fen_tag_is_preserved_not_rewritten(self) -> None:
         pgn = f'''[SetUp "1"]
