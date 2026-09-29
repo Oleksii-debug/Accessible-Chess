@@ -4,12 +4,12 @@ from hashlib import sha256
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.book_game_content import resolve_book_game
 from acs.book_progress_store import BookProgressStore
 from acs.book_text_import import (
     BOOK_TEXT_CAPABILITIES,
-    MAX_TEXT_BLOCKS,
     MAX_TEXT_SOURCE_BYTES,
     BookTextFormat,
     BookTextImportError,
@@ -252,13 +252,14 @@ Starting board
         self.assertNotIn("Qz9", str(pgn_error.exception))
 
     def test_markdown_inline_image_flood_fails_at_semantic_block_limit(self) -> None:
-        source = " ".join("![x](asset.png)" for _ in range(MAX_TEXT_BLOCKS + 1))
-        with self.assertRaises(BookTextImportError) as error:
-            import_text_book(
-                source,
-                source_name="image-flood.md",
-                source_format="markdown",
-            )
+        source = " ".join("![x](asset.png)" for _ in range(6))
+        with patch("acs.book_text_import.MAX_TEXT_BLOCKS", 4):
+            with self.assertRaises(BookTextImportError) as error:
+                import_text_book(
+                    source,
+                    source_name="image-flood.md",
+                    source_format="markdown",
+                )
         self.assertEqual(error.exception.code, BookTextImportErrorCode.RESOURCE_LIMIT)
 
     def test_unclosed_fence_and_resource_or_encoding_errors_fail_closed(self) -> None:
