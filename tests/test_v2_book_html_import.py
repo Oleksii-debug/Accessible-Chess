@@ -91,6 +91,66 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn("(", canonical)
         self.assertIn("Білі", canonical)
 
+    def test_br_preserves_semantic_text_boundaries_for_reading_and_copy(self) -> None:
+        result = import_html_book(
+            """<html><head><title>Breaks</title></head><body>
+<h1>White<br>to move</h1>
+<p>First line<br/>Second line</p>
+</body></html>""",
+            source_name="breaks.html",
+        )
+
+        headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(headings, ["White to move"])
+        self.assertEqual(paragraphs, ["First line Second line"])
+        self.assertNotIn("Whiteto", "\n".join(headings))
+        self.assertNotIn("lineSecond", "\n".join(paragraphs))
+
+    def test_table_cells_do_not_collapse_inside_row_text(self) -> None:
+        result = import_html_book(
+            "<html><body><table><tr><td>e4</td><td>e5</td></tr></table></body></html>",
+            source_name="table-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(paragraphs, ["e4 e5"])
+        self.assertNotIn("e4e5", paragraphs)
+
+    def test_nested_block_close_preserves_resumed_reading_text_boundary(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Alpha<div>Beta</div>Gamma</p></body></html>",
+            source_name="nested-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(paragraphs, ["Alpha Beta Gamma"])
+        self.assertNotIn("BetaGamma", paragraphs[0])
+
+    def test_br_preserves_list_item_boundaries(self) -> None:
+        result = import_html_book(
+            "<html><body><ul><li>White<br>to move</li><li>Black<br/>to move</li></ul></body></html>",
+            source_name="list-breaks.html",
+        )
+
+        lists = result.document.lists()
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["White to move", "Black to move"])
+
+    def test_br_delimited_explicit_pgn_is_not_duplicated_as_reading_prose(self) -> None:
+        result = import_html_book(
+            """<html><body><pre>{PGN 1}<br>
+[Event "BR game"]<br>[White "A"]<br>[Black "B"]<br>[Result "*"]<br><br>
+1. e4 e5 *</pre></body></html>""",
+            source_name="pgn-breaks.html",
+        )
+
+        games = [block for block in result.document.blocks if isinstance(block, Game)]
+        paragraphs = [block for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(result.pgn_games, 1)
+        self.assertEqual(len(games), 1)
+        self.assertFalse(any('[Event "BR game"]' in block.text for block in paragraphs))
+
     def test_unmarked_valid_pgn_is_readable_text_and_never_fabricates_game(self) -> None:
         source = f'''<!doctype html>
 <html><head><title>Quoted PGN</title></head><body>

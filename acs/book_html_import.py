@@ -232,6 +232,12 @@ class _SemanticHtmlParser(HTMLParser):
             )
         self.visible_parts.append(text)
 
+    def _append_text_boundary(self) -> None:
+        """Preserve one semantic separator in visible and active capture text."""
+        self._append_visible("\n")
+        for capture in self._captures:
+            capture.parts.append("\n")
+
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
         key = f"{kind}:{digest}"
@@ -360,7 +366,10 @@ class _SemanticHtmlParser(HTMLParser):
         if self._suppressed_depth:
             return
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # HTMLParser does not place markup in capture.parts. Preserve the
+            # same block boundary already published to visible_text inside every
+            # active semantic capture so adjacent source words cannot collapse.
+            self._append_text_boundary()
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
             if lang:
@@ -472,7 +481,9 @@ class _SemanticHtmlParser(HTMLParser):
             else:
                 self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # The closing edge matters when inline text resumes after a nested
+            # block (for example Alpha<div>Beta</div>Gamma).
+            self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
         if self._suppressed_depth:
