@@ -54,6 +54,31 @@ class BookTextImportTests(unittest.TestCase):
         self.assertFalse(any(isinstance(block, (Game, Position, Diagram)) for block in result.document.blocks))
         self.assertTrue(result.book_key.startswith("txt-sha256:"))
 
+    def test_markdown_heading_preserves_literal_trailing_hash_text(self) -> None:
+        source = """# C#
+
+## Mate in 3#
+
+### Closing marker ###
+
+#### Hash payload ##not-a-close
+"""
+        result = import_text_book(
+            source,
+            source_name="heading-hashes.md",
+            source_format="markdown",
+        )
+        headings = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Heading)
+        ]
+        self.assertEqual(
+            headings,
+            ["C#", "Mate in 3#", "Closing marker", "Hash payload ##not-a-close"],
+        )
+        self.assertEqual(result.document.title, "C#")
+
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
 
