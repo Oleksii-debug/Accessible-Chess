@@ -84,8 +84,12 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("foreach($candidate in $documents)", self.text)
         self.assertIn("$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)", self.text)
         self.assertIn("$candidatePattern.SupportedTextSelection", self.text)
-        self.assertIn("$candidateRange.FindText('Інформація про гру'", self.text)
-        self.assertIn("$candidateRange.FindText('Game information'", self.text)
+        self.assertIn("foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів'))", self.text)
+        self.assertIn("$probeRange=$candidateRange.FindText($phrase,$false,$false)", self.text)
+        self.assertIn("$probeText=[string]$probeRange.GetText(-1)", self.text)
+        self.assertIn("if($probeText -cne $phrase){continue}", self.text)
+        self.assertIn('if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}', self.text)
+        self.assertIn("target_phrase=$candidatePhrase", self.text)
         self.assertIn("none exposes selectable stable static text", self.text)
         self.assertIn("if($usableDocuments.Count -ne 1)", self.text)
         self.assertIn("Ambiguous selectable Accessible Chess Documents", self.text)
@@ -201,6 +205,14 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertLess(edit_select, edit_reassert)
         self.assertLess(edit_reassert, edit_focus_reassert)
         self.assertLess(edit_focus_reassert, edit_copy)
+
+    def test_probe_requires_exact_single_line_static_target_before_native_copy(self) -> None:
+        self.assertIn("$targetPhrase=[string]$usableDocuments[0].target_phrase", self.text)
+        self.assertIn("if($selected -cne $targetPhrase)", self.text)
+        self.assertIn('if($selected.Contains("`r") -or $selected.Contains("`n"))', self.text)
+        self.assertIn("static_document_target_phrase=$targetPhrase", self.text)
+        self.assertNotIn("Replace(\"`r`n\", \"`n\")", self.text)
+        self.assertNotIn(".Trim() -eq", self.text)
 
     def test_probe_preserves_exact_textpattern_range_whitespace_for_native_copy(self) -> None:
         self.assertIn("$selected=[string]$target.GetText(-1)", self.text)

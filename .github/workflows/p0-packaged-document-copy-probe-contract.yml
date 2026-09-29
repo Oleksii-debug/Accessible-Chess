@@ -14,8 +14,8 @@ permissions:
 env:
   CURRENT_PRODUCT_BASE: 35d8858de994285ff0fe8911ca68bf80579c93ee
   OWNER_HEAD: fix/p0-document-copy-match-counter-20260929
-  PROBE_BLOB: 569eb9c069c57f2f82e096c11e85d49c4864b09d
-  TEST_BLOB: d6baaf43bbe1f5e7a79a05aa7ed222158efdb919
+  PROBE_BLOB: b7814aa4eca183c6baa8737a52415d0c46036f9d
+  TEST_BLOB: e6a831c213f1c3f7eb0141356371becca8516343
 
 jobs:
   contract:

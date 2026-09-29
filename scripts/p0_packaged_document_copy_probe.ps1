@@ -316,13 +316,24 @@ try {
       if($null -eq $candidatePattern){continue}
       if(([string]$candidatePattern.SupportedTextSelection) -match 'None$'){continue}
       $candidateRange=$candidatePattern.DocumentRange.Clone()
-      $candidateTarget=$candidateRange.FindText('Інформація про гру',$false,$false)
-      if($null -eq $candidateTarget){$candidateTarget=$candidateRange.FindText('Game information',$false,$false)}
+      $candidateTarget=$null
+      $candidatePhrase=''
+      foreach($phrase in @('Accessible Chess','Інформація про гру','Game information','Список ходів')){
+        $probeRange=$candidateRange.FindText($phrase,$false,$false)
+        if($null -eq $probeRange){continue}
+        $probeText=[string]$probeRange.GetText(-1)
+        if($probeText -cne $phrase){continue}
+        if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}
+        $candidateTarget=$probeRange
+        $candidatePhrase=$phrase
+        break
+      }
       if($null -eq $candidateTarget){continue}
       $usableDocuments += ,[pscustomobject]@{
         document=$candidate
         text_pattern=$candidatePattern
         target=$candidateTarget
+        target_phrase=$candidatePhrase
       }
     } catch {
       continue
@@ -337,9 +348,12 @@ try {
   $document=$usableDocuments[0].document
   $textPattern=$usableDocuments[0].text_pattern
   $target=$usableDocuments[0].target
+  $targetPhrase=[string]$usableDocuments[0].target_phrase
 
   $selected=[string]$target.GetText(-1)
   if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}
+  if($selected -cne $targetPhrase){throw 'Static TextPattern target drifted from exact single-line phrase'}
+  if($selected.Contains("`r") -or $selected.Contains("`n")){throw 'Static TextPattern exact-copy target must be single-line'}
   $enclosing=$target.GetEnclosingElement()
   if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
     throw 'Static text proof accidentally targeted an edit control'
@@ -420,6 +434,7 @@ try {
     document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'
     focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
     static_document_text=$selected
+    static_document_target_phrase=$targetPhrase
     static_document_outside_edit=$true
     static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')
     static_text_visibility_evidence=$visibilityEvidence
