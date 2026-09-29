@@ -40,6 +40,8 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn('test "$parent_one" = "$base_sha"', workflow)
         self.assertIn('test "$parent_two" = "$head_sha"', workflow)
         self.assertIn('git diff --check "$base_sha" "$merge_sha"', workflow)
+        self.assertIn("fetch-depth: 0", workflow)
+        self.assertNotIn("fetch-depth: 2", workflow)
         self.assertNotIn("unexpected convergence base:", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("base='*'", workflow)
