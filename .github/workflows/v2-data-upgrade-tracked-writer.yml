@@ -10,6 +10,7 @@ on:
       - 'acs/version2_upgrade_base.py'
       - 'acs/legacy_library_migration.py'
       - 'acs/settings.py'
+      - 'tests/test_settings.py'
       - 'tests/test_v2_upgrade_schema0_integration.py'
       - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
       - 'tests/test_v2_upgrade_publish_race_audit.py'
@@ -57,6 +58,7 @@ jobs:
           git merge-base --is-ancestor "$DATA_OWNER" HEAD
           git diff --check "$DATA_OWNER" HEAD -- \
             acs/settings.py \
+            tests/test_settings.py \
             acs/version2_upgrade.py \
             acs/version2_upgrade_base.py \
             acs/legacy_library_migration.py \
@@ -71,7 +73,8 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
+          acs/settings.py=0f6b285867d94c144b83642e7d8beee420a3b566
+          tests/test_settings.py=fa303546e7528e55dd40dd7173d02863b28bb369
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
           acs/version2_upgrade_base.py=e290325edb205e29450986b0341d3b1b20fae214
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
@@ -84,6 +87,7 @@ jobs:
       - name: Existing upgrade and schema-0 regressions
         run: >-
           python -m unittest -v
+          tests.test_settings
           tests.test_v2_upgrade_schema0_integration
           tests.test_v2_upgrade_v6_successor
           tests.test_version2_upgrade
