@@ -213,12 +213,12 @@ jobs:
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
-          acs/presentation_privacy.py=e9b4fb9b9f9cf83f81ee09fc942892066ccae29b
+          acs/presentation_privacy.py=1ed32933ccbb285db7dba6c7203c313a9b72351c
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/test_v2_pgn_webview_path_privacy.py=38501d0508330115acdb9fa5dfa1b59e67001377
+          tests/test_v2_pgn_webview_path_privacy.py=e2ff3519fbc3de29a6b9ba7fff86b59dd2f7e204
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
