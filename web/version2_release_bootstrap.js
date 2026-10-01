@@ -69,11 +69,27 @@
     if (!id) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
+    // Host status events can repeat a focus target that the initiating surface
+    // already restored after a synchronous native dialog. Avoid a second DOM
+    // focus transition (and duplicate screen-reader focus speech) while still
+    // reporting successful restoration.
+    if (documentRef.activeElement === target) return true;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
       target.setAttribute("tabindex", "-1");
     }
     target.focus({ preventScroll: true });
     return documentRef.activeElement === target;
+  }
+
+  function restoreQueuedFocus(id) {
+    if (!id) return false;
+    const active = documentRef.activeElement;
+    // A host event can carry the focus token sampled before an asynchronous
+    // browser focus-record call completed. Never steal focus from a different
+    // still-visible V2 control the user has already reached; only recover when
+    // focus is genuinely outside the active product surface.
+    if (active && workspace.contains(active) && !hiddenByAncestor(active)) return true;
+    return focusById(id);
   }
 
   function restoreStage1Focus(routeId, requestedFocus) {
@@ -257,7 +273,8 @@
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
-    return actionId === "library.import" || actionId === "library.cancel_import";
+    return actionId === "library.import" || actionId === "library.cancel_import" ||
+      actionId === "library.export";
   }
 
   function refreshStage1Surface() {
@@ -314,12 +331,12 @@
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
         const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
         if (candidate) queuedFocusTarget = candidate;
+        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
+        if (!refreshRequired) return;
+        needsRefresh = true;
       });
       if (needsRefresh) {
         const repaintBarrier = orderedStage1Refreshes.length
@@ -328,8 +345,10 @@
         repaintBarrier.then(function () {
           return refresh(true);
         }).then(function () {
-          if (queuedFocusTarget) focusById(queuedFocusTarget);
+          if (queuedFocusTarget) restoreQueuedFocus(queuedFocusTarget);
         }, function () {});
+      } else if (queuedFocusTarget) {
+        restoreQueuedFocus(queuedFocusTarget);
       }
     }, function () {});
   }
