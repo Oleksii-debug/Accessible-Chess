@@ -1,13 +1,15 @@
-name: Local Profile Identity Contract
+name: Local Profile First Launch UI
 
 on:
-  push:
-    branches:
-      - work/local-profile-identity-foundation-20260929
   pull_request:
     paths:
       - "acs/local_profile.py"
+      - "acs/version2_local_profile_api.py"
+      - "acs/version2_release_app.py"
+      - "web/version2_release_bootstrap.js"
       - "tests/test_local_profile.py"
+      - "tests/test_version2_local_profile_api.py"
+      - "tests/test_version2_local_profile_ui_contract.py"
       - "tests/js/version2_library_open_route_refresh_dom_test.js"
       - "tests/js/version2_release_bootstrap_dom_test.js"
       - "tests/test_v2_native_dialog_language.py"
@@ -16,37 +18,33 @@ on:
       - "tests/test_version2_composition_startup_cleanup_current.py"
       - "tests/test_version2_release_accessibility_contract.py"
       - "tests/test_w6_v2_language_owner_current.py"
-      - ".github/workflows/local-profile-identity.yml"
+      - ".github/workflows/local-profile-first-launch-ui.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: local-profile-identity-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  local-profile:
+  profile-ui:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-
-      - name: Prove exact candidate and pull-request scope
+      - name: Prove exact head, parent ancestry and owned scope
         shell: bash
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
-          test "$(git rev-parse HEAD)" = "$expected"
-          echo "LOCAL_PROFILE_IDENTITY_EXACT_HEAD=$expected"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || {
+            printf 'Expected exact candidate %s, got %s\n' "$expected" "$actual" >&2
+            exit 1
+          }
+          echo "LOCAL_PROFILE_UI_EXACT_HEAD=$actual"
 
           if test '${{ github.event_name }}' = 'pull_request'; then
             event_base='${{ github.event.pull_request.base.sha }}'
@@ -59,6 +57,7 @@ jobs:
             git merge-base --is-ancestor "$event_base" "$live_base"
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            git diff --check "$live_base" HEAD
             changed="$(git diff --name-only "$live_base" HEAD | sort)"
             if test "$base_ref" = 'feature/local-profile-first-launch-ui-20260929'; then
               expected_paths="$(printf '%s\n' \
@@ -86,10 +85,10 @@ jobs:
                 'acs/local_profile.py' \
                 'acs/version2_local_profile_api.py' \
                 'acs/version2_release_app.py' \
-                'tests/js/version2_library_open_route_refresh_dom_test.js' \
-                'tests/js/version2_release_bootstrap_dom_test.js' \
                 'tests/test_local_profile.py' \
                 'tests/test_p0_release_critical_triad_convergence.py' \
+                'tests/js/version2_library_open_route_refresh_dom_test.js' \
+                'tests/js/version2_release_bootstrap_dom_test.js' \
                 'tests/test_v2_native_dialog_language.py' \
                 'tests/test_version2_composition_publication_boundary.py' \
                 'tests/test_version2_composition_startup_cleanup.py' \
@@ -101,25 +100,27 @@ jobs:
                 'web/version2_release_bootstrap.js' | sort)"
               scope='EXACT_ROOT_NINETEEN_PATHS'
             else
-              printf 'Unexpected local-profile identity base: %s\n' "$base_ref" >&2
+              printf 'Unexpected local-profile qualification base: %s\n' "$base_ref" >&2
               exit 1
             fi
             test "$changed" = "$expected_paths" || {
-              printf 'Unexpected local-profile identity scope:\n%s\n' "$changed" >&2
+              printf 'Unexpected local-profile UI scope:\n%s\n' "$changed" >&2
               exit 1
             }
-            git diff --check "$live_base" HEAD
-            echo "LOCAL_PROFILE_IDENTITY_EVENT_BASE=$event_base"
-            echo "LOCAL_PROFILE_IDENTITY_LIVE_BASE=$live_base"
-            echo "LOCAL_PROFILE_IDENTITY_SCOPE=$scope"
+            echo "LOCAL_PROFILE_UI_EVENT_BASE=$event_base"
+            echo "LOCAL_PROFILE_UI_EXACT_BASE=$live_base"
+            echo "LOCAL_PROFILE_UI_SCOPE=$scope"
           fi
-
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: "3.12"
-
-      - name: Compile identity boundary
-        run: python -m py_compile acs/local_profile.py tests/test_local_profile.py
-
-      - name: Run focused local-profile contract
-        run: python -m unittest -v tests.test_local_profile
+          python-version: "3.12.10"
+      - name: Compile profile and release composition
+        run: python -m py_compile acs/local_profile.py acs/version2_local_profile_api.py acs/version2_release_app.py
+      - name: Focused persistence and UI bridge regressions
+        run: python -m unittest -v tests.test_local_profile tests.test_version2_local_profile_api tests.test_version2_local_profile_ui_contract tests.test_version2_release_ui tests.test_version2_release_app
+      - name: Full unittest suite
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Install pinned pytest
+        run: python -m pip install pytest==8.4.2
+      - name: Full pytest suite
+        run: python -m pytest -q tests

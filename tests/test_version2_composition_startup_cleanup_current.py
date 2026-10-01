@@ -159,7 +159,7 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     release_app,
-                    "Version2ReleaseAccessibleChessAPI",
+                    "Version2ProfileAccessibleChessAPI",
                     return_value=mock.Mock(),
                 ),
                 mock.patch.object(
@@ -216,7 +216,7 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     release_app,
-                    "Version2ReleaseAccessibleChessAPI",
+                    "Version2ProfileAccessibleChessAPI",
                     return_value=mock.Mock(),
                 ),
                 mock.patch.object(release_app, "AcsDatabase", return_value=database),
