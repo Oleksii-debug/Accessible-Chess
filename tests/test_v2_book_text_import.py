@@ -140,7 +140,7 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
                 self.assertEqual(paragraphs, [source])
 
     def test_removed_false_image_snapshot_target_fails_closed_without_retargeting(self) -> None:
-        legacy_digest = sha256(("Image\\0" + "Board").encode("utf-8")).hexdigest()[:20]
+        legacy_digest = sha256(("Image\0" + "Board").encode("utf-8")).hexdigest()[:20]
         legacy_image_target = f"block:markdown-{legacy_digest}-1"
         snapshot = {
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
@@ -150,7 +150,7 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
         }
 
         for source, label in (
-            (r"Before \\![Board](board.png) after.", "escaped"),
+            (r"Before \![Board](board.png) after.", "escaped"),
             ("Before `![Board](board.png)` after.", "inline-code"),
         ):
             with self.subTest(label=label):
