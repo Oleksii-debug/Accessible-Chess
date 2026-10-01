@@ -253,7 +253,7 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   throw "Clipboard did not receive exact selected text; expected_length=$($Expected.Length) actual_length=$($last.Length) first_mismatch_index=$mismatch expected_code_units='$expectedUnits' actual_code_units='$actualUnits' expected='$Expected' actual='$last'"
 }
 
-function AssertVisibleTextRange($Range) {
+function AssertVisibleTextRange($Range,$TargetElement) {
   $rectangles=@()
   try {$rectangles=@($Range.GetBoundingRectangles())}
   catch {$rectangles=@()}
@@ -271,26 +271,28 @@ function AssertVisibleTextRange($Range) {
   # requiring the range's enclosing UIA element to be onscreen with positive
   # geometry after ScrollIntoView. Selection endpoints and native clipboard
   # equality remain independently decisive below.
-  try {$enclosing=$Range.GetEnclosingElement()}
-  catch {throw "Static TextPattern target enclosing UIA element unavailable"}
-  if($null -eq $enclosing){
-    throw "Static TextPattern target has no enclosing UIA element for visibility proof"
-  }
+  $visibilityElements=New-Object 'System.Collections.Generic.List[object]'
   try {
-    if([bool]$enclosing.Current.IsOffscreen){
-      throw "Static TextPattern target enclosing UIA element is offscreen"
+    $enclosing=$Range.GetEnclosingElement()
+    if($null -ne $enclosing){[void]$visibilityElements.Add($enclosing)}
+  } catch {}
+  if($null -ne $TargetElement){[void]$visibilityElements.Add($TargetElement)}
+
+  foreach($element in @($visibilityElements)){
+    try {
+      if([bool]$element.Current.IsOffscreen){continue}
+      $bounds=$element.Current.BoundingRectangle
+      $width=[double]$bounds.Width
+      $height=[double]$bounds.Height
+      if($width -gt 0 -and $height -gt 0){
+        if($element -eq $TargetElement){return 'target-element'}
+        return 'enclosing-element'
+      }
+    } catch {
+      continue
     }
-    $bounds=$enclosing.Current.BoundingRectangle
-    $width=[double]$bounds.Width
-    $height=[double]$bounds.Height
   }
-  catch {
-    throw "Static TextPattern target enclosing UIA visibility unavailable"
-  }
-  if($width -le 0 -or $height -le 0){
-    throw "Static TextPattern target enclosing UIA element has no positive-area bounding rectangle"
-  }
-  return 'enclosing-element'
+  throw "Static TextPattern target has no onscreen positive-area UIA element for visibility proof"
 }
 
 function AddStaticCandidateDiagnostic($Element,$Pattern,[string]$Phrase,[string]$Source,$Lines) {
@@ -408,6 +410,7 @@ try {
         document=$candidate
         text_pattern=$candidatePattern
         target=$candidateTarget
+        target_element=$namedTargets[0]
         target_phrase=$candidatePhrase
         target_control_type=$candidateTargetType
       }
@@ -448,7 +451,7 @@ try {
   try {$target.ScrollIntoView($true)}
   catch {throw "Static TextPattern target could not be scrolled into view: $($_.Exception.Message)"}
   Start-Sleep -Milliseconds 100
-  $visibilityEvidence=AssertVisibleTextRange $target
+  $visibilityEvidence=AssertVisibleTextRange $target $usableDocuments[0].target_element
   $null=AssertProviderFocus $roots 'static document visibility proof'
   $target.Select()
   Start-Sleep -Milliseconds 100
