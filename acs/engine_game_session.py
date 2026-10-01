@@ -387,7 +387,27 @@ class EngineGameSessionCoordinator:
             raise ValueError("active clock does not match moved side")
         return clock
 
-    def request_engine_move(self) -> EngineMoveResult:
+    def request_engine_move(
+        self,
+        *,
+        timeout_opponent_can_mate: bool | None = None,
+    ) -> EngineMoveResult:
+        """Request one engine move without transferring canonical Board ownership.
+
+        When an exact pre-commit timeout fact is supplied and the mover flags
+        during the post-commit clock switch, the lifecycle is finalized and an
+        exception is raised. The Board-owning integration must then roll back
+        the just-committed callback mutation instead of treating the move as
+        accepted.
+        """
+        if (
+            timeout_opponent_can_mate is not None
+            and type(timeout_opponent_can_mate) is not bool
+        ):
+            raise EngineContractError(
+                "timeout_opponent_can_mate must be an exact boolean or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         snap = self.snapshot()
         if snap.turn_state is EngineTurnState.FINISHED:
             raise ValueError("engine game session is finished")
@@ -395,7 +415,9 @@ class EngineGameSessionCoordinator:
             raise ValueError("engine move requested when it is not the engine turn")
         self.assert_move_allowed(snap.side_to_move)
         fen = self._current_fen()
-        result = self._play_service.choose_move(EngineMoveRequest(fen, level=snap.config.level.level))
+        result = self._play_service.choose_move(
+            EngineMoveRequest(fen, level=snap.config.level.level)
+        )
         if result.move is None:
             self._resolve_no_engine_move(fen, snap.side_to_move)
             return result
@@ -407,27 +429,71 @@ class EngineGameSessionCoordinator:
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
         self._commit_engine_move(result.move)
-        self._lifecycle.on_move_committed()
         assert self._clock is not None
-        self._clock.switch_after_move(moved_side)
+        # The Board-owning caller rolls this callback mutation back when clock
+        # acceptance fails. Publish lifecycle move acceptance only after the
+        # clock switch succeeds so pending draw/takeback state rolls back with it.
+        switched = self._clock.switch_after_move(moved_side)
+        self._lifecycle.on_move_committed()
+        if (
+            switched.flagged is not None
+            and timeout_opponent_can_mate is not None
+            and self._lifecycle.snapshot().status is GameStatus.ACTIVE
+        ):
+            self._record_timeout(
+                switched.flagged,
+                opponent_can_mate=timeout_opponent_can_mate,
+            )
+            raise ValueError("clock flagged before engine move acceptance")
         return result
 
-    def on_human_move_committed(self, moved_side: str) -> EngineGameSessionSnapshot:
+    def on_human_move_committed(
+        self,
+        moved_side: str,
+        *,
+        timeout_opponent_can_mate: bool | None = None,
+    ) -> EngineGameSessionSnapshot:
         self._require_active()
         if not isinstance(moved_side, str) or moved_side not in {"w", "b"}:
             raise EngineContractError(
                 "moved_side must be 'w' or 'b'",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
+        if (
+            timeout_opponent_can_mate is not None
+            and type(timeout_opponent_can_mate) is not bool
+        ):
+            raise EngineContractError(
+                "timeout_opponent_can_mate must be an exact boolean or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
-            self._record_timeout(clock.flagged)
+            self._record_timeout(
+                clock.flagged,
+                opponent_can_mate=timeout_opponent_can_mate,
+            )
+            if timeout_opponent_can_mate is not None:
+                return self.snapshot()
             raise ValueError("clock flagged before move commit")
         if clock.state is ClockState.RUNNING and clock.active != moved_side:
             raise ValueError("active clock does not match moved side")
+        # Clock acceptance must precede lifecycle publication. A failed clock
+        # switch means the caller's just-committed Board move is rejected and
+        # rolled back; clearing draw/takeback requests before that boundary
+        # would leave lifecycle state ahead of the canonical Board/history.
+        switched = self._clock.switch_after_move(moved_side)
         self._lifecycle.on_move_committed()
-        self._clock.switch_after_move(moved_side)
+        if (
+            switched.flagged is not None
+            and timeout_opponent_can_mate is not None
+            and self._lifecycle.snapshot().status is GameStatus.ACTIVE
+        ):
+            self._record_timeout(
+                switched.flagged,
+                opponent_can_mate=timeout_opponent_can_mate,
+            )
         return self.snapshot()
 
     def sync_position_outcome(self, result: str, reason: EndReason, winner: str | None = None) -> EngineGameSessionSnapshot:
