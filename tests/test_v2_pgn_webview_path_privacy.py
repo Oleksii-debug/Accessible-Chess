@@ -15,6 +15,8 @@ class V2PgnWebViewPathPrivacyTests(unittest.TestCase):
             (r"\\server\private-share\secret.pgn", "private-share"),
             (r"\\?\C:\Users\PrivateUser\secret.pgn", "PrivateUser"),
             ("file:///C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file:///C:/Users/Public/My Private Folder/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file://private-server/Public Share/PrivateUser/secret.pgn", "PrivateUser"),
             ("file://private-server/private-share/secret.pgn", "private-server"),
             ("file://localhost/C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
             ("file:/C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
