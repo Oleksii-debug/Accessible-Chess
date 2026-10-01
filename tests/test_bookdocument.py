@@ -142,6 +142,10 @@ class BookDocumentTests(unittest.TestCase):
             "PRODUCT_REF: work/full-product-teacher-education-reachability-20260911",
             workflow,
         )
+        self.assertIn(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            workflow,
+        )
         self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
         self.assertIn(
             '"refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
