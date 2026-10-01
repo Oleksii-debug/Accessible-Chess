@@ -159,6 +159,17 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertEqual(paragraphs, ["Alpha Beta Gamma"])
         self.assertNotIn("BetaGamma", paragraphs[0])
 
+    def test_nested_semantic_capture_preserves_inner_br_in_parent_reading_text(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Outer<blockquote>Inner<br>Line</blockquote>Tail</p></body></html>",
+            source_name="nested-capture-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertIn("Inner Line", paragraphs)
+        self.assertIn("Outer Inner Line Tail", paragraphs)
+        self.assertNotIn("InnerLine", "\n".join(paragraphs))
+
     def test_br_preserves_list_item_boundaries(self) -> None:
         result = import_html_book(
             "<html><body><ul><li>White<br>to move</li><li>Black<br/>to move</li></ul></body></html>",
