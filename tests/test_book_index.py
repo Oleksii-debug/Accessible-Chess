@@ -203,6 +203,26 @@ class BookIndexTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "maximum search term length"):
             index.find("x" * 257)
 
+    def test_find_normalizes_candidate_whitespace_with_shared_policy(self):
+        document = BookDocument(
+            title="Candidate whitespace",
+            blocks=[
+                Heading(
+                    text="Open   file\tstrategy",
+                    level=1,
+                    block_id="candidate-spacing",
+                ),
+            ],
+        )
+        index = BookIndex(document)
+
+        matches = index.find("Open file strategy")
+        self.assertEqual(
+            [entry.target.key for entry in matches],
+            ["block:candidate-spacing"],
+        )
+        self.assertEqual(matches[0].label, "Open   file\tstrategy")
+
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
         for value in (None, 7, True, b"model"):

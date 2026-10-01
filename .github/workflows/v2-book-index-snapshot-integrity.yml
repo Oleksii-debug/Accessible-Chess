@@ -61,6 +61,7 @@ jobs:
           wanted="$(printf '%s\n' \
             '.github/workflows/v2-book-index-snapshot-integrity.yml' \
             'acs/book_index.py' \
+            'acs/search_policy.py' \
             'tests/test_book_index.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 

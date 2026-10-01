@@ -22,7 +22,7 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
-from .search_policy import normalize_search_term, search_fold
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
 
 
 class BookEntryKind(str, Enum):
@@ -208,5 +208,5 @@ class BookIndex:
             entry
             for entry in self._entries
             if (kinds is None or entry.kind in kinds)
-            and needle in (search_fold(entry.label) or "")
+            and needle in (search_fold(normalize_search_text(entry.label)) or "")
         )
