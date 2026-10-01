@@ -269,7 +269,9 @@ async function run() {
   }
   check(rejectedInsecure, "non-loopback insecure WebSocket URL was accepted");
   const local = adapter({ serverUrl: "ws://127.0.0.1:7880" });
-  check(local.connected === false, "loopback development adapter started connected");
+  check(local.connected === false, "IPv4 loopback development adapter started connected");
+  const localIpv6 = adapter({ serverUrl: "ws://[::1]:7880" });
+  check(localIpv6.connected === false, "IPv6 loopback development adapter started connected");
 
   let rejectedCredentialsInUrl = false;
   try {
@@ -278,6 +280,18 @@ async function run() {
     rejectedCredentialsInUrl = error instanceof LiveKitClassroomMediaError;
   }
   check(rejectedCredentialsInUrl, "server URL embedded credentials were accepted");
+
+  // LiveKit RPC method names are bounded to 64 UTF-8 bytes.
+  const maxLengthMethod = adapter({ moderationRpcMethod: "m".repeat(64) });
+  check(maxLengthMethod.connected === false, "64-byte RPC method was rejected");
+  let rejectedLongMethod = false;
+  try {
+    adapter({ moderationRpcMethod: "m".repeat(65) });
+  } catch (error) {
+    rejectedLongMethod = error instanceof LiveKitClassroomMediaError &&
+      error.message.includes("moderation RPC method is invalid");
+  }
+  check(rejectedLongMethod, "65-byte RPC method exceeded provider limit without rejection");
 
   // Fail closed on duplicate operation ids and malformed source/action shapes before RPC.
   reset();
@@ -293,6 +307,27 @@ async function run() {
     "soft mute command is invalid"
   );
   check(validationRoom.localParticipant.rpcCalls.length === 0, "invalid moderation reached provider RPC");
+
+  // LiveKit RPC v1 request/response strings must stay within 15 KiB UTF-8.
+  const oversizedCommands = Array.from({ length: 50 }, (_unused, index) => command({
+    operation_id: ("op-" + index + "-").padEnd(120, "x"),
+    actor_id: ("actor-" + index + "-").padEnd(120, "a"),
+    target_id: ("target-" + index + "-").padEnd(120, "t")
+  }));
+  await expectError(
+    () => validationClient.applyModeration(oversizedCommands),
+    "moderation request is too large"
+  );
+  check(validationRoom.localParticipant.rpcCalls.length === 0,
+        "oversized moderation request reached provider RPC");
+
+  validationRoom.localParticipant.rpcResponse = "x".repeat(15 * 1024 + 1);
+  await expectError(
+    () => validationClient.applyModeration([command({ operation_id: "response-limit" })]),
+    "moderation acknowledgement is invalid"
+  );
+  check(validationRoom.localParticipant.rpcCalls.length === 1,
+        "oversized provider response did not exercise the RPC response boundary");
 
   console.log("LiveKit classroom client adapter contract PASS");
 }
