@@ -28,6 +28,7 @@ UPGRADE_JOURNAL_SCHEMA_VERSION = 2
 _BACKUP_MANIFEST_SCHEMA_VERSION = 2
 _PHASES = {"prepared", "migrating", "verifying", "committed", "rolled_back"}
 _CONTROL_NAMES = {".v2-upgrade.lock", ".v2-upgrade-state.json", "profile.json.lock"}
+_CONTROL_NAME_KEYS = frozenset(name.casefold() for name in _CONTROL_NAMES)
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -634,7 +635,7 @@ class Version2UpgradeCoordinator:
             .casefold(),
         ):
             relative = _relative(self.layout.root, path)
-            if relative in _CONTROL_NAMES:
+            if relative.casefold() in _CONTROL_NAME_KEYS:
                 continue
             folded = relative.casefold()
             if folded in seen:

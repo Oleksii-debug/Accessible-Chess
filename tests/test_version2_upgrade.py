@@ -373,6 +373,31 @@ class Version2UpgradeTests(unittest.TestCase):
             self.assertNotIn("profile.json.lock", paths)
             self.assertFalse((backup / "data" / "profile.json.lock").exists())
             self.assertTrue(profile_lock.exists())
+    def test_profile_mutation_lock_case_variant_is_control_state_for_windows_portability(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+            profile_lock = root / "PROFILE.JSON.LOCK"
+            profile_lock.write_bytes(b"")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = coordinator._files()
+            self.assertNotIn(profile_lock, files)
+
+            backup, manifest = coordinator._create_backup(
+                "profile-lock-casefold-control"
+            )
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+            paths = {str(item["path"]).casefold() for item in entries}
+            self.assertNotIn("profile.json.lock", paths)
+            self.assertFalse((backup / "data" / "PROFILE.JSON.LOCK").exists())
+            self.assertTrue(profile_lock.exists())
+
     def test_profile_lock_named_directory_is_preserved_as_user_data(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
