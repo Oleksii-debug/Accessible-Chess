@@ -373,6 +373,30 @@ class Version2UpgradeTests(unittest.TestCase):
             self.assertNotIn("profile.json.lock", paths)
             self.assertFalse((backup / "data" / "profile.json.lock").exists())
             self.assertTrue(profile_lock.exists())
+    def test_interrupted_recovery_never_restores_profile_mutation_lock(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en", "volume": 34}), encoding="utf-8"
+            )
+            profile_lock = root / "profile.json.lock"
+            profile_lock.write_bytes(b"pre-crash-lock")
+
+            def crash(phase: str) -> None:
+                if phase == "settings-migrated":
+                    raise _Crash()
+
+            with self.assertRaises(_Crash):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash
+                ).run()
+
+            profile_lock.write_bytes(b"new-live-lock")
+            recovered = Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertTrue(recovered.recovered_interrupted_upgrade)
+            self.assertEqual(profile_lock.read_bytes(), b"new-live-lock")
     def test_environment_layout_matches_existing_stage1_user_root(self):
         layout = UserDataLayout.from_environment(
             environ={"LOCALAPPDATA": r"C:\Users\Blind\AppData\Local"},

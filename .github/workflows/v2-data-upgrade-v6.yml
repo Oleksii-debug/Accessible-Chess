@@ -99,7 +99,7 @@ jobs:
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           tests/test_v2_upgrade_v6_successor.py=163abc29f7c2709fdab3851c32fc710b3fcf4ddf
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
-          tests/test_version2_upgrade.py=882f7bcac7d58fce13e84c886084d5396c085a97
+          tests/test_version2_upgrade.py=74e2eb4e5c22efd4f8fc4fc07580298a84494a0b
           tests/test_version2_upgrade_recovery_integrity.py=c4ee3bd0b27ef3e69c81d06e536805da5ed7f20d
           tests/test_version2_upgrade_stale_writer.py=c3967104ec33827a6027ce0f0af1ba5a18a04744
           LOCKS
