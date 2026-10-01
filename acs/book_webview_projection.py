@@ -17,6 +17,10 @@ from .presentation_privacy import redact_local_paths
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 _MAX_BOOKMARK_NAME = 80
+# Accepted TXT/HTML ingress bounds visible content at 12 MiB. Preserve the
+# complete current semantic block up to that release budget instead of silently
+# truncating reader-visible/copyable content to a small UI preview.
+_MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024
 
 _LABELS = {
     UILanguage.UA: {
@@ -28,7 +32,9 @@ _LABELS = {
         "next": "Наступний блок",
         "previous_heading": "Попередній заголовок",
         "next_heading": "Наступний заголовок",
+        "previous_position": "Попередня позиція",
         "next_position": "Наступна позиція",
+        "previous_game": "Попередня партія",
         "next_game": "Наступна партія",
         "bookmark_name": "Назва закладки",
         "save_bookmark": "Зберегти закладку",
@@ -50,7 +56,9 @@ _LABELS = {
         "next": "Next block",
         "previous_heading": "Previous heading",
         "next_heading": "Next heading",
+        "previous_position": "Previous position",
         "next_position": "Next position",
+        "previous_game": "Previous game",
         "next_game": "Next game",
         "bookmark_name": "Bookmark name",
         "save_bookmark": "Save bookmark",
@@ -74,6 +82,33 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
     return text[:limit]
+
+
+def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
+    text = _safe_text(
+        value,
+        language=language,
+        limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+    )
+    if len(text) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+        raise ValueError("book presentation block exceeds the visible-text budget")
+    return text
+
+
+def _safe_visible_list_items(
+    values: tuple[str, ...],
+    *,
+    language: UILanguage,
+) -> tuple[str, ...]:
+    rendered: list[str] = []
+    total = 0
+    for value in values:
+        item = _safe_visible_block_text(value, language=language)
+        total += len(item)
+        if total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+            raise ValueError("book presentation list exceeds the visible-text budget")
+        rendered.append(item)
+    return tuple(rendered)
 
 
 def _bookmark_name(value: object) -> str:
@@ -122,6 +157,12 @@ class BookWebViewProjection:
         """Return the transient bookmark input value for transaction rollback."""
         return self._last_bookmark
 
+    def _result_announcement(self, key: str) -> str:
+        """Return one localized deterministic success result for the Books surface."""
+        if key not in {"saved", "restored", "opened", "returned"}:
+            raise ValueError("unsupported book result announcement")
+        return _LABELS[self._language][key]
+
     def restore_bookmark_name(self, name: object) -> None:
         """Restore previously validated transient bookmark input state."""
         self._last_bookmark = _bookmark_name(name)
@@ -148,9 +189,27 @@ class BookWebViewProjection:
         ):
             raise ValueError("book heading level is invalid")
         role = str(block.role)
-        if role not in {"heading", "paragraph", "img", "group", "tree", "note"}:
+        if role not in {"heading", "paragraph", "img", "group", "tree", "note", "list"}:
             raise ValueError("book block role is invalid")
+        if type(block.list_items) is not tuple or any(
+            type(item) is not str or not item.strip() for item in block.list_items
+        ):
+            raise ValueError("book list items are invalid")
+        if type(block.list_ordered) is not bool:
+            raise ValueError("book list ordered flag is invalid")
+        if block.list_start is not None and (
+            type(block.list_start) is not int or block.list_start < 1
+        ):
+            raise ValueError("book list start is invalid")
+        if block.list_start is not None and not block.list_ordered:
+            raise ValueError("book list start requires an ordered list")
+        if role == "list":
+            if not block.list_items:
+                raise ValueError("book list must contain items")
+        elif block.list_items or block.list_ordered or block.list_start is not None:
+            raise ValueError("non-list book block contains list metadata")
         labels = _LABELS[self._language]
+        navigation = self._presenter.navigation_availability()
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
@@ -161,7 +220,22 @@ class BookWebViewProjection:
                 "kind": _safe_text(block.kind, language=self._language, limit=80),
                 "role": role,
                 "title": _safe_text(block.title, language=self._language, limit=360),
-                "text": _safe_text(block.text, language=self._language, limit=8000),
+                "text": _safe_visible_block_text(
+                    block.text,
+                    language=self._language,
+                ),
+                "list": (
+                    {
+                        "items": _safe_visible_list_items(
+                            block.list_items,
+                            language=self._language,
+                        ),
+                        "ordered": block.list_ordered,
+                        "start": block.list_start,
+                    }
+                    if role == "list"
+                    else None
+                ),
                 "heading_level": block.heading_level,
                 # Raw FEN stays in Python/presenter and is never serialized to browser.
                 "has_position": block.position_fen is not None,
@@ -175,12 +249,14 @@ class BookWebViewProjection:
                 "warning": _safe_text(block.warning, language=self._language, limit=1000),
             },
             "actions": (
-                {"command": "book.previous", "label": labels["previous"], "enabled": block.index > 0},
-                {"command": "book.next", "label": labels["next"], "enabled": True},
-                {"command": "book.previous_heading", "label": labels["previous_heading"], "enabled": block.index > 0},
-                {"command": "book.next_heading", "label": labels["next_heading"], "enabled": True},
-                {"command": "book.next_position", "label": labels["next_position"], "enabled": True},
-                {"command": "book.next_game", "label": labels["next_game"], "enabled": True},
+                {"command": "book.previous", "label": labels["previous"], "enabled": navigation["previous"]},
+                {"command": "book.next", "label": labels["next"], "enabled": navigation["next"]},
+                {"command": "book.previous_heading", "label": labels["previous_heading"], "enabled": navigation["previous_heading"]},
+                {"command": "book.next_heading", "label": labels["next_heading"], "enabled": navigation["next_heading"]},
+                {"command": "book.previous_position", "label": labels["previous_position"], "enabled": navigation["previous_position"]},
+                {"command": "book.next_position", "label": labels["next_position"], "enabled": navigation["next_position"]},
+                {"command": "book.previous_game", "label": labels["previous_game"], "enabled": navigation["previous_game"]},
+                {"command": "book.next_game", "label": labels["next_game"], "enabled": navigation["next_game"]},
                 {"command": "book.open_position", "label": labels["open_position"], "enabled": block.position_fen is not None},
                 {"command": "book.return_from_board", "label": labels["return_from_board"], "enabled": True},
             ),
@@ -223,20 +299,26 @@ class BookWebViewProjection:
     def next_position(self) -> BookWebViewEvent:
         return self._render(self._presenter.next_position())
 
+    def previous_position(self) -> BookWebViewEvent:
+        return self._render(self._presenter.previous_position())
+
     def next_game(self) -> BookWebViewEvent:
         return self._render(self._presenter.next_game())
+
+    def previous_game(self) -> BookWebViewEvent:
+        return self._render(self._presenter.previous_game())
 
     def save_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
         block = self._presenter.bookmark(token)
         self._last_bookmark = token
-        return self._render(block, announcement=_LABELS[self._language]["saved"])
+        return self._render(block, announcement=self._result_announcement("saved"))
 
     def restore_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
         block = self._presenter.restore_bookmark(token)
         self._last_bookmark = token
-        return self._render(block, announcement=_LABELS[self._language]["restored"])
+        return self._render(block, announcement=self._result_announcement("restored"))
 
     def open_position(self) -> BookWebViewEvent:
         # Presenter supplies FEN directly to the canonical dispatcher. Discard the
@@ -244,12 +326,12 @@ class BookWebViewProjection:
         self._presenter.open_current_position(self._dispatch)
         return BookWebViewEvent(
             "delegated",
-            {"action": "book.open_position", "announcement": _LABELS[self._language]["opened"]},
+            {"action": "book.open_position", "announcement": self._result_announcement("opened")},
         )
 
     def return_from_board(self) -> BookWebViewEvent:
         block = self._presenter.return_from_board()
-        return self._render(block, announcement=_LABELS[self._language]["returned"])
+        return self._render(block, announcement=self._result_announcement("returned"))
 
     def generic_error(self) -> BookWebViewEvent:
         return BookWebViewEvent(
