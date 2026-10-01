@@ -1,0 +1,78 @@
+name: Local Profile Identity Contract
+
+on:
+  push:
+    branches:
+      - work/local-profile-identity-foundation-20260929
+  pull_request:
+    paths:
+      - "acs/local_profile.py"
+      - "tests/test_local_profile.py"
+      - ".github/workflows/local-profile-identity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-profile-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-profile:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact candidate and pull-request scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+          echo "LOCAL_PROFILE_IDENTITY_EXACT_HEAD=$expected"
+
+          if test '${{ github.event_name }}' = 'pull_request'; then
+            event_base='${{ github.event.pull_request.base.sha }}'
+            base_ref='${{ github.event.pull_request.base.ref }}'
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "${event_base}^{commit}"
+            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+            live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            mapfile -t changed < <(git diff --name-only "$live_base" HEAD)
+            printf '%s\n' "${changed[@]}"
+            allowed='^(acs/local_profile\.py|tests/test_local_profile\.py|\.github/workflows/local-profile-identity\.yml)$'
+            for path in "${changed[@]}"; do
+              if [[ ! "$path" =~ $allowed ]]; then
+                echo "Unexpected path in local-profile identity scope: $path" >&2
+                exit 1
+              fi
+            done
+            test "${#changed[@]}" -eq 3
+            git diff --check "$live_base" HEAD
+            echo "LOCAL_PROFILE_IDENTITY_EVENT_BASE=$event_base"
+            echo "LOCAL_PROFILE_IDENTITY_LIVE_BASE=$live_base"
+            echo "LOCAL_PROFILE_IDENTITY_SCOPE=EXACT_THREE_PATHS"
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile identity boundary
+        run: python -m py_compile acs/local_profile.py tests/test_local_profile.py
+
+      - name: Run focused local-profile contract
+        run: python -m unittest -v tests.test_local_profile
