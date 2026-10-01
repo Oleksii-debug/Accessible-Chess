@@ -178,27 +178,46 @@ class _Builder:
         elif len(self.warnings) == MAX_TEXT_WARNINGS:
             self.warnings.append("additional text import warnings were suppressed")
 
-    def paragraph(self, text: str, line: int) -> None:
+    def paragraph(
+        self,
+        text: str,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Paragraph(
                 text=text,
-                block_id=self._id("Paragraph", text),
+                block_id=self._id("Paragraph", identity),
                 source_anchor=f"line:{line}",
             )
         )
 
-    def heading(self, text: str, level: int, line: int) -> None:
+    def heading(
+        self,
+        text: str,
+        level: int,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Heading(
                 text=text,
                 level=level,
-                block_id=self._id("Heading", f"{level}\0{text}"),
+                block_id=self._id("Heading", f"{level}\0{identity}"),
                 source_anchor=f"line:{line}",
             )
         )
@@ -325,13 +344,67 @@ class _Builder:
         self.pgn_games += 1
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
+_LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+
+
+def _iter_semantic_images(line: str):
+    """Yield unescaped inline images outside conservative backtick literals.
+
+    This is deliberately a bounded, single-pass recognizer rather than a second
+    Markdown parser. Escaped punctuation and backtick-delimited text stay
+    readable source text. If a backtick run is never closed, the rest of the
+    line is conservatively treated as literal instead of inventing semantics.
+    """
+
+    index = 0
+    code_ticks = 0
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if char == "`":
+            end = index + 1
+            while end < length and line[end] == "`":
+                end += 1
+            run_length = end - index
+            if code_ticks == 0:
+                code_ticks = run_length
+            elif run_length == code_ticks:
+                code_ticks = 0
+            index = end
+            continue
+        if code_ticks:
+            # Backslashes are literal inside a code span; they must not escape
+            # the matching closing backtick run.
+            index += 1
+            continue
+        if char == "\\":
+            index = min(length, index + 2)
+            continue
+        match = _IMAGE_RE.match(line, index)
+        if match is not None:
+            yield match
+            index = match.end()
+            continue
+        index += 1
+
+
+def _is_fence_close(line: str, marker: str) -> bool:
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    if leading_spaces > 3:
+        return False
+    candidate = line[leading_spaces:].rstrip(" \t")
+    return (
+        len(candidate) >= len(marker)
+        and bool(candidate)
+        and set(candidate) == {marker[0]}
+    )
 
 
 def _parse_txt(text: str, builder: _Builder) -> None:
@@ -391,7 +464,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             closed = False
             while index < len(lines):
                 current = lines[index]
-                if current.strip() and current.strip()[0] == marker[0] and len(current.strip()) >= len(marker) and set(current.strip()) == {marker[0]}:
+                if _is_fence_close(current, marker):
                     closed = True
                     break
                 body_lines.append(current)
@@ -422,7 +495,18 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
-            builder.heading(heading.group(2), len(heading.group(1)), number)
+            legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
+            identity_text = (
+                legacy_heading.group(2)
+                if legacy_heading is not None
+                else heading.group(2)
+            )
+            builder.heading(
+                heading.group(2),
+                len(heading.group(1)),
+                number,
+                identity_text=identity_text,
+            )
             index += 1
             continue
 
@@ -431,16 +515,47 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        images = _IMAGE_RE.findall(line)
-        if images:
+        image_matches = _iter_semantic_images(line)
+        first_image = next(image_matches, None)
+        if first_image is not None:
             flush()
-            for alt in images:
-                alt = alt.strip()
+            # Before this source-order repair, all regex-shaped image Notes were
+            # appended first and one combined Paragraph containing the remaining
+            # prose was appended last. Keep that historical Paragraph identity
+            # while recognizing only unescaped images outside literal code now.
+            legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
+            legacy_identity_available = legacy_paragraph_identity is not None
+            cursor = 0
+            match = first_image
+            while match is not None:
+                leading = line[cursor:match.start()].strip()
+                if leading:
+                    builder.paragraph(
+                        leading,
+                        number,
+                        identity_text=(
+                            legacy_paragraph_identity
+                            if legacy_identity_available
+                            else None
+                        ),
+                    )
+                    legacy_identity_available = False
+                alt = match.group(1).strip()
                 if alt:
                     builder.image_note(alt, number)
-            remaining = _IMAGE_RE.sub("", line).strip()
-            if remaining:
-                builder.paragraph(remaining, number)
+                cursor = match.end()
+                match = next(image_matches, None)
+            trailing = line[cursor:].strip()
+            if trailing:
+                builder.paragraph(
+                    trailing,
+                    number,
+                    identity_text=(
+                        legacy_paragraph_identity
+                        if legacy_identity_available
+                        else None
+                    ),
+                )
             index += 1
             continue
 
