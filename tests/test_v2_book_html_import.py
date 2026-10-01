@@ -394,7 +394,7 @@ class BookHtmlImportTests(unittest.TestCase):
             reopened_game = reopened.next_game()
             self.assertEqual(reopened_game.block_id, game_location.block_id)
 
-    def test_text_boundary_workflow_qualifies_on_stacked_malformed_content_base(self) -> None:
+    def test_text_boundary_workflow_qualifies_only_against_canonical_product_target(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
             / ".github"
@@ -403,6 +403,10 @@ class BookHtmlImportTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
+            "      - work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertNotIn(
             "      - fix/book-html-duplicate-fen-marker-20260929",
             workflow,
         )
