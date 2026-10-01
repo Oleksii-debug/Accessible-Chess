@@ -634,7 +634,7 @@ class Version2UpgradeCoordinator:
             .casefold(),
         ):
             relative = _relative(self.layout.root, path)
-            if PurePosixPath(relative).parts[0] in _CONTROL_NAMES:
+            if relative in _CONTROL_NAMES:
                 continue
             folded = relative.casefold()
             if folded in seen:

@@ -373,6 +373,32 @@ class Version2UpgradeTests(unittest.TestCase):
             self.assertNotIn("profile.json.lock", paths)
             self.assertFalse((backup / "data" / "profile.json.lock").exists())
             self.assertTrue(profile_lock.exists())
+    def test_profile_lock_named_directory_is_preserved_as_user_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+            lock_named_directory = root / "profile.json.lock"
+            lock_named_directory.mkdir()
+            payload = lock_named_directory / "keep.bin"
+            payload.write_bytes(b"user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = coordinator._files()
+
+            self.assertIn(payload, files)
+            backup, manifest = coordinator._create_backup("profile-lock-directory")
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+            paths = {item["path"] for item in entries}
+            self.assertIn("profile.json.lock/keep.bin", paths)
+            self.assertEqual(
+                (backup / "data" / "profile.json.lock" / "keep.bin").read_bytes(),
+                b"user-data",
+            )
     def test_interrupted_recovery_never_restores_profile_mutation_lock(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
