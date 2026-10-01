@@ -124,16 +124,20 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertIn("function AssertVisibleTextRange", self.text)
         self.assertIn("$Range.GetBoundingRectangles()", self.text)
         self.assertIn("$Range.GetEnclosingElement()", self.text)
-        self.assertIn("$enclosing.Current.IsOffscreen", self.text)
-        self.assertIn("$enclosing.Current.BoundingRectangle", self.text)
+        self.assertIn("function AssertVisibleTextRange($Range,$TargetElement)", self.text)
+        self.assertIn("$visibilityElements.Add($enclosing)", self.text)
+        self.assertIn("$visibilityElements.Add($TargetElement)", self.text)
+        self.assertIn("$element.Current.IsOffscreen", self.text)
+        self.assertIn("$element.Current.BoundingRectangle", self.text)
         self.assertIn("return 'text-range'", self.text)
         self.assertIn("return 'enclosing-element'", self.text)
+        self.assertIn("return 'target-element'", self.text)
         self.assertIn("$target.ScrollIntoView($true)", self.text)
-        self.assertIn("$visibilityEvidence=AssertVisibleTextRange $target", self.text)
+        self.assertIn("$visibilityEvidence=AssertVisibleTextRange $target $usableDocuments[0].target_element", self.text)
         self.assertIn("static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')", self.text)
         self.assertIn("static_text_visibility_evidence=$visibilityEvidence", self.text)
         self.assertLess(
-            self.text.index("$visibilityEvidence=AssertVisibleTextRange $target"),
+            self.text.index("$visibilityEvidence=AssertVisibleTextRange $target $usableDocuments[0].target_element"),
             self.text.index("$target.Select()"),
         )
         self.assertIn("$target.Select()", self.text)
@@ -172,11 +176,17 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
 
     def test_visibility_fallback_keeps_provider_geometry_fail_closed(self) -> None:
         self.assertIn("catch {$rectangles=@()}", self.text)
-        self.assertIn("if([bool]$enclosing.Current.IsOffscreen)", self.text)
-        self.assertIn("if($width -le 0 -or $height -le 0)", self.text)
-        self.assertIn("no positive-area bounding rectangle", self.text)
+        self.assertIn("target_element=$namedTargets[0]", self.text)
+        self.assertIn("$visibilityElements=New-Object 'System.Collections.Generic.List[object]'", self.text)
+        self.assertIn("if($null -ne $enclosing){[void]$visibilityElements.Add($enclosing)}", self.text)
+        self.assertIn("if($null -ne $TargetElement){[void]$visibilityElements.Add($TargetElement)}", self.text)
+        self.assertIn("if([bool]$element.Current.IsOffscreen){continue}", self.text)
+        self.assertIn("$bounds=$element.Current.BoundingRectangle", self.text)
+        self.assertIn("if($width -gt 0 -and $height -gt 0)", self.text)
+        self.assertIn("return 'target-element'", self.text)
+        self.assertIn("no onscreen positive-area UIA element", self.text)
         self.assertLess(
-            self.text.index("$visibilityEvidence=AssertVisibleTextRange $target"),
+            self.text.index("$visibilityEvidence=AssertVisibleTextRange $target $usableDocuments[0].target_element"),
             self.text.index("$target.Select()"),
         )
         self.assertIn("$activeSelection.CompareEndpoints(", self.text)
