@@ -271,27 +271,30 @@ function AssertVisibleTextRange($Range,$TargetElement) {
   # requiring the range's enclosing UIA element to be onscreen with positive
   # geometry after ScrollIntoView. Selection endpoints and native clipboard
   # equality remain independently decisive below.
-  $visibilityElements=New-Object 'System.Collections.Generic.List[object]'
-  try {
-    $enclosing=$Range.GetEnclosingElement()
-    if($null -ne $enclosing){[void]$visibilityElements.Add($enclosing)}
-  } catch {}
-  if($null -ne $TargetElement){[void]$visibilityElements.Add($TargetElement)}
-
-  foreach($element in @($visibilityElements)){
+  $enclosing=$null
+  try {$enclosing=$Range.GetEnclosingElement()} catch {$enclosing=$null}
+  if($null -ne $enclosing){
     try {
-      if([bool]$element.Current.IsOffscreen){continue}
-      $bounds=$element.Current.BoundingRectangle
-      $width=[double]$bounds.Width
-      $height=[double]$bounds.Height
-      if($width -gt 0 -and $height -gt 0){
-        if($element -eq $TargetElement){return 'target-element'}
-        return 'enclosing-element'
+      if(-not [bool]$enclosing.Current.IsOffscreen){
+        $bounds=$enclosing.Current.BoundingRectangle
+        $width=[double]$bounds.Width
+        $height=[double]$bounds.Height
+        if($width -gt 0 -and $height -gt 0){return 'enclosing-element'}
       }
-    } catch {
-      continue
-    }
+    } catch {}
   }
+
+  if($null -ne $TargetElement){
+    try {
+      if(-not [bool]$TargetElement.Current.IsOffscreen){
+        $bounds=$TargetElement.Current.BoundingRectangle
+        $width=[double]$bounds.Width
+        $height=[double]$bounds.Height
+        if($width -gt 0 -and $height -gt 0){return 'target-element'}
+      }
+    } catch {}
+  }
+
   throw "Static TextPattern target has no onscreen positive-area UIA element for visibility proof"
 }
 
