@@ -48,9 +48,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$expected"
 
           # Event payload base SHAs can be stale after history-preserving
-          # reconvergence. Always scope against the fetched canonical Product
-          # branch, and fail closed if Product has advanced beyond this head.
-          base="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
+          # reconvergence. Explicitly fetch and scope against the canonical
+          # Product branch, then fail closed if Product is not an ancestor.
+          product_ref="work/full-product-teacher-education-reachability-20260911"
+          git fetch --no-tags origin \
+            "refs/heads/$product_ref:refs/remotes/origin/$product_ref"
+          base="$(git rev-parse "refs/remotes/origin/$product_ref")"
           git merge-base --is-ancestor "$base" HEAD
           test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
