@@ -455,6 +455,7 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn('upstream="$live_base"', workflow)
         self.assertIn(
             ".github/workflows/book-html-semantic-marker-integrity.yml|"
+            ".github/workflows/book-html-br-text-integrity.yml|"
             "acs/book_html_import.py|tests/test_v2_book_html_import.py",
             workflow,
         )
