@@ -8,6 +8,14 @@ on:
     paths:
       - "acs/local_profile.py"
       - "tests/test_local_profile.py"
+      - "tests/js/version2_library_open_route_refresh_dom_test.js"
+      - "tests/js/version2_release_bootstrap_dom_test.js"
+      - "tests/test_v2_native_dialog_language.py"
+      - "tests/test_version2_composition_publication_boundary.py"
+      - "tests/test_version2_composition_startup_cleanup.py"
+      - "tests/test_version2_composition_startup_cleanup_current.py"
+      - "tests/test_version2_release_accessibility_contract.py"
+      - "tests/test_w6_v2_language_owner_current.py"
       - ".github/workflows/local-profile-identity.yml"
   workflow_dispatch:
 
@@ -51,20 +59,51 @@ jobs:
             git merge-base --is-ancestor "$event_base" "$live_base"
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-            mapfile -t changed < <(git diff --name-only "$live_base" HEAD)
-            printf '%s\n' "${changed[@]}"
-            allowed='^(acs/local_profile\.py|tests/test_local_profile\.py|\.github/workflows/local-profile-identity\.yml)$'
-            for path in "${changed[@]}"; do
-              if [[ ! "$path" =~ $allowed ]]; then
-                echo "Unexpected path in local-profile identity scope: $path" >&2
-                exit 1
-              fi
-            done
-            test "${#changed[@]}" -eq 3
+            changed="$(git diff --name-only "$live_base" HEAD | sort)"
+            if test "$base_ref" = 'feature/local-profile-first-launch-ui-20260929'; then
+              expected_paths="$(printf '%s\n' \
+                '.github/workflows/local-profile-first-launch-ui.yml' \
+                '.github/workflows/p0-release-critical-triad-convergence.yml' \
+                '.github/workflows/local-profile-identity.yml' \
+                'acs/local_profile.py' \
+                'tests/js/version2_library_open_route_refresh_dom_test.js' \
+                'tests/js/version2_release_bootstrap_dom_test.js' \
+                'tests/test_local_profile.py' \
+                'tests/test_p0_release_critical_triad_convergence.py' \
+                'tests/test_v2_native_dialog_language.py' \
+                'tests/test_version2_composition_publication_boundary.py' \
+                'tests/test_version2_composition_startup_cleanup.py' \
+                'tests/test_version2_composition_startup_cleanup_current.py' \
+                'tests/test_version2_local_profile_ui_contract.py' \
+                'tests/test_version2_release_accessibility_contract.py' \
+                'tests/test_w6_v2_language_owner_current.py' | sort)"
+              scope='EXACT_MUTATION_SUCCESSOR_FIFTEEN_PATHS'
+            elif test "$base_ref" = 'work/local-profile-identity-foundation-20260929'; then
+              expected_paths="$(printf '%s\n' \
+                '.github/workflows/local-profile-first-launch-ui.yml' \
+                '.github/workflows/local-profile-identity.yml' \
+                '.github/workflows/p0-release-critical-triad-convergence.yml' \
+                'acs/local_profile.py' \
+                'acs/version2_local_profile_api.py' \
+                'acs/version2_release_app.py' \
+                'tests/test_local_profile.py' \
+                'tests/test_p0_release_critical_triad_convergence.py' \
+                'tests/test_version2_local_profile_api.py' \
+                'tests/test_version2_local_profile_ui_contract.py' \
+                'web/version2_release_bootstrap.js' | sort)"
+              scope='EXACT_ROOT_ELEVEN_PATHS'
+            else
+              printf 'Unexpected local-profile identity base: %s\n' "$base_ref" >&2
+              exit 1
+            fi
+            test "$changed" = "$expected_paths" || {
+              printf 'Unexpected local-profile identity scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
             git diff --check "$live_base" HEAD
             echo "LOCAL_PROFILE_IDENTITY_EVENT_BASE=$event_base"
             echo "LOCAL_PROFILE_IDENTITY_LIVE_BASE=$live_base"
-            echo "LOCAL_PROFILE_IDENTITY_SCOPE=EXACT_THREE_PATHS"
+            echo "LOCAL_PROFILE_IDENTITY_SCOPE=$scope"
           fi
 
       - uses: actions/setup-python@v5
