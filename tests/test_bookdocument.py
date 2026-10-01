@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 
 from acs.bookdocument import (
@@ -127,6 +128,36 @@ class BookDocumentTests(unittest.TestCase):
         self.assertEqual(
             blocks_error.exception.code,
             BookDocumentErrorCode.INVALID_FIELD,
+        )
+
+    def test_bookdocument_gate_late_binds_live_product_for_push_and_pr(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "bookdocument-constructor-semantic-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PRODUCT_REF: work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
+        self.assertIn(
+            '"refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
+            workflow,
+        )
+        self.assertIn(
+            'upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$upstream"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$upstream" HEAD)" = "$upstream"',
+            workflow,
         )
 
     def test_diagram_requires_accessibility_warning_when_alt_missing(self):
