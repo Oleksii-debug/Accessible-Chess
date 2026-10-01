@@ -394,6 +394,27 @@ class BookHtmlImportTests(unittest.TestCase):
             reopened_game = reopened.next_game()
             self.assertEqual(reopened_game.block_id, game_location.block_id)
 
+    def test_text_boundary_workflow_qualifies_on_stacked_malformed_content_base(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "book-html-br-text-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "      - fix/book-html-duplicate-fen-marker-20260929",
+            workflow,
+        )
+        self.assertIn(
+            '"refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"',
+            workflow,
+        )
+        self.assertIn(
+            'upstream="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"',
+            workflow,
+        )
+
     def test_semantic_marker_workflow_uses_live_inherited_product_base(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
