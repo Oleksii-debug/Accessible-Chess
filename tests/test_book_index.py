@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 
 from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex
@@ -165,6 +166,43 @@ class BookIndexTests(unittest.TestCase):
                 with self.assertRaisesRegex(TypeError, "Search kinds"):
                     index.find("model", kinds=kinds)  # type: ignore[arg-type]
 
+    def test_find_reuses_canonical_nfkc_casefold_search_semantics(self):
+        document = BookDocument(
+            title="Unicode search",
+            blocks=[
+                Heading(text="Café strategy", level=1, block_id="accent"),
+                Paragraph(text="ＦＩＡＮＣＨＥＴＴＯ plan", block_id="compatibility"),
+            ],
+        )
+        index = BookIndex(document)
+
+        decomposed = index.find("Cafe\u0301")
+        self.assertEqual([entry.target.key for entry in decomposed], ["block:accent"])
+
+        compatibility = index.find("fianchetto")
+        self.assertEqual(
+            [entry.target.key for entry in compatibility],
+            ["block:compatibility"],
+        )
+
+    def test_find_reuses_canonical_query_whitespace_and_length_policy(self):
+        document = BookDocument(
+            title="Query policy",
+            blocks=[
+                Heading(text="Open file strategy", level=1, block_id="spacing"),
+            ],
+        )
+        index = BookIndex(document)
+
+        spaced = index.find("  Open   file   strategy  ")
+        self.assertEqual(
+            [entry.target.key for entry in spaced],
+            ["block:spacing"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "maximum search term length"):
+            index.find("x" * 257)
+
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
         for value in (None, 7, True, b"model"):
@@ -182,6 +220,28 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(TypeError, "must be an integer"):
                     index.contents(max_heading_level=value)  # type: ignore[arg-type]
+
+    def test_snapshot_gate_explicitly_fetches_live_product_ref(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "v2-book-index-snapshot-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'product_ref="work/full-product-teacher-education-reachability-20260911"',
+            workflow,
+        )
+        self.assertIn(
+            '"refs/heads/$product_ref:refs/remotes/origin/$product_ref"',
+            workflow,
+        )
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$product_ref")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
 
 
 if __name__ == "__main__":
