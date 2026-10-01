@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
 
 from acs.keybindings import ActionRegistry
+from acs.ui_keymap_service import KeymapService
 from acs.version2_profile import build_version2_action_registry
 from acs.version2_release_app import (
     _install_host_confirmed_document,
@@ -62,22 +64,84 @@ class Version2ReleaseAppTests(unittest.TestCase):
         self.assertEqual(application.confirm_calls, 0)
 
     def test_shared_v2_registry_preserves_stage1_user_remaps(self) -> None:
-        stage1 = ActionRegistry()
-        stage1.set_binding("board.current", "Ctrl+F12")
-        stage1.set_alias("move.undo", "back")
-        api = SimpleNamespace(
-            keymap_service=SimpleNamespace(editor=SimpleNamespace(registry=stage1))
-        )
-        v2 = build_version2_action_registry()
-        application = SimpleNamespace(adapter=SimpleNamespace(registry=v2))
+        with tempfile.TemporaryDirectory() as temp:
+            service = KeymapService(Path(temp) / "keymap.json")
+            service.editor.registry.set_binding("board.current", "Ctrl+F12")
+            service.editor.registry.set_alias("move.undo", "back")
+            api = SimpleNamespace(keymap_service=service)
+            v2 = build_version2_action_registry()
+            application = SimpleNamespace(adapter=SimpleNamespace(registry=v2))
 
-        shared = _share_v2_action_registry(api, application)
+            shared = _share_v2_action_registry(api, application)
 
-        self.assertIs(shared, v2)
-        self.assertIs(api.keymap_service.editor.registry, v2)
-        self.assertEqual(v2.get_binding("board.current"), "Ctrl+F12")
-        self.assertEqual(v2.get_alias("move.undo"), "back")
-        self.assertIsNotNone(v2.definition("screen.library"))
+            self.assertIs(shared, v2)
+            self.assertIs(api.keymap_service.editor.registry, v2)
+            self.assertEqual(v2.get_binding("board.current"), "Ctrl+F12")
+            self.assertEqual(v2.get_alias("move.undo"), "back")
+            self.assertIsNotNone(v2.definition("screen.library"))
+
+    def test_full_product_keymap_remap_survives_release_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            profile = Path(temp) / "keymap.json"
+
+            first_service = KeymapService(profile)
+            first_v2 = build_version2_action_registry()
+            _share_v2_action_registry(
+                SimpleNamespace(keymap_service=first_service),
+                SimpleNamespace(adapter=SimpleNamespace(registry=first_v2)),
+            )
+            self.assertTrue(first_service.save("pgn.next_item", "J")["ok"])
+            self.assertEqual(first_v2.get_binding("pgn.next_item"), "J")
+
+            restarted_service = KeymapService(profile)
+            restarted_v2 = build_version2_action_registry()
+            shared = _share_v2_action_registry(
+                SimpleNamespace(keymap_service=restarted_service),
+                SimpleNamespace(adapter=SimpleNamespace(registry=restarted_v2)),
+            )
+
+            self.assertIs(shared, restarted_v2)
+            self.assertEqual(restarted_v2.get_binding("pgn.next_item"), "J")
+            self.assertIsNone(
+                restarted_v2.resolve_binding(
+                    restarted_v2.definition("pgn.next_item").context,
+                    "Down",
+                )
+            )
+            snapshot = restarted_service.snapshot()
+            rows = {item["id"]: item for item in snapshot["actions"]}
+            self.assertEqual(rows["pgn.next_item"]["binding"], "J")
+            self.assertEqual(rows["pgn.next_item"]["context"], "pgn_tree")
+
+    def test_full_product_keymap_swap_rebind_is_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            profile = Path(temp) / "keymap.json"
+            source = build_version2_action_registry()
+            payload = source.to_profile()
+            payload["bindings"]["pgn.previous_item"] = "Down"
+            payload["bindings"]["pgn.next_item"] = "Up"
+            profile.write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            restarted_service = KeymapService(profile)
+            restarted_v2 = build_version2_action_registry()
+            shared = _share_v2_action_registry(
+                SimpleNamespace(keymap_service=restarted_service),
+                SimpleNamespace(adapter=SimpleNamespace(registry=restarted_v2)),
+            )
+
+            self.assertIs(shared, restarted_v2)
+            context = restarted_v2.definition("pgn.previous_item").context
+            self.assertEqual(
+                restarted_v2.resolve_binding(context, "Down").action_id,
+                "pgn.previous_item",
+            )
+            self.assertEqual(
+                restarted_v2.resolve_binding(context, "Up").action_id,
+                "pgn.next_item",
+            )
 
     def test_custom_settings_and_library_share_one_v2_data_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
