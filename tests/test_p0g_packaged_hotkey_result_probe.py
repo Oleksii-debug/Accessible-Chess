@@ -33,6 +33,16 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
             self.text.index("Start-Process -FilePath $exe"),
         )
 
+    def test_checksum_counter_does_not_collide_with_powershell_matches_automatic_variable(self) -> None:
+        # PowerShell variable names are case-insensitive. The -cmatch operator
+        # writes the automatic $Matches hashtable, so a local $matches counter
+        # becomes a Hashtable and $matches++ crashes the real packaged probe.
+        self.assertIn("$checksumMatchCount=0", self.text)
+        self.assertIn("$checksumMatchCount++", self.text)
+        self.assertIn("if($checksumMatchCount -ne 1 -or -not $checksum)", self.text)
+        self.assertNotIn("$matches=0", self.text.lower())
+        self.assertNotIn("$matches++", self.text.lower())
+
     def test_probe_has_one_package_binding_and_one_executable_control_flow(self) -> None:
         self.assertEqual(1, self.text.count("function AssertExactPackageBinding"))
         self.assertEqual(1, self.text.count("function AssertLauncherFocus"))
