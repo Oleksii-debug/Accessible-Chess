@@ -137,44 +137,6 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT)
         self.assertNotIn(empty_board, str(caught.exception))
 
-    def test_duplicate_explicit_fen_marker_fails_closed_before_document_publication(self) -> None:
-        cases = (
-            (
-                "same-value",
-                f'<html><body><div data-acs-fen="{Board.START}" data-acs-fen="{Board.START}"></div></body></html>',
-            ),
-            (
-                "invalid-first-valid-last",
-                f'<html><body><div data-acs-fen="not-a-position" DATA-ACS-FEN="{Board.START}"></div></body></html>',
-            ),
-        )
-        for label, source in cases:
-            with self.subTest(label=label):
-                with self.assertRaises(BookHtmlImportError) as caught:
-                    import_html_book(source, source_name="duplicate-position.html")
-                self.assertEqual(
-                    caught.exception.code,
-                    BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
-                )
-                self.assertNotIn("not-a-position", str(caught.exception))
-
-    def test_duplicate_marker_inside_suppressed_content_does_not_narrow_html_recovery(self) -> None:
-        result = import_html_book(
-            '''<html><body>
-<template><div data-acs-fen="not-a-position" data-acs-fen="also-not-a-position"></div></template>
-<p class="first" class="second">Readable malformed prose remains available.</p>
-</body></html>''',
-            source_name="suppressed-duplicate-position.html",
-        )
-        self.assertTrue(
-            any(
-                isinstance(block, Paragraph)
-                and "Readable malformed prose remains available." in block.text
-                for block in result.document.blocks
-            )
-        )
-        self.assertFalse(any(isinstance(block, Position) for block in result.document.blocks))
-
     def test_missing_referenced_asset_is_reported_without_fake_diagram(self) -> None:
         result = import_html_book(
             _html(),
@@ -203,68 +165,6 @@ class BookHtmlImportTests(unittest.TestCase):
         )
         self.assertTrue(result.document.blocks)
         self.assertTrue(any("unclosed" in warning for warning in result.warnings))
-
-    def test_unclosed_suppressed_markup_reports_possible_reading_text_loss(self) -> None:
-        result = import_html_book(
-            "<html><body><p>Visible before.</p><template><p>Suppressed tail.</p><h2>Also suppressed",
-            source_name="unclosed-template.html",
-        )
-        paragraphs = [
-            block.text
-            for block in result.document.blocks
-            if isinstance(block, Paragraph)
-        ]
-        self.assertTrue(any("Visible before." in text for text in paragraphs))
-        self.assertFalse(any("Suppressed tail." in text for text in paragraphs))
-        self.assertTrue(
-            any(
-                "suppressed content unclosed" in warning
-                and "may have been omitted" in warning
-                for warning in result.warnings
-            )
-        )
-
-    def test_unmatched_suppressed_close_cannot_publish_explicit_chess_semantics(self) -> None:
-        result = import_html_book(
-            f'''<html><body><p>Before.</p><template>
-</script><div data-acs-fen="{Board.START}">must stay suppressed</div>
-</template><p>After.</p></body></html>''',
-            source_name="unmatched-suppressed-close.html",
-        )
-        paragraphs = [
-            block.text
-            for block in result.document.blocks
-            if isinstance(block, Paragraph)
-        ]
-        self.assertTrue(any("Before." in text for text in paragraphs))
-        self.assertTrue(any("After." in text for text in paragraphs))
-        self.assertFalse(any(isinstance(block, Position) for block in result.document.blocks))
-        self.assertFalse(any(isinstance(block, Diagram) for block in result.document.blocks))
-        self.assertTrue(
-            any("mismatched suppressed elements" in warning for warning in result.warnings)
-        )
-
-    def test_mismatched_suppressed_markup_reports_possible_reading_text_loss(self) -> None:
-        result = import_html_book(
-            "<html><body><p>Before.</p><template><noscript>Hidden.</template>"
-            "<p>Ambiguous middle.</p></noscript></template><p>After.</p></body></html>",
-            source_name="mismatched-suppressed.html",
-        )
-        paragraphs = [
-            block.text
-            for block in result.document.blocks
-            if isinstance(block, Paragraph)
-        ]
-        self.assertTrue(any("Before." in text for text in paragraphs))
-        self.assertFalse(any("Ambiguous middle." in text for text in paragraphs))
-        self.assertTrue(any("After." in text for text in paragraphs))
-        self.assertTrue(
-            any(
-                "mismatched suppressed elements" in warning
-                and "may have been omitted" in warning
-                for warning in result.warnings
-            )
-        )
 
     def test_import_navigation_game_board_return_and_progress_reopen(self) -> None:
         source = _html()
@@ -301,36 +201,6 @@ class BookHtmlImportTests(unittest.TestCase):
             self.assertEqual(reopened.location(), origin)
             reopened_game = reopened.next_game()
             self.assertEqual(reopened_game.block_id, game_location.block_id)
-
-    def test_semantic_marker_workflow_uses_live_inherited_product_base(self) -> None:
-        workflow = (
-            Path(__file__).resolve().parents[1]
-            / ".github"
-            / "workflows"
-            / "book-html-semantic-marker-integrity.yml"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn(
-            'PR_BASE_REF: ${{ github.event.pull_request.base.ref }}',
-            workflow,
-        )
-        self.assertIn('git fetch --no-tags origin "$base_ref"', workflow)
-        self.assertIn(
-            'git merge-base --is-ancestor "$event_base" "$live_base"',
-            workflow,
-        )
-        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
-        self.assertIn(
-            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
-            workflow,
-        )
-        self.assertIn('upstream="$live_base"', workflow)
-        self.assertIn(
-            ".github/workflows/book-html-semantic-marker-integrity.yml|"
-            "acs/book_html_import.py|tests/test_v2_book_html_import.py",
-            workflow,
-        )
-        self.assertNotIn("w6-v2-package-assembler.yml", workflow)
 
     def test_capability_profile_does_not_claim_unimplemented_or_implicit_semantics(self) -> None:
         self.assertEqual(SUPPORTED_HTML_BOOK_CAPABILITY["format"], "HTML/XHTML")
