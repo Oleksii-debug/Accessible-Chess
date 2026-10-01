@@ -194,18 +194,29 @@ def resolve_book_game(
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
     try:
-        # Book blocks are mutable authoring objects. Re-run the canonical
-        # BookDocument validator at the application boundary so post-construction
-        # mutation cannot leak raw type errors or invalid reference identities.
-        block.as_dict()
+        # Book blocks are mutable authoring objects. Rebuild one validated
+        # canonical payload and use that snapshot for the entire resolution.
+        # Re-reading the live block after validation would reopen a TOCTOU window:
+        # authoring could change pgn/game_id or presentation metadata while a
+        # lookup/parser callback is in flight.
+        snapshot = block.as_dict()
     except BookDocumentError as exc:
         raise BookGameContentError(
             "book game block is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         ) from exc
+    pgn = snapshot.get("pgn", "")
+    game_id = snapshot.get("game_id")
+    if type(pgn) is not str or (
+        game_id is not None and (type(game_id) is not int or game_id < 0)
+    ):
+        raise BookGameContentError(
+            "book game snapshot is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
     selected = _source(source)
-    has_embedded = bool(block.pgn.strip())
-    has_reference = block.game_id is not None
+    has_embedded = bool(pgn.strip())
+    has_reference = game_id is not None
 
     if selected is BookGameSource.AUTO:
         if has_embedded and has_reference:
@@ -229,15 +240,15 @@ def resolve_book_game(
                 "book game has no embedded PGN",
                 code=BookGameContentErrorCode.EMBEDDED_GAME_MISSING,
             )
-        game = _one_embedded_game(block.pgn)
+        game = _one_embedded_game(pgn)
     elif selected is BookGameSource.REFERENCE:
         if not has_reference:
             raise BookGameContentError(
                 "book game has no referenced game identity",
                 code=BookGameContentErrorCode.REFERENCED_GAME_MISSING,
             )
-        assert block.game_id is not None
-        game = _reference_game(block.game_id, lookup)
+        assert type(game_id) is int
+        game = _reference_game(game_id, lookup)
     else:  # Enum exhaustiveness / defensive future schema boundary.
         raise BookGameContentError(
             "book game source selection is unsupported",
@@ -247,10 +258,10 @@ def resolve_book_game(
     return ResolvedBookGame(
         game=game,
         source=selected,
-        block_id=block.block_id,
-        source_anchor=block.source_anchor,
-        title=block.title,
-        game_id=block.game_id,
+        block_id=snapshot.get("block_id"),
+        source_anchor=snapshot.get("source_anchor"),
+        title=snapshot.get("title"),
+        game_id=game_id,
         warnings=tuple(game.warnings),
     )
 
@@ -294,23 +305,35 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
     # Resolve the root first so root-FEN corruption keeps its precise stable
-    # error code. Then validate the rest of the mutable Book block through the
-    # canonical BookDocument contract before parsing any PGN.
+    # error code. Then take one canonical BookDocument snapshot and consume only
+    # that payload. This closes the post-validation TOCTOU window without adding
+    # a second Book/chess authority.
     preserved_root_fen, canonical_root_fen, root_omits_counters = _canonical_root_fen(
         block.root_fen
     )
     try:
-        block.as_dict()
+        snapshot = block.as_dict()
     except BookDocumentError as exc:
         raise BookGameContentError(
             "book variation block is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         ) from exc
-    # VariationTree is mutable for authoring, so revalidate the live root at this
-    # application boundary. Compare semantic positions canonically instead of raw
-    # strings: BookDocument intentionally accepts equivalent four- and six-field
-    # FEN spellings, while PGN FEN tags normally carry all six fields.
-    game = _one_embedded_game(block.pgn)
+    snapshot_root = snapshot.get("root_fen")
+    pgn = snapshot.get("pgn")
+    if type(snapshot_root) is not str or type(pgn) is not str:
+        raise BookGameContentError(
+            "book variation snapshot is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
+    if snapshot_root != preserved_root_fen:
+        raise BookGameContentError(
+            "book variation changed while its canonical snapshot was captured",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
+    # Compare semantic positions canonically instead of raw strings:
+    # BookDocument intentionally accepts equivalent four- and six-field FEN
+    # spellings, while PGN FEN tags normally carry all six fields.
+    game = _one_embedded_game(pgn)
     tagged_fen = game.tags.get("FEN")
     if tagged_fen is not None:
         try:
@@ -337,8 +360,8 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
     return ResolvedBookVariation(
         root_fen=preserved_root_fen,
         game=game,
-        block_id=block.block_id,
-        source_anchor=block.source_anchor,
-        title=block.title,
+        block_id=snapshot.get("block_id"),
+        source_anchor=snapshot.get("source_anchor"),
+        title=snapshot.get("title"),
         warnings=tuple(game.warnings),
     )
