@@ -87,10 +87,18 @@ jobs:
                 'acs/version2_release_app.py' \
                 'tests/test_local_profile.py' \
                 'tests/test_p0_release_critical_triad_convergence.py' \
+                'tests/js/version2_library_open_route_refresh_dom_test.js' \
+                'tests/js/version2_release_bootstrap_dom_test.js' \
+                'tests/test_v2_native_dialog_language.py' \
+                'tests/test_version2_composition_publication_boundary.py' \
+                'tests/test_version2_composition_startup_cleanup.py' \
+                'tests/test_version2_composition_startup_cleanup_current.py' \
                 'tests/test_version2_local_profile_api.py' \
                 'tests/test_version2_local_profile_ui_contract.py' \
+                'tests/test_version2_release_accessibility_contract.py' \
+                'tests/test_w6_v2_language_owner_current.py' \
                 'web/version2_release_bootstrap.js' | sort)"
-              scope='EXACT_ROOT_ELEVEN_PATHS'
+              scope='EXACT_ROOT_NINETEEN_PATHS'
             else
               printf 'Unexpected local-profile qualification base: %s\n' "$base_ref" >&2
               exit 1
