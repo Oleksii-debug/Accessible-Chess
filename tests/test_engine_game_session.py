@@ -30,6 +30,17 @@ class FakeTime:
         self.value += seconds
 
 
+class SequenceTime:
+    def __init__(self, *values):
+        self.values = list(values)
+        self.last = float(values[-1])
+
+    def __call__(self):
+        if self.values:
+            self.last = float(self.values.pop(0))
+        return self.last
+
+
 class FakeMoveEngine:
     def __init__(self, move='e7e5'):
         self.move = move
@@ -120,6 +131,42 @@ class EngineGameSessionTests(unittest.TestCase):
             session.request_engine_move()
         self.assertEqual(state['moves'], [])
 
+    def test_failed_engine_clock_switch_preserves_lifecycle_requests(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="white",
+            move="e2e4",
+            time_control=TimeControl(10_000, 2_000),
+            now=now,
+        )
+        before = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="b")
+        )
+        self.assertEqual(before.lifecycle.draw_offered_by, "b")
+        clock = session._clock
+        self.assertIsNotNone(clock)
+
+        def fail_switch(_side):
+            raise RuntimeError("engine clock acceptance failed")
+
+        clock.switch_after_move = fail_switch
+
+        with self.assertRaisesRegex(RuntimeError, "engine clock acceptance failed"):
+            session.request_engine_move()
+
+        # The coordinator deliberately leaves canonical Board rollback to its
+        # caller. Prove a move callback happened, then model that rollback before
+        # asking for a coherent cross-owner snapshot.
+        self.assertEqual(state["moves"], ["e2e4"])
+        state["moves"].clear()
+        state["side"] = "w"
+        state["fen"] = "fen-w"
+        state["history"] = "node-0"
+
+        after = session.snapshot()
+        self.assertEqual(after.lifecycle, before.lifecycle)
+        self.assertEqual(after.lifecycle.draw_offered_by, "b")
+
     def test_human_commit_expires_pending_requests_and_advances_turn(self):
         session, snap, state, engine, analysis, review = self.make_session(engine_side='black')
         session.handle_handoff(EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor='w'))
@@ -195,6 +242,37 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertEqual(after.clock.active, 'b')
         self.assertEqual(after.turn_state, EngineTurnState.ENGINE)
 
+    def test_failed_human_clock_switch_preserves_lifecycle_requests(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="black",
+            time_control=TimeControl(10_000, 2_000),
+            now=now,
+        )
+        before = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="w")
+        )
+        self.assertEqual(before.lifecycle.draw_offered_by, "w")
+        clock = session._clock
+        self.assertIsNotNone(clock)
+
+        def fail_switch(_side):
+            raise RuntimeError("clock acceptance failed")
+
+        clock.switch_after_move = fail_switch
+        state["side"] = "b"
+
+        with self.assertRaisesRegex(RuntimeError, "clock acceptance failed"):
+            session.on_human_move_committed("w")
+
+        # The Board owner rejects the just-committed move on this failure path.
+        # Restore its side before asking the coordinator for a coherent snapshot.
+        state["side"] = "w"
+        after = session.snapshot()
+        self.assertEqual(after.lifecycle, before.lifecycle)
+        self.assertEqual(after.lifecycle.draw_offered_by, "w")
+        self.assertEqual(after.side_to_move, "w")
+
     def test_flag_before_engine_move_finishes_without_calling_engine(self):
         now = FakeTime()
         session, snap, state, engine, analysis, review = self.make_session(
@@ -208,6 +286,28 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertEqual(after.lifecycle.status, GameStatus.FINISHED)
         self.assertEqual(after.lifecycle.outcome.reason, EndReason.TIMEOUT)
         self.assertEqual(after.clock.flagged, 'w')
+
+    def test_engine_timeout_during_clock_switch_uses_precommit_position_evidence(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="white",
+            move="e2e4",
+            time_control=TimeControl(1_000),
+            now=now,
+            opponent_can_mate=True,
+        )
+        session._clock._now = SequenceTime(100.0, 100.0, 100.0, 102.0)
+
+        with self.assertRaisesRegex(ValueError, "engine move acceptance"):
+            session.request_engine_move(timeout_opponent_can_mate=False)
+        after = session.snapshot()
+
+        self.assertEqual(state["moves"], ["e2e4"])
+        self.assertEqual(after.lifecycle.status, GameStatus.FINISHED)
+        self.assertEqual(after.lifecycle.outcome.reason, EndReason.TIMEOUT)
+        self.assertEqual(after.lifecycle.outcome.result, "1/2-1/2")
+        self.assertIsNone(after.lifecycle.outcome.winner)
+        self.assertEqual(after.clock.flagged, "w")
 
     def test_no_legal_engine_move_uses_neutral_terminal_resolution(self):
         handoffs = []
