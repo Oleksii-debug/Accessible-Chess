@@ -63,11 +63,36 @@ jobs:
             '.github/workflows/v2-composition-publication-boundary.yml'
             'acs/book_progress_store.py'
           )
+
+          orphan_backup_successor=false
+          current_delta="$(git diff --name-only "$product" HEAD | sort)"
+          orphan_expected="$(printf '%s\n' \
+            '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+            '.github/workflows/books-progress-backup-recovery.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
+            'acs/book_progress_store.py' \
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_version2_application.py' | sort)"
+          if [ "$current_delta" = "$orphan_expected" ]; then
+            test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
+            test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "26400e3cf37b11b215ae31f0e152324ffe0a25ba"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "37c5f64d9b4d9241cfda9b9984cbe72e3fbb5713"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "690d23059305ad96664657d8f0dbe9df39deffa8"
+            orphan_backup_successor=true
+          fi
+
           for path in "${protected_paths[@]}"; do
             product_blob="$(git rev-parse "$product:$path")"
             candidate_blob="$(git rev-parse "HEAD:$path")"
+            if [ "$orphan_backup_successor" = true ] \
+              && { [ "$path" = '.github/workflows/v2-book-progress-production-repair.yml' ] \
+                || [ "$path" = 'acs/book_progress_store.py' ]; }; then
+              continue
+            fi
             test "$candidate_blob" = "$product_blob" || {
-              printf 'Recovery authority drift requires a dedicated successor gate: %s product=%s candidate=%s\n'                 "$path" "$product_blob" "$candidate_blob" >&2
+              printf 'Recovery authority drift requires a dedicated successor gate: %s product=%s candidate=%s\n' \
+                "$path" "$product_blob" "$candidate_blob" >&2
               exit 1
             }
           done
