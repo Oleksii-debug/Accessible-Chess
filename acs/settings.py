@@ -43,13 +43,13 @@ class _SettingsSaveLock:
         self.handle = None
 
     def __enter__(self) -> "_SettingsSaveLock":
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
-        if self.handle.seek(0, os.SEEK_END) == 0:
-            self.handle.write(b"\0")
-            self.handle.flush()
-        self.handle.seek(0)
         try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.handle = self.path.open("a+b")
+            if self.handle.seek(0, os.SEEK_END) == 0:
+                self.handle.write(b"\0")
+                self.handle.flush()
+            self.handle.seek(0)
             if os.name == "nt":
                 import msvcrt
 
@@ -62,29 +62,51 @@ class _SettingsSaveLock:
                     fcntl.LOCK_EX | fcntl.LOCK_NB,
                 )
         except (OSError, BlockingIOError) as exc:
-            self.handle.close()
+            handle = self.handle
             self.handle = None
+            if handle is not None:
+                try:
+                    handle.close()
+                except Exception:
+                    pass
             raise SettingsError(
-                "settings are temporarily locked for Version 2 upgrade"
+                "settings are temporarily unavailable for Version 2 persistence"
             ) from exc
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if self.handle is None:
+        handle = self.handle
+        self.handle = None
+        if handle is None:
             return
+
+        # The protected body is the transaction authority. In Settings.save()
+        # it ends only after tmp.replace() has atomically published the new
+        # settings bytes. A later unlock/close failure cannot undo that replace;
+        # propagating a cleanup error would falsely report save failure after
+        # durable state changed and can split runtime state from settings.json.
+        #
+        # Acquisition remains fail-closed in __enter__, and exceptions raised by
+        # the protected body still propagate normally because this method does
+        # not return True.
         try:
-            self.handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
 
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
 
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
         finally:
-            self.handle.close()
-            self.handle = None
+            try:
+                handle.close()
+            except Exception:
+                pass
 
 
 def _validated_value(key: str, value: Any) -> Any:
@@ -201,19 +223,44 @@ class Settings:
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
 
+    def _save_with_rollback(
+        self,
+        original_data: dict[str, Any],
+        previous_data: dict[str, Any],
+        previous_warning: str | None,
+    ) -> None:
+        try:
+            self.save()
+        except Exception:
+            # After _SettingsSaveLock release cleanup became non-raising, a
+            # Settings.save() exception means publication did not complete.
+            # Restore the exact live object/value state so callers cannot observe
+            # a setting that failed to reach settings.json.
+            original_data.clear()
+            original_data.update(previous_data)
+            self.data = original_data
+            self.warning = previous_warning
+            raise
+
     def set(self, key: str, value: Any) -> None:
         validated = _validated_value(key, value)
+        original_data = self.data
+        previous_data = dict(original_data)
+        previous_warning = self.warning
         self.data[key] = validated
-        self.save()
+        self._save_with_rollback(original_data, previous_data, previous_warning)
 
     def reset(self, key: str | None = None) -> None:
+        original_data = self.data
+        previous_data = dict(original_data)
+        previous_warning = self.warning
         if key is None:
             self.data = dict(DEFAULTS)
         else:
             if key not in DEFAULTS:
                 raise KeyError(f"unknown setting: {key}")
             self.data[key] = DEFAULTS[key]
-        self.save()
+        self._save_with_rollback(original_data, previous_data, previous_warning)
 
     def to_profile(self) -> dict[str, Any]:
         values = {key: self.data[key] for key in DEFAULTS}
@@ -231,10 +278,17 @@ class Settings:
         for key, value in values.items():
             if key in DEFAULTS:
                 candidate[key] = _validated_value(key, value)
+        original_data = self.data
+        previous_data = dict(original_data)
+        previous_warning = self.warning
         self.data = candidate
         self.warning = "; ".join(warnings) if warnings else None
         if persist:
-            self.save()
+            self._save_with_rollback(
+                original_data,
+                previous_data,
+                previous_warning,
+            )
         return warnings
 
     def save(self) -> None:
