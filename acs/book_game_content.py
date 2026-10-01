@@ -200,7 +200,7 @@ def resolve_book_game(
         # authoring could change pgn/game_id or presentation metadata while a
         # lookup/parser callback is in flight.
         snapshot = block.as_dict()
-    except BookDocumentError as exc:
+    except (BookDocumentError, AttributeError) as exc:
         raise BookGameContentError(
             "book game block is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
@@ -308,12 +308,19 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
     # error code. Then take one canonical BookDocument snapshot and consume only
     # that payload. This closes the post-validation TOCTOU window without adding
     # a second Book/chess authority.
+    try:
+        live_root_fen = block.root_fen
+    except AttributeError as exc:
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        ) from exc
     preserved_root_fen, canonical_root_fen, root_omits_counters = _canonical_root_fen(
-        block.root_fen
+        live_root_fen
     )
     try:
         snapshot = block.as_dict()
-    except BookDocumentError as exc:
+    except (BookDocumentError, AttributeError) as exc:
         raise BookGameContentError(
             "book variation block is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
