@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 
 from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex
@@ -219,6 +220,28 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(TypeError, "must be an integer"):
                     index.contents(max_heading_level=value)  # type: ignore[arg-type]
+
+    def test_snapshot_gate_explicitly_fetches_live_product_ref(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "v2-book-index-snapshot-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'product_ref="work/full-product-teacher-education-reachability-20260911"',
+            workflow,
+        )
+        self.assertIn(
+            '"refs/heads/$product_ref:refs/remotes/origin/$product_ref"',
+            workflow,
+        )
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$product_ref")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
 
 
 if __name__ == "__main__":
