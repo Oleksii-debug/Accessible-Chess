@@ -187,14 +187,14 @@ function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha
   }
 
   $checksum=$null
-  $matches=0
+  $checksumMatchCount=0
   foreach($line in @(Get-Content -LiteralPath $checksumsPath -Encoding UTF8)){
     if($line -cmatch '^(?<digest>[0-9A-Fa-f]{64})  AccessibleChess/AccessibleChess\.exe$'){
-      $matches++
+      $checksumMatchCount++
       $checksum=$Matches['digest'].ToLowerInvariant()
     }
   }
-  if($matches -ne 1 -or -not $checksum){
+  if($checksumMatchCount -ne 1 -or -not $checksum){
     throw 'SHA256SUMS.txt must contain exactly one canonical checksum for AccessibleChess/AccessibleChess.exe'
   }
   $actual=(Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -221,6 +221,16 @@ function AssertProviderFocus($Roots,[string]$Phase,[string]$ExpectedAutomationId
   return $focused
 }
 
+function ClipboardCodeUnits([string]$Value,[int]$Limit=96) {
+  $units=@()
+  $count=[Math]::Min($Value.Length,$Limit)
+  for($index=0;$index -lt $count;$index++){
+    $units += ('U+{0:X4}' -f [int][char]$Value[$index])
+  }
+  if($Value.Length -gt $Limit){$units += '...'}
+  return ($units -join ',')
+}
+
 function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
   $last=''
@@ -229,21 +239,95 @@ function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
     if($last -ceq $Expected){return $last}
     Start-Sleep -Milliseconds 100
   }
-  throw "Clipboard did not receive exact selected text; expected='$Expected' actual='$last'"
+  $mismatch=-1
+  $common=[Math]::Min($Expected.Length,$last.Length)
+  for($index=0;$index -lt $common;$index++){
+    if([int][char]$Expected[$index] -ne [int][char]$last[$index]){
+      $mismatch=$index
+      break
+    }
+  }
+  if($mismatch -lt 0 -and $Expected.Length -ne $last.Length){$mismatch=$common}
+  $expectedUnits=ClipboardCodeUnits $Expected
+  $actualUnits=ClipboardCodeUnits $last
+  throw "Clipboard did not receive exact selected text; expected_length=$($Expected.Length) actual_length=$($last.Length) first_mismatch_index=$mismatch expected_code_units='$expectedUnits' actual_code_units='$actualUnits' expected='$Expected' actual='$last'"
 }
 
-function AssertVisibleTextRange($Range) {
+function AssertVisibleTextRange($Range,$TargetElement) {
+  $rectangles=@()
   try {$rectangles=@($Range.GetBoundingRectangles())}
-  catch {throw "Static TextPattern target bounding rectangles unavailable: $($_.Exception.Message)"}
-  if($rectangles.Count -lt 4 -or ($rectangles.Count % 4) -ne 0){
-    throw "Static TextPattern target has malformed/empty bounding rectangles"
+  catch {$rectangles=@()}
+
+  if($rectangles.Count -ge 4 -and ($rectangles.Count % 4) -eq 0){
+    for($index=0;$index -lt $rectangles.Count;$index+=4){
+      $width=[double]$rectangles[$index+2]
+      $height=[double]$rectangles[$index+3]
+      if($width -gt 0 -and $height -gt 0){return 'text-range'}
+    }
   }
-  for($index=0;$index -lt $rectangles.Count;$index+=4){
-    $width=[double]$rectangles[$index+2]
-    $height=[double]$rectangles[$index+3]
-    if($width -gt 0 -and $height -gt 0){return $true}
+
+  # WebView2 can expose a fully selectable TextPattern range while omitting
+  # per-range rectangles. Keep the visibility requirement fail-closed by
+  # requiring the range's enclosing UIA element to be onscreen with positive
+  # geometry after ScrollIntoView. Selection endpoints and native clipboard
+  # equality remain independently decisive below.
+  $visibilityElements=New-Object 'System.Collections.Generic.List[object]'
+  try {
+    $enclosing=$Range.GetEnclosingElement()
+    if($null -ne $enclosing){[void]$visibilityElements.Add($enclosing)}
+  } catch {}
+  if($null -ne $TargetElement){[void]$visibilityElements.Add($TargetElement)}
+
+  foreach($element in @($visibilityElements)){
+    try {
+      if([bool]$element.Current.IsOffscreen){continue}
+      $bounds=$element.Current.BoundingRectangle
+      $width=[double]$bounds.Width
+      $height=[double]$bounds.Height
+      if($width -gt 0 -and $height -gt 0){
+        if($element -eq $TargetElement){return 'target-element'}
+        return 'enclosing-element'
+      }
+    } catch {
+      continue
+    }
   }
-  throw "Static TextPattern target has no positive-area visible bounding rectangle"
+  throw "Static TextPattern target has no onscreen positive-area UIA element for visibility proof"
+}
+
+function AddStaticCandidateDiagnostic($Element,$Pattern,[string]$Phrase,[string]$Source,$Lines) {
+  if($Lines.Count -ge 24){return}
+  try {
+    $type=[string]$Element.Current.ControlType.ProgrammaticName
+    $automationId=[string]$Element.Current.AutomationId
+    $bounds=$Element.Current.BoundingRectangle
+    $isContent=[bool]$Element.Current.IsContentElement
+    $isControl=[bool]$Element.Current.IsControlElement
+    $keyboardFocusable=[bool]$Element.Current.IsKeyboardFocusable
+    $offscreen=[bool]$Element.Current.IsOffscreen
+    $rangeState='unavailable'
+    $rangeLength=-1
+    $rangeExact=$false
+    $rangeSingleLine=$false
+    try {
+      $diagnosticRange=$Pattern.RangeFromChild($Element)
+      if($null -eq $diagnosticRange){
+        $rangeState='null'
+      } else {
+        $diagnosticText=[string]$diagnosticRange.GetText(-1)
+        $rangeState='available'
+        $rangeLength=$diagnosticText.Length
+        $rangeExact=($diagnosticText -ceq $Phrase)
+        $rangeSingleLine=(-not $diagnosticText.Contains("`r") -and -not $diagnosticText.Contains("`n"))
+      }
+    } catch {
+      $rangeState='error'
+    }
+    $line=("P0_STATIC_TARGET_CANDIDATE source={0} phrase_code_units='{1}' type={2} automation_id={3} content={4} control={5} keyboard_focusable={6} offscreen={7} width={8} height={9} range={10} range_length={11} exact_text={12} single_line={13}" -f $Source,(ClipboardCodeUnits $Phrase 48),$type,$automationId,$isContent,$isControl,$keyboardFocusable,$offscreen,[Math]::Round([double]$bounds.Width,2),[Math]::Round([double]$bounds.Height,2),$rangeState,$rangeLength,$rangeExact,$rangeSingleLine)
+    [void]$Lines.Add($line)
+  } catch {
+    if($Lines.Count -lt 24){[void]$Lines.Add("P0_STATIC_TARGET_CANDIDATE source=$Source diagnostic=property-read-error")}
+  }
 }
 
 $root=(Resolve-Path -LiteralPath $ProductRoot).Path
@@ -263,26 +347,80 @@ try {
   if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
 
   $usableDocuments=@()
+  $staticTargetDiagnostics=New-Object 'System.Collections.Generic.List[string]'
   foreach($candidate in $documents){
     try {
       $candidatePattern=$candidate.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
       if($null -eq $candidatePattern){continue}
       if(([string]$candidatePattern.SupportedTextSelection) -match 'None$'){continue}
-      $candidateRange=$candidatePattern.DocumentRange.Clone()
-      $candidateTarget=$candidateRange.FindText('Інформація про гру',$false,$false)
-      if($null -eq $candidateTarget){$candidateTarget=$candidateRange.FindText('Game information',$false,$false)}
+      $candidateElements=ControlElements @($candidate)
+      $candidateTarget=$null
+      $candidatePhrase=''
+      $candidateTargetType=''
+      foreach($phrase in @('Розділи','Sections','Accessible Chess','Інформація про гру','Game information','Список ходів')){
+        $controlViewPhraseMatches=@($candidateElements | Where-Object {
+          try {[string]$_.Current.Name -ceq $phrase} catch {$false}
+        })
+        foreach($observed in $controlViewPhraseMatches){
+          AddStaticCandidateDiagnostic $observed $candidatePattern $phrase 'control-view-name' $staticTargetDiagnostics
+        }
+        try {
+          $nameCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$phrase)
+          $rawPhraseMatches=@($candidate.FindAll([System.Windows.Automation.TreeScope]::Descendants,$nameCondition))
+          foreach($observed in $rawPhraseMatches){
+            AddStaticCandidateDiagnostic $observed $candidatePattern $phrase 'raw-name' $staticTargetDiagnostics
+          }
+        } catch {
+          if($staticTargetDiagnostics.Count -lt 24){[void]$staticTargetDiagnostics.Add("P0_STATIC_TARGET_DIAGNOSTIC_ERROR source=raw-name")}
+        }
+        $namedTargets=@($candidateElements | Where-Object {
+          try {
+            $type=[string]$_.Current.ControlType.ProgrammaticName
+            $name=[string]$_.Current.Name
+            $bounds=$_.Current.BoundingRectangle
+            $name -ceq $phrase -and
+            ($type -eq 'ControlType.Header' -or $type -eq 'ControlType.Text') -and
+            [double]$bounds.Width -gt 0 -and
+            [double]$bounds.Height -gt 0
+          } catch {$false}
+        })
+        if($namedTargets.Count -ne 1){continue}
+        try {$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])}
+        catch {continue}
+        if($null -eq $probeRange){continue}
+        $probeText=[string]$probeRange.GetText(-1)
+        if($probeText -cne $phrase){continue}
+        if($probeText.Contains("`r") -or $probeText.Contains("`n")){continue}
+        $candidateTarget=$probeRange
+        $candidatePhrase=$phrase
+        $candidateTargetType=[string]$namedTargets[0].Current.ControlType.ProgrammaticName
+        break
+      }
+      try {
+        $idCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,'v2-navigation-heading')
+        $rawHeadingMatches=@($candidate.FindAll([System.Windows.Automation.TreeScope]::Descendants,$idCondition))
+        foreach($observed in $rawHeadingMatches){
+          AddStaticCandidateDiagnostic $observed $candidatePattern 'Розділи' 'raw-automation-id-v2-navigation-heading' $staticTargetDiagnostics
+        }
+      } catch {
+        if($staticTargetDiagnostics.Count -lt 24){[void]$staticTargetDiagnostics.Add('P0_STATIC_TARGET_DIAGNOSTIC_ERROR source=raw-automation-id-v2-navigation-heading')}
+      }
       if($null -eq $candidateTarget){continue}
       $usableDocuments += ,[pscustomobject]@{
         document=$candidate
         text_pattern=$candidatePattern
         target=$candidateTarget
+        target_element=$namedTargets[0]
+        target_phrase=$candidatePhrase
+        target_control_type=$candidateTargetType
       }
     } catch {
       continue
     }
   }
   if($usableDocuments.Count -eq 0){
-    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text"
+    foreach($diagnosticLine in @($staticTargetDiagnostics)){Write-Host $diagnosticLine}
+    throw "Connected Accessible Chess Documents found=$($documents.Count), but none exposes selectable stable static text; diagnostic_candidates=$($staticTargetDiagnostics.Count)"
   }
   if($usableDocuments.Count -ne 1){
     throw "Ambiguous selectable Accessible Chess Documents found=$($usableDocuments.Count); expected exactly one stable packaged document provider"
@@ -290,9 +428,13 @@ try {
   $document=$usableDocuments[0].document
   $textPattern=$usableDocuments[0].text_pattern
   $target=$usableDocuments[0].target
+  $targetPhrase=[string]$usableDocuments[0].target_phrase
+  $targetControlType=[string]$usableDocuments[0].target_control_type
 
   $selected=[string]$target.GetText(-1)
   if(-not $selected.Trim()){throw 'Static TextPattern target is empty'}
+  if($selected -cne $targetPhrase){throw 'Static TextPattern target drifted from exact single-line phrase'}
+  if($selected.Contains("`r") -or $selected.Contains("`n")){throw 'Static TextPattern exact-copy target must be single-line'}
   $enclosing=$target.GetEnclosingElement()
   if($null -ne $enclosing -and [string]$enclosing.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
     throw 'Static text proof accidentally targeted an edit control'
@@ -309,7 +451,7 @@ try {
   try {$target.ScrollIntoView($true)}
   catch {throw "Static TextPattern target could not be scrolled into view: $($_.Exception.Message)"}
   Start-Sleep -Milliseconds 100
-  $null=AssertVisibleTextRange $target
+  $visibilityEvidence=AssertVisibleTextRange $target $usableDocuments[0].target_element
   $null=AssertProviderFocus $roots 'static document visibility proof'
   $target.Select()
   Start-Sleep -Milliseconds 100
@@ -324,14 +466,14 @@ try {
     throw "Static TextPattern active selection text differs from target range"
   }
   $startDelta=$activeSelection.CompareEndpoints(
-    [System.Windows.Automation.TextPatternRangeEndpoint]::Start,
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start,
     $target,
-    [System.Windows.Automation.TextPatternRangeEndpoint]::Start
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start
   )
   $endDelta=$activeSelection.CompareEndpoints(
-    [System.Windows.Automation.TextPatternRangeEndpoint]::End,
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End,
     $target,
-    [System.Windows.Automation.TextPatternRangeEndpoint]::End
+    [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
   )
   if($startDelta -ne 0 -or $endDelta -ne 0){
     throw "Static TextPattern active selection endpoints differ from target range"
@@ -370,11 +512,15 @@ try {
   $summary=[ordered]@{
     product_sha=$ProductSha
     discovery='connected provider-root ControlView from retained topology handles'
-    document_provider_cardinality='exactly one selectable Accessible Chess document containing stable static target text'
+    document_provider_cardinality='exactly one selectable Accessible Chess document containing one exact visible static UIA child target'
     focus_ownership='focused UIA runtime identity must belong to retained connected provider-root ControlView'
     static_document_text=$selected
+    static_document_target_phrase=$targetPhrase
+    static_document_target_control_type=$targetControlType
+    static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'
     static_document_outside_edit=$true
-    static_text_visible_rectangle=$true
+    static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')
+    static_text_visibility_evidence=$visibilityEvidence
     native_copy_focus_verified=$true
     foreground_product_verified=$true
     manifest_product_sha_verified=$true

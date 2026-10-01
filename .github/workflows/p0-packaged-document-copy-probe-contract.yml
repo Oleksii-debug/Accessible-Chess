@@ -12,10 +12,10 @@ permissions:
   contents: read
 
 env:
-  CURRENT_PRODUCT_BASE: 4c695cf8a8d7a23dbd42851c8033ab417ab0b5fb
-  OWNER_HEAD: fix/p0-document-copy-exact-range-text-20260928
-  PROBE_BLOB: caa925de5a3bf96a6c8ede67b590a865394fdd60
-  TEST_BLOB: 4577c40b75b90f023ed0f2c71109de4d762cf1ec
+  CURRENT_PRODUCT_BASE: 0c9036f3f3a445d3d518825cd620583b29af755a
+  OWNER_HEAD: fix/p0-document-copy-match-counter-20260929
+  PROBE_BLOB: 990d83314503860901ad8b6777420ddce0e0e5ea
+  TEST_BLOB: 136d9edbfdea46d8803168b39d8df389de38c0af
 
 jobs:
   contract:
@@ -76,5 +76,18 @@ jobs:
           [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/p0_packaged_document_copy_probe.ps1'),[ref]$tokens,[ref]$errors)
           if($errors.Count -ne 0){$errors | ForEach-Object {Write-Error $_}; exit 1}
           Write-Host 'PACKAGED_DOCUMENT_COPY_PROBE_POWERSHELL_PARSE=PASS'
+      - name: Resolve UIAutomation TextPattern endpoint enum on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $start=[System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start
+          $end=[System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
+          if([string]$start -cne 'Start' -or [string]$end -cne 'End'){
+            throw "UIAutomation TextPatternRangeEndpoint runtime resolution mismatch: start=$start end=$end"
+          }
+          Write-Host 'UIAUTOMATION_TEXTPATTERN_RANGE_ENDPOINT_RUNTIME=PASS'
       - name: Execute focused contract regression
         run: python -m unittest -v tests.test_p0_packaged_document_copy_probe
