@@ -233,6 +233,17 @@ class _SemanticHtmlParser(HTMLParser):
             )
         self.visible_parts.append(text)
 
+    def _append_text_boundary(self) -> None:
+        """Preserve one semantic separator without all-capture fan-out."""
+        self._append_visible("\n")
+        if self._captures:
+            # Only the innermost active capture directly owns this edge. Starting
+            # a nested captured block first separates its parent; closing it pops
+            # the child before this helper separates the resumed parent. This
+            # keeps valid BR/table/pre semantics while avoiding a new O(depth *
+            # boundaries) path for adversarial malformed nesting.
+            self._captures[-1].parts.append("\n")
+
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
         key = f"{kind}:{digest}"
@@ -370,7 +381,10 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             attrs[normalized_name] = value or ""
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # HTMLParser does not place markup in capture.parts. Preserve the
+            # same block boundary already published to visible_text inside the
+            # directly containing semantic capture so adjacent words cannot collapse.
+            self._append_text_boundary()
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
             if lang:
@@ -488,7 +502,9 @@ class _SemanticHtmlParser(HTMLParser):
             else:
                 self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # The closing edge matters when inline text resumes after a nested
+            # block (for example Alpha<div>Beta</div>Gamma).
+            self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
         if self._suppressed_depth:
