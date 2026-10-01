@@ -9,6 +9,7 @@ on:
       - 'acs/search_policy.py'
       - 'tests/test_book_index.py'
       - '.github/workflows/v2-book-index-snapshot-integrity.yml'
+      - '.github/workflows/v2-library-player-identity-search.yml'
   push:
     branches:
       - repair/book-index-snapshot-integrity-20260927
@@ -60,6 +61,7 @@ jobs:
           changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
           wanted="$(printf '%s\n' \
             '.github/workflows/v2-book-index-snapshot-integrity.yml' \
+            '.github/workflows/v2-library-player-identity-search.yml' \
             'acs/book_index.py' \
             'acs/search_policy.py' \
             'tests/test_book_index.py' | LC_ALL=C sort)"
