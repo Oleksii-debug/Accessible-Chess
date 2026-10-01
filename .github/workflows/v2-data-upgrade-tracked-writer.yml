@@ -73,7 +73,7 @@ jobs:
           done <<'LOCKS'
           acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
-          acs/version2_upgrade_base.py=e290325edb205e29450986b0341d3b1b20fae214
+          acs/version2_upgrade_base.py=9287eacd0943ba2bd1b63dab5c64d695d3f5beb8
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
           tests/test_v2_upgrade_publish_race_audit.py=96239e179da44fd5c2671733df4613b298733927
