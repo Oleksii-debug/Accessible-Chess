@@ -24,7 +24,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PRODUCT_BASE_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
+  PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
 jobs:
   verify:
@@ -52,11 +53,19 @@ jobs:
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
-          git cat-file -e "$PRODUCT_BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$PRODUCT_BASE_SHA" HEAD
-          test "$(git merge-base "$PRODUCT_BASE_SHA" HEAD)" = "$PRODUCT_BASE_SHA"
-          git diff --check "$PRODUCT_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$PRODUCT_BASE_SHA" HEAD | sort)"
+          product_ref="refs/remotes/origin/$PRODUCT_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:$product_ref"
+          product="$(git rev-parse "$product_ref")"
+          git cat-file -e "$product^{commit}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$product"
+          fi
+          git merge-base --is-ancestor "$product" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
+          changed="$(git diff --name-only "$product" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/book-progress-orphan-backup-recovery.yml' \
             '.github/workflows/books-progress-backup-recovery.yml' \
