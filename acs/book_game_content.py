@@ -207,8 +207,13 @@ def resolve_book_game(
         ) from exc
     pgn = snapshot.get("pgn", "")
     game_id = snapshot.get("game_id")
-    if type(pgn) is not str or (
-        game_id is not None and (type(game_id) is not int or game_id < 0)
+    if not isinstance(pgn, str) or (
+        game_id is not None
+        and (
+            not isinstance(game_id, int)
+            or isinstance(game_id, bool)
+            or game_id < 0
+        )
     ):
         raise BookGameContentError(
             "book game snapshot is invalid",
@@ -247,7 +252,7 @@ def resolve_book_game(
                 "book game has no referenced game identity",
                 code=BookGameContentErrorCode.REFERENCED_GAME_MISSING,
             )
-        assert type(game_id) is int
+        assert isinstance(game_id, int) and not isinstance(game_id, bool)
         game = _reference_game(game_id, lookup)
     else:  # Enum exhaustiveness / defensive future schema boundary.
         raise BookGameContentError(
@@ -327,7 +332,7 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
         ) from exc
     snapshot_root = snapshot.get("root_fen")
     pgn = snapshot.get("pgn")
-    if type(snapshot_root) is not str or type(pgn) is not str:
+    if not isinstance(snapshot_root, str) or not isinstance(pgn, str):
         raise BookGameContentError(
             "book variation snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
