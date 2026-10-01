@@ -204,6 +204,75 @@ class BookCanonicalGameContentTests(unittest.TestCase):
             resolve_book_variation(block)
         self.assertEqual(caught.exception.code, BookGameContentErrorCode.INVALID_BLOCK)
 
+    def test_game_resolution_consumes_one_canonical_embedded_snapshot(self) -> None:
+        class MutatesAfterSnapshot(Game):
+            def as_dict(self):
+                snapshot = super().as_dict()
+                self.pgn = None  # type: ignore[assignment]
+                self.title = "mutated after snapshot"
+                self.block_id = "mutated-block"
+                self.source_anchor = "mutated-anchor"
+                return snapshot
+
+        block = MutatesAfterSnapshot(
+            pgn=EMBEDDED_PGN,
+            title="snapshot title",
+            block_id="snapshot-block",
+            source_anchor="snapshot-anchor",
+        )
+        resolved = resolve_book_game(block)
+
+        self.assertEqual(resolved.source, BookGameSource.EMBEDDED)
+        self.assertEqual(resolved.game.line.moves[0].san, "e4")
+        self.assertEqual(resolved.title, "snapshot title")
+        self.assertEqual(resolved.block_id, "snapshot-block")
+        self.assertEqual(resolved.source_anchor, "snapshot-anchor")
+
+    def test_game_reference_selection_and_identity_come_from_same_snapshot(self) -> None:
+        class MutatesAfterSnapshot(Game):
+            def as_dict(self):
+                snapshot = super().as_dict()
+                self.game_id = 999
+                self.pgn = EMBEDDED_PGN
+                self.title = "mutated after snapshot"
+                return snapshot
+
+        source = parse_games(EMBEDDED_PGN)[0]
+        lookup = _Lookup(source)
+        block = MutatesAfterSnapshot(game_id=17, title="snapshot title")
+
+        resolved = resolve_book_game(block, lookup=lookup)
+
+        self.assertEqual(resolved.source, BookGameSource.REFERENCE)
+        self.assertEqual(resolved.game_id, 17)
+        self.assertEqual(resolved.title, "snapshot title")
+        self.assertEqual(lookup.calls, [17])
+
+    def test_variation_resolution_consumes_one_canonical_snapshot(self) -> None:
+        class MutatesAfterSnapshot(VariationTree):
+            def as_dict(self):
+                snapshot = super().as_dict()
+                self.pgn = None  # type: ignore[assignment]
+                self.title = "mutated after snapshot"
+                self.block_id = "mutated-block"
+                self.source_anchor = "mutated-anchor"
+                return snapshot
+
+        block = MutatesAfterSnapshot(
+            root_fen=AFTER_E4_FEN,
+            pgn="1... c5 *",
+            title="snapshot title",
+            block_id="snapshot-block",
+            source_anchor="snapshot-anchor",
+        )
+        resolved = resolve_book_variation(block)
+
+        self.assertEqual(resolved.root_fen, AFTER_E4_FEN)
+        self.assertEqual(resolved.game.line.moves[0].san, "c5")
+        self.assertEqual(resolved.title, "snapshot title")
+        self.assertEqual(resolved.block_id, "snapshot-block")
+        self.assertEqual(resolved.source_anchor, "snapshot-anchor")
+
     def test_wrong_block_type_is_rejected(self) -> None:
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Paragraph(text="not a game"))  # type: ignore[arg-type]
