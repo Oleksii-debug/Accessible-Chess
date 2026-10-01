@@ -77,6 +77,7 @@ class _Capture:
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    boundary_count: int = 0
     list_depth: int = 0
 
 
@@ -207,6 +208,7 @@ class _SemanticHtmlParser(HTMLParser):
         self._suppressed_depth = 0
         self._suppressed_tags: list[str] = []
         self._node_count = 0
+        self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
@@ -234,15 +236,14 @@ class _SemanticHtmlParser(HTMLParser):
         self.visible_parts.append(text)
 
     def _append_text_boundary(self) -> None:
-        """Preserve one semantic separator without all-capture fan-out."""
+        """Record one semantic separator without an O(capture-depth) boundary walk."""
         self._append_visible("\n")
-        if self._captures:
-            # Only the innermost active capture directly owns this edge. Starting
-            # a nested captured block first separates its parent; closing it pops
-            # the child before this helper separates the resumed parent. This
-            # keeps valid BR/table/pre semantics while avoiding a new O(depth *
-            # boundaries) path for adversarial malformed nesting.
-            self._captures[-1].parts.append("\n")
+        # Data already fans out through every active semantic capture. Record the
+        # boundary once here, then let the next data event synchronize each capture
+        # it already visits. This preserves boundaries in ancestor captures too
+        # (for example nested list/blockquote text) without making markup-only
+        # boundary handling O(capture depth).
+        self._text_boundary_count += 1
 
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
@@ -461,6 +462,7 @@ class _SemanticHtmlParser(HTMLParser):
                     kind=kind,
                     attrs=attrs,
                     parts=[],
+                    boundary_count=self._text_boundary_count,
                     list_depth=len(self._lists) if kind == "list_item" else 0,
                 )
             )
@@ -511,6 +513,10 @@ class _SemanticHtmlParser(HTMLParser):
             return
         self._append_visible(data)
         for capture in self._captures:
+            pending_boundaries = self._text_boundary_count - capture.boundary_count
+            if pending_boundaries > 0:
+                capture.parts.append("\n" * pending_boundaries)
+                capture.boundary_count = self._text_boundary_count
             capture.parts.append(data)
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
