@@ -2,19 +2,45 @@ name: V2 Native UI Thread Runtime
 
 on:
   push:
-    branches: [codex/v2-runtime-completion-20260907]
+    branches: [work/full-product-teacher-education-reachability-20260911]
     paths:
       - 'acs/version2_release_ui.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_import_event_mailbox.py'
+      - 'acs/version2_windows_import_ui_pump.py'
+      - 'acs/version2_windows_pgn_streaming_host.py'
       - 'tests/test_version2_api_thread_dispatch.py'
+      - 'tests/test_version2_release_ui.py'
+      - 'tests/test_version2_release_app.py'
+      - 'tests/test_version2_shutdown.py'
+      - 'tests/test_w3_windows_file_action_ui_thread_affinity.py'
+      - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_import_event_mailbox.py'
+      - 'tests/test_v2_windows_import_ui_pump.py'
+      - 'tests/test_v2_native_thread_runtime_workflow.py'
       - 'scripts/v2_native_thread_oracle.py'
       - '.github/workflows/v2-native-thread-runtime.yml'
   pull_request:
-    branches: [codex/v2-runtime-completion-20260907]
+    branches: [work/full-product-teacher-education-reachability-20260911]
     paths:
       - 'acs/version2_release_ui.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_import_event_mailbox.py'
+      - 'acs/version2_windows_import_ui_pump.py'
+      - 'acs/version2_windows_pgn_streaming_host.py'
       - 'tests/test_version2_api_thread_dispatch.py'
+      - 'tests/test_version2_release_ui.py'
+      - 'tests/test_version2_release_app.py'
+      - 'tests/test_version2_shutdown.py'
+      - 'tests/test_w3_windows_file_action_ui_thread_affinity.py'
+      - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_import_event_mailbox.py'
+      - 'tests/test_v2_windows_import_ui_pump.py'
+      - 'tests/test_v2_native_thread_runtime_workflow.py'
       - 'scripts/v2_native_thread_oracle.py'
       - '.github/workflows/v2-native-thread-runtime.yml'
 
@@ -32,20 +58,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - name: Preserve exact source bytes
         shell: bash
         run: |
+          set -euo pipefail
           git config core.autocrlf false
           git config core.eol lf
           git reset --hard HEAD
+
+      - name: Bind exact current-product pull-request geometry
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE_SHA:-}"
+          if test -n "$base"; then
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            test "$(git merge-base "$base" HEAD)" = "$base"
+            git diff --check "$base" HEAD
+            echo "NATIVE_THREAD_PRODUCT_PARENT=$base"
+          else
+            parent="$(git rev-parse HEAD^)"
+            git cat-file -e "$parent^{commit}"
+            git diff --check "$parent" HEAD
+            echo "NATIVE_THREAD_RUNTIME_HEAD=$(git rev-parse HEAD)"
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install pinned runtime and verification dependencies
         run: python -m pip install pytest==8.4.2 pywebview==6.2.1 zstandard==0.23.0
+
       - name: Canonical state across native and browser worker threads
-        run: python -m pytest -q tests/test_version2_api_thread_dispatch.py tests/test_w3_windows_file_action_ui_thread_affinity.py tests/test_version2_release_ui.py tests/test_version2_release_app.py tests/test_version2_shutdown.py
+        run: >-
+          python -m pytest -q
+          tests/test_v2_native_thread_runtime_workflow.py
+          tests/test_version2_api_thread_dispatch.py
+          tests/test_w3_windows_file_action_ui_thread_affinity.py
+          tests/test_version2_release_ui.py
+          tests/test_version2_release_app.py
+          tests/test_version2_shutdown.py
+          tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_import_event_mailbox.py
+          tests/test_v2_windows_import_ui_pump.py
+
       - name: Real WebView2 source runtime and UI-thread SQLite journey
         timeout-minutes: 3
         run: python -m scripts.v2_native_thread_oracle
