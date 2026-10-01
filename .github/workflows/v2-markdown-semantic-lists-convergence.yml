@@ -81,7 +81,7 @@ jobs:
           semantic_list_owner="$(git rev-parse "$markdown_owner:tests/test_v2_markdown_semantic_lists.py")"
           successor="d30917d46c2fa54821e2f90df9750220e60d48e3"
           successor_source="27a8880246fed5d5c35292aab95a349a86a2440c"
-          successor_importer_test="6dd3dd7ce60e714b46e6a250ca623348c2251b00"
+          successor_importer_test="323438ce3249696b2fa0ce59839e5849984aa1ec"
 
           test "$semantic_list_actual" = "$semantic_list_owner" || {
             printf 'Markdown semantic-list oracle drift: owner=%s actual=%s\n' "$semantic_list_owner" "$semantic_list_actual" >&2
