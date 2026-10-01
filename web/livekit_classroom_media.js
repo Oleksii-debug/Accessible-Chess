@@ -6,6 +6,8 @@
   const MAX_TOKEN_LENGTH = 8192;
   const MAX_DEVICE_ID_LENGTH = 512;
   const MAX_COMMANDS = 256;
+  const MAX_RPC_METHOD_BYTES = 64;
+  const MAX_RPC_PAYLOAD_BYTES = 15 * 1024;
   const SOURCE_NAMES = new Set(["microphone", "camera", "screen_share"]);
   const DEVICE_KINDS = new Set(["microphone", "speaker", "camera"]);
   const ACTIONS = new Set(["publish_permission", "soft_mute", "remove"]);
@@ -17,6 +19,16 @@
     }
   }
 
+  function utf8ByteLength(value) {
+    if (typeof TextEncoder === "function") {
+      return new TextEncoder().encode(value).byteLength;
+    }
+    if (typeof Buffer !== "undefined" && typeof Buffer.byteLength === "function") {
+      return Buffer.byteLength(value, "utf8");
+    }
+    throw new LiveKitClassroomMediaError("UTF-8 byte counter is unavailable");
+  }
+
   function identifier(value, name) {
     if (typeof value !== "string") throw new LiveKitClassroomMediaError(name + " must be text");
     const token = value.trim();
@@ -24,6 +36,14 @@
       throw new LiveKitClassroomMediaError(name + " is invalid");
     }
     return token;
+  }
+
+  function rpcMethod(value) {
+    const method = identifier(value, "moderation RPC method");
+    if (utf8ByteLength(method) > MAX_RPC_METHOD_BYTES) {
+      throw new LiveKitClassroomMediaError("moderation RPC method is invalid");
+    }
+    return method;
   }
 
   function secretToken(value) {
@@ -43,7 +63,7 @@
     } catch (_error) {
       throw new LiveKitClassroomMediaError("LiveKit server URL is invalid");
     }
-    const localHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1";
+    const localHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1" || parsed.hostname === "[::1]";
     if (parsed.protocol !== "wss:" && !(localHost && parsed.protocol === "ws:")) {
       throw new LiveKitClassroomMediaError("LiveKit server URL must use secure WebSocket transport");
     }
@@ -128,7 +148,7 @@
   }
 
   function exactAck(raw, operationIds) {
-    if (typeof raw !== "string" || raw.length > 16384) {
+    if (typeof raw !== "string" || utf8ByteLength(raw) > MAX_RPC_PAYLOAD_BYTES) {
       throw new LiveKitClassroomMediaError("moderation acknowledgement is invalid");
     }
     let parsed;
@@ -172,9 +192,8 @@
         options.moderationParticipantIdentity,
         "moderation participant identity"
       );
-      this._moderationRpcMethod = identifier(
-        options.moderationRpcMethod || DEFAULT_MODERATION_METHOD,
-        "moderation RPC method"
+      this._moderationRpcMethod = rpcMethod(
+        options.moderationRpcMethod || DEFAULT_MODERATION_METHOD
       );
       this._roomOptions = options.roomOptions && typeof options.roomOptions === "object"
         ? Object.freeze(Object.assign({}, options.roomOptions))
@@ -307,7 +326,9 @@
         room_id: this._roomId,
         operations: commands
       });
-      if (payload.length > 32768) throw new LiveKitClassroomMediaError("moderation request is too large");
+      if (utf8ByteLength(payload) > MAX_RPC_PAYLOAD_BYTES) {
+        throw new LiveKitClassroomMediaError("moderation request is too large");
+      }
 
       let response;
       try {
