@@ -273,6 +273,30 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.block_id, "snapshot-block")
         self.assertEqual(resolved.source_anchor, "snapshot-anchor")
 
+    def test_snapshot_resolution_preserves_bookdocument_text_subclasses(self) -> None:
+        class Text(str):
+            pass
+
+        block = Game(
+            pgn=Text(EMBEDDED_PGN),
+            title=Text("Subclass title"),
+            block_id=Text("subclass-block"),
+        )
+        resolved = resolve_book_game(block)
+        self.assertEqual(resolved.game.line.moves[0].san, "e4")
+        self.assertEqual(resolved.title, "Subclass title")
+        self.assertEqual(resolved.block_id, "subclass-block")
+
+        variation = VariationTree(
+            root_fen=Text(AFTER_E4_FEN),
+            pgn=Text("1... c5 *"),
+            title=Text("Subclass variation"),
+        )
+        resolved_variation = resolve_book_variation(variation)
+        self.assertEqual(resolved_variation.root_fen, AFTER_E4_FEN)
+        self.assertEqual(resolved_variation.game.line.moves[0].san, "c5")
+        self.assertEqual(resolved_variation.title, "Subclass variation")
+
     def test_variation_root_change_during_snapshot_fails_closed(self) -> None:
         class ChangesRootDuringSnapshot(VariationTree):
             def as_dict(self):
