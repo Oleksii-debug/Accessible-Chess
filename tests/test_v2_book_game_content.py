@@ -273,6 +273,21 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.block_id, "snapshot-block")
         self.assertEqual(resolved.source_anchor, "snapshot-anchor")
 
+    def test_variation_root_change_during_snapshot_fails_closed(self) -> None:
+        class ChangesRootDuringSnapshot(VariationTree):
+            def as_dict(self):
+                self.root_fen = START_FEN
+                return super().as_dict()
+
+        block = ChangesRootDuringSnapshot(
+            root_fen=AFTER_E4_FEN,
+            pgn="1... c5 *",
+        )
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_variation(block)
+        self.assertEqual(caught.exception.code, BookGameContentErrorCode.INVALID_BLOCK)
+
     def test_deleted_mutable_game_field_fails_with_stable_invalid_block(self) -> None:
         block = Game(pgn=EMBEDDED_PGN)
         del block.pgn
