@@ -139,6 +139,35 @@ Before ![Board](board.png) middle ![Arrow](arrow.png) after.
                 self.assertEqual(image_notes, [])
                 self.assertEqual(paragraphs, [source])
 
+    def test_removed_false_image_snapshot_target_fails_closed_without_retargeting(self) -> None:
+        legacy_digest = sha256(("Image\\0" + "Board").encode("utf-8")).hexdigest()[:20]
+        legacy_image_target = f"block:markdown-{legacy_digest}-1"
+        snapshot = {
+            "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+            "current_target": legacy_image_target,
+            "return_points": {},
+            "fallback_digests": {},
+        }
+
+        for source, label in (
+            (r"Before \\![Board](board.png) after.", "escaped"),
+            ("Before `![Board](board.png)` after.", "inline-code"),
+        ):
+            with self.subTest(label=label):
+                result = import_text_book(
+                    source,
+                    source_name=f"legacy-false-image-{label}.md",
+                    source_format="markdown",
+                )
+                self.assertFalse(
+                    any(
+                        isinstance(block, Note) and block.note_type == "image"
+                        for block in result.document.blocks
+                    )
+                )
+                with self.assertRaises(LookupError):
+                    BookReader.restore_snapshot(result.document, snapshot)
+
     def test_markdown_inline_code_does_not_hide_real_image_after_code_span(self) -> None:
         source = "Before `![Literal](literal.png)` then ![Real](real.png) after."
         result = import_text_book(
