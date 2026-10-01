@@ -27,7 +27,7 @@ from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION, Settings
 UPGRADE_JOURNAL_SCHEMA_VERSION = 2
 _BACKUP_MANIFEST_SCHEMA_VERSION = 2
 _PHASES = {"prepared", "migrating", "verifying", "committed", "rolled_back"}
-_CONTROL_NAMES = {".v2-upgrade.lock", ".v2-upgrade-state.json"}
+_CONTROL_NAMES = {".v2-upgrade.lock", ".v2-upgrade-state.json", "profile.json.lock"}
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {

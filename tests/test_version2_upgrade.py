@@ -351,6 +351,28 @@ class Version2UpgradeTests(unittest.TestCase):
             with _UpgradeLock(lock):
                 pass
 
+    def test_profile_mutation_lock_is_control_state_not_backup_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+            profile_lock = root / "profile.json.lock"
+            profile_lock.write_bytes(b"")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = coordinator._files()
+            self.assertNotIn(profile_lock, files)
+
+            backup, manifest = coordinator._create_backup("profile-lock-control")
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+            paths = {item["path"] for item in entries}
+            self.assertNotIn("profile.json.lock", paths)
+            self.assertFalse((backup / "data" / "profile.json.lock").exists())
+            self.assertTrue(profile_lock.exists())
     def test_environment_layout_matches_existing_stage1_user_root(self):
         layout = UserDataLayout.from_environment(
             environ={"LOCALAPPDATA": r"C:\Users\Blind\AppData\Local"},
