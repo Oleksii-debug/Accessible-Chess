@@ -202,14 +202,14 @@ function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha
 
   $relative='AccessibleChess/AccessibleChess.exe'
   $checksum=$null
-  $matches=0
+  $checksumMatchCount=0
   foreach($line in @(Get-Content -LiteralPath $checksumsPath -Encoding UTF8)){
     if($line -cmatch '^(?<digest>[0-9A-Fa-f]{64})  AccessibleChess/AccessibleChess\.exe$'){
-      $matches++
+      $checksumMatchCount++
       $checksum=$Matches['digest'].ToLowerInvariant()
     }
   }
-  if($matches -ne 1 -or -not $checksum){
+  if($checksumMatchCount -ne 1 -or -not $checksum){
     throw "SHA256SUMS.txt must contain exactly one canonical checksum for $relative"
   }
   $actual=(Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
