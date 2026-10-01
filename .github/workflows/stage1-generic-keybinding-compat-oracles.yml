@@ -1,0 +1,107 @@
+name: Stage1 Generic Keybinding Compatibility Oracles
+
+on:
+  push:
+    branches:
+      - fix/stage1-generic-keybinding-compat-oracles-20260929
+    paths:
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_dev1_release_ui_regressions.py'
+      - 'tests/test_issue22_release_contract.py'
+      - 'tests/test_stage1_packaged_focus_origin_contract.py'
+      - '.github/workflows/stage1-generic-keybinding-compat-oracles.yml'
+  pull_request:
+    paths:
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_dev1_release_ui_regressions.py'
+      - 'tests/test_issue22_release_contract.py'
+      - 'tests/test_stage1_packaged_focus_origin_contract.py'
+      - '.github/workflows/stage1-generic-keybinding-compat-oracles.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CURRENT_PRODUCT_BASE: 35d8858de994285ff0fe8911ca68bf80579c93ee
+  KEYBINDING_STACK_SHA: 68e570289d926149be41db0cd3d20b7e6bcdfe61
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact compatibility candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove bounded Product-base test-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$CURRENT_PRODUCT_BASE^{commit}"
+          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
+          test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"
+          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/stage1-generic-keybinding-compat-oracles.yml' \
+            'tests/test_accessible_webui.py' \
+            'tests/test_dev1_release_ui_regressions.py' \
+            'tests/test_issue22_release_contract.py' \
+            'tests/test_stage1_packaged_focus_origin_contract.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected generic-keybinding compatibility scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          echo 'STAGE1_GENERIC_KEYBINDING_PRODUCT_SCOPE=PASS'
+
+      - name: Run generic Stage1 contracts on current Product
+        run: >-
+          python -m unittest -v
+          tests.test_accessible_webui
+          tests.test_dev1_release_ui_regressions
+          tests.test_issue22_release_contract
+          tests.test_stage1_packaged_focus_origin_contract
+
+      - name: Overlay only generic tests onto exact remappable-keybinding head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$KEYBINDING_STACK_SHA^{commit}"
+          compat_dir="$RUNNER_TEMP/accessible-chess-keybinding-compat"
+          rm -rf "$compat_dir"
+          git worktree add --detach "$compat_dir" "$KEYBINDING_STACK_SHA"
+          for path in \
+            tests/test_accessible_webui.py \
+            tests/test_dev1_release_ui_regressions.py \
+            tests/test_issue22_release_contract.py \
+            tests/test_stage1_packaged_focus_origin_contract.py
+          do
+            cp -- "$path" "$compat_dir/$path"
+          done
+          changed="$(git -C "$compat_dir" diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'tests/test_accessible_webui.py' \
+            'tests/test_dev1_release_ui_regressions.py' \
+            'tests/test_issue22_release_contract.py' \
+            'tests/test_stage1_packaged_focus_origin_contract.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected #842 compatibility overlay:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          git -C "$compat_dir" diff --check
+          echo "STAGE1_GENERIC_KEYBINDING_OVERLAY_SHA=$KEYBINDING_STACK_SHA"
+          cd "$compat_dir"
+          python -m unittest -v \
+            tests.test_accessible_webui \
+            tests.test_dev1_release_ui_regressions \
+            tests.test_issue22_release_contract \
+            tests.test_stage1_packaged_focus_origin_contract
+          echo 'STAGE1_GENERIC_KEYBINDING_STACK_COMPAT=PASS'
