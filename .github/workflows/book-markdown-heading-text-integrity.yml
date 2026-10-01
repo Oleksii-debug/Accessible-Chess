@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  CURRENT_PRODUCT_BASE: 0c9036f3f3a445d3d518825cd620583b29af755a
+  CURRENT_PRODUCT_BASE: 36d9e6dd9af9a0a514154732af6ddf1210b7e8e7
 
 jobs:
   markdown-heading-text-integrity:
