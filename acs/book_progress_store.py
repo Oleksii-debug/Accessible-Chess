@@ -455,6 +455,19 @@ class BookProgressStore:
             return backup_payload, backup_raw, _revision(backup_raw)
 
         if payload is None:
+            if allow_backup_recovery:
+                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
+                    self.backup_path,
+                    missing_ok=True,
+                )
+                if backup_payload is not None:
+                    assert backup_raw is not None and backup_revision is not None
+                    return backup_payload, backup_raw, backup_revision
+            else:
+                # Mutation callers must not mistake recoverable orphan state for
+                # a clean first run.  The write path repeats this check to close
+                # the race where a backup appears after this load.
+                self._require_no_orphan_backup_unlocked()
             return _empty_payload(), None, None
         return payload, raw, revision
 
@@ -686,27 +699,17 @@ class BookProgressStore:
                 except OSError:
                     pass
 
-    def _clear_backup_unlocked(self) -> None:
-        try:
-            metadata = os.lstat(self.backup_path)
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            raise BookProgressStoreError(
-                "book progress recovery data is unavailable",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
-        self._require_regular_metadata(
-            metadata,
-            message="book progress recovery data is not a regular file",
+    def _require_no_orphan_backup_unlocked(self) -> None:
+        """Do not destroy recoverable history when the primary store is missing."""
+        backup_payload, _, _ = self._read_state_unlocked(
+            self.backup_path,
+            missing_ok=True,
         )
-        try:
-            self.backup_path.unlink()
-        except OSError as exc:
+        if backup_payload is not None:
             raise BookProgressStoreError(
-                "book progress recovery data could not be reset",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+                "book progress primary data is missing while recovery data remains",
+                code=BookProgressStoreErrorCode.CORRUPT_STORE,
+            )
 
     def _write_payload_unlocked(
         self,
@@ -726,7 +729,10 @@ class BookProgressStore:
             )
 
         if previous_raw is None:
-            self._clear_backup_unlocked()
+            # A missing primary plus an existing backup is not a clean first run.
+            # It is recoverable prior state. Never erase that last known-good
+            # snapshot as a side effect of an unrelated save.
+            self._require_no_orphan_backup_unlocked()
         else:
             self._atomic_publish_bytes_unlocked(self.backup_path, previous_raw)
 
@@ -846,7 +852,7 @@ class BookProgressStore:
         *,
         expected_backup_revision: str | None = None,
     ) -> bool:
-        """Explicitly replace a corrupt primary with its previous valid snapshot.
+        """Explicitly replace a missing/corrupt primary with a valid prior snapshot.
 
         If an expected backup revision is supplied, only those exact previously
         validated backup bytes may be published. Calls without a revision retain
@@ -868,36 +874,50 @@ class BookProgressStore:
 
         with self._exclusive_access():
             primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
-            if primary_raw is None:
+            primary_missing = primary_raw is None
+            if not primary_missing:
+                try:
+                    self._decode_payload(primary_raw)
+                except BookProgressStoreError as primary_error:
+                    if primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
+                        raise
+                else:
+                    return False
+
+            backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
+                self.backup_path,
+                missing_ok=primary_missing,
+            )
+            if backup_payload is None:
                 return False
-            try:
-                self._decode_payload(primary_raw)
-            except BookProgressStoreError as primary_error:
-                if primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
-                    raise
-                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
-                    self.backup_path,
-                    missing_ok=False,
+            assert backup_raw is not None and backup_revision is not None
+            if (
+                expected_backup_revision is not None
+                and backup_revision != expected_backup_revision
+            ):
+                raise BookProgressStoreError(
+                    "book progress backup changed before recovery could be committed",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
-                assert (
-                    backup_payload is not None
-                    and backup_raw is not None
-                    and backup_revision is not None
-                )
-                if (
-                    expected_backup_revision is not None
-                    and backup_revision != expected_backup_revision
-                ):
-                    raise BookProgressStoreError(
-                        "book progress backup changed before recovery could be committed",
-                        code=BookProgressStoreErrorCode.STALE_WRITE,
-                    )
-                current_raw = self._read_raw_file_unlocked(self._path, missing_ok=False)
-                if _revision(current_raw) != _revision(primary_raw):
+
+            current_raw = self._read_raw_file_unlocked(
+                self._path,
+                missing_ok=primary_missing,
+            )
+            if primary_missing:
+                if current_raw is not None:
                     raise BookProgressStoreError(
                         "book progress changed before recovery could be committed",
                         code=BookProgressStoreErrorCode.STALE_WRITE,
                     )
-                self._atomic_publish_bytes_unlocked(self._path, backup_raw)
-                return True
-            return False
+            elif (
+                _revision(current_raw) != _revision(primary_raw)
+                or current_raw != primary_raw
+            ):
+                raise BookProgressStoreError(
+                    "book progress changed before recovery could be committed",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
+
+            self._atomic_publish_bytes_unlocked(self._path, backup_raw)
+            return True
