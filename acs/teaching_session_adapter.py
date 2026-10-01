@@ -174,6 +174,11 @@ def project_teaching_session(
             or state.active_student_id == viewer_id
         )
     )
+    input_open = (
+        active
+        and state.remaining_seconds != 0
+        and state.presentation.board_permission is step.policy.board_permission
+    )
 
     return TeachingSessionView(
         audience=audience,
@@ -193,12 +198,12 @@ def project_teaching_session(
         last_response=response,
         can_submit_selection=(
             viewer_may_respond
-            and active
+            and input_open
             and input_kind is TeachingInputKind.SELECTION
         ),
         can_submit_move=(
             viewer_may_respond
-            and active
+            and input_open
             and input_kind is TeachingInputKind.MOVE
         ),
         can_pause=teacher_view and active,

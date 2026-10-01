@@ -360,6 +360,12 @@ class TeachingSessionState:
                 raise TeachingSessionError("paused/completed teaching session board must be locked")
             if self.presentation.engine_visibility is not EngineVisibilityPolicy.HIDDEN:
                 raise TeachingSessionError("paused/completed teaching session engine visibility must be hidden")
+        if (
+            self.phase is TeachingSessionPhase.ACTIVE
+            and self.remaining_seconds == 0
+            and self.presentation.board_permission is not BoardPermissionState.LOCKED
+        ):
+            raise TeachingSessionError("expired active teaching session board must be locked")
         if self.phase is TeachingSessionPhase.COMPLETED and self.remaining_seconds is not None:
             raise TeachingSessionError("completed session cannot retain a live timer")
 
@@ -455,7 +461,9 @@ def current_step(plan: LessonSession, state: TeachingSessionState) -> TeachingSt
     _match(plan, state)
     if state.step_index >= len(plan.steps):
         raise TeachingSessionError("session step index is outside lesson plan")
-    return plan.steps[state.step_index]
+    step = plan.steps[state.step_index]
+    _validate_timer_state(step, state)
+    return step
 
 
 def pause_session(plan: LessonSession, state: TeachingSessionState, expected_revision: int) -> TeachingSessionState:
@@ -474,9 +482,14 @@ def resume_session(plan: LessonSession, state: TeachingSessionState, expected_re
     step = _mutable(plan, state, expected_revision)
     if state.phase is not TeachingSessionPhase.PAUSED:
         raise TeachingSessionError("only paused session can be resumed")
+    board_permission = (
+        BoardPermissionState.LOCKED
+        if state.remaining_seconds == 0
+        else step.policy.board_permission
+    )
     presentation = _replace_presentation_policy(
         state.presentation,
-        board_permission=step.policy.board_permission,
+        board_permission=board_permission,
         engine_visibility=step.policy.engine_visibility,
     )
     return replace(state, phase=TeachingSessionPhase.ACTIVE, presentation=presentation, revision=state.revision + 1)
@@ -521,7 +534,7 @@ def submit_selection(
     expected_revision: int,
 ) -> TeachingSessionState:
     step = _mutable(plan, state, expected_revision)
-    _active(state)
+    _student_input_open(step, state)
     student_id = _session_student(plan, student_id)
     if step.policy.input_kind is not TeachingInputKind.SELECTION:
         raise TeachingSessionError("current teaching step does not accept board selection")
@@ -555,7 +568,7 @@ def submit_move(
     expected_revision: int,
 ) -> TeachingSessionState:
     step = _mutable(plan, state, expected_revision)
-    _active(state)
+    _student_input_open(step, state)
     student_id = _session_student(plan, student_id)
     if step.policy.input_kind is not TeachingInputKind.MOVE:
         raise TeachingSessionError("current teaching step does not accept chess moves")
@@ -637,9 +650,23 @@ def tick_timer(
     _active(state)
     if state.remaining_seconds is None:
         raise TeachingSessionError("current teaching step has no timer")
+    if state.remaining_seconds == 0:
+        raise TeachingSessionError("current teaching step timer has expired")
     elapsed = _positive_int(elapsed_seconds, "elapsed seconds", maximum=MAX_TIMER_SECONDS)
     remaining = max(0, state.remaining_seconds - elapsed)
-    return replace(state, remaining_seconds=remaining, revision=state.revision + 1)
+    presentation = state.presentation
+    if remaining == 0:
+        presentation = _replace_presentation_policy(
+            presentation,
+            board_permission=BoardPermissionState.LOCKED,
+            engine_visibility=presentation.engine_visibility,
+        )
+    return replace(
+        state,
+        remaining_seconds=remaining,
+        presentation=presentation,
+        revision=state.revision + 1,
+    )
 
 
 def _plan(value: object) -> LessonSession:
@@ -669,6 +696,28 @@ def _mutable(plan: LessonSession, state: TeachingSessionState, expected_revision
 def _active(state: TeachingSessionState) -> None:
     if state.phase is not TeachingSessionPhase.ACTIVE:
         raise TeachingSessionError("student input requires active teaching session")
+
+
+def _student_input_open(step: TeachingStep, state: TeachingSessionState) -> None:
+    _active(state)
+    if state.remaining_seconds == 0:
+        raise TeachingSessionError("current teaching step timer has expired")
+    if state.presentation.board_permission is not step.policy.board_permission:
+        raise TeachingSessionError("teaching presentation does not permit current student input")
+
+
+def _validate_timer_state(step: TeachingStep, state: TeachingSessionState) -> None:
+    if state.phase is TeachingSessionPhase.COMPLETED:
+        return
+    timer = step.policy.timer_seconds
+    if timer is None:
+        if state.remaining_seconds is not None:
+            raise TeachingSessionError("untimed teaching step cannot retain timer state")
+        return
+    if state.remaining_seconds is None:
+        raise TeachingSessionError("timed teaching step is missing timer state")
+    if state.remaining_seconds > timer:
+        raise TeachingSessionError("teaching timer state exceeds configured step duration")
 
 
 def _session_student(plan: LessonSession, value: object) -> str:
