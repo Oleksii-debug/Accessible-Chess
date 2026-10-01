@@ -7,7 +7,6 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
-      - fix/book-html-duplicate-fen-marker-20260929
     paths:
       - 'acs/book_html_import.py'
       - 'tests/test_v2_book_html_import.py'
