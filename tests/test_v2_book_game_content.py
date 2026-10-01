@@ -273,6 +273,30 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.block_id, "snapshot-block")
         self.assertEqual(resolved.source_anchor, "snapshot-anchor")
 
+    def test_deleted_mutable_game_field_fails_with_stable_invalid_block(self) -> None:
+        block = Game(pgn=EMBEDDED_PGN)
+        del block.pgn
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(block)
+        self.assertEqual(caught.exception.code, BookGameContentErrorCode.INVALID_BLOCK)
+
+    def test_deleted_variation_fields_fail_with_stable_codes(self) -> None:
+        missing_root = VariationTree(root_fen=AFTER_E4_FEN, pgn="1... c5 *")
+        del missing_root.root_fen
+        with self.assertRaises(BookGameContentError) as root_error:
+            resolve_book_variation(missing_root)
+        self.assertEqual(
+            root_error.exception.code,
+            BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
+
+        missing_pgn = VariationTree(root_fen=AFTER_E4_FEN, pgn="1... c5 *")
+        del missing_pgn.pgn
+        with self.assertRaises(BookGameContentError) as pgn_error:
+            resolve_book_variation(missing_pgn)
+        self.assertEqual(pgn_error.exception.code, BookGameContentErrorCode.INVALID_BLOCK)
+
     def test_wrong_block_type_is_rejected(self) -> None:
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Paragraph(text="not a game"))  # type: ignore[arg-type]
