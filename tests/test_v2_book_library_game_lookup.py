@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import unittest
 
 from acs.acsdb import AcsDatabase
@@ -226,6 +227,27 @@ class BookLibraryGameLookupTests(unittest.TestCase):
             resolve_book_game(Game(game_id=game_id), lookup=lookup)
         self.assertEqual(public.exception.code, BookGameContentErrorCode.GAME_NOT_FOUND)
         self.assertEqual(str(public.exception), "referenced book game was not found")
+
+    def test_qualification_gate_late_binds_canonical_product(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "v2-book-library-game-lookup.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$PRODUCT_BRANCH"', workflow)
+        self.assertIn('live_product="$(git rev-parse FETCH_HEAD)"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$PR_BASE_SHA" "$live_product"',
+            workflow,
+        )
+        self.assertIn('upstream="$live_product"', workflow)
+        self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
 
     def test_constructor_rejects_noncanonical_database_adapter(self) -> None:
         with self.assertRaises(TypeError):
