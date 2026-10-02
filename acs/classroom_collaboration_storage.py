@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -468,6 +468,26 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=6 WHERE key='schema_version'"
                 )
                 version = 6
+            if version < 7:
+                db.execute(
+                    """
+                    CREATE TABLE collaboration_attachment_snapshot_watermarks(
+                        attachment_id TEXT PRIMARY KEY,
+                        room_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL CHECK(revision >= 0)
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    CREATE INDEX idx_collaboration_attachment_snapshot_watermarks_room
+                    ON collaboration_attachment_snapshot_watermarks(room_id, revision)
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=7 WHERE key='schema_version'"
+                )
+                version = 7
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -828,6 +848,7 @@ class ClassroomCollaborationSQLiteStore:
         room_id: str,
         attachments: tuple[AttachmentMetadata, ...],
         updates: tuple[AttachmentStateUpdate, ...],
+        snapshot_state_revision: int | None = None,
     ) -> tuple[AttachmentMetadata, ...]:
         _canonical_id(room_id, "room id")
         if type(attachments) is not tuple:
@@ -846,6 +867,13 @@ class ClassroomCollaborationSQLiteStore:
             _safe_object_key(attachment.object_key)
         if any(type(update) is not AttachmentStateUpdate for update in updates):
             raise ValueError("attachment state update has invalid type")
+        if snapshot_state_revision is not None and (
+            type(snapshot_state_revision) is not int
+            or not 0 <= snapshot_state_revision <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError(
+                "snapshot_state_revision must be a bounded JSON-safe integer"
+            )
         if not attachments and not updates:
             return ()
 
@@ -951,6 +979,40 @@ class ClassroomCollaborationSQLiteStore:
                         ) from exc
                     persisted.append(attachment)
 
+                if snapshot_state_revision is not None:
+                    for attachment in attachments:
+                        watermark = db.execute(
+                            """
+                            SELECT room_id, revision
+                            FROM collaboration_attachment_snapshot_watermarks
+                            WHERE attachment_id=?
+                            """,
+                            (attachment.attachment_id,),
+                        ).fetchone()
+                        if watermark is not None and (
+                            watermark["room_id"] != room_id
+                            or int(watermark["revision"]) > snapshot_state_revision
+                        ):
+                            raise CollaborationStorageError(
+                                "attachment snapshot state watermark regressed"
+                            )
+                        db.execute(
+                            """
+                            INSERT INTO collaboration_attachment_snapshot_watermarks(
+                                attachment_id, room_id, revision
+                            )
+                            VALUES(?,?,?)
+                            ON CONFLICT(attachment_id) DO UPDATE SET
+                                room_id=excluded.room_id,
+                                revision=excluded.revision
+                            """,
+                            (
+                                attachment.attachment_id,
+                                room_id,
+                                snapshot_state_revision,
+                            ),
+                        )
+
                 cursor = db.execute(
                     "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                     (room_id,),
@@ -974,27 +1036,41 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "attachment state update references unknown room attachment"
                         )
-                    current = self._attachment_from_row(row)
-                    _validate_transfer_transition(
-                        current.transfer_state,
-                        update.transfer_state,
-                    )
-                    _validate_scan_transition(
-                        current.scan_state,
-                        update.scan_state,
-                    )
-                    db.execute(
+                    watermark = db.execute(
                         """
-                        UPDATE collaboration_attachments
-                        SET transfer_state=?, scan_state=?
+                        SELECT room_id, revision
+                        FROM collaboration_attachment_snapshot_watermarks
                         WHERE attachment_id=?
                         """,
-                        (
-                            update.transfer_state,
-                            update.scan_state,
-                            update.attachment_id,
-                        ),
+                        (update.attachment_id,),
+                    ).fetchone()
+                    covered_by_snapshot = (
+                        watermark is not None
+                        and watermark["room_id"] == room_id
+                        and update.revision <= int(watermark["revision"])
                     )
+                    if not covered_by_snapshot:
+                        current = self._attachment_from_row(row)
+                        _validate_transfer_transition(
+                            current.transfer_state,
+                            update.transfer_state,
+                        )
+                        _validate_scan_transition(
+                            current.scan_state,
+                            update.scan_state,
+                        )
+                        db.execute(
+                            """
+                            UPDATE collaboration_attachments
+                            SET transfer_state=?, scan_state=?
+                            WHERE attachment_id=?
+                            """,
+                            (
+                                update.transfer_state,
+                                update.scan_state,
+                                update.attachment_id,
+                            ),
+                        )
                     db.execute(
                         """
                         INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
@@ -1113,6 +1189,22 @@ class ClassroomCollaborationSQLiteStore:
                     (room_id,),
                 )
             )
+
+    def attachment_snapshot_state_revision(
+        self,
+        attachment_id: str,
+    ) -> int | None:
+        _canonical_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db:
+            row = db.execute(
+                """
+                SELECT revision
+                FROM collaboration_attachment_snapshot_watermarks
+                WHERE attachment_id=?
+                """,
+                (attachment_id,),
+            ).fetchone()
+        return None if row is None else int(row["revision"])
 
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
