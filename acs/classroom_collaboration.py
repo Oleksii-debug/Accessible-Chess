@@ -17,6 +17,7 @@ from typing import Protocol
 
 from .classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
@@ -162,7 +163,39 @@ class ChatTransportPort(Protocol):
 
 
 class FileTransferPort(Protocol):
-    """Realtime/provider upload boundary over opaque local bytes."""
+    """Server-authoritative room attachment transport over opaque local bytes.
+
+    reserve_upload is idempotent by attachment_id, enforces room quota and assigns
+    the canonical room sequence. history_after exposes ordered current metadata for
+    newly sequenced attachments. state_updates_after carries transfer/scan changes
+    for already-known attachments so reconnect never depends on client-local state.
+    """
+
+    def reserve_upload(
+        self,
+        prepared: PreparedFile,
+        *,
+        max_room_bytes: int,
+    ) -> AttachmentMetadata:
+        ...
+
+    def history_after(
+        self,
+        *,
+        room_id: str,
+        after_sequence: int | None,
+        limit: int,
+    ) -> tuple[AttachmentMetadata, ...]:
+        ...
+
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[AttachmentStateUpdate, ...]:
+        ...
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
         ...
@@ -349,6 +382,115 @@ class ClassroomCollaborationController:
             return False
         return True
 
+    def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
+        self._validate_remote_attachment(attachment, require_current_sender=True)
+        return self._persist_attachment_with_gap_recovery(attachment)
+
+    def _persist_attachment_with_gap_recovery(
+        self,
+        attachment: AttachmentMetadata,
+    ) -> AttachmentMetadata:
+        try:
+            return self._store.register_attachment(
+                attachment,
+                max_room_bytes=self._quota.max_room_bytes,
+            )
+        except CollaborationSequenceGapError:
+            self.sync_files()
+            return self._store.register_attachment(
+                attachment,
+                max_room_bytes=self._quota.max_room_bytes,
+            )
+
+    def sync_files(self) -> tuple[AttachmentMetadata, ...]:
+        self._require_member(self.local_participant_id)
+        existing = self._store.room_attachments(self.room_id)
+        after = existing[-1].sequence_no if existing else None
+        incoming = self._files.history_after(
+            room_id=self.room_id,
+            after_sequence=after,
+            limit=MAX_SYNC_MESSAGES,
+        )
+        if type(incoming) is not tuple or len(incoming) > MAX_SYNC_MESSAGES:
+            raise CollaborationError("attachment history response is invalid or too large")
+        previous = after
+        persisted: list[AttachmentMetadata] = []
+        for attachment in incoming:
+            self._validate_remote_attachment(
+                attachment,
+                require_current_sender=False,
+            )
+            expected_sequence = 0 if previous is None else previous + 1
+            if attachment.sequence_no != expected_sequence:
+                raise CollaborationError(
+                    "attachment history has an unresolved sequence gap"
+                )
+            saved = self._store.register_attachment(
+                attachment,
+                max_room_bytes=self._quota.max_room_bytes,
+            )
+            if saved.transfer_state != "deleted":
+                persisted.append(saved)
+            previous = attachment.sequence_no
+
+        state_after = self._store.attachment_state_revision(self.room_id)
+        updates = self._files.state_updates_after(
+            room_id=self.room_id,
+            after_revision=state_after,
+            limit=MAX_SYNC_MESSAGES,
+        )
+        if type(updates) is not tuple or len(updates) > MAX_SYNC_MESSAGES:
+            raise CollaborationError(
+                "attachment state response is invalid or too large"
+            )
+        history_complete = len(incoming) < MAX_SYNC_MESSAGES
+        known_attachment_ids = {
+            item.attachment_id
+            for item in self._store.room_attachments(self.room_id)
+        }
+        state_previous = state_after
+        applicable_updates: list[AttachmentStateUpdate] = []
+        for update in updates:
+            if type(update) is not AttachmentStateUpdate:
+                raise CollaborationError(
+                    "attachment state contains invalid update type"
+                )
+            if update.room_id != self.room_id:
+                raise CollaborationError("attachment state crossed room boundary")
+            expected_revision = 0 if state_previous is None else state_previous + 1
+            if update.revision != expected_revision:
+                raise CollaborationError(
+                    "attachment state has an unresolved revision gap"
+                )
+            if update.attachment_id not in known_attachment_ids:
+                if history_complete:
+                    raise CollaborationError(
+                        "attachment state references unknown room attachment"
+                    )
+                break
+            applicable_updates.append(update)
+            state_previous = update.revision
+        try:
+            self._store.apply_attachment_state_updates(
+                room_id=self.room_id,
+                updates=tuple(applicable_updates),
+            )
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "attachment state could not be reconciled"
+            ) from error
+        if applicable_updates and persisted:
+            visible_ids = {
+                item.attachment_id
+                for item in self._store.room_attachments(self.room_id)
+                if item.transfer_state != "deleted"
+            }
+            persisted = [
+                item for item in persisted if item.attachment_id in visible_ids
+            ]
+        return tuple(persisted)
+
     def set_chat_send_permission(
         self,
         *,
@@ -438,13 +580,6 @@ class ClassroomCollaborationController:
         size = path.stat().st_size
         if size > self._quota.max_file_bytes:
             raise CollaborationError("file exceeds configured size limit")
-        room_used = sum(
-            item.size_bytes
-            for item in self._store.room_attachments(self.room_id)
-            if item.transfer_state != "deleted"
-        )
-        if room_used + size > self._quota.max_room_bytes:
-            raise CollaborationError("room file quota would be exceeded")
         display_name = safe_display_filename(path.name)
         digest = _sha256_path(path)
         mime_type, _encoding = mimetypes.guess_type(display_name)
@@ -474,10 +609,12 @@ class ClassroomCollaborationController:
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         try:
-            pending = self._store.register_attachment(
-                prepared.metadata,
+            reserved = self._files.reserve_upload(
+                prepared,
                 max_room_bytes=self._quota.max_room_bytes,
             )
+            self._validate_reserved_result(prepared.metadata, reserved)
+            pending = self._persist_attachment_with_gap_recovery(reserved)
         except CollaborationQuotaError as error:
             raise CollaborationError("room file quota would be exceeded") from error
         uploading = self._store.update_attachment_state(
@@ -657,6 +794,52 @@ class ClassroomCollaborationController:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
             raise CollaborationError("prepared file content changed before upload")
+
+    def _validate_remote_attachment(
+        self,
+        attachment: AttachmentMetadata,
+        *,
+        require_current_sender: bool,
+    ) -> None:
+        if type(attachment) is not AttachmentMetadata:
+            raise CollaborationError("attachment transport returned invalid metadata")
+        if attachment.room_id != self.room_id:
+            raise CollaborationError("attachment history crossed room boundary")
+        if require_current_sender:
+            self._require_member(attachment.sender_id)
+        else:
+            _id(attachment.sender_id, "sender id")
+        if attachment.object_key != _canonical_object_key(
+            self.room_id,
+            attachment.attachment_id,
+        ):
+            raise CollaborationError(
+                "attachment transport crossed canonical storage namespace"
+            )
+
+    def _validate_reserved_result(
+        self,
+        expected: AttachmentMetadata,
+        result: AttachmentMetadata,
+    ) -> None:
+        self._validate_remote_attachment(result, require_current_sender=True)
+        immutable = (
+            "attachment_id",
+            "room_id",
+            "sender_id",
+            "display_name",
+            "mime_type",
+            "size_bytes",
+            "sha256",
+            "object_key",
+            "retention",
+        )
+        if any(getattr(result, field) != getattr(expected, field) for field in immutable):
+            raise CollaborationError(
+                "file transport changed immutable attachment identity during reservation"
+            )
+        if result.transfer_state != "pending" or result.scan_state != "pending":
+            raise CollaborationError("file transport returned invalid reservation state")
 
     @staticmethod
     def _validate_uploaded_result(
