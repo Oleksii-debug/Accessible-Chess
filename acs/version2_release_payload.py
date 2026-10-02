@@ -12,6 +12,7 @@ one immutable product/notices pair for the existing Version 2 package assembler.
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -136,12 +137,24 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_link_like(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        return bool(is_junction()) if callable(is_junction) else False
+    except OSError:
+        return True
+
+
 def _require_clean_source_tree(root: Path, *, label: str) -> None:
+    if _is_link_like(root):
+        raise Version2ReleasePayloadError(f"{label} contains a symlink or junction")
     if not root.is_dir():
         raise Version2ReleasePayloadError(f"{label} directory is missing")
     for path in root.rglob("*"):
-        if path.is_symlink():
-            raise Version2ReleasePayloadError(f"{label} contains a symlink")
+        if _is_link_like(path):
+            raise Version2ReleasePayloadError(f"{label} contains a symlink or junction")
 
 
 def _copy_tree_without_links(source: Path, destination: Path) -> None:
@@ -732,7 +745,7 @@ def prepare_version2_release_payload(
     sounds = Path(sound_pack_dir)
     output = Path(output_root)
 
-    if output.exists():
+    if os.path.lexists(output):
         raise Version2ReleasePayloadError("output payload root already exists")
     _require_clean_source_tree(standalone, label="standalone")
     _require_clean_source_tree(sounds, label="sound pack")
@@ -741,7 +754,16 @@ def prepare_version2_release_payload(
     _require_standalone_contract(standalone)
 
     parent = output.parent
+    if os.path.lexists(parent):
+        if _is_link_like(parent) or not parent.is_dir():
+            raise Version2ReleasePayloadError(
+                "output payload parent must be a real directory"
+            )
     parent.mkdir(parents=True, exist_ok=True)
+    if _is_link_like(parent):
+        raise Version2ReleasePayloadError(
+            "output payload parent must be a real directory"
+        )
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.payload-", dir=parent))
     try:
         product = staging / _PREPARED_PRODUCT_DIR
