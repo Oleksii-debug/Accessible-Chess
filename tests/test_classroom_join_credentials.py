@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 import traceback
 import unittest
 
@@ -234,6 +235,23 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         self.assertEqual(authorization.calls, [])
         self.assertEqual(issuer.calls, [])
 
+    def test_clock_provider_failure_is_sanitized_before_authority_or_provider(self):
+        def broken_clock():
+            raise RuntimeError("private clock backend detail")
+
+        service, authorization, issuer = self.make_service(now=broken_clock)
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join credential clock failed$",
+        ) as caught:
+            self.run_issue(service)
+
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("private clock backend detail", rendered)
+        self.assertEqual(authorization.calls, [])
+        self.assertEqual(issuer.calls, [])
+
     def test_provider_failure_and_invalid_token_are_sanitized(self):
         service, _authorization, issuer = self.make_service()
         issuer.error = RuntimeError("provider api_secret leaked internally")
@@ -258,6 +276,33 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         self.assertIsNone(caught.exception.__cause__)
         rendered = "".join(traceback.format_exception(caught.exception))
         self.assertNotIn(issuer.token, rendered)
+
+    def test_non_utf8_surrogate_text_fails_closed(self):
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "valid UTF-8",
+        ):
+            parse_join_request(
+                "\ud800",
+                trusted_caller_identity="account-17",
+            )
+
+    def test_duplicate_json_object_fields_fail_closed(self):
+        duplicate_payloads = (
+            '{"version":1,"version":1,"room_id":"room-1","participant_id":"student-1"}',
+            '{"version":1,"room_id":"room-1","room_id":"room-2","participant_id":"student-1"}',
+            '{"version":1,"room_id":"room-1","participant_id":"student-1","participant_id":"student-2"}',
+        )
+        for payload_value in duplicate_payloads:
+            with self.subTest(payload=payload_value):
+                with self.assertRaisesRegex(
+                    ClassroomJoinCredentialError,
+                    "fields must be unique",
+                ):
+                    parse_join_request(
+                        payload_value,
+                        trusted_caller_identity="account-17",
+                    )
 
     def test_request_parser_is_strict_and_bounded_before_authorization(self):
         for payload in (
@@ -294,6 +339,21 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         self.assertEqual(len(authorization.calls), 2)
         self.assertEqual(len(issuer.calls), 2)
         self.assertNotEqual(first["token"], second["token"])
+
+    def test_join_credential_workflow_binds_current_product_base_fail_closed(self):
+        source = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-join-credential-service.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}", source)
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', source)
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', source)
+        self.assertIn('base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"', source)
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', source)
+        self.assertIn('git diff --name-only "$base...HEAD"', source)
+        self.assertNotIn('git diff --name-only "$EXPECTED_BASE_SHA" HEAD', source)
 
     def test_bad_provider_return_never_escapes_join_credential_contract(self):
         service, _authorization, issuer = self.make_service()

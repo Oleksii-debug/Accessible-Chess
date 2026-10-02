@@ -40,6 +40,17 @@ class ClassroomJoinCredentialError(ValueError):
     """Fail-closed join-credential service error safe for transport handling."""
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ClassroomJoinCredentialError(
+                "join request JSON object fields must be unique"
+            )
+        value[key] = item
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ClassroomJoinGrant:
     """Canonical authorization result passed to the provider token issuer."""
@@ -110,11 +121,16 @@ def parse_join_request(
     caller = _identifier(trusted_caller_identity, "trusted caller identity")
     if type(payload) is not str:
         raise ClassroomJoinCredentialError("join request payload must be text")
-    encoded = payload.encode("utf-8")
+    try:
+        encoded = payload.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ClassroomJoinCredentialError("join request payload is not valid UTF-8 text") from None
     if not encoded or len(encoded) > MAX_JOIN_REQUEST_BYTES:
         raise ClassroomJoinCredentialError("join request payload size is invalid")
     try:
-        decoded = json.loads(payload)
+        decoded = json.loads(payload, object_pairs_hook=_unique_json_object)
+    except ClassroomJoinCredentialError:
+        raise
     except (TypeError, ValueError, json.JSONDecodeError):
         raise ClassroomJoinCredentialError("join request payload is invalid JSON") from None
     if type(decoded) is not dict or set(decoded) != _REQUEST_FIELDS:
@@ -163,7 +179,20 @@ class ClassroomJoinCredentialService:
             trusted_caller_identity=trusted_caller_identity,
         )
 
-        issued_at = _utc(self._now(), "join credential clock")
+        try:
+            clock_value = self._now()
+        except Exception:
+            raise ClassroomJoinCredentialError(
+                "join credential clock failed"
+            ) from None
+        try:
+            issued_at = _utc(clock_value, "join credential clock")
+        except ClassroomJoinCredentialError:
+            raise
+        except Exception:
+            raise ClassroomJoinCredentialError(
+                "join credential clock failed"
+            ) from None
         expires_at = issued_at + timedelta(seconds=self._ttl_seconds)
 
         try:
