@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from acs.classroom_collaboration import (
+    MAX_SYNC_MESSAGES,
     ChatDraft,
     ChatModerationAction,
     ChatModerationCommand,
@@ -17,6 +18,7 @@ from acs.classroom_collaboration_chat_server import (
     ClassroomChatServerSQLiteStore,
     ClassroomChatServerService,
     MAX_SERVER_HISTORY_MESSAGES,
+    MAX_SERVER_MODERATION_COMMANDS,
 )
 from acs.classroom_domain import MAX_WIRE_INTEGER
 
@@ -446,6 +448,62 @@ class ClassroomChatServerTests(unittest.TestCase):
                 commands=(self.moderation("op-denied"),),
             )
         self.assertIsNone(raised.exception.__cause__)
+
+    def test_server_history_bound_matches_canonical_client_sync_page(self) -> None:
+        self.assertEqual(MAX_SYNC_MESSAGES, MAX_SERVER_HISTORY_MESSAGES)
+        self.assertEqual(
+            (),
+            self.service.history_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_sequence=None,
+                limit=MAX_SYNC_MESSAGES,
+            ),
+        )
+        self.assertEqual(
+            (),
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=None,
+                limit=MAX_SYNC_MESSAGES,
+            ),
+        )
+
+    def test_server_moderation_batch_supports_large_canonical_roster(self) -> None:
+        self.assertEqual(5000, MAX_SERVER_MODERATION_COMMANDS)
+        commands = tuple(
+            self.moderation(
+                f"bulk-{index}",
+                target=f"student-{index}",
+                allowed=False,
+            )
+            for index in range(501)
+        )
+
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=commands,
+        )
+
+        with closing(sqlite3.connect(self.path)) as db:
+            permission_count = db.execute(
+                """
+                SELECT COUNT(*) FROM classroom_chat_server_permissions
+                WHERE room_id=?
+                """,
+                (ROOM,),
+            ).fetchone()[0]
+        self.assertEqual(501, permission_count)
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "batch is invalid",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(commands[0],) * (MAX_SERVER_MODERATION_COMMANDS + 1),
+            )
 
     def test_history_is_strictly_ordered_bounded_and_authorized(self) -> None:
         sent = [self.send(self.draft(f"m{index}", str(index))) for index in range(4)]
