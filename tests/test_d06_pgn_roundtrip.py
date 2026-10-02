@@ -405,6 +405,24 @@ class D06PgnRoundTripTests(unittest.TestCase):
             )
             serializer.assert_not_called()
 
+    def test_byte_export_rejects_multibyte_overflow_before_encoding(self):
+        class NoEncodeText(str):
+            def encode(self, *args, **kwargs):
+                raise AssertionError("encode must not run after byte-size preflight fails")
+
+        with (
+            patch(
+                "acs.pgn_roundtrip.serialize_pgn_text",
+                return_value=NoEncodeText("é" * 6),
+            ),
+            patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+                serialize_pgn_bytes,
+                (),
+            )
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
