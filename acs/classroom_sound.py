@@ -76,6 +76,11 @@ class ClassroomSoundRuntime:
     def dispatch(self, event_id: str) -> ClassroomSoundResult:
         event_id = self._event_id(event_id)
         profile = self._current_profile()
+        # The packaged classic authority owns chess SoundEvent assets only.
+        # Namespaced classroom/lesson/chat/file events are optional custom-pack
+        # capabilities, so classic treats them as intentional silence.
+        if profile.pack_id == "classic":
+            return ClassroomSoundResult(event_id, None, False)
         volume = profile.effective_volume(event_id)
         if volume == 0:
             return ClassroomSoundResult(event_id, None, False)
@@ -102,6 +107,11 @@ class ClassroomSoundRuntime:
     def preview(self, event_id: str) -> ClassroomSoundResult:
         event_id = self._event_id(event_id)
         profile = self._current_profile()
+        # The packaged classic authority owns chess SoundEvent assets only.
+        # Namespaced classroom/lesson/chat/file events are optional custom-pack
+        # capabilities, so classic treats them as intentional silence.
+        if profile.pack_id == "classic":
+            return ClassroomSoundResult(event_id, None, False)
         volume = profile.effective_volume(event_id)
         if volume == 0:
             return ClassroomSoundResult(event_id, None, False)
