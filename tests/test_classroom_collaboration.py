@@ -55,6 +55,7 @@ class FakeChat:
         self.send_allowed = {}
         self.mutate_delivery = False
         self.omit_timestamp = False
+        self.raise_after_accept_once = False
 
     def send_message(self, draft):
         if not self.send_allowed.get((draft.room_id, draft.sender_id), True):
@@ -79,6 +80,9 @@ class FakeChat:
             message = replace(message, body="transport changed body")
         self.messages[draft.message_id] = message
         self.ordered.append(message)
+        if self.raise_after_accept_once:
+            self.raise_after_accept_once = False
+            raise RuntimeError("chat delivery acknowledgement was lost")
         return message
 
     def history_after(self, *, room_id, after_sequence, limit):
@@ -336,6 +340,86 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         with self.assertRaises(CollaborationError):
             controller.sync_chat()
 
+    def test_ambiguous_chat_send_retries_same_id_without_duplicate(self):
+        controller = self.controller()
+        self.chat.raise_after_accept_once = True
+
+        delivered = controller.send_chat(
+            message_id="ambiguous-once",
+            body="Exactly once",
+        )
+
+        self.assertEqual(delivered.message_id, "ambiguous-once")
+        self.assertEqual(
+            tuple(message.message_id for message in self.chat.ordered),
+            ("ambiguous-once",),
+        )
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (delivered,),
+        )
+
+    def test_ambiguous_chat_send_recovers_exact_history_identity_after_retry_failure(self):
+        controller = self.controller()
+        accepted = ChatMessageMetadata(
+            "ambiguous-history",
+            "room-1",
+            "student-1",
+            0,
+            "Recovered from history",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.messages[accepted.message_id] = accepted
+        self.chat.ordered = [accepted]
+
+        with patch.object(
+            self.chat,
+            "send_message",
+            side_effect=RuntimeError("ambiguous transport failure"),
+        ):
+            recovered = controller.send_chat(
+                message_id=accepted.message_id,
+                body=accepted.body,
+            )
+
+        self.assertEqual(recovered, accepted)
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (accepted,),
+        )
+
+    def test_ambiguous_chat_recovery_rejects_mutated_history_before_persistence(self):
+        controller = self.controller()
+        tampered = ChatMessageMetadata(
+            "ambiguous-mutated",
+            "room-1",
+            "student-1",
+            0,
+            "Transport changed the body",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.messages[tampered.message_id] = tampered
+        self.chat.ordered = [tampered]
+
+        with patch.object(
+            self.chat,
+            "send_message",
+            side_effect=RuntimeError("ambiguous transport failure"),
+        ):
+            with self.assertRaisesRegex(
+                CollaborationError,
+                "recovered chat message changed immutable message identity",
+            ):
+                controller.send_chat(
+                    message_id=tampered.message_id,
+                    body="Original body",
+                )
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+
     def test_transport_cannot_mutate_message_identity_or_body(self):
         controller = self.controller()
         self.chat.mutate_delivery = True
@@ -373,7 +457,9 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         repaired = controller.sync_chat()
 
-        self.assertEqual(repaired, history)
+        # Prefix repair returns only messages that were newly recovered. The
+        # already-present later row must not be re-announced or marked unread.
+        self.assertEqual(repaired, history[:2])
         self.assertEqual(
             self.store.room_messages("room-1", include_hidden=True),
             history,

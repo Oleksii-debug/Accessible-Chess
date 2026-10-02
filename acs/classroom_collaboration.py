@@ -238,7 +238,72 @@ class ClassroomCollaborationController:
             body=body,
             retention=retention,
         )
-        delivered = self._chat.send_message(draft)
+        try:
+            delivered = self._chat.send_message(draft)
+        except Exception as initial_error:
+            # The transport contract is idempotent for the same message_id.
+            # Retry the exact draft once so an accepted-but-unacknowledged send
+            # cannot force callers to mint a second logical message.
+            try:
+                delivered = self._chat.send_message(draft)
+            except Exception:
+                existing = self._store.room_messages(
+                    self.room_id,
+                    include_hidden=True,
+                )
+                matches = tuple(
+                    message
+                    for message in existing
+                    if message.message_id == draft.message_id
+                )
+                if not matches:
+                    after: int | None = None
+                    for current in existing:
+                        expected = 0 if after is None else after + 1
+                        if current.sequence_no != expected:
+                            break
+                        after = current.sequence_no
+                    try:
+                        history = self._chat.history_after(
+                            room_id=self.room_id,
+                            after_sequence=after,
+                            limit=MAX_SYNC_MESSAGES,
+                        )
+                    except Exception:
+                        raise initial_error
+                    if (
+                        type(history) is not tuple
+                        or len(history) > MAX_SYNC_MESSAGES
+                    ):
+                        raise CollaborationError(
+                            "ambiguous chat recovery history is invalid or too large"
+                        )
+                    matches = tuple(
+                        message
+                        for message in history
+                        if (
+                            type(message) is ChatMessageMetadata
+                            and message.message_id == draft.message_id
+                        )
+                    )
+                if len(matches) != 1:
+                    if not matches:
+                        raise initial_error
+                    raise CollaborationError(
+                        "ambiguous chat recovery returned duplicate message identity"
+                    )
+                recovered = matches[0]
+                if (
+                    recovered.room_id != draft.room_id
+                    or recovered.sender_id != draft.sender_id
+                    or recovered.body != draft.body
+                    or recovered.retention != draft.retention
+                    or recovered.sent_at_unix_ms is None
+                ):
+                    raise CollaborationError(
+                        "recovered chat message changed immutable message identity"
+                    )
+                return self._persist_chat_with_gap_recovery(recovered)
         self._validate_delivered_message(draft, delivered)
         return self._persist_chat_with_gap_recovery(delivered)
 
