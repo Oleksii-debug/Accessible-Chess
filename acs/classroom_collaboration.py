@@ -588,7 +588,14 @@ class ClassroomCollaborationController:
             for item in self._store.room_attachments(self.room_id)
             if item.transfer_state == "stored"
         )
-        after = authoritative[-1].sequence_no if authoritative else None
+        # Advance only through the locally complete authoritative prefix. A
+        # later stored row must never cause reconnect to skip missing history.
+        after: int | None = None
+        for attachment in authoritative:
+            expected = 0 if after is None else after + 1
+            if attachment.sequence_no != expected:
+                break
+            after = attachment.sequence_no
         incoming = self._files.history_after(
             room_id=self.room_id,
             after_sequence=after,
