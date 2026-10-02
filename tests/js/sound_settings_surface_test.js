@@ -88,6 +88,7 @@ const initial = {
   packs: []
 };
 let serverSnapshot = initial;
+let commandMode = "success";
 
 const api = {
   sound_settings_snapshot() {
@@ -95,6 +96,12 @@ const api = {
   },
   sound_settings_command(command, payload) {
     calls.push([command, payload]);
+    if (commandMode === "failure") {
+      return Promise.resolve({ok: false, message: "Save failed."});
+    }
+    if (commandMode === "reject") {
+      return Promise.reject(new Error("bridge failure"));
+    }
     const snapshot = JSON.parse(JSON.stringify(initial));
     if (command === "set_master" && Object.prototype.hasOwnProperty.call(payload, "enabled")) {
       snapshot.master_enabled = payload.enabled;
@@ -179,6 +186,35 @@ async function run() {
     "repeated explicit results must carry distinct P0 dispatch identities");
   assert.strictEqual(live.textContent, "",
     "sound actions must not bypass the canonical P0 announcement queue");
+
+  commandMode = "failure";
+  let failedMaster = elements.get("sound-master-enabled");
+  const confirmedMaster = failedMaster.checked;
+  failedMaster.checked = !confirmedMaster;
+  failedMaster.dispatch("change");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  failedMaster = elements.get("sound-master-enabled");
+  assert.strictEqual(failedMaster.checked, confirmedMaster,
+    "failed durable master mutation must restore the last confirmed snapshot");
+  assert.strictEqual(document.activeElement.id, "sound-master-enabled",
+    "failed mutation rerender must restore focus to the semantic control");
+
+  commandMode = "reject";
+  let failedVolume = elements.get("sound-event-move-volume");
+  const confirmedVolume = failedVolume.value;
+  failedVolume.value = "19";
+  failedVolume.dispatch("change");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  failedVolume = elements.get("sound-event-move-volume");
+  assert.strictEqual(failedVolume.value, confirmedVolume,
+    "rejected bridge mutation must not leave an unpersisted volume visible");
+  assert.strictEqual(document.activeElement.id, "sound-event-move-volume",
+    "rejected mutation rerender must restore keyboard focus");
+  commandMode = "success";
 
   serverSnapshot = {
     ...initial,
