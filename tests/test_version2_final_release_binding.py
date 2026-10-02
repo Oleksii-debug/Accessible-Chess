@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -191,6 +193,83 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         self.assertIs(controller, FinalProductNativeMenuController)
         self.assertIs(resources, final_release._final_product_resource_sources)
         self.assertEqual(self._snapshot_release_globals(), before)
+
+    def test_staged_livekit_sdk_precedes_adapter_and_teacher_surface(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = root / "web"
+            vendor = web / "vendor" / "livekit"
+            vendor.mkdir(parents=True)
+            resources = (
+                "stage1_release_bootstrap.js",
+                "stage1_board_actions.js",
+                "full_product_pgn.js",
+                "full_product_library.js",
+                "full_product_books_training.js",
+                "full_product_teacher.js",
+                "full_product_education.js",
+                "version2_final_product_bootstrap.js",
+                "p0_accessibility_runtime.js",
+                "livekit_classroom_media.js",
+            )
+            for name in resources:
+                (web / name).write_text("// test resource\n", encoding="utf-8")
+            (vendor / "livekit-client.umd.js").write_text(
+                "globalThis.LivekitClient={Room:function Room(){}};\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                final_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                sources = final_release._final_product_resource_sources()
+
+        labels = [label for label, _source in sources]
+        sdk_label = "LiveKit browser SDK"
+        adapter_label = "Classroom LiveKit media adapter"
+        teacher_label = "V2 Teacher surface"
+        self.assertEqual(labels.count(sdk_label), 1)
+        self.assertEqual(labels.count(adapter_label), 1)
+        self.assertLess(labels.index(sdk_label), labels.index(adapter_label))
+        self.assertLess(labels.index(adapter_label), labels.index(teacher_label))
+        self.assertIn("LivekitClient", dict(sources)[sdk_label])
+
+    def test_unstaged_livekit_sdk_does_not_load_adapter_by_itself(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = root / "web"
+            web.mkdir(parents=True)
+            resources = (
+                "stage1_release_bootstrap.js",
+                "stage1_board_actions.js",
+                "full_product_pgn.js",
+                "full_product_library.js",
+                "full_product_books_training.js",
+                "full_product_teacher.js",
+                "full_product_education.js",
+                "version2_final_product_bootstrap.js",
+                "p0_accessibility_runtime.js",
+                "livekit_classroom_media.js",
+            )
+            for name in resources:
+                (web / name).write_text("// test resource\n", encoding="utf-8")
+
+            with mock.patch.object(
+                final_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                sources = final_release._final_product_resource_sources()
+
+        labels = [label for label, _source in sources]
+        self.assertNotIn("LiveKit browser SDK", labels)
+        self.assertNotIn("Classroom LiveKit media adapter", labels)
 
     def test_main_failure_restores_exact_prior_release_owners(self) -> None:
         from acs import version2_final_release as final_release
