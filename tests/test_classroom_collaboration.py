@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -382,6 +383,46 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (),
         )
         self.assertIsNone(self.store.chat_state_revision("room-1"))
+
+    def test_sync_repairs_legacy_local_history_that_started_after_zero(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("legacy-gap-0", "room-1", "teacher-1", "First")
+        )
+        second = self.chat.send_message(
+            ChatDraft("legacy-gap-1", "room-1", "student-2", "Second")
+        )
+        third = self.chat.send_message(
+            ChatDraft("legacy-gap-2", "room-1", "teacher-1", "Third")
+        )
+        with sqlite3.connect(self.store.path) as db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    third.message_id,
+                    third.room_id,
+                    third.sender_id,
+                    third.sequence_no,
+                    third.body,
+                    third.retention,
+                    int(third.hidden),
+                    third.sent_at_unix_ms,
+                ),
+            )
+
+        synced = controller.sync_chat()
+
+        self.assertEqual(synced, (first, second))
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (first, second, third),
+        )
+        self.assertEqual(controller.sync_chat(), ())
 
     def test_sync_defers_state_for_message_on_next_history_page(self):
         controller = self.controller()
