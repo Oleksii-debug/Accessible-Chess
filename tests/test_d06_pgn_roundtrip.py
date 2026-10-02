@@ -359,7 +359,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
                     MoveNode(
                         "e4",
                         move_number="1.",
-                        comments_after=[Comment("line one\\rline two")],
+                        comments_after=[Comment("line one\rline two")],
                     )
                 ],
                 result="*",
