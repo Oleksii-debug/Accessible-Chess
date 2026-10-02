@@ -144,6 +144,44 @@ class SoundCachePathSafetyTests(unittest.TestCase):
             self.assertEqual([sentinel], list(outside.iterdir()))
 
 
+class SoundCachePlaybackLockTests(unittest.TestCase):
+    def test_adapters_for_same_cache_share_in_process_lock(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-shared-lock-") as raw:
+            cache = Path(raw) / "cache"
+            first = _cache_adapter(cache, mock.Mock())
+            second = _cache_adapter(cache, mock.Mock())
+            first._play_lock = __import__(
+                "acs.sound_profile_windows",
+                fromlist=["_cache_process_lock"],
+            )._cache_process_lock(cache)
+            second._play_lock = __import__(
+                "acs.sound_profile_windows",
+                fromlist=["_cache_process_lock"],
+            )._cache_process_lock(cache)
+            self.assertIs(first._play_lock, second._play_lock)
+
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_cache_lock_symlink_is_rejected_without_following(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-lock-symlink-") as raw:
+            root = Path(raw)
+            cache = root / "cache"
+            cache.mkdir()
+            outside = root / "outside.lock"
+            outside.write_bytes(b"sentinel")
+            (cache / ".playback.lock").symlink_to(outside)
+            adapter = _cache_adapter(cache, mock.Mock())
+            adapter._play_lock = __import__(
+                "acs.sound_profile_windows",
+                fromlist=["_cache_process_lock"],
+            )._cache_process_lock(cache)
+
+            with self.assertRaisesRegex(RuntimeError, "not a regular file"):
+                with adapter._exclusive_playback():
+                    self.fail("redirected lock must never be acquired")
+
+            self.assertEqual(b"sentinel", outside.read_bytes())
+
+
 class SoundCacheWarningRedactionTests(unittest.TestCase):
     def test_temporary_cleanup_warning_does_not_expose_private_path_or_exception(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-cache-warning-") as raw:
