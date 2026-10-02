@@ -325,6 +325,22 @@
         item.appendChild(node("strong", message.sender || ""));
         item.appendChild(document.createTextNode(": "));
         item.appendChild(node("span", message.body || ""));
+        if (message.timestamp_text) {
+          const timestampDetails = node("details");
+          timestampDetails.setAttribute("data-message-timestamp", "true");
+          const timestampSummary = node(
+            "summary",
+            chat.timestamp_label || "Message time"
+          );
+          timestampDetails.appendChild(timestampSummary);
+          const timestamp = node("time", String(message.timestamp_text));
+          timestamp.setAttribute("aria-live", "off");
+          if (message.timestamp_datetime) {
+            timestamp.setAttribute("datetime", String(message.timestamp_datetime));
+          }
+          timestampDetails.appendChild(timestamp);
+          item.appendChild(timestampDetails);
+        }
         if (message.can_hide && message.message_key) {
           const hide = node("button", chat.hide_label || "Hide message");
           hide.type = "button";
