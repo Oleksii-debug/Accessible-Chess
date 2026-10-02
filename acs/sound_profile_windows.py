@@ -168,11 +168,10 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
-            except OSError:
+            except OSError as exc:
                 self._logger.warning(
-                    "could not remove temporary profiled sound cache file: %s",
-                    temporary,
-                    exc_info=True,
+                    "could not remove temporary profiled sound cache file error_type=%s",
+                    type(exc).__name__,
                 )
 
         self._prune_scaled_variants(destination, cache_key, volume)
@@ -209,11 +208,10 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 candidate.unlink()
             except FileNotFoundError:
                 continue
-            except OSError:
+            except OSError as exc:
                 self._logger.warning(
-                    "could not prune stale profiled sound cache file: %s",
-                    candidate,
-                    exc_info=True,
+                    "could not prune stale profiled sound cache file error_type=%s",
+                    type(exc).__name__,
                 )
 
 
