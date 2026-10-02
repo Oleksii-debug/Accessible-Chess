@@ -32,8 +32,13 @@ def _required_text(path: Path, label: str) -> str:
         if not path.is_file():
             raise RuntimeError(f"{label} not found in packaged resources.")
         source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        raise RuntimeError(f"{label} could not be read from packaged resources.") from exc
+    except (OSError, UnicodeError):
+        # Do not attach the filesystem exception: its traceback may disclose an
+        # absolute Windows profile/build path. The label is sufficient for
+        # operator diagnosis and remains stable across source/package layouts.
+        raise RuntimeError(
+            f"{label} could not be read from packaged resources."
+        ) from None
     if not source.strip():
         raise RuntimeError(f"{label} is empty in packaged resources.")
     return source
