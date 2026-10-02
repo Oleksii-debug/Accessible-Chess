@@ -41,22 +41,46 @@ class ClassroomChatRpcCallPort(Protocol):
         ...
 
 
-class ClassroomChatRpcAuthorityPort(Protocol):
-    """Canonical server-side membership/role authorization boundary."""
+class ClassroomChatRpcServerPort(Protocol):
+    """Trusted server authority called only with authenticated caller identity.
 
-    def authorize_send(self, *, room_id: str, participant_id: str) -> None:
-        """Authorize current membership and server-side chat send policy."""
-        ...
+    This signature intentionally matches ClassroomChatServerService from the
+    canonical durable #29 server lineage. Authorization, send locks, durable
+    sequencing and moderation replay remain server responsibilities.
+    """
 
-    def authorize_history(self, *, room_id: str, participant_id: str) -> None:
-        """Authorize current membership and room-history visibility."""
-        ...
-
-    def authorize_moderation(
+    def send_message(
         self,
         *,
+        trusted_caller_identity: str,
+        draft: ChatDraft,
+    ) -> ChatMessageMetadata:
+        ...
+
+    def history_after(
+        self,
+        *,
+        trusted_caller_identity: str,
         room_id: str,
-        actor_id: str,
+        after_sequence: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageMetadata, ...]:
+        ...
+
+    def state_updates_after(
+        self,
+        *,
+        trusted_caller_identity: str,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        ...
+
+    def apply_moderation(
+        self,
+        *,
+        trusted_caller_identity: str,
         commands: tuple[ChatModerationCommand, ...],
     ) -> None:
         ...
@@ -215,15 +239,15 @@ class ClassroomChatRpcClient(ChatTransportPort):
 
 
 class ClassroomChatRpcService:
-    """Trusted server boundary over canonical authorization and backend effects."""
+    """Authenticated endpoint over one canonical trusted room-chat server."""
 
     def __init__(
         self,
         *,
-        authority: ClassroomChatRpcAuthorityPort,
-        backend: ChatTransportPort,
+        backend: ClassroomChatRpcServerPort,
     ) -> None:
-        self._authority = authority
+        if backend is None:
+            raise TypeError("trusted classroom chat server backend is required")
         self._backend = backend
 
     def handle(
@@ -279,9 +303,11 @@ class ClassroomChatRpcService:
             )
         except Exception:
             raise ClassroomChatRpcError("send message is invalid") from None
-        self._authorize_send(room, participant)
         try:
-            delivered = self._backend.send_message(draft)
+            delivered = self._backend.send_message(
+                trusted_caller_identity=participant,
+                draft=draft,
+            )
         except Exception:
             raise ClassroomChatRpcError("classroom chat backend failed") from None
         if type(delivered) is not ChatMessageMetadata:
@@ -311,9 +337,9 @@ class ClassroomChatRpcService:
         _require_authenticated_identity(request, room=room, participant=participant)
         after = _optional_sequence(request["after_sequence"])
         limit = _history_limit(request["limit"])
-        self._authorize_history(room, participant)
         try:
             messages = self._backend.history_after(
+                trusted_caller_identity=participant,
                 room_id=room,
                 after_sequence=after,
                 limit=limit,
@@ -351,9 +377,9 @@ class ClassroomChatRpcService:
         _require_authenticated_identity(request, room=room, participant=participant)
         after = _optional_revision(request["after_revision"])
         limit = _state_limit(request["limit"])
-        self._authorize_history(room, participant)
         try:
             updates = self._backend.state_updates_after(
+                trusted_caller_identity=participant,
                 room_id=room,
                 after_revision=after,
                 limit=limit,
@@ -396,45 +422,14 @@ class ClassroomChatRpcService:
             _command_from_wire(item, room_id=room, actor_id=participant)
             for item in raw
         )
-        self._authorize_moderation(room, participant, commands)
         try:
-            self._backend.apply_moderation(commands)
-        except Exception:
-            raise ClassroomChatRpcError("classroom chat backend failed") from None
-        return {"v": RPC_VERSION, "ok": True}
-
-    def _authorize_send(self, room_id: str, participant_id: str) -> None:
-        try:
-            self._authority.authorize_send(
-                room_id=room_id,
-                participant_id=participant_id,
-            )
-        except Exception:
-            raise ClassroomChatRpcError("classroom chat authorization failed") from None
-
-    def _authorize_history(self, room_id: str, participant_id: str) -> None:
-        try:
-            self._authority.authorize_history(
-                room_id=room_id,
-                participant_id=participant_id,
-            )
-        except Exception:
-            raise ClassroomChatRpcError("classroom chat authorization failed") from None
-
-    def _authorize_moderation(
-        self,
-        room_id: str,
-        actor_id: str,
-        commands: tuple[ChatModerationCommand, ...],
-    ) -> None:
-        try:
-            self._authority.authorize_moderation(
-                room_id=room_id,
-                actor_id=actor_id,
+            self._backend.apply_moderation(
+                trusted_caller_identity=participant,
                 commands=commands,
             )
         except Exception:
-            raise ClassroomChatRpcError("classroom chat authorization failed") from None
+            raise ClassroomChatRpcError("classroom chat backend failed") from None
+        return {"v": RPC_VERSION, "ok": True}
 
 
 def _command_to_wire(command: ChatModerationCommand) -> dict[str, object]:
@@ -708,8 +703,8 @@ def _state_limit(value: object) -> int:
 
 
 __all__ = [
-    "ClassroomChatRpcAuthorityPort",
     "ClassroomChatRpcCallPort",
+    "ClassroomChatRpcServerPort",
     "ClassroomChatRpcClient",
     "ClassroomChatRpcError",
     "ClassroomChatRpcService",
