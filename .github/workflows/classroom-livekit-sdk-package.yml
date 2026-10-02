@@ -109,7 +109,8 @@ jobs:
           set -euo pipefail
           url="$(python scripts/stage_livekit_client_sdk.py --print-tarball-url)"
           archive="$RUNNER_TEMP/livekit-client.tgz"
-          output="$RUNNER_TEMP/livekit-client-staged"
+          output="web/vendor/livekit"
+          rm -rf "$output"
           python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$url" "$archive"
           python scripts/stage_livekit_client_sdk.py "$archive" "$output"
           test -s "$output/livekit-client.umd.js"
@@ -119,6 +120,30 @@ jobs:
           python -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); assert p["component"]=="livekit-client"; assert p["version"]=="2.22.3"; assert p["license_id"]=="Apache-2.0"' "$output/provenance.json"
           node -e 'const sdk=require(process.argv[1]); if(!sdk || typeof sdk.Room!=="function") throw new Error("LiveKit Room export unavailable"); console.log("LIVEKIT_UMD_COMMONJS_EXPORT=PASS")' "$output/livekit-client.umd.js"
           echo 'REAL_PINNED_LIVEKIT_NPM_STAGE=PASS'
+
+      - name: Prove real staged SDK reaches shipping WebView resource order
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.version2_upgrade_status_release import final_product_resource_sources
+
+          sources = final_product_resource_sources()
+          labels = [label for label, _source in sources]
+          sdk = "LiveKit browser SDK"
+          adapter = "Classroom LiveKit media adapter"
+          teacher = "V2 Teacher surface"
+          if labels.count(sdk) != 1 or labels.count(adapter) != 1:
+              raise SystemExit(f"LIVEKIT_SHIPPING_RESOURCE_CARDINALITY_FAILURE {labels!r}")
+          if not labels.index(sdk) < labels.index(adapter) < labels.index(teacher):
+              raise SystemExit(f"LIVEKIT_SHIPPING_RESOURCE_ORDER_FAILURE {labels!r}")
+          by_label = dict(sources)
+          if "LivekitClient" not in by_label[sdk] or "Room" not in by_label[sdk]:
+              raise SystemExit("LIVEKIT_SHIPPING_SDK_BROWSER_GLOBAL_MARKERS_MISSING")
+          if "AccessibleChessLiveKitMedia" not in by_label[adapter]:
+              raise SystemExit("LIVEKIT_SHIPPING_ADAPTER_GLOBAL_MARKER_MISSING")
+          print("LIVEKIT_SHIPPING_RUNTIME_REACHABILITY=PASS")
+          PY
 
       - name: Re-run existing desktop provider adapter contract
         run: node tests/js/livekit_classroom_media_adapter_test.js
