@@ -119,6 +119,7 @@ function collaboration(messages, unreadCount, moderation) {
     },
     files: {
       heading: "Files",
+      sync_label: "Refresh files",
       choose_upload_label: "Choose and send file",
       empty_message: "No files.",
       save_label: "Save",
@@ -234,10 +235,20 @@ check(
     "collaboration.file.save,collaboration.file.open",
   "Save/Open must route through bounded collaboration commands"
 );
+const fileSync = root.querySelector("#collaboration-file-sync");
+check(
+  fileSync !== null &&
+  fileSync.tagName === "BUTTON" &&
+  fileSync.type === "button" &&
+  fileSync.getAttribute("data-command") === "collaboration.file.sync" &&
+  typeof fileSync.listeners.click === "function",
+  "file refresh must be a native keyboard button bound only to canonical file sync"
+);
 check(
   root.querySelector("#collaboration-chat-sync") !== null &&
   root.querySelector("#collaboration-chat-mark-read") !== null &&
   root.querySelector("#collaboration-chat-send") !== null &&
+  root.querySelector("#collaboration-file-sync") !== null &&
   root.querySelector("#collaboration-file-choose") !== null &&
   root.querySelector("#collaboration-file-a-save") !== null &&
   root.querySelector("#collaboration-file-a-open") !== null,
