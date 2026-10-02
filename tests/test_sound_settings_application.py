@@ -185,6 +185,50 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             app.set_master(enabled=False)
         self.assertEqual(initial, storage.payload)
 
+    def test_verified_local_installed_pack_is_discoverable_and_selectable_without_remote_catalog(self) -> None:
+        local = _manifest("local.wood")
+        _storage, manager, _playback, runtime = self._profile_runtime(
+            resolver=lambda requested: requested if requested in {"classic", "local.wood"} else "classic"
+        )
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {"local.wood": local},
+        )
+
+        snapshot = app.snapshot(language="en")
+        self.assertFalse(snapshot["can_select_classic"])
+        self.assertEqual(1, len(snapshot["packs"]))
+        item = snapshot["packs"][0]
+        self.assertEqual("local.wood", item["pack_id"])
+        self.assertEqual("local_installed", item["state"])
+        self.assertEqual("1.0.0", item["installed_version"])
+        self.assertFalse(item["can_install"])
+        self.assertFalse(item["can_uninstall"])
+
+        result = app.select_pack("local.wood", language="en")
+        self.assertTrue(result.ok)
+        self.assertEqual("local.wood", manager.current.pack_id)
+        self.assertTrue(result.snapshot["can_select_classic"])
+
+        classic = app.select_pack("classic", language="en")
+        self.assertTrue(classic.ok)
+        self.assertEqual("classic", manager.current.pack_id)
+        self.assertFalse(classic.snapshot["can_select_classic"])
+
+        with self.assertRaisesRegex(ValueError, "unknown sound pack"):
+            app.select_pack("missing.pack")
+
+    def test_installed_pack_provider_rejects_unverified_shapes(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {"bad": object()},
+        )
+        with self.assertRaisesRegex(TypeError, "invalid mapping"):
+            app.snapshot()
+
     def test_catalog_projection_and_install_use_closed_world_entry(self) -> None:
         classic = _manifest("classic")
         soft = _manifest("soft")
