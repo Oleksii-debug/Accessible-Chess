@@ -106,6 +106,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         read = view.dispatch("collaboration.chat.mark_read", {})
         self.assertEqual(0, read.payload["collaboration"]["chat"]["unread_count"])
+        self.assertEqual("collaboration-chat-sync", read.payload["focus_target"])
 
     def test_snapshot_projects_safe_ordered_metadata_without_internal_ids(self) -> None:
         view = self.webview()
@@ -259,6 +260,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertTrue(teacher_media.moderation_calls[-1][0].value)
         self.assertEqual("student-2", teacher_media.moderation_calls[-1][0].target_id)
         self.assertNotIn("student-2", repr(blocked.payload))
+        self.assertEqual("collaboration-chat-sync", blocked.payload["focus_target"])
         blocked_message = blocked.payload["collaboration"]["chat"]["messages"][0]
         self.assertFalse(blocked_message["can_moderate_sender"])
         self.assertFalse(blocked_message["can_remove_sender"])
@@ -268,6 +270,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             {"message_key": message_key},
         )
         self.assertEqual("collaboration.chat.hidden", hidden.kind)
+        self.assertEqual("collaboration-chat-sync", hidden.payload["focus_target"])
         self.assertEqual((), self.store.room_messages("room-1"))
 
     def test_non_moderator_snapshot_does_not_expose_message_action_key(self) -> None:
@@ -295,7 +298,24 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         retried = view.dispatch("collaboration.file.retry", {"file_key": item["file_key"]})
         self.assertEqual("collaboration.file.retried", retried.kind)
         self.assertFalse(retried.payload["collaboration"]["files"]["items"][0]["can_retry"])
+        self.assertEqual("collaboration-file-choose", retried.payload["focus_target"])
         self.assertEqual(1, len(self.files.retry_calls))
+
+        self.selected_file = self.root / "cancel.pgn"
+        self.selected_file.write_text('[Event "Cancel"]\n\n1. d4 d5 *\n', encoding="utf-8")
+        self.files.fail_upload = True
+        failed_again = view.dispatch("collaboration.file.choose_upload", {})
+        cancel_item = next(
+            item
+            for item in failed_again.payload["collaboration"]["files"]["items"]
+            if item["can_cancel"]
+        )
+        cancelled = view.dispatch(
+            "collaboration.file.cancel",
+            {"file_key": cancel_item["file_key"]},
+        )
+        self.assertEqual("collaboration.file.cancelled", cancelled.kind)
+        self.assertEqual("collaboration-file-choose", cancelled.payload["focus_target"])
 
     def test_file_action_key_is_room_bound_and_unknown_or_extra_payload_fails_closed(self) -> None:
         view = self.webview()
