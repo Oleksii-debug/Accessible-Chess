@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.classroom_collaboration import (
     ChatDraft,
@@ -250,6 +251,37 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(controller.sync_chat(), ())
         self.assertEqual(self.store.room_messages("room-1"), (one, two))
 
+    def test_sync_defers_state_for_message_on_next_history_page(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("m-page-0", "room-1", "teacher-1", "First")
+        )
+        second = self.chat.send_message(
+            ChatDraft("m-page-1", "room-1", "student-2", "Second")
+        )
+        third = self.chat.send_message(
+            ChatDraft("m-page-2", "room-1", "teacher-1", "Third")
+        )
+        self.chat.ordered[2] = replace(third, hidden=True)
+        self.chat.messages[third.message_id] = self.chat.ordered[2]
+        self.chat.state_updates = [
+            ChatMessageStateUpdate("room-1", third.message_id, 0),
+        ]
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_MESSAGES", 2):
+            self.assertEqual(controller.sync_chat(), (first, second))
+            self.assertIsNone(self.store.chat_state_revision("room-1"))
+            self.assertEqual(controller.sync_chat(), ())
+
+        stored = self.store.room_messages("room-1", include_hidden=True)
+        self.assertEqual(tuple(item.message_id for item in stored), (
+            first.message_id,
+            second.message_id,
+            third.message_id,
+        ))
+        self.assertTrue(stored[-1].hidden)
+        self.assertEqual(self.store.chat_state_revision("room-1"), 0)
+
     def test_send_repairs_missed_server_message_before_committing_later_sequence(self):
         controller = self.controller()
         first = self.chat.send_message(
@@ -318,24 +350,6 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         ]
         with self.assertRaises(CollaborationError):
             controller.sync_chat()
-
-    def test_reconnect_preserves_history_from_departed_sender(self):
-        controller = self.controller("student-1")
-        historical = self.chat.send_message(
-            ChatDraft(
-                "departed-history",
-                "room-1",
-                "student-2",
-                "Message sent before departure",
-            )
-        )
-        self.roster.roles.pop("student-2")
-
-        self.assertEqual(controller.sync_chat(), (historical,))
-        self.assertEqual(
-            self.store.room_messages("room-1", include_hidden=True),
-            (historical,),
-        )
 
     def test_departed_sender_history_is_preserved_on_reconnect(self):
         controller = self.controller()
