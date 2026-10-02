@@ -8,8 +8,10 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/version2_final_release.py'
       - 'scripts/stage_livekit_client_sdk.py'
       - 'tests/test_stage_livekit_client_sdk.py'
+      - 'tests/test_version2_final_release_binding.py'
       - 'tests/test_version2_package_assembler.py'
       - 'acs/version2_release_payload.py'
       - 'acs/version2_package_preflight.py'
@@ -63,11 +65,13 @@ jobs:
             '.github/workflows/w6-v2-package-assembler.yml'
             '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
             '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+            'acs/version2_final_release.py'
             'acs/version2_package_preflight.py'
             'acs/version2_release_payload.py'
             'scripts/stage_livekit_client_sdk.py'
             'tests/test_stage_livekit_client_sdk.py'
             'tests/test_v2_package_required_resources.py'
+            'tests/test_version2_final_release_binding.py'
             'tests/test_version2_package_assembler.py'
             'tests/test_version2_package_preflight.py'
             'tests/test_version2_release_payload.py'
@@ -97,7 +101,7 @@ jobs:
           python-version: '3.12.10'
 
       - name: Run adversarial staging and release-payload contracts
-        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media
+        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_final_release_binding tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media tests.test_p0g_final_product_runtime_reachability
 
       - name: Download and stage the real pinned npm artifact
         shell: bash
