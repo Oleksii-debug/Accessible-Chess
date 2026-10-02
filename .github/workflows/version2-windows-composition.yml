@@ -118,7 +118,6 @@ jobs:
               exit 1
             fi
           fi
-
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui.py'; then
             actual_stage1_ui_blob="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
             case "$actual_stage1_ui_blob" in
