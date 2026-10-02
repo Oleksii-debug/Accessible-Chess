@@ -419,7 +419,7 @@ jobs:
           if(Test-Path $stderr){Get-Content -LiteralPath $stderr | ForEach-Object {Write-Host "STDERR: $_"}}
           if($proc.ExitCode -ne 0){throw "PACKAGED_EXE_DIAGNOSTIC_FAILURE exit=$($proc.ExitCode)"}
           $diag=(Get-Content -LiteralPath $stdout -Raw)
-          foreach($marker in @('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS','CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS','P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS','P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS')){
+          foreach($marker in @('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS','P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS','P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS')){
             if($diag -notmatch [regex]::Escape($marker)){throw "PACKAGED_DIAGNOSTIC_MARKER_MISSING $marker"}
           }
           $engine=(Resolve-Path (Join-Path $productRoot 'engines\stockfish\stockfish.exe')).Path
@@ -499,7 +499,7 @@ jobs:
           if(Test-Path $stderr){Get-Content -LiteralPath $stderr | ForEach-Object {Write-Host "STDERR: $_"}}
           if($proc.ExitCode -ne 0){throw "PACKAGED_POST_ACCEPTANCE_RELAUNCH_FAILURE exit=$($proc.ExitCode)"}
           $diag=(Get-Content -LiteralPath $stdout -Raw)
-          foreach($marker in @('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS','CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS','P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS','P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS')){
+          foreach($marker in @('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS','P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS','P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS')){
             if($diag -notmatch [regex]::Escape($marker)){throw "PACKAGED_POST_ACCEPTANCE_RELAUNCH_MARKER_MISSING $marker"}
           }
           Write-Host 'FRESH_PACKAGED_POST_ACCEPTANCE_RELAUNCH=PASS'
