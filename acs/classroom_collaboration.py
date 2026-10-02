@@ -412,10 +412,7 @@ class ClassroomCollaborationController:
         display_name = safe_display_filename(path.name)
         digest = _sha256_path(path)
         mime_type, _encoding = mimetypes.guess_type(display_name)
-        canonical_key = (
-            f"rooms/{_storage_key_segment(self.room_id)}/"
-            f"{_storage_key_segment(attachment)}"
-        )
+        canonical_key = _canonical_object_key(self.room_id, attachment)
         if object_key is not None and object_key != canonical_key:
             raise CollaborationError(
                 "custom object key does not match canonical attachment namespace"
@@ -602,7 +599,20 @@ class ClassroomCollaborationController:
             raise CollaborationError("prepared file belongs to another room")
         if metadata.sender_id != self.local_participant_id:
             raise CollaborationError("prepared file belongs to another sender")
+        if metadata.transfer_state != "pending" or metadata.scan_state != "pending":
+            raise CollaborationError("prepared file must start in pending state")
         path = _existing_regular_file(prepared.local_path)
+        display_name = safe_display_filename(path.name)
+        if metadata.display_name != display_name:
+            raise CollaborationError("prepared file display name does not match selected file")
+        mime_type, _encoding = mimetypes.guess_type(display_name)
+        if metadata.mime_type != mime_type:
+            raise CollaborationError("prepared file MIME type does not match selected file")
+        if metadata.object_key != _canonical_object_key(
+            self.room_id,
+            metadata.attachment_id,
+        ):
+            raise CollaborationError("prepared file object key is outside canonical namespace")
         if path.stat().st_size != metadata.size_bytes:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
@@ -776,6 +786,13 @@ def _storage_key_segment(identifier: str) -> str:
         return identifier
     digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()
     return f"id-{digest}"
+
+
+def _canonical_object_key(room_id: str, attachment_id: str) -> str:
+    return (
+        f"rooms/{_storage_key_segment(room_id)}/"
+        f"{_storage_key_segment(attachment_id)}"
+    )
 
 
 def _child_operation_id(root: str, target_id: str) -> str:
