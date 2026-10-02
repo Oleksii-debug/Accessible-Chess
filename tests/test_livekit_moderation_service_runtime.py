@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import traceback
 from types import SimpleNamespace
@@ -442,6 +443,69 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         await runtime.aclose()
         self.assertTrue(runtime.closed)
+
+    async def test_concurrent_connects_serialize_to_one_provider_effect(self):
+        runtime = self.runtime()
+        room = FakeRoom.instances[-1]
+        original_connect = room.connect
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_connect(url, token, *, options=None):
+            started.set()
+            await release.wait()
+            await original_connect(url, token, options=options)
+
+        room.connect = slow_connect
+        first = asyncio.create_task(runtime.connect(service_token=TOKEN))
+        await started.wait()
+        second = asyncio.create_task(runtime.connect(service_token=TOKEN))
+        await asyncio.sleep(0)
+        self.assertFalse(second.done())
+
+        release.set()
+        await first
+        with self.assertRaisesRegex(
+            LiveKitModerationServiceRuntimeError,
+            "already connected",
+        ):
+            await second
+
+        self.assertEqual(len(room.connect_calls), 1)
+        self.assertTrue(runtime.ready)
+        await runtime.aclose()
+
+    async def test_close_during_connect_waits_then_tears_down_bound_transport(self):
+        runtime = self.runtime()
+        room = FakeRoom.instances[-1]
+        participant = room.local_participant
+        original_connect = room.connect
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_connect(url, token, *, options=None):
+            started.set()
+            await release.wait()
+            await original_connect(url, token, options=options)
+
+        room.connect = slow_connect
+        connecting = asyncio.create_task(runtime.connect(service_token=TOKEN))
+        await started.wait()
+        closing = asyncio.create_task(runtime.aclose())
+        await asyncio.sleep(0)
+        self.assertFalse(closing.done())
+
+        release.set()
+        await connecting
+        await closing
+
+        self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.ready)
+        self.assertFalse(room.connected)
+        self.assertEqual(len(room.connect_calls), 1)
+        self.assertEqual(room.disconnect_calls, 1)
+        self.assertEqual(participant.unregister_calls, [MODERATION_RPC_METHOD])
+        self.assertNotIn(MODERATION_RPC_METHOD, participant.handlers)
 
     async def test_second_connect_and_use_before_connect_fail_closed(self):
         runtime = self.runtime()

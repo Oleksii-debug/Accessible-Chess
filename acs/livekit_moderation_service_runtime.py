@@ -15,6 +15,7 @@ Room handle; after cleanup failure it deliberately retains that handle only so
 cleanup can be retried. Provider details are redacted from diagnostics.
 """
 
+import asyncio
 import importlib
 from importlib import metadata
 import ipaddress
@@ -59,6 +60,7 @@ class LiveKitModerationServiceRuntime:
         "_closing",
         "_cleanup_required",
         "_closed",
+        "_transition_lock",
     )
 
     def __init__(
@@ -97,6 +99,7 @@ class LiveKitModerationServiceRuntime:
         self._closing = False
         self._cleanup_required = False
         self._closed = False
+        self._transition_lock = asyncio.Lock()
 
     def __repr__(self) -> str:
         if self._closed:
@@ -150,6 +153,12 @@ class LiveKitModerationServiceRuntime:
         return self._transport
 
     async def connect(self, *, service_token: str) -> None:
+        """Serialize one connect transition against concurrent connect/close."""
+
+        async with self._transition_lock:
+            await self._connect_locked(service_token=service_token)
+
+    async def _connect_locked(self, *, service_token: str) -> None:
         """Connect once using a fresh service token and bind canonical RPC."""
 
         if self._closed:
@@ -257,6 +266,12 @@ class LiveKitModerationServiceRuntime:
         self._cleanup_required = False
 
     async def aclose(self) -> None:
+        """Serialize teardown against connect and another teardown."""
+
+        async with self._transition_lock:
+            await self._aclose_locked()
+
+    async def _aclose_locked(self) -> None:
         if self._closed:
             return
         if self._closing:
