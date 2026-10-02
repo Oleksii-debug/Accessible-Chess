@@ -8,8 +8,9 @@ desktop code. ClassroomJoinCredentialService performs canonical authorization;
 this adapter only converts that exact grant into one least-privilege LiveKit token.
 """
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from importlib import metadata
+from typing import Any, Callable
 
 from .classroom_join_credentials import ClassroomJoinGrant
 from .classroom_realtime_media import MAX_JOIN_TTL_SECONDS, MediaSource
@@ -17,6 +18,7 @@ from .classroom_realtime_media import MAX_JOIN_TTL_SECONDS, MediaSource
 
 LIVEKIT_API_PACKAGE_VERSION = "1.2.1"
 MAX_PROVIDER_CREDENTIAL_LENGTH = 4096
+_PROVIDER_CLOCK_SAFETY = timedelta(seconds=1)
 
 _LIVEKIT_SOURCE = {
     MediaSource.MICROPHONE: "microphone",
@@ -32,7 +34,7 @@ class ClassroomLiveKitServerError(ValueError):
 class LiveKitJoinTokenIssuer:
     """Mint source-scoped LiveKit join JWTs without leaking server credentials."""
 
-    __slots__ = ("_api_key", "_api_secret", "_api_module")
+    __slots__ = ("_api_key", "_api_secret", "_api_module", "_now")
 
     def __init__(
         self,
@@ -40,10 +42,12 @@ class LiveKitJoinTokenIssuer:
         api_key: str,
         api_secret: str,
         api_module: Any | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self._api_key = _provider_credential(api_key, "LiveKit API key")
         self._api_secret = _provider_credential(api_secret, "LiveKit API secret")
         self._api_module = api_module
+        self._now = now or (lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return "LiveKitJoinTokenIssuer(credentials=<redacted>)"
@@ -63,6 +67,17 @@ class LiveKitJoinTokenIssuer:
         seconds = ttl.total_seconds()
         if seconds <= 0 or seconds > MAX_JOIN_TTL_SECONDS:
             raise ClassroomLiveKitServerError("LiveKit token TTL is outside canonical limit")
+
+        current = _utc(self._now(), "LiveKit token clock")
+        if current < issued:
+            raise ClassroomLiveKitServerError(
+                "LiveKit token clock precedes canonical issuance"
+            )
+        provider_ttl = expires - current - _PROVIDER_CLOCK_SAFETY
+        if provider_ttl <= timedelta(0):
+            raise ClassroomLiveKitServerError(
+                "LiveKit join grant expires before safe token minting"
+            )
 
         provider_sources = [_LIVEKIT_SOURCE[source] for source in grant.publish_sources]
         api = self._provider_api()
@@ -87,7 +102,7 @@ class LiveKitJoinTokenIssuer:
                     api_secret=self._api_secret,
                 )
                 .with_identity(grant.participant_id)
-                .with_ttl(ttl)
+                .with_ttl(provider_ttl)
                 .with_grants(grants)
                 .to_jwt()
             )
@@ -101,9 +116,21 @@ class LiveKitJoinTokenIssuer:
         if self._api_module is not None:
             return self._api_module
         try:
+            installed = metadata.version("livekit-api")
+        except metadata.PackageNotFoundError:
+            raise ClassroomLiveKitServerError(
+                "Pinned LiveKit server SDK is unavailable"
+            ) from None
+        if installed != LIVEKIT_API_PACKAGE_VERSION:
+            raise ClassroomLiveKitServerError(
+                "LiveKit server SDK version is not approved"
+            )
+        try:
             from livekit import api as livekit_api
         except Exception:
-            raise ClassroomLiveKitServerError("LiveKit server SDK is unavailable") from None
+            raise ClassroomLiveKitServerError(
+                "Pinned LiveKit server SDK is unavailable"
+            ) from None
         self._api_module = livekit_api
         return livekit_api
 
