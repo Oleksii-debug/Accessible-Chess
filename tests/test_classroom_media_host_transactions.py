@@ -363,12 +363,84 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
                 .publish_allowed
             )
 
-        host.commit_provider_success(effect.transaction_id)
+        self.assertEqual(host.pending_browser_payload, payloads[0])
+        self.assertIsNone(
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 0)
+        )
+        self.assertEqual(host.pending_browser_payload, payloads[1])
+        for index in range(1, 61):
+            self.assertTrue(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.CAMERA)
+                .publish_allowed
+            )
+
+        self.assertIsNone(
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 1)
+        )
+        committed = host.acknowledge_provider_chunk_success(
+            effect.transaction_id,
+            2,
+        )
+        self.assertEqual(len(committed), 60)
+        self.assertIsNone(host.pending_browser_payload)
         for index in range(1, 61):
             self.assertFalse(
                 controller.participant_policy(f"student-{index}")
                 .source(MediaSource.CAMERA)
                 .publish_allowed
+            )
+
+    def test_multi_chunk_effect_cannot_commit_through_single_call_helper(self):
+        controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_publish_permission(
+            actor_id="teacher-1",
+            source=MediaSource.CAMERA,
+            allowed=False,
+            operation_id="large-lock-helper",
+        )
+
+        with self.assertRaisesRegex(
+            MediaHostTransactionError,
+            "per-chunk provider acknowledgement",
+        ):
+            host.commit_provider_success(effect.transaction_id)
+
+        self.assertEqual(host.pending_effect, effect)
+        for index in range(1, 61):
+            self.assertTrue(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.CAMERA)
+                .publish_allowed
+            )
+
+    def test_out_of_order_chunk_success_latches_recovery(self):
+        controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_soft_mute(
+            actor_id="teacher-1",
+            muted=True,
+            operation_id="large-mute-order",
+        )
+
+        with self.assertRaisesRegex(
+            MediaHostRecoveryRequired,
+            "chunks completed out of order",
+        ):
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 1)
+
+        self.assertIsNone(host.pending_effect)
+        self.assertEqual(host.recovery_effect, effect)
+        for index in range(1, 61):
+            self.assertFalse(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.MICROPHONE)
+                .soft_muted
             )
 
     def test_partial_large_batch_failure_latches_recovery_without_policy_commit(self):
@@ -381,7 +453,12 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
             muted=True,
             operation_id="large-mute",
         )
-        self.assertGreater(len(effect.browser_payloads()), 1)
+        payloads = effect.browser_payloads()
+        self.assertGreater(len(payloads), 1)
+        self.assertIsNone(
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 0)
+        )
+        self.assertEqual(host.pending_browser_payload, payloads[1])
 
         # A later browser chunk may fail after earlier chunks reached the provider.
         # That outcome is never treated as a clean rollback.
