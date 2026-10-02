@@ -161,6 +161,42 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 parse_pgn_bytes(b"not decoded", strict=0)
             decode.assert_not_called()
 
+    def test_invalid_unicode_scalars_fail_with_stable_text_and_model_errors(self):
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_TEXT,
+            parse_pgn_text,
+            '[Event "bad\\ud800"]\\n[Result "*"]\\n\\n1. e4 *',
+        )
+
+        tag_game = PgnGame(
+            tags={"Event": "bad\\ud800", "Result": "*"},
+            line=VariationLine(moves=[MoveNode("e4", move_number="1.")], result="*"),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (tag_game,),
+        )
+
+        comment_game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_after=[Comment("bad\\udfff")],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_bytes,
+            (comment_game,),
+        )
+
     def test_empty_input_fails_closed_for_strict_editing(self):
         self.assert_code(PgnRoundTripErrorCode.EMPTY_PGN, parse_pgn_text, "")
         self.assertEqual(parse_pgn_text("", strict=False), ())
