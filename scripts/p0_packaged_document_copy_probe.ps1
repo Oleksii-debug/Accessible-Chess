@@ -611,9 +611,12 @@ try {
     $target,
     [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
   )
+  $selectionEndpointMode='identical-start-and-end'
   if($startDelta -ne 0 -or $endDelta -ne 0){
-    # Failure-only, path-free diagnostic for W5 #88. Never use a fresh or
-    # normalized range to bypass the original strict endpoint acceptance.
+    # W5 #89/#90 proved that WebView2 can normalize only the selected
+    # range's End while the child range and actual native clipboard remain
+    # exact. Diagnose all other cases; a narrow provider-normalized path
+    # is allowed only after strict stable-target and double native-copy proof.
     $targetElement=$usableDocuments[0].target_element
     $postTargetRuntime=RuntimeId $targetElement
     $postDocumentRuntime=RuntimeId $document
@@ -644,9 +647,8 @@ try {
     $focusBeforeSafe=if($preSelectFocusRuntime){$preSelectFocusRuntime}else{'unavailable'}
     $freshUnits=ClipboardCodeUnits $freshText 48
     Write-Host ("P0_STATIC_ENDPOINT_DIFFERENTIAL old_active_start={0} old_active_end={1} old_clone_pre={2} old_clone_post={3} old_fresh={4} active_clone={5} active_fresh={6} fresh_status={7} old_length={8} active_length={9} fresh_length={10} old_units='{11}' active_units='{12}' fresh_units='{13}' focus_before={14} focus_after={15} focus_after_type={16} focus_after_id={17} document_before={18} document_after={19} target_before={20} target_after={21}" -f $startDelta,$endDelta,$preSelectCloneDelta,(RangeEndpointDiagnostic $target $preSelectClone),(RangeEndpointDiagnostic $target $freshRange),(RangeEndpointDiagnostic $activeSelection $preSelectClone),(RangeEndpointDiagnostic $activeSelection $freshRange),$freshStatus,$targetText.Length,$activeSelectedText.Length,$freshText.Length,(ClipboardCodeUnits $targetText 48),(ClipboardCodeUnits $activeSelectedText 48),$freshUnits,$focusBeforeSafe,$focusAfterRuntime,$focusAfterType,$focusAfterId,$navigationRuntime,$postDocumentRuntime,$targetRuntime,$postTargetRuntime)
-    # Non-accepting native clipboard experiment on the original failure path.
-    # The strict endpoint mismatch below ALWAYS fails this package run, even
-    # if WebView2 happens to copy exactly the visible heading.
+    # Native clipboard evidence is mandatory: TextPattern text equality
+    # alone is never sufficient to accept provider endpoint normalization.
     $copyDiagnosticStatus='skipped'
     $copyActual=''
     $copyAttempted=$false
@@ -699,8 +701,77 @@ try {
       $copyDiagnosticStatus='diagnostic-error'
     }
     Write-Host ("P0_STATIC_MISMATCH_NATIVE_CTRL_C_DIAGNOSTIC status={0} attempted={1} expected_length={2} actual_length={3} expected_units='{4}' actual_units='{5}'" -f $copyDiagnosticStatus,$copyAttempted,$selected.Length,$copyActual.Length,(ClipboardCodeUnits $selected 48),(ClipboardCodeUnits $copyActual 48))
-    throw "Static TextPattern active selection endpoints differ from target range"
+    # Only one observed WebView2 normalization is admissible: exact Start,
+    # later End, byte-for-byte stable same-child target/clone/fresh ranges,
+    # same actual connected document and non-Edit focus, and native Ctrl+C
+    # placing precisely the original single-line phrase on the clipboard.
+    # All unmeasured provider behavior and all negative/Start drift fail.
+    $normalizedProviderEnd=(
+      $startDelta -eq 0 -and $endDelta -gt 0 -and
+      $preSelectCloneDelta -ceq '0,0' -and
+      (RangeEndpointDiagnostic $target $preSelectClone) -ceq '0,0' -and
+      (RangeEndpointDiagnostic $target $freshRange) -ceq '0,0' -and
+      $freshStatus -ceq 'same-text' -and
+      $freshText -ceq $selected -and
+      $postTargetRuntime -ceq $targetRuntime -and
+      $postDocumentRuntime -ceq $navigationRuntime -and
+      $preSelectFocusRuntime -ceq $navigationRuntime -and
+      $focusAfterRuntime -ceq $navigationRuntime -and
+      $copyAttempted -and $copyDiagnosticStatus -ceq 'exact' -and
+      $copyActual -ceq $selected
+    )
+    if(-not $normalizedProviderEnd){
+      throw "Static TextPattern active selection endpoints differ from target range"
+    }
+    try {
+      AssertProductForeground $process 'normalized static selection post-copy'
+      $copyFocusAfter=AssertProviderFocus $roots 'normalized static selection post-copy'
+      if((RuntimeId $copyFocusAfter) -cne $navigationRuntime -or
+         [string]$copyFocusAfter.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+        throw 'normalized copy focus changed'
+      }
+      if((RuntimeId $targetElement) -cne $targetRuntime -or
+         (RuntimeId $document) -cne $navigationRuntime){
+        throw 'normalized copy target/document identity changed'
+      }
+      $copyBoundsAfter=$targetElement.Current.BoundingRectangle
+      if([bool]$targetElement.Current.IsOffscreen -or
+         [double]$copyBoundsAfter.Width -le 0 -or
+         [double]$copyBoundsAfter.Height -le 0){
+        throw 'normalized copy target no longer visible'
+      }
+      if([string]$target.GetText(-1) -cne $selected -or
+         (RangeEndpointDiagnostic $target $preSelectClone) -cne '0,0' -or
+         (RangeEndpointDiagnostic $target $freshRange) -cne '0,0'){
+        throw 'normalized copy original target drifted'
+      }
+      $postCopySelections=@($textPattern.GetSelection())
+      if($postCopySelections.Count -ne 1 -or $null -eq $postCopySelections[0]){
+        throw 'normalized copy selection cardinality changed'
+      }
+      $postCopySelection=$postCopySelections[0]
+      if([string]$postCopySelection.GetText(-1) -cne $selected -or
+         $postCopySelection.CompareEndpoints(
+           [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start,
+           $target,
+           [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start
+         ) -ne 0 -or
+         $postCopySelection.CompareEndpoints(
+           [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End,
+           $target,
+           [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
+         ) -le 0){
+        throw 'normalized copy selection changed after native Ctrl+C'
+      }
+    } catch {
+      # Never substitute unverified provider details for native copy proof.
+      throw "Static TextPattern active selection endpoints differ from target range"
+    }
+    $selectionEndpointMode='provider-end-normalized-double-native-copy'
+    Write-Host "P0_STATIC_SELECTION_PROVIDER_NORMALIZED_NATIVE_COPY=PASS exact_phrase_code_units='$(ClipboardCodeUnits $selected 48)'"
   }
+  # Both endpoint modes still execute the normal independent sentinel-reset,
+  # foreground/focus-checked native Ctrl+C and exact WaitClipboard below.
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
   Start-Sleep -Milliseconds 150
   $null=AssertProviderFocus $roots 'static document copy dispatch'
@@ -741,6 +812,7 @@ try {
     static_document_target_phrase=$targetPhrase
     static_document_target_control_type=$targetControlType
     static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'
+    static_selection_endpoint_mode=$selectionEndpointMode
     static_document_outside_edit=$true
     static_text_visible_rectangle=($visibilityEvidence -eq 'text-range')
     static_text_visibility_evidence=$visibilityEvidence

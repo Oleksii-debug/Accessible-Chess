@@ -397,33 +397,38 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("if($startDelta -ne 0 -or $endDelta -ne 0){continue}", self.text)
 
 
-    def test_endpoint_mismatch_diagnostic_attempts_real_copy_but_always_fails(self) -> None:
+    def test_provider_normalized_end_acceptance_requires_stable_ranges_and_real_double_copy(self) -> None:
+        self.assertIn("$selectionEndpointMode='identical-start-and-end'", self.text)
+        self.assertIn("P0_STATIC_ENDPOINT_DIFFERENTIAL", self.text)
         self.assertIn("P0_STATIC_MISMATCH_NATIVE_CTRL_C_DIAGNOSTIC", self.text)
-        self.assertIn("$copyDiagnosticStatus='skipped-identity'", self.text)
-        self.assertIn("$copyDiagnosticStatus='skipped-visibility'", self.text)
-        self.assertIn("$copyDiagnosticStatus='skipped-focus'", self.text)
-        self.assertIn("AssertProductForeground $process 'static endpoint diagnostic dispatch'", self.text)
-        self.assertIn("AssertProviderFocus $roots 'static endpoint diagnostic native Ctrl+C'", self.text)
-        self.assertIn("AssertProductForeground $process 'static endpoint diagnostic native Ctrl+C'", self.text)
-        self.assertIn("$copyAttempted=$true", self.text)
-        self.assertIn("$copyActual=[string](Get-Clipboard -Raw -ErrorAction Stop)", self.text)
-        self.assertIn("$copyWatch.ElapsedMilliseconds -lt 2500", self.text)
-        self.assertIn("if($copyActual -ceq $selected)", self.text)
-        self.assertIn("ClipboardCodeUnits $copyActual 48", self.text)
-        self.assertIn("$copyDiagnosticStatus='diagnostic-error'", self.text)
-        # A successful diagnostic clipboard result never reaches acceptance:
-        # the original strict endpoint failure still executes unconditionally.
-        failure = self.text.index("P0_STATIC_MISMATCH_NATIVE_CTRL_C_DIAGNOSTIC")
-        rejection = self.text.index(
-            'throw "Static TextPattern active selection endpoints differ from target range"',
-            failure,
-        )
-        normal_sentinel = self.text.index(
-            "Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'", rejection,
-        )
-        self.assertLess(failure, rejection)
-        self.assertLess(rejection, normal_sentinel)
-        self.assertNotIn("PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS", self.text[failure:rejection])
+        self.assertIn("$startDelta -eq 0 -and $endDelta -gt 0", self.text)
+        self.assertIn("$preSelectCloneDelta -ceq '0,0'", self.text)
+        self.assertIn("(RangeEndpointDiagnostic $target $freshRange) -ceq '0,0'", self.text)
+        self.assertIn("$freshStatus -ceq 'same-text'", self.text)
+        self.assertIn("$postTargetRuntime -ceq $targetRuntime", self.text)
+        self.assertIn("$preSelectFocusRuntime -ceq $navigationRuntime", self.text)
+        self.assertIn("$focusAfterRuntime -ceq $navigationRuntime", self.text)
+        self.assertIn("$copyAttempted -and $copyDiagnosticStatus -ceq 'exact'", self.text)
+        self.assertIn("$copyActual -ceq $selected", self.text)
+        self.assertIn("if(-not $normalizedProviderEnd)", self.text)
+        self.assertIn("AssertProductForeground $process 'normalized static selection post-copy'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'normalized static selection post-copy'", self.text)
+        self.assertIn("$postCopySelections=@($textPattern.GetSelection())", self.text)
+        self.assertIn("normalized copy target no longer visible", self.text)
+        self.assertIn("normalized copy selection changed after native Ctrl+C", self.text)
+        self.assertIn("$selectionEndpointMode='provider-end-normalized-double-native-copy'", self.text)
+        self.assertIn("static_selection_endpoint_mode=$selectionEndpointMode", self.text)
+        self.assertIn("P0_STATIC_SELECTION_PROVIDER_NORMALIZED_NATIVE_COPY=PASS", self.text)
+        self.assertIn('throw "Static TextPattern active selection endpoints differ from target range"', self.text)
+        first_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)")
+        normal_sentinel = self.text.index("Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'")
+        normal_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", normal_sentinel)
+        normal_verify = self.text.index("WaitClipboard $selected", normal_copy)
+        self.assertLess(first_copy, normal_sentinel)
+        self.assertLess(normal_sentinel, normal_copy)
+        self.assertLess(normal_copy, normal_verify)
+        self.assertNotIn("$copyDiagnosticStatus -ne 'exact' -or $normalizedProviderEnd", self.text)
+        self.assertNotIn("Trim() -eq", self.text)
 
 
 if __name__ == "__main__":
