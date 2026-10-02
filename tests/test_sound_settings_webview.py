@@ -44,6 +44,7 @@ class SoundSettingsWebViewTests(unittest.TestCase):
             'sound-pack-classic-select',
             'Current state was refreshed',
             'group.id = "sound-pack-" + safeId',
+            'const safeId = packId;',
             'group.tabIndex = -1',
             'setAttribute("for"',
             'status.id = "sound-profile-settings-status"',
