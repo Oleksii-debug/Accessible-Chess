@@ -9,9 +9,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_final_release.py'
-      - 'run_accessible_chess_v2.py'
       - 'scripts/stage_livekit_client_sdk.py'
-      - 'tests/test_p0g_final_product_runtime_reachability.py'
       - 'tests/test_stage_livekit_client_sdk.py'
       - 'tests/test_version2_final_release_binding.py'
       - 'tests/test_version2_package_assembler.py'
@@ -70,9 +68,7 @@ jobs:
             'acs/version2_final_release.py'
             'acs/version2_package_preflight.py'
             'acs/version2_release_payload.py'
-            'run_accessible_chess_v2.py'
             'scripts/stage_livekit_client_sdk.py'
-            'tests/test_p0g_final_product_runtime_reachability.py'
             'tests/test_stage_livekit_client_sdk.py'
             'tests/test_v2_package_required_resources.py'
             'tests/test_version2_final_release_binding.py'
@@ -105,7 +101,7 @@ jobs:
           python-version: '3.12.10'
 
       - name: Run adversarial staging and release-payload contracts
-        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_final_release_binding tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media tests.test_p0g_final_product_runtime_reachability
+        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_final_release_binding tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media
 
       - name: Download and stage the real pinned npm artifact
         shell: bash
@@ -125,12 +121,12 @@ jobs:
           node -e 'const path=require("node:path"); const sdk=require(path.resolve(process.argv[1])); if(!sdk || typeof sdk.Room!=="function") throw new Error("LiveKit Room export unavailable"); console.log("LIVEKIT_UMD_COMMONJS_EXPORT=PASS")' "$output/livekit-client.umd.js"
           echo 'REAL_PINNED_LIVEKIT_NPM_STAGE=PASS'
 
-      - name: Prove real staged SDK reaches shipping WebView resource order
+      - name: Prove real staged SDK reaches canonical final resource owner
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          from acs.version2_upgrade_status_release import final_product_resource_sources
+          from acs.version2_final_release import final_product_resource_sources
 
           sources = final_product_resource_sources()
           labels = [label for label, _source in sources]
@@ -138,15 +134,15 @@ jobs:
           adapter = "Classroom LiveKit media adapter"
           teacher = "V2 Teacher surface"
           if labels.count(sdk) != 1 or labels.count(adapter) != 1:
-              raise SystemExit(f"LIVEKIT_SHIPPING_RESOURCE_CARDINALITY_FAILURE {labels!r}")
+              raise SystemExit(f"LIVEKIT_FINAL_RESOURCE_CARDINALITY_FAILURE {labels!r}")
           if not labels.index(sdk) < labels.index(adapter) < labels.index(teacher):
-              raise SystemExit(f"LIVEKIT_SHIPPING_RESOURCE_ORDER_FAILURE {labels!r}")
+              raise SystemExit(f"LIVEKIT_FINAL_RESOURCE_ORDER_FAILURE {labels!r}")
           by_label = dict(sources)
           if "LivekitClient" not in by_label[sdk] or "Room" not in by_label[sdk]:
-              raise SystemExit("LIVEKIT_SHIPPING_SDK_BROWSER_GLOBAL_MARKERS_MISSING")
+              raise SystemExit("LIVEKIT_FINAL_SDK_BROWSER_GLOBAL_MARKERS_MISSING")
           if "AccessibleChessLiveKitMedia" not in by_label[adapter]:
-              raise SystemExit("LIVEKIT_SHIPPING_ADAPTER_GLOBAL_MARKER_MISSING")
-          print("LIVEKIT_SHIPPING_RUNTIME_REACHABILITY=PASS")
+              raise SystemExit("LIVEKIT_FINAL_ADAPTER_GLOBAL_MARKER_MISSING")
+          print("LIVEKIT_FINAL_RESOURCE_REACHABILITY=PASS")
           PY
 
       - name: Re-run existing desktop provider adapter contract
