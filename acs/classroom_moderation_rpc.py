@@ -64,16 +64,38 @@ class ClassroomModerationProviderAdminPort(Protocol):
         ...
 
 
-class ClassroomModerationOperationLedgerPort(Protocol):
-    """Committed-operation ledger for duplicate/replay suppression."""
+@dataclass(frozen=True, slots=True)
+class ModerationOperationState:
+    """One ledger record, including pre-effect reservation state."""
 
-    def committed_fingerprint(
+    fingerprint: str
+    committed: bool
+
+
+class ClassroomModerationOperationLedgerPort(Protocol):
+    """Atomic reservation ledger for duplicate/replay suppression.
+
+    reserve must never replace an existing fingerprint. This pre-effect
+    reservation prevents two service participants from applying conflicting
+    semantics for the same room-scoped operation id.
+    """
+
+    def operation_state(
         self,
         *,
         room_id: str,
         operation_id: str,
-    ) -> str | None:
+    ) -> ModerationOperationState | None:
         ...
+
+    def reserve(
+        self,
+        *,
+        room_id: str,
+        operation_id: str,
+        fingerprint: str,
+    ) -> ModerationOperationState:
+        """Atomically create a pending reservation or return the existing record."""
 
     def commit(
         self,
@@ -82,7 +104,7 @@ class ClassroomModerationOperationLedgerPort(Protocol):
         operation_id: str,
         fingerprint: str,
     ) -> None:
-        """Persist one committed operation or raise on a conflicting value."""
+        """Mark the exact reserved operation committed or raise on conflict."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,12 +236,36 @@ def parse_moderation_rpc(
     )
 
 
+def _validated_ledger_state(
+    value: object,
+    *,
+    expected_fingerprint: str,
+) -> ModerationOperationState:
+    if (
+        type(value) is not ModerationOperationState
+        or type(value.fingerprint) is not str
+        or len(value.fingerprint) != 64
+        or re.fullmatch(r"[0-9a-f]{64}", value.fingerprint) is None
+        or type(value.committed) is not bool
+    ):
+        raise ClassroomModerationRpcError(
+            "moderation replay ledger returned invalid state"
+        )
+    if value.fingerprint != expected_fingerprint:
+        raise ClassroomModerationRpcError(
+            "moderation operation id was reused with different semantics"
+        )
+    return value
+
+
 class ClassroomModerationRpcService:
     """Validate, authorize, apply, and acknowledge moderation operations.
 
-    Calls are serialized within one service participant so an operation id cannot
-    race itself. A deployment with multiple service participants must provide a
-    ledger whose commit operation is conflict-safe across those participants.
+    Calls are serialized within one service participant. Across service
+    participants, the shared ledger must atomically reserve an operation
+    fingerprint before the first provider effect. Exact pending retries remain
+    safe because provider operations are required to be idempotent state
+    assignments; conflicting semantics fail before provider mutation.
     """
 
     def __init__(
@@ -250,44 +296,70 @@ class ClassroomModerationRpcService:
         )
 
         async with self._lock:
-            new_commands: list[tuple[ModerationCommand, str]] = []
+            pending_commands: list[tuple[ModerationCommand, str]] = []
             for command, fingerprint in zip(
                 parsed.commands,
                 parsed.fingerprints,
                 strict=True,
             ):
                 try:
-                    committed = self._ledger.committed_fingerprint(
+                    state = self._ledger.operation_state(
                         room_id=parsed.room_id,
                         operation_id=command.operation_id,
                     )
                 except Exception as error:
                     raise ClassroomModerationRpcError(
                         "moderation replay ledger read failed"
-                    ) from None
-                if committed is None:
-                    new_commands.append((command, fingerprint))
+                    ) from error
+                if state is None:
+                    pending_commands.append((command, fingerprint))
                     continue
-                if committed != fingerprint:
-                    raise ClassroomModerationRpcError(
-                        "moderation operation id was reused with different semantics"
-                    )
+                state = _validated_ledger_state(
+                    state,
+                    expected_fingerprint=fingerprint,
+                )
+                if not state.committed:
+                    pending_commands.append((command, fingerprint))
 
-            if new_commands:
-                # Authorize the complete set of new effects before the first
-                # provider mutation so a later unauthorized command cannot leave
-                # an earlier command partially applied.
+            if pending_commands:
+                # Authorize the complete set of effects before reserving or
+                # mutating provider state. Authorization failure therefore
+                # cannot poison operation ids in the shared ledger.
                 try:
                     self._authorization.authorize_moderation_batch(
                         room_id=parsed.room_id,
                         caller_identity=trusted_caller_identity,
-                        commands=tuple(command for command, _ in new_commands),
+                        commands=tuple(command for command, _ in pending_commands),
                     )
                 except Exception as error:
                     raise ClassroomModerationRpcError(
                         "moderation request is not authorized"
-                    ) from None
-                for command, fingerprint in new_commands:
+                    ) from error
+
+                # Reserve every effect before the first provider mutation.
+                # A cross-instance conflicting fingerprint therefore fails
+                # before either this request or a later command can change the
+                # provider. Exact pending reservations are retriable.
+                effects: list[tuple[ModerationCommand, str]] = []
+                for command, fingerprint in pending_commands:
+                    try:
+                        state = self._ledger.reserve(
+                            room_id=parsed.room_id,
+                            operation_id=command.operation_id,
+                            fingerprint=fingerprint,
+                        )
+                    except Exception as error:
+                        raise ClassroomModerationRpcError(
+                            "moderation replay ledger reservation failed"
+                        ) from error
+                    state = _validated_ledger_state(
+                        state,
+                        expected_fingerprint=fingerprint,
+                    )
+                    if not state.committed:
+                        effects.append((command, fingerprint))
+
+                for command, fingerprint in effects:
                     try:
                         await self._provider_admin.apply_moderation_command(
                             room_id=parsed.room_id,
@@ -296,7 +368,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation provider operation failed"
-                        ) from None
+                        ) from error
                     try:
                         self._ledger.commit(
                             room_id=parsed.room_id,
@@ -306,7 +378,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation replay ledger commit failed"
-                        ) from None
+                        ) from error
 
             response = json.dumps(
                 {
@@ -332,6 +404,7 @@ __all__ = [
     "ClassroomModerationProviderAdminPort",
     "ClassroomModerationRpcError",
     "ClassroomModerationRpcService",
+    "ModerationOperationState",
     "MAX_RPC_OPERATIONS",
     "MAX_RPC_PAYLOAD_BYTES",
     "ParsedModerationRpc",
