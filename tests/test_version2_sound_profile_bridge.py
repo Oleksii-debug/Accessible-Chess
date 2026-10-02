@@ -6,7 +6,7 @@ from unittest import mock
 
 from acs.sound_profile_store import SoundProfileManager
 from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
-from acs.sound_settings_application import SoundSettingsApplication
+from acs.sound_settings_application import SoundSettingsApplication, SoundSettingsResult
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
@@ -126,6 +126,45 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         )
         self.assertTrue(capture["enabled"])
         self.assertEqual(100, capture["volume_percent"])
+
+    def test_browser_pack_commands_route_only_closed_world_payloads(self) -> None:
+        api, manager, _ = _api()
+        sound = api._sound_settings_application
+        self.assertIsNotNone(sound)
+        snapshot = sound.snapshot(language="en")
+        routed = SoundSettingsResult(True, snapshot, "Pack changed.")
+
+        with mock.patch.object(sound, "select_pack", return_value=routed) as select:
+            result = api.sound_settings_command("select_pack", {"pack_id": "soft"})
+            self.assertTrue(result["ok"])
+            select.assert_called_once_with("soft", language="en")
+
+        with mock.patch.object(sound, "install_pack", return_value=routed) as install:
+            result = api.sound_settings_command(
+                "install_pack",
+                {"pack_id": "soft", "activate": True},
+            )
+            self.assertTrue(result["ok"])
+            install.assert_called_once_with("soft", activate=True, language="en")
+
+        with mock.patch.object(sound, "uninstall_pack", return_value=routed) as uninstall:
+            result = api.sound_settings_command("uninstall_pack", {"pack_id": "soft"})
+            self.assertTrue(result["ok"])
+            uninstall.assert_called_once_with("soft", language="en")
+
+        before = manager.current
+        invalid = (
+            ("select_pack", {"pack_id": "soft", "extra": True}),
+            ("select_pack", {"pack_id": None}),
+            ("install_pack", {"pack_id": "soft", "activate": 1}),
+            ("install_pack", {"activate": True}),
+            ("uninstall_pack", {"pack_id": "soft", "extra": True}),
+        )
+        for command, payload in invalid:
+            with self.subTest(command=command, payload=payload):
+                result = api.sound_settings_command(command, payload)
+                self.assertFalse(result["ok"])
+                self.assertEqual(before, manager.current)
 
     def test_browser_sound_payload_contract_rejects_extra_and_noop_fields(self) -> None:
         api, manager, playback = _api()
