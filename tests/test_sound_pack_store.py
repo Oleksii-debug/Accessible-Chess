@@ -275,6 +275,15 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertNotIn(manifest.pack_id, store.installed())
             self.assertIsNone(store.active_version(manifest.pack_id))
 
+    def test_builtin_pack_ids_cannot_collide_after_canonicalization(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            classic = _manifest(pack_id="classic", title="Classic")
+            with self.assertRaisesRegex(ValueError, "duplicate built-in"):
+                FilesystemSoundPackStore(
+                    Path(raw) / "packs",
+                    built_in={"classic": classic, " Classic ": classic},
+                )
+
     def test_builtin_pack_is_visible_but_immutable(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
