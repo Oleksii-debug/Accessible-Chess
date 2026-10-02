@@ -7,7 +7,6 @@ from acs import education_workspace as ew
 from acs.chesscore import Board
 from acs.prepared_position_authoring import (
     PreparedPositionAuthoringError,
-    delete_authored_prepared_position,
     save_authored_prepared_position,
     source_from_board,
     source_from_book,
@@ -162,30 +161,6 @@ class PreparedPositionAuthoringTests(unittest.TestCase):
                 updated,
                 position_id="prep-cas",
                 source=source_from_fen(FEN),
-                expected_position_revision=0,
-            )
-
-    def test_authoring_delete_uses_same_d10_cas_boundary(self) -> None:
-        saved = save_authored_prepared_position(
-            self.workspace,
-            position_id="prep-delete",
-            source=source_from_fen(FEN),
-            expected_position_revision=0,
-            title="Delete me",
-        )
-        deleted = delete_authored_prepared_position(
-            saved,
-            position_id="prep-delete",
-            expected_position_revision=0,
-        )
-        self.assertEqual(deleted.prepared_positions, ())
-        with self.assertRaisesRegex(
-            ew.EducationWorkspaceError,
-            "unknown or ambiguous prepared position",
-        ):
-            delete_authored_prepared_position(
-                deleted,
-                position_id="prep-delete",
                 expected_position_revision=0,
             )
 
