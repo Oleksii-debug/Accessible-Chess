@@ -219,6 +219,15 @@ check(
     "collaboration.file.save,collaboration.file.open",
   "Save/Open must route through bounded collaboration commands"
 );
+check(
+  root.querySelector("#collaboration-chat-sync") !== null &&
+  root.querySelector("#collaboration-chat-mark-read") !== null &&
+  root.querySelector("#collaboration-chat-send") !== null &&
+  root.querySelector("#collaboration-file-choose") !== null &&
+  root.querySelector("#collaboration-file-a-save") !== null &&
+  root.querySelector("#collaboration-file-a-open") !== null,
+  "collaboration actions must expose stable focus anchors"
+);
 
 input.focus();
 check(document.activeElement === input, "test precondition: composer focused");
@@ -270,6 +279,57 @@ check(
   "new ordered chat message must render"
 );
 
+const refreshedSync = root.querySelector("#collaboration-chat-sync");
+refreshedSync.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-one",
+          sender: "Teacher",
+          body: "e4 is the target.",
+          unread: false
+        },
+        {
+          dom_id: "collaboration-message-two",
+          sender: "Student",
+          body: "Understood.",
+          unread: true
+        }
+      ], 1)
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-chat-sync"),
+  "collaboration redraw must restore focus to a stable global action"
+);
+
+const saveButton = root.querySelector("#collaboration-file-a-save");
+saveButton.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.saved",
+    payload: {
+      collaboration: collaboration([], 0)
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-file-a-save"),
+  "file actions that remain available must retain keyboard focus"
+);
+
 window.AccessibleChessEducationSurface.apply(
   root,
   {
@@ -307,6 +367,55 @@ const moderationCommands = root.querySelectorAll("BUTTON")
 ].forEach((command) => {
   check(moderationCommands.includes(command), "missing semantic moderation action: " + command);
 });
+const muteSender = root.querySelector("#collaboration-message-moderated-mute");
+check(muteSender !== null, "message moderation action must have a stable focus anchor");
+muteSender.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.permission",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-moderated",
+          sender: "Student",
+          body: "Needs moderation.",
+          unread: false,
+          message_key: "b".repeat(64),
+          can_hide: true,
+          can_moderate_sender: true,
+          can_remove_sender: true
+        }
+      ], 0, true)
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-message-moderated-mute"),
+  "message action focus must survive collaboration redraw while the action remains"
+);
+
+root.querySelector("#collaboration-message-moderated-hide").focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.hidden",
+    payload: {
+      collaboration: collaboration([], 0, true),
+      focus_target: "collaboration-chat-sync"
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-chat-sync"),
+  "disappearing collaboration actions must move focus to a stable safe control"
+);
 
 window.AccessibleChessEducationSurface.apply(
   root,
