@@ -266,7 +266,13 @@ class ClassroomCollaborationController:
     def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
         self._require_member(self.local_participant_id)
         existing = self._store.room_messages(self.room_id, include_hidden=True)
-        after = existing[-1].sequence_no if existing else None
+        existing_ids = {message.message_id for message in existing}
+        after: int | None = None
+        for message in existing:
+            expected = 0 if after is None else after + 1
+            if message.sequence_no != expected:
+                break
+            after = message.sequence_no
         incoming = self._chat.history_after(
             room_id=self.room_id,
             after_sequence=after,
@@ -274,8 +280,8 @@ class ClassroomCollaborationController:
         )
         if type(incoming) is not tuple or len(incoming) > MAX_SYNC_MESSAGES:
             raise CollaborationError("chat history response is invalid or too large")
+
         previous = after
-        persisted: list[ChatMessageMetadata] = []
         for message in incoming:
             if type(message) is not ChatMessageMetadata:
                 raise CollaborationError("chat history contains invalid message type")
@@ -292,9 +298,6 @@ class ClassroomCollaborationController:
             _id(message.sender_id, "sender id")
             _chat_body(message.body)
             self._require_transport_timestamp(message)
-            saved = self._store.append_message(message)
-            if not saved.hidden:
-                persisted.append(saved)
             previous = message.sequence_no
 
         state_after = self._store.chat_state_revision(self.room_id)
@@ -309,12 +312,9 @@ class ClassroomCollaborationController:
             )
         history_complete = len(incoming) < MAX_SYNC_MESSAGES
         known_message_ids = {
-            message.message_id
-            for message in self._store.room_messages(
-                self.room_id,
-                include_hidden=True,
-            )
+            message.message_id for message in existing
         }
+        known_message_ids.update(message.message_id for message in incoming)
         state_previous = state_after
         applicable_updates: list[ChatMessageStateUpdate] = []
         for update in updates:
@@ -339,26 +339,35 @@ class ClassroomCollaborationController:
                 break
             applicable_updates.append(update)
             state_previous = update.revision
+
         try:
-            self._store.apply_message_state_updates(
+            persisted = self._store.reconcile_message_sync_atomic(
                 room_id=self.room_id,
+                messages=incoming,
                 updates=tuple(applicable_updates),
             )
         except CollaborationStorageError as error:
             raise CollaborationError(
-                "chat moderation state could not be reconciled"
+                "chat history and moderation state could not be reconciled atomically"
             ) from error
-        if applicable_updates and persisted:
-            visible_ids = {
-                message.message_id
-                for message in self._store.room_messages(self.room_id)
-            }
-            persisted = [
-                message
-                for message in persisted
-                if message.message_id in visible_ids
-            ]
-        return tuple(persisted)
+
+        if not persisted:
+            return ()
+        current_by_id = {
+            message.message_id: message
+            for message in self._store.room_messages(
+                self.room_id,
+                include_hidden=True,
+            )
+        }
+        return tuple(
+            current_by_id[message.message_id]
+            for message in persisted
+            if (
+                message.message_id not in existing_ids
+                and not current_by_id[message.message_id].hidden
+            )
+        )
 
     def can_moderate_chat(self) -> bool:
         """Return whether the local participant currently has chat moderation authority."""

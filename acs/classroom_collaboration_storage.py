@@ -557,6 +557,179 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationConflictError("message conflicts with room ordering") from exc
         return message
 
+    def reconcile_message_sync_atomic(
+        self,
+        *,
+        room_id: str,
+        messages: tuple[ChatMessageMetadata, ...],
+        updates: tuple[ChatMessageStateUpdate, ...],
+    ) -> tuple[ChatMessageMetadata, ...]:
+        _canonical_id(room_id, "room id")
+        if type(messages) is not tuple:
+            raise ValueError("message batch must be a tuple")
+        if type(updates) is not tuple:
+            raise ValueError("message state updates must be a tuple")
+        if any(type(message) is not ChatMessageMetadata for message in messages):
+            raise ValueError("message batch contains invalid metadata")
+        if any(type(update) is not ChatMessageStateUpdate for update in updates):
+            raise ValueError("message state update has invalid type")
+        if not messages and not updates:
+            return ()
+
+        persisted: list[ChatMessageMetadata] = []
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                sequence_rows = db.execute(
+                    """
+                    SELECT sequence_no FROM collaboration_messages
+                    WHERE room_id=? ORDER BY sequence_no
+                    """,
+                    (room_id,),
+                ).fetchall()
+                expected_sequence = 0
+                for row in sequence_rows:
+                    sequence = int(row["sequence_no"])
+                    if sequence != expected_sequence:
+                        break
+                    expected_sequence += 1
+
+                for message in messages:
+                    if message.room_id != room_id:
+                        raise CollaborationStorageError(
+                            "message batch crossed room boundary"
+                        )
+                    existing = db.execute(
+                        "SELECT * FROM collaboration_messages WHERE message_id=?",
+                        (message.message_id,),
+                    ).fetchone()
+                    if existing is not None:
+                        loaded = self._message_from_row(existing)
+                        immutable_fields = (
+                            "message_id",
+                            "room_id",
+                            "sender_id",
+                            "sequence_no",
+                            "body",
+                            "retention",
+                        )
+                        if any(
+                            getattr(loaded, field) != getattr(message, field)
+                            for field in immutable_fields
+                        ):
+                            raise CollaborationConflictError(
+                                "message identity reused with different payload"
+                            )
+                        if (
+                            loaded.sent_at_unix_ms is not None
+                            and message.sent_at_unix_ms is not None
+                            and loaded.sent_at_unix_ms != message.sent_at_unix_ms
+                        ):
+                            raise CollaborationConflictError(
+                                "message identity reused with different authoritative timestamp"
+                            )
+                        hidden = loaded.hidden or message.hidden
+                        sent_at = (
+                            loaded.sent_at_unix_ms
+                            if loaded.sent_at_unix_ms is not None
+                            else message.sent_at_unix_ms
+                        )
+                        if hidden != loaded.hidden or sent_at != loaded.sent_at_unix_ms:
+                            db.execute(
+                                """
+                                UPDATE collaboration_messages
+                                SET hidden=?, sent_at_unix_ms=?
+                                WHERE message_id=?
+                                """,
+                                (int(hidden), sent_at, loaded.message_id),
+                            )
+                            existing = db.execute(
+                                "SELECT * FROM collaboration_messages WHERE message_id=?",
+                                (loaded.message_id,),
+                            ).fetchone()
+                            loaded = self._message_from_row(existing)
+                        persisted.append(loaded)
+                        if message.sequence_no == expected_sequence:
+                            expected_sequence += 1
+                        elif message.sequence_no > expected_sequence:
+                            raise CollaborationSequenceGapError(
+                                "message sequence has an unresolved gap"
+                            )
+                        continue
+
+                    if message.sequence_no != expected_sequence:
+                        raise CollaborationSequenceGapError(
+                            "message sequence has an unresolved gap"
+                        )
+                    try:
+                        db.execute(
+                            """
+                            INSERT INTO collaboration_messages(
+                                message_id, room_id, sender_id, sequence_no, body,
+                                retention, hidden, sent_at_unix_ms
+                            ) VALUES(?,?,?,?,?,?,?,?)
+                            """,
+                            (
+                                message.message_id,
+                                message.room_id,
+                                message.sender_id,
+                                message.sequence_no,
+                                message.body,
+                                message.retention,
+                                int(message.hidden),
+                                message.sent_at_unix_ms,
+                            ),
+                        )
+                    except sqlite3.IntegrityError as exc:
+                        raise CollaborationConflictError(
+                            "message batch conflicts with room ordering"
+                        ) from exc
+                    persisted.append(message)
+                    expected_sequence += 1
+
+                cursor = db.execute(
+                    "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
+                    (room_id,),
+                ).fetchone()
+                previous = None if cursor is None else int(cursor["revision"])
+                for update in updates:
+                    if update.room_id != room_id:
+                        raise CollaborationStorageError(
+                            "message state update crossed room boundary"
+                        )
+                    expected_revision = 0 if previous is None else previous + 1
+                    if update.revision != expected_revision:
+                        raise CollaborationStorageError(
+                            "message state updates have an unresolved revision gap"
+                        )
+                    message_row = db.execute(
+                        "SELECT room_id, hidden FROM collaboration_messages WHERE message_id=?",
+                        (update.message_id,),
+                    ).fetchone()
+                    if message_row is None or message_row["room_id"] != room_id:
+                        raise CollaborationStorageError(
+                            "message state update references unknown room message"
+                        )
+                    if not bool(message_row["hidden"]):
+                        db.execute(
+                            "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
+                            (update.message_id,),
+                        )
+                    db.execute(
+                        """
+                        INSERT INTO collaboration_chat_state_cursors(room_id, revision)
+                        VALUES(?,?)
+                        ON CONFLICT(room_id) DO UPDATE SET revision=excluded.revision
+                        """,
+                        (room_id, update.revision),
+                    )
+                    previous = update.revision
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        return tuple(persisted)
+
     def room_messages(self, room_id: str, *, include_hidden: bool = False) -> tuple[ChatMessageMetadata, ...]:
         query = "SELECT * FROM collaboration_messages WHERE room_id=?"
         args: tuple[object, ...] = (room_id,)

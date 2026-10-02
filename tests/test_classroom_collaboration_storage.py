@@ -322,6 +322,62 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(deleted[0].transfer_state, "deleted")
         self.assertEqual(reopened.attachment_state_revision("room"), 1)
 
+    def test_message_sync_commits_history_and_state_in_one_transaction(self) -> None:
+        incoming = ChatMessageMetadata(
+            "sync-message",
+            "room",
+            "teacher",
+            0,
+            "Visible briefly",
+            sent_at_unix_ms=1700000000000,
+        )
+        hidden = ChatMessageStateUpdate(
+            "room",
+            incoming.message_id,
+            0,
+        )
+
+        persisted = self.store.reconcile_message_sync_atomic(
+            room_id="room",
+            messages=(incoming,),
+            updates=(hidden,),
+        )
+
+        self.assertEqual(persisted, (incoming,))
+        self.assertEqual(self.store.room_messages("room"), ())
+        stored = self.store.room_messages("room", include_hidden=True)
+        self.assertEqual(len(stored), 1)
+        self.assertTrue(stored[0].hidden)
+        self.assertEqual(self.store.chat_state_revision("room"), 0)
+
+    def test_message_sync_rolls_back_history_when_state_reconciliation_fails(self) -> None:
+        incoming = ChatMessageMetadata(
+            "sync-message",
+            "room",
+            "teacher",
+            0,
+            "Must roll back",
+            sent_at_unix_ms=1700000000000,
+        )
+        unknown = ChatMessageStateUpdate(
+            "room",
+            "missing-message",
+            0,
+        )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.reconcile_message_sync_atomic(
+                room_id="room",
+                messages=(incoming,),
+                updates=(unknown,),
+            )
+
+        self.assertEqual(
+            self.store.room_messages("room", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room"))
+
     def test_message_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         message = ChatMessageMetadata(
             "m-state", "room", "teacher", 0, "Visible",

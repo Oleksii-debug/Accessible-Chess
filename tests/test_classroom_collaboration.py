@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -349,6 +350,36 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 with self.assertRaises(CollaborationError):
                     controller.send_chat(message_id="m1", body=body)
 
+    def test_chat_sync_repairs_missing_local_authoritative_prefix(self):
+        history = tuple(
+            ChatMessageMetadata(
+                f"remote-chat-{sequence}",
+                "room-1",
+                "teacher-1" if sequence != 1 else "student-1",
+                sequence,
+                f"Message {sequence}",
+                sent_at_unix_ms=1700000000000 + sequence * 1000,
+            )
+            for sequence in range(3)
+        )
+        self.chat.ordered = list(history)
+        self.chat.messages = {
+            message.message_id: message
+            for message in history
+        }
+        # Simulate recoverable local state that retained only a later row.
+        self.store.append_message(history[2])
+        controller = self.controller("teacher-1")
+
+        repaired = controller.sync_chat()
+
+        self.assertEqual(repaired, history)
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            history,
+        )
+        self.assertEqual(controller.sync_chat(), ())
+
     def test_sync_reconnect_persists_only_new_strictly_ordered_messages(self):
         controller = self.controller()
         one = self.chat.send_message(ChatDraft("m1", "room-1", "teacher-1", "One"))
@@ -357,6 +388,71 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(synced, (one, two))
         self.assertEqual(controller.sync_chat(), ())
         self.assertEqual(self.store.room_messages("room-1"), (one, two))
+
+    def test_new_chat_history_rolls_back_when_state_stream_has_gap(self):
+        controller = self.controller()
+        incoming = self.chat.send_message(
+            ChatDraft("atomic-message", "room-1", "teacher-1", "Atomic")
+        )
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                "room-1",
+                incoming.message_id,
+                1,
+            ),
+        ]
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "chat moderation state has an unresolved revision gap",
+        ):
+            controller.sync_chat()
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room-1"))
+
+    def test_sync_repairs_legacy_local_history_that_started_after_zero(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("legacy-gap-0", "room-1", "teacher-1", "First")
+        )
+        second = self.chat.send_message(
+            ChatDraft("legacy-gap-1", "room-1", "student-2", "Second")
+        )
+        third = self.chat.send_message(
+            ChatDraft("legacy-gap-2", "room-1", "teacher-1", "Third")
+        )
+        with sqlite3.connect(self.store.path) as db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    third.message_id,
+                    third.room_id,
+                    third.sender_id,
+                    third.sequence_no,
+                    third.body,
+                    third.retention,
+                    int(third.hidden),
+                    third.sent_at_unix_ms,
+                ),
+            )
+
+        synced = controller.sync_chat()
+
+        self.assertEqual(synced, (first, second))
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (first, second, third),
+        )
+        self.assertEqual(controller.sync_chat(), ())
 
     def test_sync_defers_state_for_message_on_next_history_page(self):
         controller = self.controller()
@@ -813,6 +909,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         stored = self.store.room_messages("room-1", include_hidden=True)
         self.assertEqual(len(stored), 1)
         self.assertTrue(stored[0].hidden)
+
+    def test_new_chat_history_is_not_persisted_when_state_stream_has_a_gap(self):
+        controller = self.controller("student-1")
+        incoming = ChatMessageMetadata(
+            "atomic-chat-history",
+            "room-1",
+            "teacher-1",
+            0,
+            "Do not expose before state reconciliation",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.ordered = [incoming]
+        self.chat.messages[incoming.message_id] = incoming
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                "room-1",
+                incoming.message_id,
+                1,
+            )
+        ]
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "chat moderation state has an unresolved revision gap",
+        ):
+            controller.sync_chat()
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room-1"))
 
     def test_moderation_state_stream_must_be_strict_and_reference_known_message(self):
         controller = self.controller("student-1")
@@ -1499,6 +1627,42 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
+    def test_live_receive_cannot_restore_blocked_failed_upload(self):
+        controller = self.controller("student-1")
+        prepared = controller.prepare_file(
+            attachment_id="blocked-live-a0",
+            local_path=self.make_file("blocked-live-a0.bin", b"blocked"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        blocked = self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+        authoritative = replace(
+            prepared.metadata,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "remote attachment could not be reconciled",
+        ):
+            controller.receive_file(authoritative)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (blocked,),
+        )
 
     def test_live_receive_adopts_authority_over_ambiguous_failed_upload(self):
         controller = self.controller("student-1")
