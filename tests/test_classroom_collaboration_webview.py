@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -429,6 +430,36 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("error", retried.kind)
         self.assertEqual([], self.files.retry_calls)
+
+    def test_blocked_retry_result_drops_local_source_path(self) -> None:
+        self.selected_file = self.root / "blocked-after-retry.pgn"
+        self.selected_file.write_text(
+            '[Event "Blocked after retry"]\n\n1. e4 e5 *\n',
+            encoding="utf-8",
+        )
+        self.files.fail_upload = True
+        view = self.webview()
+        failed = view.dispatch("collaboration.file.choose_upload", {})
+        item = failed.payload["collaboration"]["files"]["items"][0]
+        self.assertTrue(item["can_retry"])
+        current = self.store.room_attachments("room-1")[0]
+
+        with mock.patch.object(
+            self.controller,
+            "retry_file",
+            return_value=replace(current, scan_state="blocked"),
+        ):
+            retried = view.dispatch(
+                "collaboration.file.retry",
+                {"file_key": item["file_key"]},
+            )
+
+        self.assertEqual("collaboration.file.retried", retried.kind)
+        self.assertEqual({}, view._prepared)
+        self.assertFalse(
+            retried.payload["collaboration"]["files"]["items"][0]["can_retry"]
+        )
+        self.assertNotIn(str(self.selected_file), repr(retried.payload))
 
     def test_file_action_key_is_room_bound_and_unknown_or_extra_payload_fails_closed(self) -> None:
         view = self.webview()
