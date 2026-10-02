@@ -14,10 +14,27 @@ assert.strictEqual(byId.get('move.submit').binding, 'Enter');
 assert.strictEqual(byId.get('history.commit_go_to_move').registryContext, 'history');
 assert.strictEqual(byId.get('history.commit_go_to_move').binding, 'Enter');
 
-const moveHandler = "el('move-input').addEventListener('keydown',async e=>{const a=await resolveBinding(eventChord(e),'move_entry','move-entry');if(a&&a.actionId==='move.submit'){e.preventDefault();executeAction(a.actionId)}});";
-const historyHandler = "el('history-input').addEventListener('keydown',async e=>{const a=await resolveBinding(eventChord(e),'history','document');if(a&&a.actionId==='history.commit_go_to_move'){e.preventDefault();executeAction(a.actionId)}});";
-assert.ok(html.includes(moveHandler), 'move input must resolve its submit gesture through central keymap');
-assert.ok(html.includes(historyHandler), 'history input must resolve its commit gesture through central keymap');
+const moveStart = html.indexOf("el('move-input').addEventListener('keydown',async e=>{");
+const moveEnd = html.indexOf(");el('fen-load')", moveStart);
+const historyStart = html.indexOf("el('history-input').addEventListener('keydown',async e=>{");
+const historyEnd = html.indexOf(");el('language-select')", historyStart);
+assert.ok(moveStart >= 0 && moveEnd > moveStart, 'move input handler not found');
+assert.ok(historyStart >= 0 && historyEnd > historyStart, 'history input handler not found');
+const moveHandler = html.slice(moveStart, moveEnd);
+const historyHandler = html.slice(historyStart, historyEnd);
+
+assert.ok(moveHandler.includes("keymapActionForEvent(e,'move_entry')"), 'move input must identify a cached central-keymap candidate synchronously');
+assert.ok(moveHandler.includes("resolveBinding(chord,'move_entry','move-entry')"), 'move input must validate the cached candidate through the central bridge');
+assert.ok(historyHandler.includes("keymapActionForEvent(e,'history')"), 'history input must identify a cached central-keymap candidate synchronously');
+assert.ok(historyHandler.includes("resolveBinding(chord,'history','document')"), 'history input must validate the cached candidate through the central bridge');
+
+for (const [name, handler] of [['move', moveHandler], ['history', historyHandler]]) {
+  const cancel = handler.indexOf('e.preventDefault()');
+  const bridge = handler.indexOf('await resolveBinding');
+  assert.ok(cancel >= 0, name + ' handler must synchronously cancel its known remapped gesture');
+  assert.ok(bridge > cancel, name + ' preventDefault must occur before asynchronous bridge validation');
+  assert.ok(handler.includes('a&&a.actionId===candidate'), name + ' handler must fail closed on cached/bridge disagreement');
+}
 
 assert.ok(!html.includes("el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter')"), 'hardcoded move Enter handler survived');
 assert.ok(!html.includes("el('history-input').addEventListener('keydown',e=>{if(e.key==='Enter')"), 'hardcoded history Enter handler survived');
