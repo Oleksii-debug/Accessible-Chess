@@ -127,6 +127,25 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         self.assertTrue(capture["enabled"])
         self.assertEqual(100, capture["volume_percent"])
 
+    def test_browser_sound_payload_contract_rejects_extra_and_noop_fields(self) -> None:
+        api, manager, playback = _api()
+        before = manager.current
+
+        cases = (
+            ("set_master", {"enabled": False, "unexpected": True}),
+            ("set_master", {}),
+            ("set_event", {"event_id": "move"}),
+            ("set_event", {"event_id": "move", "enabled": False, "sound_id": "move.alt"}),
+            ("preview", {"event_id": "move", "unexpected": True}),
+            ("preview", {1: "move"}),
+        )
+        for command, payload in cases:
+            with self.subTest(command=command, payload=payload):
+                result = api.sound_settings_command(command, payload)
+                self.assertFalse(result["ok"])
+                self.assertEqual(before, manager.current)
+                self.assertEqual([], playback.requests)
+
     def test_invalid_browser_sound_command_fails_closed(self) -> None:
         api, manager, _ = _api()
         before = manager.current
