@@ -118,7 +118,9 @@ class ChatTransportPort(Protocol):
     """Server-authoritative room chat transport.
 
     send_message must be idempotent for the same message_id and returns the
-    server-assigned room sequence. history_after is bounded by the caller.
+    server-assigned room sequence plus a stable UTC Unix-millisecond send timestamp.
+    history_after is bounded by the caller and returns that same authoritative
+    timestamp for every message.
     """
 
     def send_message(self, draft: ChatDraft) -> ChatMessageMetadata:
@@ -204,6 +206,7 @@ class ClassroomCollaborationController:
             raise CollaborationError("received chat message belongs to another room")
         self._require_member(message.sender_id)
         _chat_body(message.body)
+        self._require_transport_timestamp(message)
         return self._store.append_message(message)
 
     def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
@@ -227,6 +230,7 @@ class ClassroomCollaborationController:
                 raise CollaborationError("chat history is not strictly ordered")
             self._require_member(message.sender_id)
             _chat_body(message.body)
+            self._require_transport_timestamp(message)
             persisted.append(self._store.append_message(message))
             previous = message.sequence_no
         return tuple(persisted)
@@ -519,8 +523,14 @@ class ClassroomCollaborationController:
             or message.body != draft.body
             or message.retention != draft.retention
             or message.hidden
+            or message.sent_at_unix_ms is None
         ):
             raise CollaborationError("chat transport changed immutable message identity")
+
+    @staticmethod
+    def _require_transport_timestamp(message: ChatMessageMetadata) -> None:
+        if message.sent_at_unix_ms is None:
+            raise CollaborationError("chat transport omitted authoritative send timestamp")
 
     def _moderation_pair(self, actor_id: str, target_id: str) -> tuple[str, str]:
         actor = _id(actor_id, "actor id")
