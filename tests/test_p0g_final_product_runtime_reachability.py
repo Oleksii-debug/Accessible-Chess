@@ -8,6 +8,7 @@ from acs import version2_upgrade_status_release as shipping_release
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "run_accessible_chess_v2.py"
+P0G_WORKFLOW = ROOT / ".github" / "workflows" / "p0g-final-product-runtime-reachability.yml"
 
 
 class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
@@ -65,6 +66,16 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
             self.assertIn(f'"{surface}"', runtime_source)
         self.assertIn("wrapSurfaceRenderAnnouncement", runtime_source)
         self.assertIn("global.announce = function", runtime_source)
+
+
+    def test_retained_gate_accepts_exact_classroom_media_successor_identities(self) -> None:
+        workflow = P0G_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("EDUCATION_RELEASE_MEDIA_BLOB:", workflow)
+        self.assertIn("REACHABILITY_MEDIA_TEST_BLOB:", workflow)
+        self.assertIn('education_blob="$(git rev-parse HEAD:acs/version2_education_mutation_release.py)"', workflow)
+        self.assertIn('reachability_test_blob="$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)"', workflow)
+        self.assertIn('"$EDUCATION_RELEASE_BLOB"|"$EDUCATION_RELEASE_MEDIA_BLOB"', workflow)
+        self.assertIn('"$REACHABILITY_TEST_BLOB"|"$REACHABILITY_MEDIA_TEST_BLOB"', workflow)
 
 
 if __name__ == "__main__":
