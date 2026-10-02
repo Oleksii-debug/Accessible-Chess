@@ -192,6 +192,56 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             resolve.assert_called_once_with("soft.pack", "soft.move")
             self.assertEqual(str(custom), fake.calls[0][0])
 
+    def test_custom_full_volume_plays_from_content_addressed_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-custom-snapshot-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            custom = root / "verified-custom.wav"
+            _write_wav(custom)
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="move",
+                sound_id="soft.move",
+                volume=100,
+                preview=False,
+            )
+
+            with mock.patch.object(store, "resolve_asset", return_value=custom):
+                fake = self._play(adapter, request)
+
+            played = Path(fake.calls[0][0])
+            self.assertNotEqual(custom, played)
+            self.assertEqual(root / "cache", played.parent)
+            self.assertTrue(played.is_file())
+            custom.unlink()
+            self.assertTrue(
+                played.is_file(),
+                "playback snapshot must survive installed-pack removal",
+            )
+
+    def test_custom_full_volume_rejects_structurally_invalid_wav_before_winsound(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-custom-invalid-wav-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            custom = root / "invalid.wav"
+            custom.write_bytes(b"RIFF" + (4).to_bytes(4, "little") + b"WAVE")
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="move",
+                sound_id="soft.move",
+                volume=100,
+                preview=False,
+            )
+            fake = _WinSound()
+            with mock.patch.object(store, "resolve_asset", return_value=custom), mock.patch.object(
+                sys, "platform", "win32"
+            ), mock.patch.dict(sys.modules, {"winsound": fake}), self.assertRaises(
+                (EOFError, wave.Error)
+            ):
+                adapter.play_sound(request)
+
+            self.assertEqual([], fake.calls)
+
     def test_missing_custom_asset_fails_without_system_default(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-missing-") as raw:
             _resolver, store, adapter = self._adapter(Path(raw))
