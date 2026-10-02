@@ -589,6 +589,11 @@ def _measure_comment(
             "PGN comment contains an invalid Unicode scalar value",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
+    if "\r" in comment.text:
+        raise PgnRoundTripError(
+            "PGN comment contains non-canonical carriage-return text",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
     _claim_model_chars(budget, len(comment.text) + 16)
     _claim_model_tokens(token_count)
 
@@ -687,6 +692,11 @@ def _measure_line(
         if type(node.comments_before) is not list or type(node.comments_after) is not list:
             raise PgnRoundTripError(
                 "PGN move comment collections must be lists",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        if node.comments_before and node.move_number is None:
+            raise PgnRoundTripError(
+                "PGN comments-before require an explicit move-number token",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
         for comment in node.comments_before:
