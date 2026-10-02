@@ -561,7 +561,7 @@ class ClassroomCollaborationWebView:
         selected = self._file_picker()
         if selected is None:
             return self._event("collaboration.file.cancelled")
-        if type(selected) is not Path:
+        if not isinstance(selected, Path):
             raise TypeError("file picker must return pathlib.Path or None")
         attachments = self._store.room_attachments(self._controller.room_id)
         sequence = 0 if not attachments else max(item.sequence_no for item in attachments) + 1
