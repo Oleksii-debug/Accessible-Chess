@@ -229,6 +229,33 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 self._stage()
         self.assertFalse(self.output.exists())
 
+    def test_symlinked_output_ancestor_is_rejected(self) -> None:
+        linked_ancestor = self.root / "linked"
+        self.output = linked_ancestor / "nested" / "out"
+        original_lexists = sdk.os.path.lexists
+        original_is_symlink = Path.is_symlink
+
+        def fake_lexists(path: object) -> bool:
+            if Path(path) == linked_ancestor:
+                return True
+            return original_lexists(path)
+
+        def fake_is_symlink(path: Path) -> bool:
+            if path == linked_ancestor:
+                return True
+            return original_is_symlink(path)
+
+        with (
+            mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists),
+            mock.patch.object(Path, "is_symlink", side_effect=fake_is_symlink),
+        ):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "must not traverse a symlink",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
     def test_write_failure_leaves_no_partial_output_or_staging_directory(self) -> None:
         with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
             with self.assertRaisesRegex(OSError, "disk full"):
