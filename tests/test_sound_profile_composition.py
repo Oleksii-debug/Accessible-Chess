@@ -80,6 +80,53 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertFalse(second.profile_manager.current.master_enabled)
             self.assertEqual(37, second.profile_manager.current.master_volume_percent)
 
+    def test_malformed_first_run_legacy_settings_do_not_poison_migration_marker(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-migrate-malformed-") as raw:
+            root = Path(raw)
+            profile_path = root / "data" / "sound-profile.json"
+
+            with self.assertRaises(TypeError):
+                create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=root / "data",
+                    legacy_settings={"sounds": "false", "volume": 37},
+                    asset_playback=_Playback(),
+                )
+
+            self.assertFalse(
+                profile_path.exists(),
+                "failed legacy parsing must not create a default migration marker",
+            )
+
+            recovered = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                legacy_settings={"sounds": False, "volume": 37},
+                asset_playback=_Playback(),
+            )
+            self.assertFalse(recovered.profile_manager.current.master_enabled)
+            self.assertEqual(37, recovered.profile_manager.current.master_volume_percent)
+
+    def test_existing_profile_never_reparses_malformed_legacy_settings(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-existing-ignore-legacy-") as raw:
+            root = Path(raw)
+            first = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                legacy_settings={"sounds": False, "volume": 37},
+                asset_playback=_Playback(),
+            )
+            self.assertFalse(first.profile_manager.current.master_enabled)
+
+            second = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                legacy_settings={"sounds": "not-a-bool", "volume": object()},
+                asset_playback=_Playback(),
+            )
+            self.assertFalse(second.profile_manager.current.master_enabled)
+            self.assertEqual(37, second.profile_manager.current.master_volume_percent)
+
     def test_settings_mutation_persists_and_is_visible_after_restart(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-restart-") as raw:
             root = Path(raw)
