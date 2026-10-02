@@ -27,6 +27,35 @@ from .sound_windows import PackagedSoundAssetResolver
 PROFILED_SCALED_SOUND_CACHE_FORMAT_VERSION = 1
 
 
+def _scale_pcm_frames(frames: bytes, sample_width: int, factor: float) -> bytes:
+    """Scale little-endian PCM while preserving the WAV sample representation."""
+
+    if sample_width == 1:
+        # 8-bit PCM WAV samples are unsigned and centered at 128.
+        return bytes(
+            max(0, min(255, 128 + int((sample - 128) * factor)))
+            for sample in frames
+        )
+    if sample_width not in {2, 3, 4}:
+        raise ValueError("unsupported PCM WAV sample width")
+    if len(frames) % sample_width:
+        raise ValueError("misaligned PCM WAV frames")
+
+    bits = sample_width * 8
+    minimum = -(1 << (bits - 1))
+    maximum = (1 << (bits - 1)) - 1
+    scaled = bytearray()
+    for offset in range(0, len(frames), sample_width):
+        sample = int.from_bytes(
+            frames[offset : offset + sample_width],
+            "little",
+            signed=True,
+        )
+        value = max(minimum, min(maximum, int(sample * factor)))
+        scaled.extend(value.to_bytes(sample_width, "little", signed=True))
+    return bytes(scaled)
+
+
 class ProfiledWindowsSoundPlaybackAdapter:
     def __init__(
         self,
@@ -129,18 +158,15 @@ class ProfiledWindowsSoundPlaybackAdapter:
 
         with wave.open(io.BytesIO(source_bytes), "rb") as reader:
             params = reader.getparams()
-            if params.sampwidth != 2:
-                raise ValueError("only 16-bit PCM WAV assets support volume scaling")
             frames = reader.readframes(reader.getnframes())
         expected_frame_bytes = params.nframes * params.nchannels * params.sampwidth
         if len(frames) != expected_frame_bytes:
-            raise ValueError("truncated 16-bit PCM WAV asset")
+            raise ValueError("truncated PCM WAV asset")
 
-        samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
-        factor = volume / 100.0
-        scaled = b"".join(
-            struct.pack("<h", max(-32768, min(32767, int(sample * factor))))
-            for sample in samples
+        scaled = _scale_pcm_frames(
+            frames,
+            params.sampwidth,
+            volume / 100.0,
         )
 
         if destination.is_file() and self._cached_scaled_wave_is_valid(
