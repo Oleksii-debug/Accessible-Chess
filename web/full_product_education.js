@@ -582,7 +582,8 @@
           hide.type = "button";
           hide.setAttribute(
             "aria-label",
-            (chat.hide_label || "Hide message") + ": " + String(message.sender || "")
+            (chat.hide_label || "Hide message") + ": " +
+              String(message.action_message || message.action_sender || message.sender || "")
           );
           hide.setAttribute("data-command", "collaboration.chat.hide");
           hide.addEventListener("click", function () {
@@ -603,7 +604,8 @@
           mute.type = "button";
           mute.setAttribute(
             "aria-label",
-            (chat.mute_sender_label || "Mute sender") + ": " + String(message.sender || "")
+            (chat.mute_sender_label || "Mute sender") + ": " +
+              String(message.action_sender || message.sender || "")
           );
           mute.setAttribute("data-command", "collaboration.chat.mute_sender");
           mute.addEventListener("click", function () {
@@ -622,7 +624,8 @@
           allow.type = "button";
           allow.setAttribute(
             "aria-label",
-            (chat.allow_sender_label || "Allow sender") + ": " + String(message.sender || "")
+            (chat.allow_sender_label || "Allow sender") + ": " +
+              String(message.action_sender || message.sender || "")
           );
           allow.setAttribute("data-command", "collaboration.chat.allow_sender");
           allow.addEventListener("click", function () {
@@ -643,7 +646,8 @@
           remove.type = "button";
           remove.setAttribute(
             "aria-label",
-            (chat.remove_sender_label || "Remove participant") + ": " + String(message.sender || "")
+            (chat.remove_sender_label || "Remove participant") + ": " +
+              String(message.action_sender || message.sender || "")
           );
           remove.setAttribute("data-command", "collaboration.participant.remove_sender");
           remove.addEventListener("click", function () {
@@ -662,7 +666,8 @@
           block.type = "button";
           block.setAttribute(
             "aria-label",
-            (chat.block_sender_label || "Remove and block participant") + ": " + String(message.sender || "")
+            (chat.block_sender_label || "Remove and block participant") + ": " +
+              String(message.action_sender || message.sender || "")
           );
           block.setAttribute("data-command", "collaboration.participant.block_sender");
           block.addEventListener("click", function () {
