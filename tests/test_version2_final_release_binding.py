@@ -352,6 +352,20 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
                 ):
                     final_release._final_product_resource_sources()
 
+    def test_livekit_runtime_link_guard_detects_windows_reparse_attribute(self) -> None:
+        from acs import version2_final_release as final_release
+
+        reparse_flag = getattr(final_release.stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        with (
+            mock.patch.object(Path, "is_symlink", return_value=False),
+            mock.patch.object(
+                Path,
+                "lstat",
+                return_value=SimpleNamespace(st_file_attributes=reparse_flag),
+            ),
+        ):
+            self.assertTrue(final_release._is_link_like_resource(Path("livekit-resource")))
+
     def test_linked_livekit_media_adapter_fails_closed(self) -> None:
         from acs import version2_final_release as final_release
 
