@@ -350,6 +350,36 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 with self.assertRaises(CollaborationError):
                     controller.send_chat(message_id="m1", body=body)
 
+    def test_chat_sync_repairs_missing_local_authoritative_prefix(self):
+        history = tuple(
+            ChatMessageMetadata(
+                f"remote-chat-{sequence}",
+                "room-1",
+                "teacher-1" if sequence != 1 else "student-1",
+                sequence,
+                f"Message {sequence}",
+                sent_at_unix_ms=1700000000000 + sequence * 1000,
+            )
+            for sequence in range(3)
+        )
+        self.chat.ordered = list(history)
+        self.chat.messages = {
+            message.message_id: message
+            for message in history
+        }
+        # Simulate recoverable local state that retained only a later row.
+        self.store.append_message(history[2])
+        controller = self.controller("teacher-1")
+
+        repaired = controller.sync_chat()
+
+        self.assertEqual(repaired, history)
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            history,
+        )
+        self.assertEqual(controller.sync_chat(), ())
+
     def test_sync_reconnect_persists_only_new_strictly_ordered_messages(self):
         controller = self.controller()
         one = self.chat.send_message(ChatDraft("m1", "room-1", "teacher-1", "One"))
