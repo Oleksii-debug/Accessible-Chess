@@ -28,13 +28,14 @@ from .classroom_collaboration import (
 )
 from .classroom_collaboration_storage import (
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     MAX_CHAT_TIMESTAMP_UNIX_MS,
 )
 
 
 MAX_SERVER_HISTORY_MESSAGES = 500
 MAX_SERVER_MODERATION_COMMANDS = 500
-_SERVER_SCHEMA_VERSION = 1
+_SERVER_SCHEMA_VERSION = 2
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -173,6 +174,15 @@ class ClassroomChatServerSQLiteStore:
                     fingerprint TEXT NOT NULL,
                     PRIMARY KEY(room_id, operation_id)
                 );
+                CREATE TABLE IF NOT EXISTS classroom_chat_server_state_updates(
+                    room_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL CHECK(revision >= 0),
+                    message_id TEXT NOT NULL,
+                    hidden INTEGER NOT NULL CHECK(hidden = 1),
+                    PRIMARY KEY(room_id, revision)
+                );
+                CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_state_updates_message
+                    ON classroom_chat_server_state_updates(room_id, message_id);
                 """
             )
             row = db.execute(
@@ -183,8 +193,17 @@ class ClassroomChatServerSQLiteStore:
                     "INSERT INTO classroom_chat_server_meta(key,value) VALUES('schema_version',?)",
                     (_SERVER_SCHEMA_VERSION,),
                 )
-            elif int(row["value"]) != _SERVER_SCHEMA_VERSION:
-                raise ClassroomChatServerError("unsupported classroom chat server schema")
+            else:
+                version = int(row["value"])
+                if version > _SERVER_SCHEMA_VERSION:
+                    raise ClassroomChatServerError(
+                        "unsupported classroom chat server schema"
+                    )
+                if version < 2:
+                    db.execute(
+                        "UPDATE classroom_chat_server_meta SET value=? WHERE key='schema_version'",
+                        (_SERVER_SCHEMA_VERSION,),
+                    )
 
     @staticmethod
     def _row_message(row: sqlite3.Row) -> ChatMessageMetadata:
@@ -344,6 +363,46 @@ class ClassroomChatServerSQLiteStore:
             ) from None
         return tuple(self._row_message(row) for row in rows)
 
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        room = _identifier(room_id, "room id")
+        if after_revision is not None and (
+            type(after_revision) is not int or after_revision < 0
+        ):
+            raise ClassroomChatServerError("state revision is invalid")
+        bounded = _history_limit(limit)
+        sql = (
+            "SELECT room_id, revision, message_id, hidden "
+            "FROM classroom_chat_server_state_updates WHERE room_id=? "
+        )
+        params: list[object] = [room]
+        if after_revision is not None:
+            sql += "AND revision>? "
+            params.append(after_revision)
+        sql += "ORDER BY revision ASC LIMIT ?"
+        params.append(bounded)
+        try:
+            with closing(self._connect()) as db:
+                rows = db.execute(sql, tuple(params)).fetchall()
+        except sqlite3.Error:
+            raise ClassroomChatServerError(
+                "classroom chat server state history read failed"
+            ) from None
+        return tuple(
+            ChatMessageStateUpdate(
+                room_id=row["room_id"],
+                message_id=row["message_id"],
+                revision=int(row["revision"]),
+                hidden=bool(row["hidden"]),
+            )
+            for row in rows
+        )
+
     def apply_moderation(
         self,
         commands: tuple[ChatModerationCommand, ...],
@@ -390,17 +449,43 @@ class ClassroomChatServerSQLiteStore:
                             (room, command.target_id, int(bool(command.allowed))),
                         )
                     elif command.action is ChatModerationAction.HIDE_MESSAGE:
-                        changed = db.execute(
+                        target = db.execute(
                             """
-                            UPDATE classroom_chat_server_messages
-                            SET hidden=1
+                            SELECT hidden FROM classroom_chat_server_messages
                             WHERE room_id=? AND message_id=?
                             """,
                             (room, command.message_id),
-                        ).rowcount
-                        if changed != 1:
+                        ).fetchone()
+                        if target is None:
                             raise ClassroomChatServerError(
                                 "message to hide does not exist in room"
+                            )
+                        if not bool(target["hidden"]):
+                            db.execute(
+                                """
+                                UPDATE classroom_chat_server_messages
+                                SET hidden=1
+                                WHERE room_id=? AND message_id=?
+                                """,
+                                (room, command.message_id),
+                            )
+                            revision = int(
+                                db.execute(
+                                    """
+                                    SELECT COALESCE(MAX(revision), -1) + 1
+                                    FROM classroom_chat_server_state_updates
+                                    WHERE room_id=?
+                                    """,
+                                    (room,),
+                                ).fetchone()[0]
+                            )
+                            db.execute(
+                                """
+                                INSERT INTO classroom_chat_server_state_updates(
+                                    room_id, revision, message_id, hidden
+                                ) VALUES(?,?,?,1)
+                                """,
+                                (room, revision, command.message_id),
                             )
                     else:
                         raise ClassroomChatServerError(
@@ -516,6 +601,36 @@ class ClassroomChatServerService:
         return self._store.history_after(
             room_id=room,
             after_sequence=after,
+            limit=bounded,
+        )
+
+    def state_updates_after(
+        self,
+        *,
+        trusted_caller_identity: str,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        caller = _identifier(trusted_caller_identity, "trusted caller identity")
+        room = _identifier(room_id, "room id")
+        if after_revision is not None and (
+            type(after_revision) is not int or after_revision < 0
+        ):
+            raise ClassroomChatServerError("state revision is invalid")
+        bounded = _history_limit(limit)
+        try:
+            self._authorization.authorize_chat_history(
+                room_id=room,
+                caller_identity=caller,
+            )
+        except Exception:
+            raise ClassroomChatServerError(
+                "chat state history is not authorized"
+            ) from None
+        return self._store.state_updates_after(
+            room_id=room,
+            after_revision=after_revision,
             limit=bounded,
         )
 
