@@ -118,11 +118,6 @@ class LiveKitClassroomModerationAdmin:
             raise LiveKitClassroomModerationAdminError(
                 "LiveKit participant identity is not canonical"
             )
-        if bool(getattr(permission, "can_publish_data", False)):
-            raise LiveKitClassroomModerationAdminError(
-                "LiveKit participant has unexpected data publish permission"
-            )
-
         allowed = _explicit_publish_sources(self._api, permission)
         source = _provider_source(self._api, command.source)
         if command.value:
