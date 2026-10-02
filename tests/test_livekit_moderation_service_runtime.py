@@ -203,7 +203,7 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(participant.unregister_calls, [MODERATION_RPC_METHOD])
         self.assertEqual(room.disconnect_calls, 1)
 
-    async def test_runtime_never_stores_or_renders_service_token_or_context(self):
+    async def test_wrapper_does_not_copy_or_render_service_token_or_context(self):
         secret = "very-secret-token.payload.signature"
         runtime = await self.connect(token=secret)
         rendered = repr(runtime)
@@ -212,8 +212,11 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(ROOM, rendered)
         self.assertNotIn(SERVICE_ID, rendered)
         self.assertNotIn("_token", runtime.__slots__)
-        self.assertIn("token=<not-stored>", rendered)
+        self.assertIn("token=<redacted>", rendered)
+        room = FakeRoom.instances[-1]
         await runtime.aclose()
+        self.assertIsNone(runtime._room)
+        self.assertFalse(room.connected)
 
     def test_constructor_rejects_untrusted_urls_identity_and_bad_sdk(self):
         invalid_urls = (
