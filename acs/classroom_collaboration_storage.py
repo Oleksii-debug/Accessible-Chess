@@ -437,9 +437,9 @@ class ClassroomCollaborationSQLiteStore:
                 )
                 db.execute(
                     """
-                    CREATE UNIQUE INDEX uq_collaboration_attachments_terminal_sequence
+                    CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
                     ON collaboration_attachments(room_id, sequence_no)
-                    WHERE transfer_state IN ('stored','deleted')
+                    WHERE transfer_state='stored'
                     """
                 )
                 db.execute(
