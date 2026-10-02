@@ -32,6 +32,7 @@ from .classroom_realtime_media import ClassroomRole, ClassroomRosterPort
 
 MAX_CHAT_BODY_CHARS = 4000
 MAX_SYNC_MESSAGES = 10000
+MAX_DOWNLOAD_TOKEN_CHARS = 8192
 MAX_FILE_BYTES_DEFAULT = 100 * 1024 * 1024
 MAX_ROOM_BYTES_DEFAULT = 1024 * 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -558,7 +559,15 @@ class ClassroomCollaborationController:
             participant_id=self.local_participant_id,
             ttl_seconds=ttl_seconds,
         )
-        if type(token) is not str or not token or any(ch.isspace() for ch in token):
+        if (
+            type(token) is not str
+            or not token
+            or len(token) > MAX_DOWNLOAD_TOKEN_CHARS
+            or any(
+                ch.isspace() or ord(ch) < 32 or ord(ch) == 127
+                for ch in token
+            )
+        ):
             raise CollaborationError("file store returned invalid short-lived token")
         return token
 
