@@ -264,11 +264,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     language=self.lang,
                 )
             elif command == "set_event":
-                allowed = {"event_id", "enabled", "volume_percent"}
+                allowed = {"event_id", "enabled", "volume_percent", "sound_id"}
                 if (
                     not keys <= allowed
                     or "event_id" not in keys
-                    or not keys.intersection({"enabled", "volume_percent"})
+                    or not keys.intersection({"enabled", "volume_percent", "sound_id"})
                 ):
                     raise ValueError("set_event payload")
                 event_id = data.get("event_id")
@@ -281,10 +281,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     and type(data["volume_percent"]) is not int
                 ):
                     raise ValueError("set_event volume_percent")
+                if "sound_id" in data and type(data["sound_id"]) is not str:
+                    raise ValueError("set_event sound_id")
                 result = sound.set_event(
                     event_id,
                     enabled=data.get("enabled"),
                     volume_percent=data.get("volume_percent"),
+                    sound_id=data.get("sound_id"),
                     language=self.lang,
                 )
             elif command == "preview":
