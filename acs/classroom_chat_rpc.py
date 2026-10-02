@@ -41,7 +41,12 @@ class ClassroomChatRpcCallPort(Protocol):
 class ClassroomChatRpcAuthorityPort(Protocol):
     """Canonical server-side membership/role authorization boundary."""
 
-    def authorize_member(self, *, room_id: str, participant_id: str) -> None:
+    def authorize_send(self, *, room_id: str, participant_id: str) -> None:
+        """Authorize current membership and server-side chat send policy."""
+        ...
+
+    def authorize_history(self, *, room_id: str, participant_id: str) -> None:
+        """Authorize current membership and room-history visibility."""
         ...
 
     def authorize_moderation(
@@ -231,7 +236,7 @@ class ClassroomChatRpcService:
             )
         except Exception:
             raise ClassroomChatRpcError("send message is invalid") from None
-        self._authorize_member(room, participant)
+        self._authorize_send(room, participant)
         try:
             delivered = self._backend.send_message(draft)
         except Exception:
@@ -263,7 +268,7 @@ class ClassroomChatRpcService:
         _require_authenticated_identity(request, room=room, participant=participant)
         after = _optional_sequence(request["after_sequence"])
         limit = _history_limit(request["limit"])
-        self._authorize_member(room, participant)
+        self._authorize_history(room, participant)
         try:
             messages = self._backend.history_after(
                 room_id=room,
@@ -308,9 +313,18 @@ class ClassroomChatRpcService:
             raise ClassroomChatRpcError("classroom chat backend failed") from None
         return {"v": RPC_VERSION, "ok": True}
 
-    def _authorize_member(self, room_id: str, participant_id: str) -> None:
+    def _authorize_send(self, room_id: str, participant_id: str) -> None:
         try:
-            self._authority.authorize_member(
+            self._authority.authorize_send(
+                room_id=room_id,
+                participant_id=participant_id,
+            )
+        except Exception:
+            raise ClassroomChatRpcError("classroom chat authorization failed") from None
+
+    def _authorize_history(self, room_id: str, participant_id: str) -> None:
+        try:
+            self._authority.authorize_history(
                 room_id=room_id,
                 participant_id=participant_id,
             )
