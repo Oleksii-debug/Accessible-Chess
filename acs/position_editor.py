@@ -210,7 +210,7 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
 
     if not isinstance(text, str):
         raise ValueError("position text must be text")
-    if turn not in {"w", "b"}:
+    if type(turn) is not str or turn not in {"w", "b"}:
         raise ValueError("turn must be 'w' or 'b'")
 
     match = _POSITION_SECTIONS_RE.match(text)

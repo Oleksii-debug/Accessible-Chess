@@ -117,6 +117,29 @@ class PositionTextAuthorityTests(unittest.TestCase):
                     "Текст позиції має бути текстовим значенням",
                 )
 
+    def test_invalid_turn_payloads_fail_closed_without_board_mutation(self):
+        text = "W: K e1 B: K e8"
+        for turn in ("x", 0, False, []):
+            with self.subTest(turn=turn):
+                with self.assertRaisesRegex(ValueError, "turn must be 'w' or 'b'"):
+                    parse_piece_coordinate_position(text, turn=turn)  # type: ignore[arg-type]
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        for turn in ("x", 0, False, []):
+            with self.subTest(stage1_turn=turn):
+                result = api.set_position_text(text, turn)  # type: ignore[arg-type]
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.board.fen(), before)
+                self.assertEqual(result["announcement"], "Хід має бути 'w' або 'b'")
+
+    def test_none_turn_preserves_stage1_current_side_default(self):
+        api = AccessibleChessAPI(lang="uk")
+        api.set_turn("b")
+        result = api.set_position_text("W: K e1 B: K e8", None)
+        self.assertTrue(result["ok"])
+        self.assertEqual(api.board.turn, "b")
+
     def test_legacy_direct_adapter_defaults_to_ukrainian_errors(self):
         with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):
             parse_position_text("broken position")

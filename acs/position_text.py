@@ -11,6 +11,8 @@ def _localized_message(exc: ValueError, language: str) -> str:
         return "Текст позиції має бути текстовим значенням"
     if message == "position text must contain W: and B: sections":
         return "Потрібні секції W: і B:"
+    if message == "turn must be 'w' or 'b'":
+        return "Хід має бути 'w' або 'b'"
     if message == "each piece must be followed by a square, for example N f3":
         return "Кожна фігура повинна мати поле, наприклад N f3"
     if message.startswith("unknown piece symbol: "):
