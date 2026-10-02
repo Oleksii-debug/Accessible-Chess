@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 
 from acs.release_app import create_release_api
 from acs.sound_events import SoundEvent
+from acs.sound_windows import REQUIRED_SOUND_EVENTS
 from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI, complete_user_flow_diagnostic
 
 
@@ -71,6 +74,51 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             settings_path=Path(root) / "settings.json",
         )
 
+    @staticmethod
+    def write_variant_sound_pack(root: str) -> None:
+        sound_root = Path(root) / "assets" / "sounds"
+        sound_root.mkdir(parents=True, exist_ok=True)
+        files = {}
+        variants = {}
+        for event in REQUIRED_SOUND_EVENTS:
+            file_name = f"{event.value}.wav"
+            files[event.value] = file_name
+            with wave.open(str(sound_root / file_name), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x00\x00" * 8)
+            variants[event.value] = [
+                {
+                    "id": "1",
+                    "file": file_name,
+                    "label_uk": "Варіант 1",
+                    "label_en": "Variant 1",
+                }
+            ]
+        move2 = sound_root / "move2.wav"
+        with wave.open(str(move2), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(8000)
+            writer.writeframes(b"\x01\x00" * 8)
+        variants["move"].append(
+            {
+                "id": "2",
+                "file": "move2.wav",
+                "label_uk": "Хід 2",
+                "label_en": "Move 2",
+            }
+        )
+        (sound_root / "manifest.json").write_text(
+            json.dumps({"schema_version": 1, "files": files}),
+            encoding="utf-8",
+        )
+        (sound_root / "variants.json").write_text(
+            json.dumps({"schema_version": 1, "events": variants}),
+            encoding="utf-8",
+        )
+
     def test_packaged_composition_uses_one_stage1_api_for_engine_sound_and_user_flow(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
@@ -96,6 +144,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
     def test_sound_settings_persist_drive_runtime_and_preview_is_real(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
+            self.write_variant_sound_pack(td)
             settings_path = Path(td) / "settings.json"
             api, runtime = create_release_api(
                 application_dir=td,
@@ -105,6 +154,9 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             )
             try:
                 self.assertTrue(api.set_sound_volume(35)["ok"])
+                selected = api.set_sound_variant("move", "2")
+                self.assertTrue(selected["ok"], selected)
+                self.assertEqual(selected["selectedVariants"]["move"], "2")
                 preview = api.preview_sound("capture")
                 self.assertTrue(preview["ok"], preview)
                 self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
@@ -127,6 +179,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 restored = api2.get_sound_settings()
                 self.assertFalse(restored["enabled"])
                 self.assertEqual(restored["volume"], 35)
+                self.assertEqual(restored["selectedVariants"]["move"], "2")
             finally:
                 api2.close_analysis()
                 runtime2.close()
