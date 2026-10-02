@@ -7,10 +7,14 @@ layout, WAV scaling/cache and ``winsound`` usage. Worker 4 packages the assets a
 runs the real Windows smoke; Core only defines the exact contract.
 """
 
+import hashlib
+import io
 import json
 import logging
+import os
 import struct
 import sys
+import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +26,7 @@ SOUND_MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_SOUND_RELATIVE_DIR = Path("assets") / "sounds"
 DEFAULT_SOUND_MANIFEST = "manifest.json"
 REQUIRED_SOUND_EVENTS = tuple(SoundEvent)
+SCALED_SOUND_CACHE_FORMAT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -126,15 +131,23 @@ class WindowsSoundPlaybackAdapter:
 
     def _scaled_copy(self, source: Path, event: SoundEvent, volume: int) -> Path:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        destination = self._cache_dir / f"{event.value}-v{volume}.wav"
-        if destination.is_file() and destination.stat().st_mtime_ns >= source.stat().st_mtime_ns:
-            return destination
 
-        with wave.open(str(source), "rb") as reader:
+        # Cache identity must follow the actual packaged bytes, not filesystem
+        # timestamps. Release extraction, pack replacement and restore can
+        # legitimately preserve or move mtimes backwards.
+        source_bytes = source.read_bytes()
+        source_digest = hashlib.sha256(source_bytes).hexdigest()
+        destination = self._cache_dir / (
+            f"{event.value}-v{volume}-s{SCALED_SOUND_CACHE_FORMAT_VERSION}-{source_digest}.wav"
+        )
+        with wave.open(io.BytesIO(source_bytes), "rb") as reader:
             params = reader.getparams()
             if params.sampwidth != 2:
                 raise ValueError("only 16-bit PCM WAV assets support volume scaling")
             frames = reader.readframes(reader.getnframes())
+        expected_frame_bytes = params.nframes * params.nchannels * params.sampwidth
+        if len(frames) != expected_frame_bytes:
+            raise ValueError("truncated 16-bit PCM WAV asset")
 
         samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
         factor = volume / 100.0
@@ -142,7 +155,85 @@ class WindowsSoundPlaybackAdapter:
             struct.pack("<h", max(-32768, min(32767, int(sample * factor))))
             for sample in samples
         )
-        with wave.open(str(destination), "wb") as writer:
-            writer.setparams(params)
-            writer.writeframes(scaled)
+        if destination.is_file() and self._cached_scaled_wave_is_valid(
+            destination,
+            params,
+            scaled,
+        ):
+            self._prune_scaled_variants(destination, event, volume)
+            return destination
+        fd, temporary_name = tempfile.mkstemp(
+            dir=self._cache_dir,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        )
+        os.close(fd)
+        temporary = Path(temporary_name)
+        try:
+            with wave.open(str(temporary), "wb") as writer:
+                writer.setparams(params)
+                writer.writeframes(scaled)
+            os.replace(temporary, destination)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # Temporary-cache cleanup is housekeeping. In particular, a
+                # short Windows file lock must not replace the primary scaling
+                # or publication exception with a less useful cleanup error.
+                self._logger.warning(
+                    "could not remove temporary chess sound cache file: %s",
+                    temporary,
+                    exc_info=True,
+                )
+        self._prune_scaled_variants(destination, event, volume)
         return destination
+
+    @staticmethod
+    def _cached_scaled_wave_is_valid(
+        destination: Path,
+        expected_params,
+        expected_frames: bytes,
+    ) -> bool:
+        """Return whether an existing derived WAV exactly matches this transform."""
+
+        try:
+            with wave.open(str(destination), "rb") as reader:
+                params = reader.getparams()
+                if params != expected_params:
+                    return False
+                frames = reader.readframes(reader.getnframes())
+        except (EOFError, OSError, ValueError, struct.error, wave.Error):
+            return False
+        return frames == expected_frames
+
+    def _prune_scaled_variants(
+        self,
+        destination: Path,
+        event: SoundEvent,
+        volume: int,
+    ) -> None:
+        """Best-effort removal of superseded content-addressed cache variants."""
+
+        # Remove the pre-content-addressed cache name as well as obsolete
+        # digest/schema variants. The schema component makes future changes to
+        # the scaling transform invalidate old derived audio deterministically.
+        legacy = self._cache_dir / f"{event.value}-v{volume}.wav"
+        pattern = f"{event.value}-v{volume}-*.wav"
+        for candidate in (legacy, *self._cache_dir.glob(pattern)):
+            if candidate == destination:
+                continue
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                # Cache housekeeping must never turn successful playback into a
+                # product failure. The stale entry can be retried next time.
+                self._logger.warning(
+                    "could not prune stale chess sound cache file: %s",
+                    candidate,
+                    exc_info=True,
+                )

@@ -1,4 +1,4 @@
-name: Clock + Engine Serial Acceptance (QA only)
+name: Clock + Engine + Books + Sound Product Intake (QA only)
 on:
   push:
     branches:
@@ -32,32 +32,43 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
           git checkout-index --force --all
-      - name: Verify both source authorities and isolated combined scope
+      - name: Verify four source authorities and isolated combined scope
         shell: bash
         run: |
           set -euo pipefail
           product=25b6da6eb8bccea95628ecfce5ba81fece1a5666
           clock=77bfa596c7bbb6d2cdb06856584d5bf0ce7de2bf
           engine=da7952b2ee28b322137363981b0f9d07cd490bd5
+          html=a9ca2b39b46391a29520d62b51905f378c56d0a5
+          sound=36a021605a6207da25eaaa04a8c1b1e300a27dd0
           git merge-base --is-ancestor "$product" HEAD
           git merge-base --is-ancestor "$clock" HEAD
           git merge-base --is-ancestor "$engine" HEAD
+          git merge-base --is-ancestor "$html" HEAD
+          git merge-base --is-ancestor "$sound" HEAD
           test "$(git merge-base "$product" HEAD)" = "$product"
           git diff --check "$product" HEAD
           actual="$(git diff --name-only "$product" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/book-html-br-text-integrity.yml' \
+            '.github/workflows/book-html-semantic-marker-integrity.yml' \
             '.github/workflows/chess-clock-switch-boundary.yml' \
             '.github/workflows/clock-engine-serial-acceptance.yml' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/sound-scaled-cache-integrity.yml' \
             '.github/workflows/version2-windows-composition.yml' \
+            'acs/book_html_import.py' \
             'acs/clock_service.py' \
             'acs/engine_game_session.py' \
+            'acs/sound_windows.py' \
             'acs/stage1_release_ui.py' \
             'tests/test_clock_service.py' \
             'tests/test_clock_engine_serial_acceptance.py' \
             'tests/test_engine_game_session.py' \
             'tests/test_engine_game_timeout_ownership.py' \
-            'tests/test_stage1_engine_play_ui.py' | sort)"
+            'tests/test_sound_runtime.py' \
+            'tests/test_stage1_engine_play_ui.py' \
+            'tests/test_v2_book_html_import.py' | sort)"
           test "$actual" = "$expected" || {
             printf 'Unexpected QA composition scope:\n%s\n' "$actual" >&2
             exit 1
@@ -70,6 +81,13 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_engine_game_session.py)" = be34d22d50d7154dc5cfde3786ff8047f235e8cc
           test "$(git rev-parse HEAD:tests/test_engine_game_timeout_ownership.py)" = e57d6e53b60c2c4206729be25f59eef8f2821bae
           test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = 9baf99e7a912fe5b3fdc1eab99277e90ac9d9974
+          test "$(git rev-parse HEAD:.github/workflows/book-html-br-text-integrity.yml)" = 6897fecd846b61645886cb0d81daa3c8a6713733
+          test "$(git rev-parse HEAD:.github/workflows/book-html-semantic-marker-integrity.yml)" = d0f6fe9836c51e0d33ba518f6f94ee81819ed1b9
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = fdb5e0d99fd010752182b94c56bd1efd8f05572d
+          test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = bf44e4fd6601f5be3525ec1013882bb6f8e0abee
+          test "$(git rev-parse HEAD:.github/workflows/sound-scaled-cache-integrity.yml)" = 5cc56029d5239202c9f64a1daa665fd9fbddf3fd
+          test "$(git rev-parse HEAD:acs/sound_windows.py)" = 28559f05972ed46145e4c19d7f30973bbe7937be
+          test "$(git rev-parse HEAD:tests/test_sound_runtime.py)" = 64c69688d01c19cb5ad411e46da6869d2a6ccd07
           git diff --quiet "$product" HEAD -- acs/stage1_release_ui_core.py acs/chesscore.py acs/gametree.py
       - uses: actions/setup-python@v5
         with:
@@ -78,7 +96,7 @@ jobs:
         run: python -m pip install -q pytest==8.4.2
       - name: Compile combined source and tests
         run: python -m compileall -q acs tests run_accessible_chess_v2.py
-      - name: Focused real-clock engine acceptance and Stage1 rollback
+      - name: Focused real-clock engine, Stage1 rollback, HTML ingress and sound cache
         run: >-
           python -m unittest -v
           tests.test_clock_service
@@ -86,6 +104,8 @@ jobs:
           tests.test_engine_game_session
           tests.test_engine_game_timeout_ownership
           tests.test_stage1_engine_play_ui
+          tests.test_v2_book_html_import
+          tests.test_sound_runtime
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
       - name: Full repository pytest
