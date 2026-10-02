@@ -28,6 +28,7 @@ from .sound_pack_catalog import (
 from .sound_profiles import (
     SoundPackManifest,
     _safe_audio_path,
+    _semantic_version_key,
     _stable_id,
     _stable_version,
 )
@@ -827,18 +828,7 @@ class FilesystemSoundPackStore:
                 continue
             valid.append(version)
 
-        def version_key(value: str) -> tuple[int, int, int, int, str]:
-            core, marker, prerelease = value.partition("-")
-            major, minor, patch = (int(part) for part in core.split("."))
-            return (
-                major,
-                minor,
-                patch,
-                0 if marker else 1,
-                prerelease,
-            )
-
-        return tuple(sorted(valid, key=version_key))
+        return tuple(sorted(valid, key=_semantic_version_key))
 
     def resolve_asset(
         self,
