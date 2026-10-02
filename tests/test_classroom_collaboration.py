@@ -389,6 +389,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         with self.assertRaises(CollaborationError):
             controller.prepare_file(attachment_id="a2", local_path=second_path, sequence_no=1)
 
+    def test_upload_rechecks_room_quota_after_multiple_files_were_prepared(self):
+        controller = self.controller(
+            quota=FileQuotaPolicy(max_file_bytes=6, max_room_bytes=6)
+        )
+        first = controller.prepare_file(
+            attachment_id="a1",
+            local_path=self.make_file("one.bin", b"1234"),
+            sequence_no=0,
+        )
+        second = controller.prepare_file(
+            attachment_id="a2",
+            local_path=self.make_file("two.bin", b"5678"),
+            sequence_no=1,
+        )
+
+        controller.upload_file(first)
+        with self.assertRaises(CollaborationError):
+            controller.upload_file(second)
+
+        self.assertEqual(len(self.files.upload_calls), 1)
+        self.assertEqual(
+            tuple(item.attachment_id for item in self.store.room_attachments("room-1")),
+            ("a1",),
+        )
+
     def test_file_content_change_after_prepare_fails_closed_before_transport(self):
         controller = self.controller()
         path = self.make_file(content=b"first")
