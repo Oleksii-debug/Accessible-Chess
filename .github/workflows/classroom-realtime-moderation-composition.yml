@@ -45,7 +45,7 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          RUNTIME_OWNER_SHA: dc0d725c07a1fcd4688e999b4059cc2c26c01906
+          RUNTIME_OWNER_SHA: e59b8d88e4e270f9d1b5487a979b59d94c5b2ac9
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
