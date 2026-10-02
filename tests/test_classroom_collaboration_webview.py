@@ -631,6 +631,38 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertFalse(message["can_remove_sender"])
         self.assertNotIn("message_key", message)
 
+    def test_file_sync_drops_retry_source_after_authoritative_recovery(self) -> None:
+        self.selected_file = self.root / "ambiguous-recovered.pgn"
+        self.selected_file.write_text(
+            '[Event "Recovered"]\n\n1. e4 e5 *\n',
+            encoding="utf-8",
+        )
+        self.files.fail_upload = True
+        view = self.webview()
+
+        failed_event = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("error", failed_event.kind)
+        self.assertEqual(1, len(view._prepared))
+        failed = self.store.room_attachments("room-1")[0]
+        authoritative = replace(
+            failed,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.files.fail_upload = False
+        self.files.history_override = (authoritative,)
+
+        synced = view.dispatch("collaboration.file.sync", {})
+
+        self.assertEqual("collaboration.files.synced", synced.kind)
+        self.assertEqual({}, view._prepared)
+        item = synced.payload["collaboration"]["files"]["items"][0]
+        self.assertFalse(item["can_retry"])
+        self.assertTrue(item["can_save"])
+        self.assertTrue(item["can_open"])
+        self.assertNotIn(str(self.selected_file), repr(synced.payload))
+
     def test_failed_upload_exposes_bounded_retry_without_browser_path(self) -> None:
         self.selected_file = self.root / "retry.pgn"
         self.selected_file.write_text('[Event "Test"]\n\n1. e4 e5 *\n', encoding="utf-8")
