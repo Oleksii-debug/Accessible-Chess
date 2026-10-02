@@ -156,10 +156,10 @@ class ClassroomMediaWebViewBridge:
                 return self._projection.remove_participant(
                     participant_key,
                     block,
-                    focus_target=(
-                        f"media-participant-{participant_key}-"
-                        f"{'block' if block else 'remove'}"
-                    ),
+                    # Remove/block intentionally retires the action buttons.
+                    # Return focus to the stable participant row so keyboard/NVDA
+                    # users are not dropped to the document after rerender.
+                    focus_target=f"media-participant-{participant_key}",
                 )
 
             raise ValueError("unsupported media browser command")
