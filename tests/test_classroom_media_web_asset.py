@@ -35,7 +35,9 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
     def test_unavailable_provider_is_truthfully_visible_without_fake_controls(self) -> None:
         source = self.source
         self.assertIn("Realtime media is not configured for this build yet.", source)
+        self.assertIn("Media controls are temporarily unavailable.", source)
         self.assertIn("The chess board and lesson data remain available without video.", source)
+        self.assertIn("availability.recovery_required === true", source)
         self.assertIn('if (!snapshot || typeof snapshot !== "object")', source)
 
     def test_surface_accepts_only_media_commands_from_snapshot(self) -> None:
