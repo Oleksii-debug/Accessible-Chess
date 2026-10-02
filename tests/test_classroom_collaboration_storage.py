@@ -9,8 +9,12 @@ from pathlib import Path
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
     CollaborationConflictError,
+    CollaborationQuotaError,
+    CollaborationSequenceGapError,
+    CollaborationStorageError,
     content_sha256,
     safe_display_filename,
 )
@@ -28,7 +32,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 2
+                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 3
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
@@ -80,11 +84,65 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(message.sent_at_unix_ms)
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                2,
+                3,
                 db.execute(
                     "SELECT value FROM collaboration_schema_meta WHERE key='schema_version'"
                 ).fetchone()[0],
             )
+            cursor_tables = {
+                row[0]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            self.assertIn("collaboration_chat_state_cursors", cursor_tables)
+
+    def test_message_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
+        message = ChatMessageMetadata(
+            "m-state", "room", "teacher", 0, "Visible",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(message)
+        self.assertIsNone(self.store.chat_state_revision("room"))
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(ChatMessageStateUpdate("room", "m-state", 0),),
+        )
+        self.assertEqual(self.store.room_messages("room"), ())
+        hidden = self.store.room_messages("room", include_hidden=True)
+        self.assertTrue(hidden[0].hidden)
+        self.assertEqual(self.store.chat_state_revision("room"), 0)
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(reopened.chat_state_revision("room"), 0)
+        self.assertTrue(reopened.room_messages("room", include_hidden=True)[0].hidden)
+
+        with self.assertRaises(CollaborationStorageError):
+            reopened.apply_message_state_updates(
+                room_id="room",
+                updates=(ChatMessageStateUpdate("room", "m-state", 0),),
+            )
+        self.assertEqual(reopened.chat_state_revision("room"), 0)
+
+    def test_message_state_update_failure_rolls_back_cursor_and_visibility(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata(
+                "m1", "room", "teacher", 0, "One",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        with self.assertRaises(CollaborationStorageError):
+            self.store.apply_message_state_updates(
+                room_id="room",
+                updates=(
+                    ChatMessageStateUpdate("room", "m1", 0),
+                    ChatMessageStateUpdate("room", "missing", 1),
+                ),
+            )
+        self.assertIsNone(self.store.chat_state_revision("room"))
+        self.assertFalse(
+            self.store.room_messages("room", include_hidden=True)[0].hidden
+        )
 
     def test_messages_are_ordered_and_reconnect_is_idempotent(self) -> None:
         first = ChatMessageMetadata(
@@ -97,6 +155,22 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.append_message(first), first)
         self.store.append_message(second)
         self.assertEqual(self.store.room_messages("room"), (first, second))
+
+    def test_message_sequence_gap_must_be_filled_before_later_commit(self) -> None:
+        first = ChatMessageMetadata("m5", "room", "teacher", 5, "First visible")
+        self.store.append_message(first)
+        with self.assertRaises(CollaborationSequenceGapError):
+            self.store.append_message(
+                ChatMessageMetadata("m7", "room", "teacher", 7, "Too early")
+            )
+        sixth = ChatMessageMetadata("m6", "room", "student", 6, "Recovered")
+        seventh = ChatMessageMetadata("m7", "room", "teacher", 7, "Now valid")
+        self.store.append_message(sixth)
+        self.store.append_message(seventh)
+        self.assertEqual(
+            self.store.room_messages("room"),
+            (first, sixth, seventh),
+        )
 
     def test_message_identity_and_room_sequence_cannot_overwrite(self) -> None:
         self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Hello"))
@@ -112,6 +186,76 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.room_messages("room"), ())
         self.assertEqual(self.store.room_messages("room", include_hidden=True), (hidden,))
 
+    def test_hidden_state_requires_strict_boolean(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        )
+        with self.assertRaises(ValueError):
+            self.store.set_message_hidden("m1", 1)
+        self.assertFalse(
+            self.store.room_messages("room", include_hidden=True)[0].hidden
+        )
+
+    def test_replay_preserves_hide_and_backfills_legacy_timestamp_once(self) -> None:
+        original = ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        self.store.append_message(original)
+        hidden = self.store.set_message_hidden("m1", True)
+
+        replay = ChatMessageMetadata(
+            "m1",
+            "room",
+            "teacher",
+            0,
+            "Moderated",
+            sent_at_unix_ms=1700000000000,
+        )
+        reconciled = self.store.append_message(replay)
+        self.assertTrue(reconciled.hidden)
+        self.assertEqual(reconciled.sent_at_unix_ms, 1700000000000)
+        self.assertEqual(self.store.room_messages("room"), ())
+        self.assertEqual(
+            self.store.room_messages("room", include_hidden=True),
+            (reconciled,),
+        )
+        self.assertNotEqual(hidden, reconciled)
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.append_message(
+                ChatMessageMetadata(
+                    "m1",
+                    "room",
+                    "teacher",
+                    0,
+                    "Moderated",
+                    sent_at_unix_ms=1700000000001,
+                )
+            )
+
+    def test_remote_hidden_replay_is_monotonic(self) -> None:
+        original = ChatMessageMetadata(
+            "m1",
+            "room",
+            "teacher",
+            0,
+            "Moderated",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        hidden = self.store.append_message(
+            ChatMessageMetadata(
+                "m1",
+                "room",
+                "teacher",
+                0,
+                "Moderated",
+                hidden=True,
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        self.assertTrue(hidden.hidden)
+        replay = self.store.append_message(original)
+        self.assertTrue(replay.hidden)
+
     def test_wire_metadata_rejects_bool_sequences_oversize_chat_and_noncanonical_ids(self) -> None:
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", True, "Hello")
@@ -123,6 +267,10 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=True)
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=-1)
+        with self.assertRaises(ValueError):
+            ChatMessageStateUpdate("room", "m1", -1)
+        with self.assertRaises(ValueError):
+            ChatMessageStateUpdate("room", "m1", 0, hidden=False)
         with self.assertRaises(ValueError):
             ChatMessageMetadata(
                 "m1", "room", "teacher", 0, "Hello",
@@ -165,6 +313,22 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_safe_filename_normalization_is_display_only(self) -> None:
         self.assertEqual(safe_display_filename("notes:lesson?.txt"), "notes_lesson_.txt")
         self.assertEqual(safe_display_filename("folder/lesson.txt"), "lesson.txt")
+        self.assertEqual(
+            safe_display_filename("Домашнє завдання — партія №1.pgn"),
+            "Домашнє завдання — партія №1.pgn",
+        )
+        self.assertEqual(
+            safe_display_filename("e\u0301tude.pgn"),
+            "étude.pgn",
+        )
+        self.assertEqual(
+            safe_display_filename("safe\u202Egnp.exe"),
+            "safe_gnp.exe",
+        )
+
+    def test_safe_filename_requires_text(self) -> None:
+        with self.assertRaises(ValueError):
+            safe_display_filename(Path("lesson.pgn"))
 
     def test_safe_filename_rejects_reserved_windows_device_names(self) -> None:
         for value in ("CON", "con.txt", "PRN.pgn", "AUX ", "NUL.bin", "COM1.zip", "LPT9"):
@@ -206,6 +370,48 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "rooms/room/a2", "stored"
                 )
             )
+
+    def test_attachment_registration_enforces_room_quota_transactionally(self) -> None:
+        first = AttachmentMetadata(
+            "a1",
+            "room",
+            "student",
+            0,
+            "one.bin",
+            None,
+            4,
+            "0" * 64,
+            "rooms/room/a1",
+            "pending",
+        )
+        second = AttachmentMetadata(
+            "a2",
+            "room",
+            "student",
+            1,
+            "two.bin",
+            None,
+            3,
+            "1" * 64,
+            "rooms/room/a2",
+            "pending",
+        )
+        self.assertEqual(
+            self.store.register_attachment(first, max_room_bytes=6),
+            first,
+        )
+        self.assertEqual(
+            self.store.register_attachment(first, max_room_bytes=6),
+            first,
+        )
+        with self.assertRaises(CollaborationQuotaError):
+            self.store.register_attachment(second, max_room_bytes=6)
+        self.assertEqual(self.store.room_attachments("room"), (first,))
+
+    def test_windows_filename_limit_counts_utf16_units(self) -> None:
+        safe = safe_display_filename("😀" * 200)
+        self.assertLessEqual(len(safe.encode("utf-16-le")) // 2, 255)
+        self.assertEqual(safe, "😀" * 127)
 
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(

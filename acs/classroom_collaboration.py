@@ -18,7 +18,11 @@ from typing import Protocol
 from .classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
+    CollaborationQuotaError,
+    CollaborationSequenceGapError,
+    CollaborationStorageError,
     FileStorePort,
     safe_display_filename,
 )
@@ -135,6 +139,15 @@ class ChatTransportPort(Protocol):
     ) -> tuple[ChatMessageMetadata, ...]:
         ...
 
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        ...
+
     def apply_moderation(self, commands: tuple[ChatModerationCommand, ...]) -> None:
         ...
 
@@ -197,9 +210,10 @@ class ClassroomCollaborationController:
         )
         delivered = self._chat.send_message(draft)
         self._validate_delivered_message(draft, delivered)
-        return self._store.append_message(delivered)
+        return self._persist_chat_with_gap_recovery(delivered)
 
     def receive_chat(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
+        self._require_member(self.local_participant_id)
         if type(message) is not ChatMessageMetadata:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
@@ -207,9 +221,20 @@ class ClassroomCollaborationController:
         self._require_member(message.sender_id)
         _chat_body(message.body)
         self._require_transport_timestamp(message)
-        return self._store.append_message(message)
+        return self._persist_chat_with_gap_recovery(message)
+
+    def _persist_chat_with_gap_recovery(
+        self,
+        message: ChatMessageMetadata,
+    ) -> ChatMessageMetadata:
+        try:
+            return self._store.append_message(message)
+        except CollaborationSequenceGapError:
+            self.sync_chat()
+            return self._store.append_message(message)
 
     def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
+        self._require_member(self.local_participant_id)
         existing = self._store.room_messages(self.room_id, include_hidden=True)
         after = existing[-1].sequence_no if existing else None
         incoming = self._chat.history_after(
@@ -231,8 +256,56 @@ class ClassroomCollaborationController:
             self._require_member(message.sender_id)
             _chat_body(message.body)
             self._require_transport_timestamp(message)
-            persisted.append(self._store.append_message(message))
+            saved = self._store.append_message(message)
+            if not saved.hidden:
+                persisted.append(saved)
             previous = message.sequence_no
+
+        state_after = self._store.chat_state_revision(self.room_id)
+        updates = self._chat.state_updates_after(
+            room_id=self.room_id,
+            after_revision=state_after,
+            limit=MAX_SYNC_MESSAGES,
+        )
+        if type(updates) is not tuple or len(updates) > MAX_SYNC_MESSAGES:
+            raise CollaborationError(
+                "chat moderation state response is invalid or too large"
+            )
+        state_previous = state_after
+        for update in updates:
+            if type(update) is not ChatMessageStateUpdate:
+                raise CollaborationError(
+                    "chat moderation state contains invalid update type"
+                )
+            if update.room_id != self.room_id:
+                raise CollaborationError(
+                    "chat moderation state crossed room boundary"
+                )
+            expected_revision = 0 if state_previous is None else state_previous + 1
+            if update.revision != expected_revision:
+                raise CollaborationError(
+                    "chat moderation state has an unresolved revision gap"
+                )
+            state_previous = update.revision
+        try:
+            self._store.apply_message_state_updates(
+                room_id=self.room_id,
+                updates=updates,
+            )
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "chat moderation state could not be reconciled"
+            ) from error
+        if updates and persisted:
+            visible_ids = {
+                message.message_id
+                for message in self._store.room_messages(self.room_id)
+            }
+            persisted = [
+                message
+                for message in persisted
+                if message.message_id in visible_ids
+            ]
         return tuple(persisted)
 
     def set_chat_send_permission(
@@ -269,7 +342,7 @@ class ClassroomCollaborationController:
     ) -> tuple[str, ...]:
         if type(allowed) is not bool:
             raise CollaborationError("chat send permission must be boolean")
-        actor = _id(actor_id, "actor id")
+        actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
         targets = tuple(sorted(
             participant
@@ -278,14 +351,14 @@ class ClassroomCollaborationController:
         ))
         commands = tuple(
             ChatModerationCommand(
-                operation_id=_child_operation_id(operation_id, index),
+                operation_id=_child_operation_id(operation_id, target),
                 room_id=self.room_id,
                 actor_id=actor,
                 target_id=target,
                 action=ChatModerationAction.SET_SEND_PERMISSION,
                 allowed=allowed,
             )
-            for index, target in enumerate(targets, 1)
+            for target in targets
         )
         if commands:
             self._chat.apply_moderation(commands)
@@ -302,7 +375,7 @@ class ClassroomCollaborationController:
         message_id: str,
         operation_id: str,
     ) -> ChatMessageMetadata:
-        actor = _id(actor_id, "actor id")
+        actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
         command = ChatModerationCommand(
             operation_id=operation_id,
@@ -358,8 +431,15 @@ class ClassroomCollaborationController:
         return PreparedFile(path, metadata)
 
     def upload_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
-        pending = self._store.register_attachment(prepared.metadata)
+        try:
+            pending = self._store.register_attachment(
+                prepared.metadata,
+                max_room_bytes=self._quota.max_room_bytes,
+            )
+        except CollaborationQuotaError as error:
+            raise CollaborationError("room file quota would be exceeded") from error
         uploading = self._store.update_attachment_state(
             pending.attachment_id,
             transfer_state="uploading",
@@ -397,6 +477,7 @@ class ClassroomCollaborationController:
         )
 
     def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         current = self._attachment(prepared.metadata.attachment_id)
         if current.transfer_state != "failed":
@@ -428,6 +509,7 @@ class ClassroomCollaborationController:
         )
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
         attachment = self._attachment(_id(attachment_id, "attachment id"))
         if attachment.transfer_state not in {"pending", "uploading", "failed"}:
             raise CollaborationError("attachment cannot be cancelled from current state")
@@ -443,6 +525,7 @@ class ClassroomCollaborationController:
         attachment_id: str,
         ttl_seconds: int = 300,
     ) -> str:
+        self._require_member(self.local_participant_id)
         if self._file_store is None:
             raise CollaborationError("durable file storage is unavailable")
         attachment = self._attachment(_id(attachment_id, "attachment id"))
@@ -533,7 +616,7 @@ class ClassroomCollaborationController:
             raise CollaborationError("chat transport omitted authoritative send timestamp")
 
     def _moderation_pair(self, actor_id: str, target_id: str) -> tuple[str, str]:
-        actor = _id(actor_id, "actor id")
+        actor = self._local_moderation_actor(actor_id)
         target = _id(target_id, "target id")
         if actor == target:
             raise CollaborationError("participant cannot moderate own chat permission")
@@ -548,6 +631,15 @@ class ClassroomCollaborationController:
         if actor_role is ClassroomRole.TEACHER and target_role is ClassroomRole.TEACHER:
             raise CollaborationError("teacher cannot moderate another teacher")
         return actor, target
+
+    def _local_moderation_actor(self, actor_id: str) -> str:
+        actor = _id(actor_id, "actor id")
+        if actor != self.local_participant_id:
+            raise CollaborationError(
+                "moderation actor must be the local participant"
+            )
+        self._require_member(actor)
+        return actor
 
     def _require_moderator(self, participant_id: str) -> None:
         role = self._role(participant_id)
@@ -633,12 +725,13 @@ def _sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _child_operation_id(root: str, index: int) -> str:
+def _child_operation_id(root: str, target_id: str) -> str:
     root = _id(root, "operation id")
-    suffix = f":{index}"
-    if len(root) + len(suffix) > 128:
-        raise CollaborationError("operation id is too long for batch")
-    return _id(root + suffix, "operation id")
+    target = _id(target_id, "target id")
+    digest = hashlib.sha256(
+        root.encode("utf-8") + b"\x00" + target.encode("utf-8")
+    ).hexdigest()
+    return _id(f"batch:{digest}", "operation id")
 
 
 __all__ = [
