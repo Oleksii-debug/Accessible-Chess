@@ -8,8 +8,9 @@ remain owned by ClassroomModerationRpcService and its injected authorities.
 
 The adapter maps one already-authorized ModerationCommand to LiveKit's backend
 RoomService while preserving unrelated provider permissions. Provider failures
-are sanitized, and a target that is already absent is treated as the achieved
-state for current-session effects so exact retries remain idempotent.
+are sanitized. An absent target is an achieved state only for effects that have
+no durable provider assignment (soft mute) or whose removal token revocation is
+documented by LiveKit; hard publication permission changes fail closed instead.
 """
 
 import importlib
@@ -121,7 +122,9 @@ class LiveKitModerationProviderAdmin(ClassroomModerationProviderAdminPort):
             participant_id=command.target_id,
         )
         if participant is None:
-            return
+            raise LiveKitModerationProviderError(
+                "LiveKit moderation target is not connected"
+            )
         _require_participant_identity(participant, command.target_id)
 
         permission = getattr(participant, "permission", None)
@@ -133,7 +136,12 @@ class LiveKitModerationProviderAdmin(ClassroomModerationProviderAdminPort):
         desired = bool(command.value)
         current_sources = _validated_publish_sources(permission)
 
-        if _source_allowed(permission, source, current_sources) is desired:
+        if _requested_source_state_reached(
+            permission,
+            source,
+            current_sources,
+            allowed=desired,
+        ):
             return
 
         new_sources = _mutated_sources(
@@ -166,7 +174,12 @@ class LiveKitModerationProviderAdmin(ClassroomModerationProviderAdminPort):
                 "LiveKit permission update returned no permission state"
             )
         updated_sources = _validated_publish_sources(updated_permission)
-        if _source_allowed(updated_permission, source, updated_sources) is not desired:
+        if not _requested_source_state_reached(
+            updated_permission,
+            source,
+            updated_sources,
+            allowed=desired,
+        ):
             raise LiveKitModerationProviderError(
                 "LiveKit permission update did not reach requested state"
             )
@@ -177,6 +190,13 @@ class LiveKitModerationProviderAdmin(ClassroomModerationProviderAdminPort):
         room_id: str,
         command: ModerationCommand,
     ) -> None:
+        desired = bool(command.value)
+        if not desired:
+            # Clearing a soft mute means allowing the participant to unmute
+            # locally. LiveKit remote unmute is disabled by default for privacy;
+            # forcing it here would surprise the user and fail on normal servers.
+            return
+
         participant = await self._get_participant_or_none(
             room_id=room_id,
             participant_id=command.target_id,
@@ -184,7 +204,6 @@ class LiveKitModerationProviderAdmin(ClassroomModerationProviderAdminPort):
         if participant is None:
             return
         _require_participant_identity(participant, command.target_id)
-        desired = bool(command.value)
 
         tracks = getattr(participant, "tracks", None)
         if tracks is None:
@@ -333,16 +352,25 @@ def _validated_publish_sources(permission: object) -> tuple[int, ...]:
     return normalized
 
 
-def _source_allowed(
+def _requested_source_state_reached(
     permission: object,
     source: int,
     current_sources: tuple[int, ...],
+    *,
+    allowed: bool,
 ) -> bool:
     if not permission.can_publish:
-        return False
+        return not allowed
     if not current_sources:
-        return True
-    return source in current_sources
+        return allowed
+    if source == _PROVIDER_SCREEN_SHARE:
+        if allowed:
+            return _PROVIDER_SCREEN_SHARE in current_sources
+        return (
+            _PROVIDER_SCREEN_SHARE not in current_sources
+            and _PROVIDER_SCREEN_SHARE_AUDIO not in current_sources
+        )
+    return (source in current_sources) is allowed
 
 
 def _mutated_sources(
@@ -361,6 +389,8 @@ def _mutated_sources(
         values.add(source)
     else:
         values.discard(source)
+        if source == _PROVIDER_SCREEN_SHARE:
+            values.discard(_PROVIDER_SCREEN_SHARE_AUDIO)
     return tuple(value for value in _PROVIDER_ALL_PUBLISH_SOURCES if value in values)
 
 
