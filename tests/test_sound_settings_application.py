@@ -42,6 +42,7 @@ class _PackStorage:
         self.manifests = {manifest.pack_id: manifest for manifest in manifests}
         self.installed_payloads = []
         self.uninstalled = []
+        self.fail_uninstall = False
 
     def installed(self):
         return dict(self.manifests)
@@ -52,6 +53,8 @@ class _PackStorage:
 
     def uninstall(self, pack_id: str) -> None:
         self.uninstalled.append(pack_id)
+        if self.fail_uninstall:
+            raise OSError("uninstall failed")
         self.manifests.pop(pack_id, None)
 
 
@@ -125,21 +128,21 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         app = SoundSettingsApplication(manager, runtime)
 
         app.set_master(enabled=False, volume_percent=55, language="en")
-        app.set_event("capture", enabled=True, volume_percent=35, sound_id="capture.alt", language="en")
+        app.set_event("capture", enabled=True, volume_percent=35, sound_id="capture", language="en")
 
         self.assertFalse(manager.current.master_enabled)
         self.assertEqual(55, manager.current.master_volume_percent)
         capture = manager.current.preference_for("capture")
         self.assertTrue(capture.enabled)
         self.assertEqual(35, capture.volume_percent)
-        self.assertEqual("capture.alt", capture.sound_id)
+        self.assertEqual("capture", capture.sound_id)
         self.assertGreaterEqual(len(storage.writes), 3)  # initial canonical + two edits
 
     def test_preview_uses_profiled_runtime_and_respects_effective_volume(self) -> None:
         _storage, manager, playback, runtime = self._profile_runtime()
         app = SoundSettingsApplication(manager, runtime)
         app.set_master(volume_percent=50)
-        app.set_event("check", volume_percent=40, sound_id="check.soft")
+        app.set_event("check", volume_percent=40, sound_id="check")
 
         result = app.preview("check", language="en")
 
@@ -148,7 +151,7 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         request = playback.requests[0]
         self.assertTrue(request.preview)
         self.assertEqual("check", request.event_id)
-        self.assertEqual("check.soft", request.sound_id)
+        self.assertEqual("check", request.sound_id)
         self.assertEqual(20, request.volume)
 
     def test_muted_preview_never_touches_playback(self) -> None:
@@ -252,10 +255,15 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown sound event"):
             app.set_event("classroom.leave", enabled=False)
 
+        before_classic_writes = len(_storage.writes)
         classic = app.select_pack("classic", language="en")
         self.assertTrue(classic.ok)
         self.assertEqual("classic", manager.current.pack_id)
         self.assertFalse(classic.snapshot["can_select_classic"])
+        self.assertIsNone(manager.current.preference_for("move").sound_id)
+        self.assertEqual(35, manager.current.preference_for("classroom.join").volume_percent)
+        self.assertFalse(manager.current.preference_for("classroom.join").enabled)
+        self.assertEqual(before_classic_writes + 1, len(_storage.writes))
 
         with self.assertRaisesRegex(ValueError, "unknown sound pack"):
             app.select_pack("missing.pack")
@@ -369,6 +377,57 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertNotIn("future.alt", repr(snapshot))
         with self.assertRaisesRegex(ValueError, "not available"):
             app.set_event("move", sound_id="future.alt", language="en")
+        with self.assertRaisesRegex(ValueError, "not the installed version"):
+            app.select_pack("soft", language="en")
+
+    def test_switch_between_local_packs_clears_only_invalid_sound_ids(self) -> None:
+        pack_a_base = _manifest("pack.a")
+        pack_a_files = dict(pack_a_base.files)
+        pack_a_files["a.soft"] = "audio/a-soft.wav"
+        pack_a = SoundPackManifest(
+            pack_id=pack_a_base.pack_id,
+            version=pack_a_base.version,
+            title=pack_a_base.title,
+            license_id=pack_a_base.license_id,
+            files=pack_a_files,
+            author=pack_a_base.author,
+            provenance=pack_a_base.provenance,
+        )
+        pack_b_base = _manifest("pack.b")
+        pack_b_files = dict(pack_b_base.files)
+        pack_b_files["b.soft"] = "audio/b-soft.wav"
+        pack_b = SoundPackManifest(
+            pack_id=pack_b_base.pack_id,
+            version=pack_b_base.version,
+            title=pack_b_base.title,
+            license_id=pack_b_base.license_id,
+            files=pack_b_files,
+            author=pack_b_base.author,
+            provenance=pack_b_base.provenance,
+        )
+        storage, manager, _playback, runtime = self._profile_runtime(
+            resolver=lambda requested: requested
+            if requested in {"classic", "pack.a", "pack.b"}
+            else "classic"
+        )
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {"pack.a": pack_a, "pack.b": pack_b},
+        )
+        app.select_pack("pack.a", language="en")
+        app.set_event("move", enabled=False, volume_percent=37, sound_id="a.soft")
+        before = len(storage.writes)
+
+        result = app.select_pack("pack.b", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(before + 1, len(storage.writes))
+        pref = manager.current.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(37, pref.volume_percent)
+        self.assertIsNone(pref.sound_id)
+        self.assertEqual("move", manager.current.selected_sound_id("move"))
 
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
@@ -409,12 +468,65 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             profiles, runtime, pack_coordinator=coordinator, catalog={"soft": entry}
         )
 
+        profiles.set_event(
+            "move",
+            profiles.current.preference_for("move").__class__(
+                enabled=False,
+                volume_percent=41,
+                sound_id="capture",
+            ),
+        )
         app.uninstall_pack("soft", language="en")
 
         self.assertEqual("classic", profiles.current.pack_id)
         self.assertEqual("classic", profile_storage.payload["pack_id"])
+        pref = profiles.current.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(41, pref.volume_percent)
+        self.assertIsNone(pref.sound_id)
         self.assertEqual(["soft"], pack_storage.uninstalled)
 
+
+    def test_active_uninstall_delete_failure_leaves_safe_normalized_classic_profile(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        pack_storage.fail_uninstall = True
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {
+                    "move": {
+                        "enabled": True,
+                        "volume_percent": 55,
+                        "sound_id": "capture",
+                    }
+                },
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+        )
+
+        with self.assertRaisesRegex(OSError, "uninstall failed"):
+            app.uninstall_pack("soft", language="en")
+
+        self.assertEqual("classic", profiles.current.pack_id)
+        pref = profiles.current.preference_for("move")
+        self.assertEqual(55, pref.volume_percent)
+        self.assertIsNone(pref.sound_id)
+        self.assertIn("soft", pack_storage.manifests)
 
 if __name__ == "__main__":
     unittest.main()
