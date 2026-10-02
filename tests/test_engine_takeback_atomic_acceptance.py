@@ -352,5 +352,95 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         self.assertIsNone(session._lifecycle.snapshot().takeback_requested_by)
 
 
+    def test_commit_failure_after_valid_restore_rewinds_all_three_owners(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        board_before = self.state_tuple(state)
+        clock_before = session._clock.snapshot()
+        lifecycle_before = session._lifecycle.snapshot()
+        original_factory = session._takeback_transaction
+        attempts = 0
+
+        def prepare():
+            token = original_factory()
+            def commit():
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("injected takeback commit failure")
+                token.commit()
+            return TakebackTransaction(token.undo, token.rollback, commit)
+
+        session._takeback_transaction = prepare
+        accept = EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+        with self.assertRaisesRegex(RuntimeError, "commit failure"):
+            session.handle_handoff(accept)
+        self.assertEqual(self.state_tuple(state), board_before)
+        self.assertEqual(session._clock.snapshot(), clock_before)
+        self.assertEqual(session._lifecycle.snapshot(), lifecycle_before)
+        taken_back = session.handle_handoff(accept)
+        self.assertEqual(attempts, 2)
+        self.assertIsNone(taken_back.lifecycle.takeback_requested_by)
+
+    def test_invalid_transaction_factory_fails_before_irreversible_undo(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        original = session._takeback_transaction
+        board_before = self.state_tuple(state)
+        pending_before = session._lifecycle.snapshot()
+        session._takeback_transaction = lambda: object()
+        accept = EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+        with self.assertRaises(EngineContractError):
+            session.handle_handoff(accept)
+        self.assertEqual(self.state_tuple(state), board_before)
+        self.assertEqual(session._lifecycle.snapshot(), pending_before)
+        session._takeback_transaction = original
+        self.assertEqual(session.handle_handoff(accept).side_to_move, "w")
+
+    def test_rollback_failure_is_explicit_and_does_not_clear_lifecycle_request(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        original = session._takeback_transaction
+        pending_before = session._lifecycle.snapshot()
+        clock_before = session._clock.snapshot()
+        def prepare():
+            token = original()
+            def invalid_rollback():
+                raise RuntimeError("injected rollback failure")
+            return TakebackTransaction(token.undo, invalid_rollback, token.commit)
+        session._takeback_transaction = prepare
+        def fail_provider():
+            raise RuntimeError("injected provider failure")
+        session._clock_restore_provider = fail_provider
+        with self.assertRaises(EngineContractError) as raised:
+            session.handle_handoff(
+                EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+            )
+        self.assertIn("compensation failed", str(raised.exception))
+        self.assertEqual(session._lifecycle.snapshot(), pending_before)
+        self.assertEqual(session._clock.snapshot(), clock_before)
+        # The callback explicitly refused compensation: never assert that
+        # Board/history is safe or claim the failed takeback succeeded.
+        self.assertNotEqual(self.state_tuple(state)[0], ("e2e4",))
+
+    def test_stage1_second_undo_failure_then_clean_retry(self):
+        api = self.make_stage1()
+        original = self.stage1_state(api)
+        base = _stage1_core.Stage1ReleaseAccessibleChessAPI.__mro__[1]
+        original_undo = base.undo
+        calls = 0
+        def fail_once_on_second(instance):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                return {"ok": False, "announcement": "temporary undo failure"}
+            return original_undo(instance)
+        with patch.object(base, "undo", fail_once_on_second):
+            failure = api.engine_takeback()
+        self.assertFalse(failure["ok"], failure)
+        self.assertEqual(self.stage1_state(api), original)
+        recovered = api.engine_takeback()
+        self.assertTrue(recovered["ok"], recovered)
+        self.assertEqual(api.board.fen(), api.board.START)
+        self.assertEqual(api.sans, [])
+
+
 if __name__ == "__main__":
     unittest.main()
