@@ -243,6 +243,14 @@ class ChessClock:
                 "milliseconds must be a non-negative integer",
                 code=ClockErrorCode.INVALID_COMMAND,
             )
+        # An untimed clock has exactly one canonical persisted state: both
+        # balances zero. Accepting a nonzero administrative balance here would
+        # publish a snapshot that restore() subsequently rejects.
+        if self.control.untimed and milliseconds != 0:
+            raise ClockError(
+                "untimed clock requires zero remaining time",
+                code=ClockErrorCode.INVALID_COMMAND,
+            )
         self._sync()
         self._remaining[side] = milliseconds
         if self._state == ClockState.FLAGGED and self._flagged == side and milliseconds > 0:
