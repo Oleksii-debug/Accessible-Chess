@@ -28,6 +28,8 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
     "classroom.hand_raise",
     "classroom.permission",
     "lesson.position_deployed",
+    "chat.message",
+    "file.transfer_complete",
 )
 
 _ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
