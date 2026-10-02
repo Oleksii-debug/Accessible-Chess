@@ -451,6 +451,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 operation_id="co-moderates-teacher",
             )
 
+    def test_hide_message_cannot_cross_room_boundary_before_transport(self):
+        controller = self.controller("teacher-1")
+        foreign = ChatMessageMetadata(
+            "foreign-message",
+            "room-2",
+            "student-2",
+            0,
+            "foreign room message",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(foreign)
+
+        before_moderation = list(self.chat.moderation_calls)
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "unknown message in current room",
+        ):
+            controller.hide_message(
+                actor_id="teacher-1",
+                message_id=foreign.message_id,
+                operation_id="hide-foreign-message",
+            )
+
+        self.assertEqual(self.chat.moderation_calls, before_moderation)
+        self.assertEqual(
+            self.store.room_messages("room-2", include_hidden=True),
+            (foreign,),
+        )
+        self.assertFalse(
+            self.store.room_messages("room-2", include_hidden=True)[0].hidden
+        )
+
     def test_teacher_can_hide_message_without_deleting_durable_history(self):
         controller = self.controller("teacher-1")
         message = controller.send_chat(message_id="m1", body="moderate me")
