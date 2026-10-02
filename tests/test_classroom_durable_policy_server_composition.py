@@ -36,6 +36,7 @@ from tests.test_livekit_classroom_moderation_admin import (
 ROOM = "room-1"
 TEACHER = "teacher-1"
 STUDENT = "student-1"
+STUDENT_ACCOUNT = "account-student-1"
 NOW = datetime(2026, 10, 2, 22, 0, 0, tzinfo=timezone.utc)
 
 
@@ -58,12 +59,23 @@ class Resolver:
     def __init__(self):
         self.roster = Roster()
         self.calls = []
+        self.identity_calls = []
+        self.identities = {
+            "account-teacher-1": TEACHER,
+            STUDENT_ACCOUNT: STUDENT,
+        }
 
     def roster_for_room(self, room_id):
         self.calls.append(room_id)
         if room_id != ROOM:
             raise KeyError(room_id)
         return self.roster
+
+    def participant_for_caller(self, *, room_id, trusted_caller_identity):
+        self.identity_calls.append((room_id, trusted_caller_identity))
+        if room_id != ROOM:
+            raise KeyError(room_id)
+        return self.identities[trusted_caller_identity]
 
 
 class RecordingTokenIssuer:
@@ -127,6 +139,7 @@ class DurablePolicyServerCompositionTests(unittest.IsolatedAsyncioTestCase):
         return SqliteClassroomMediaPolicyAuthority(
             self.policy_path,
             roster_resolver=self.resolver,
+            join_identity_resolver=self.resolver,
         )
 
     def moderation_service(self, *, authority, room):
@@ -159,10 +172,15 @@ class DurablePolicyServerCompositionTests(unittest.IsolatedAsyncioTestCase):
             authority=authority,
             issuer=issuer,
         ).issue(
-            trusted_caller_identity=STUDENT,
+            trusted_caller_identity=STUDENT_ACCOUNT,
             payload=join_wire(),
         )
         self.assertEqual(json.loads(response)["participant_id"], STUDENT)
+        self.assertEqual(
+            self.resolver.identity_calls[-1],
+            (ROOM, STUDENT_ACCOUNT),
+        )
+        self.assertNotEqual(STUDENT_ACCOUNT, STUDENT)
         self.assertEqual(len(issuer.grants), 1)
         return issuer.grants[0][0]
 
@@ -254,7 +272,7 @@ class DurablePolicyServerCompositionTests(unittest.IsolatedAsyncioTestCase):
                 authority=reopened,
                 issuer=RecordingTokenIssuer(),
             ).issue(
-                trusted_caller_identity=STUDENT,
+                trusted_caller_identity=STUDENT_ACCOUNT,
                 payload=join_wire(),
             )
 
@@ -279,7 +297,7 @@ class DurablePolicyServerCompositionTests(unittest.IsolatedAsyncioTestCase):
                 authority=self.authority(),
                 issuer=RecordingTokenIssuer(),
             ).issue(
-                trusted_caller_identity=STUDENT,
+                trusted_caller_identity=STUDENT_ACCOUNT,
                 payload=join_wire(),
             )
 
