@@ -682,6 +682,67 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._assert_no_publication(output)
         self.assertFalse((self.standalone / "nested").exists())
 
+    def test_link_like_source_root_is_rejected_before_copy(self) -> None:
+        original = payload._is_link_like
+
+        for source, label in (
+            (self.standalone, "standalone"),
+            (self.sounds, "sound pack"),
+        ):
+            output = self.root / f"payload-{label.replace(' ', '-')}-link"
+            with self.subTest(label=label):
+                def fake_is_link_like(path: Path, *, source: Path = source) -> bool:
+                    if path == source:
+                        return True
+                    return original(path)
+
+                with patch.object(
+                    payload,
+                    "_is_link_like",
+                    side_effect=fake_is_link_like,
+                ):
+                    with self.assertRaisesRegex(
+                        payload.Version2ReleasePayloadError,
+                        rf"{label} contains a symlink or junction",
+                    ):
+                        self._prepare(output)
+                self._assert_no_publication(output)
+
+    def test_broken_output_entry_is_rejected_before_staging(self) -> None:
+        output = self.root / "payload-broken-entry"
+        original_lexists = payload.os.path.lexists
+
+        def fake_lexists(path: object) -> bool:
+            if Path(path) == output:
+                return True
+            return original_lexists(path)
+
+        with patch.object(payload.os.path, "lexists", side_effect=fake_lexists):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload root already exists",
+            ):
+                self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_link_like_output_parent_is_rejected(self) -> None:
+        parent = self.root / "publication-parent"
+        output = parent / "payload"
+        original = payload._is_link_like
+
+        def fake_is_link_like(path: Path) -> bool:
+            if path == parent:
+                return True
+            return original(path)
+
+        with patch.object(payload, "_is_link_like", side_effect=fake_is_link_like):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload parent must be a real directory",
+            ):
+                self._prepare(output)
+        self._assert_no_publication(output)
+
     def test_existing_output_is_never_overwritten(self) -> None:
         output = self.root / "payload"
         output.mkdir()
