@@ -105,6 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -Fq 'MODERATION_SERVICE_PARTICIPANT_IDENTITY = "moderation-service"' acs/livekit_moderation_service_token.py
           grep -Fq 'can_publish=False' acs/livekit_moderation_service_token.py
           grep -Fq 'can_subscribe=False' acs/livekit_moderation_service_token.py
           grep -Fq 'can_publish_data=True' acs/livekit_moderation_service_token.py
