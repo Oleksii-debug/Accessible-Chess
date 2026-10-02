@@ -127,9 +127,9 @@
     });
   }
 
-  function restoreFocus(id) {
-    if (!id) return;
-    const target = documentRef.getElementById(id);
+  function restoreFocus(id, fallbackId) {
+    const target = (id && documentRef.getElementById(id)) ||
+      (fallbackId && documentRef.getElementById(fallbackId));
     if (target && typeof target.focus === "function") target.focus();
   }
 
@@ -143,7 +143,7 @@
     if (currentSnapshot && typeof currentSnapshot === "object") render(currentSnapshot);
   }
 
-  function invoke(command, payload) {
+  function invoke(command, payload, restoreFocusFallbackId) {
     const active = documentRef.activeElement;
     const restoreFocusId = active && typeof active.id === "string" ? active.id : "";
     const bridge = api();
@@ -170,7 +170,7 @@
       return false;
     }).finally(function () {
       setBusy(false);
-      restoreFocus(restoreFocusId);
+      restoreFocus(restoreFocusId, restoreFocusFallbackId);
     });
   }
 
@@ -247,6 +247,8 @@
     const safeId = packId.replace(/[^a-z0-9_-]/g, "-");
     const group = documentRef.createElement("fieldset");
     group.className = "sound-pack";
+    group.id = "sound-pack-" + safeId;
+    group.tabIndex = -1;
     const groupLegend = documentRef.createElement("legend");
     groupLegend.textContent = String(item.title || packId);
     group.appendChild(groupLegend);
@@ -277,7 +279,7 @@
       select.textContent = text("Використовувати", "Use this pack");
       select.disabled = writesBlocked || busy;
       select.addEventListener("click", function () {
-        invoke("select_pack", {pack_id: packId});
+        invoke("select_pack", {pack_id: packId}, group.id);
       });
       group.appendChild(select);
       packControls.push({control: select, mutation: true});
@@ -292,7 +294,7 @@
         : text("Оновити й використовувати", "Update and use");
       install.disabled = writesBlocked || busy;
       install.addEventListener("click", function () {
-        invoke("install_pack", {pack_id: packId, activate: true});
+        invoke("install_pack", {pack_id: packId, activate: true}, group.id);
       });
       group.appendChild(install);
       packControls.push({control: install, mutation: true});
@@ -305,7 +307,7 @@
       uninstall.textContent = text("Видалити", "Remove");
       uninstall.disabled = writesBlocked || busy;
       uninstall.addEventListener("click", function () {
-        invoke("uninstall_pack", {pack_id: packId});
+        invoke("uninstall_pack", {pack_id: packId}, group.id);
       });
       group.appendChild(uninstall);
       packControls.push({control: uninstall, mutation: true});
