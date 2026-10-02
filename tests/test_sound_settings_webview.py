@@ -46,9 +46,11 @@ class SoundSettingsWebViewTests(unittest.TestCase):
             'group.id = "sound-pack-" + safeId',
             'group.tabIndex = -1',
             'setAttribute("for"',
-            'setAttribute("role", "status")',
+            'status.id = "sound-profile-settings-status"',
         ):
             self.assertIn(required, source)
+        self.assertNotIn('status.setAttribute("role", "status")', source)
+        self.assertNotIn('status.setAttribute("aria-live"', source)
         self.assertNotIn("innerHTML", source)
 
     def test_executable_sound_surface_contract(self) -> None:
