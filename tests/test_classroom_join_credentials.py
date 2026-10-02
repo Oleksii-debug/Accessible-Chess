@@ -259,6 +259,16 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         rendered = "".join(traceback.format_exception(caught.exception))
         self.assertNotIn(issuer.token, rendered)
 
+    def test_non_utf8_surrogate_text_fails_closed(self):
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "valid UTF-8",
+        ):
+            parse_join_request(
+                "\ud800",
+                trusted_caller_identity="account-17",
+            )
+
     def test_duplicate_json_object_fields_fail_closed(self):
         duplicate_payloads = (
             '{"version":1,"version":1,"room_id":"room-1","participant_id":"student-1"}',
