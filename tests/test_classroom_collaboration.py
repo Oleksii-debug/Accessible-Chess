@@ -1000,6 +1000,49 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), (stored,))
         self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
 
+    def test_failed_provisional_sequence_does_not_block_remote_authoritative_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="local-failed",
+            local_path=self.make_file("local-failed.bin", b"failed-local"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+
+        failed = self.store.room_attachments("room-1")
+        self.assertEqual(len(failed), 1)
+        self.assertEqual((failed[0].sequence_no, failed[0].transfer_state), (0, "failed"))
+
+        remote = AttachmentMetadata(
+            "remote-authoritative",
+            "room-1",
+            "student-1",
+            0,
+            "remote.bin",
+            None,
+            1,
+            "e" * 64,
+            "rooms/room-1/remote-authoritative",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (remote,)
+
+        self.assertEqual(controller.sync_files(), (remote,))
+        persisted = self.store.room_attachments("room-1")
+        self.assertEqual(
+            {(item.attachment_id, item.sequence_no, item.transfer_state) for item in persisted},
+            {
+                ("local-failed", 0, "failed"),
+                ("remote-authoritative", 0, "stored"),
+            },
+        )
+
     def test_second_client_discovers_durable_shared_file_from_server_history(self):
         teacher = self.controller("teacher-1")
         prepared = teacher.prepare_file(
