@@ -11,6 +11,7 @@ from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
     CollaborationConflictError,
+    CollaborationQuotaError,
     content_sha256,
     safe_display_filename,
 )
@@ -282,6 +283,48 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "rooms/room/a2", "stored"
                 )
             )
+
+    def test_attachment_registration_enforces_room_quota_transactionally(self) -> None:
+        first = AttachmentMetadata(
+            "a1",
+            "room",
+            "student",
+            0,
+            "one.bin",
+            None,
+            4,
+            "0" * 64,
+            "rooms/room/a1",
+            "pending",
+        )
+        second = AttachmentMetadata(
+            "a2",
+            "room",
+            "student",
+            1,
+            "two.bin",
+            None,
+            3,
+            "1" * 64,
+            "rooms/room/a2",
+            "pending",
+        )
+        self.assertEqual(
+            self.store.register_attachment(first, max_room_bytes=6),
+            first,
+        )
+        self.assertEqual(
+            self.store.register_attachment(first, max_room_bytes=6),
+            first,
+        )
+        with self.assertRaises(CollaborationQuotaError):
+            self.store.register_attachment(second, max_room_bytes=6)
+        self.assertEqual(self.store.room_attachments("room"), (first,))
+
+    def test_windows_filename_limit_counts_utf16_units(self) -> None:
+        safe = safe_display_filename("😀" * 200)
+        self.assertLessEqual(len(safe.encode("utf-16-le")) // 2, 255)
+        self.assertEqual(safe, "😀" * 127)
 
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(
