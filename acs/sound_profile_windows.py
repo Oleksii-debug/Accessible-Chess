@@ -101,11 +101,12 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 str(playable),
                 winsound.SND_FILENAME | winsound.SND_NODEFAULT,
             )
-        except Exception:
-            self._logger.exception(
-                "profiled sound playback failed pack=%s event=%s",
+        except Exception as exc:
+            self._logger.error(
+                "profiled sound playback failed pack=%s event=%s error_type=%s",
                 request.pack_id,
                 request.event_id,
+                type(exc).__name__,
             )
             raise
 
