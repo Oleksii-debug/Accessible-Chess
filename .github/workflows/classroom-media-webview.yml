@@ -50,14 +50,21 @@ jobs:
         shell: bash
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
-          test -n "$PR_BASE_SHA"
-          base="$PR_BASE_SHA"
+          test -n "$EVENT_BASE_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$PR_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+          test -n "$base"
           git cat-file -e "$base^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current Product base $base is not an ancestor of HEAD; synchronize the PR before qualification."
+            exit 1
+          fi
           test "$(git merge-base "$base" HEAD)" = "$base"
           mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
           expected=(
