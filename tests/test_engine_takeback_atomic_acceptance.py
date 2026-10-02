@@ -175,11 +175,15 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
     def stage1_state(api):
         return (
             api.board.fen(),
+            tuple(api.board.undo_stack),
+            tuple(api.board.redo_stack),
+            api.board.last_move,
             tuple(api.sans),
             tuple(api.move_sides),
             api.review_history.export_tree(),
+            api.review_history.cursor_node_id,
+            api.selected_source,
             tuple(api.redo_meta),
-            tuple(api.board.redo_stack),
             tuple(api._engine_clock_history),
         )
 
