@@ -202,6 +202,7 @@ class ClassroomCollaborationController:
         return self._persist_chat_with_gap_recovery(delivered)
 
     def receive_chat(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
+        self._require_member(self.local_participant_id)
         if type(message) is not ChatMessageMetadata:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
@@ -222,6 +223,7 @@ class ClassroomCollaborationController:
             return self._store.append_message(message)
 
     def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
+        self._require_member(self.local_participant_id)
         existing = self._store.room_messages(self.room_id, include_hidden=True)
         after = existing[-1].sequence_no if existing else None
         incoming = self._chat.history_after(
@@ -370,6 +372,7 @@ class ClassroomCollaborationController:
         return PreparedFile(path, metadata)
 
     def upload_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         try:
             pending = self._store.register_attachment(
@@ -415,6 +418,7 @@ class ClassroomCollaborationController:
         )
 
     def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         current = self._attachment(prepared.metadata.attachment_id)
         if current.transfer_state != "failed":
@@ -446,6 +450,7 @@ class ClassroomCollaborationController:
         )
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
         attachment = self._attachment(_id(attachment_id, "attachment id"))
         if attachment.transfer_state not in {"pending", "uploading", "failed"}:
             raise CollaborationError("attachment cannot be cancelled from current state")
@@ -461,6 +466,7 @@ class ClassroomCollaborationController:
         attachment_id: str,
         ttl_seconds: int = 300,
     ) -> str:
+        self._require_member(self.local_participant_id)
         if self._file_store is None:
             raise CollaborationError("durable file storage is unavailable")
         attachment = self._attachment(_id(attachment_id, "attachment id"))
