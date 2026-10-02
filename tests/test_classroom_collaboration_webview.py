@@ -414,6 +414,45 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("collaboration-chat-sync", hidden.payload["focus_target"])
         self.assertEqual((), self.store.room_messages("room-1"))
 
+    def test_stale_host_moderation_flag_cannot_outlive_canonical_role(self) -> None:
+        teacher_controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=FakeChat(),
+            files=FakeFiles(),
+            store=self.store,
+            file_store=self.file_store,
+        )
+        teacher_controller.receive_chat(
+            ChatMessageMetadata(
+                "student-message-role-change",
+                "room-1",
+                "student-2",
+                0,
+                "Role changed",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        view = ClassroomCollaborationWebView(
+            teacher_controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            moderation_allowed=lambda: True,
+            id_factory=self.next_id,
+        )
+        self.assertTrue(view.snapshot()["chat"]["moderation_available"])
+
+        self.roster.roles["teacher-1"] = ClassroomRole.STUDENT
+        snapshot = view.snapshot()
+        self.assertFalse(snapshot["chat"]["moderation_available"])
+        message = snapshot["chat"]["messages"][0]
+        self.assertFalse(message["can_hide"])
+        self.assertFalse(message["can_moderate_sender"])
+        self.assertFalse(message["can_remove_sender"])
+        self.assertNotIn("message_key", message)
+
     def test_departed_sender_history_has_no_stale_sender_moderation_actions(self) -> None:
         teacher_chat = FakeChat()
         teacher_media = FakeMedia()
