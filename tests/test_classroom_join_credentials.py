@@ -63,11 +63,14 @@ class FakeIssuer:
         self.calls = []
         self.error = None
         self.token = "provider-short-lived-token"
+        self.after_issue = None
 
     async def issue_join_token(self, *, grant, issued_at, expires_at):
         self.calls.append((grant, issued_at, expires_at))
         if self.error is not None:
             raise self.error
+        if self.after_issue is not None:
+            self.after_issue()
         return self.token
 
 
@@ -96,7 +99,13 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
 
         response = json.loads(self.run_issue(service))
 
-        self.assertEqual(authorization.calls, [("room-1", "account-17", "student-1")])
+        self.assertEqual(
+            authorization.calls,
+            [
+                ("room-1", "account-17", "student-1"),
+                ("room-1", "account-17", "student-1"),
+            ],
+        )
         self.assertEqual(len(issuer.calls), 1)
         grant, issued_at, expires_at = issuer.calls[0]
         self.assertEqual(
@@ -183,6 +192,50 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ClassroomJoinCredentialError, "identity does not match"):
             self.run_issue(service)
         self.assertEqual(issuer.calls, [])
+
+    def test_revocation_during_provider_mint_discards_token_before_response(self):
+        service, authorization, issuer = self.make_service()
+        issuer.after_issue = lambda: setattr(
+            authorization,
+            "error",
+            RuntimeError("private roster revocation detail"),
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join request is no longer authorized$",
+        ) as caught:
+            self.run_issue(service)
+
+        self.assertEqual(len(issuer.calls), 1)
+        self.assertEqual(len(authorization.calls), 2)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("private roster revocation detail", rendered)
+        self.assertNotIn(issuer.token, rendered)
+
+    def test_permission_change_during_provider_mint_discards_stale_grant(self):
+        service, authorization, issuer = self.make_service()
+
+        def change_grant():
+            authorization.grant = ClassroomJoinGrant(
+                room_id="room-1",
+                participant_id="student-1",
+                publish_sources=(MediaSource.MICROPHONE,),
+            )
+
+        issuer.after_issue = change_grant
+
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join authorization changed during token issuance$",
+        ) as caught:
+            self.run_issue(service)
+
+        self.assertEqual(len(issuer.calls), 1)
+        self.assertEqual(len(authorization.calls), 2)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn(issuer.token, "".join(traceback.format_exception(caught.exception)))
 
     def test_authority_grant_canonicalizes_source_order_and_rejects_duplicates(self):
         grant = ClassroomJoinGrant(
@@ -336,7 +389,7 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         first = json.loads(self.run_issue(service))
         issuer.token = "fresh-token-two"
         second = json.loads(self.run_issue(service))
-        self.assertEqual(len(authorization.calls), 2)
+        self.assertEqual(len(authorization.calls), 4)
         self.assertEqual(len(issuer.calls), 2)
         self.assertNotEqual(first["token"], second["token"])
 
