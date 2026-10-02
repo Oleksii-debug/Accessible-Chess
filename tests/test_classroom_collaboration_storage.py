@@ -8,6 +8,7 @@ from pathlib import Path
 
 from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_collaboration_storage import (
+    SCHEMA_VERSION,
     AttachmentMetadata,
     AttachmentStateUpdate,
     ChatMessageMetadata,
@@ -34,7 +35,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 4
+                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], SCHEMA_VERSION
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
@@ -86,7 +87,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(message.sent_at_unix_ms)
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                4,
+                SCHEMA_VERSION,
                 db.execute(
                     "SELECT value FROM collaboration_schema_meta WHERE key='schema_version'"
                 ).fetchone()[0],
@@ -143,7 +144,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "SELECT value FROM collaboration_schema_meta "
                     "WHERE key='schema_version'"
                 ).fetchone()[0],
-                4,
+                SCHEMA_VERSION,
             )
             tables = {
                 row[0]
