@@ -64,6 +64,11 @@ class LiveKitClientSdkStageError(RuntimeError):
     """Raised when the downloaded SDK cannot be safely identified and staged."""
 
 
+def _is_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
 def _snapshot_archive(
     archive_path: Path,
     *,
@@ -80,9 +85,13 @@ def _snapshot_archive(
     except OSError as exc:
         raise LiveKitClientSdkStageError("LiveKit npm archive is unreadable") from exc
 
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or _is_reparse(metadata)
+        or not stat.S_ISREG(metadata.st_mode)
+    ):
         raise LiveKitClientSdkStageError(
-            "LiveKit npm archive must be a regular file, not a link"
+            "LiveKit npm archive must be a regular file, not a link or reparse point"
         )
     if metadata.st_size <= 0:
         raise LiveKitClientSdkStageError("LiveKit npm archive is missing or empty")
@@ -100,9 +109,9 @@ def _snapshot_archive(
     try:
         with source:
             opened = os.fstat(source.fileno())
-            if not stat.S_ISREG(opened.st_mode):
+            if not stat.S_ISREG(opened.st_mode) or _is_reparse(opened):
                 raise LiveKitClientSdkStageError(
-                    "LiveKit npm archive must remain a regular file"
+                    "LiveKit npm archive must remain a regular non-reparse file"
                 )
             if (
                 opened.st_dev != metadata.st_dev
@@ -321,9 +330,21 @@ def _validated_payload(
 
 def _reject_linked_output_ancestors(output: Path) -> None:
     for ancestor in (output.parent, *output.parent.parents):
-        if os.path.lexists(ancestor) and ancestor.is_symlink():
+        if not os.path.lexists(ancestor):
+            continue
+        try:
+            info = ancestor.lstat()
+        except OSError as exc:
             raise LiveKitClientSdkStageError(
-                "LiveKit SDK output path must not traverse a symlink"
+                "LiveKit SDK output path ancestor cannot be inspected"
+            ) from exc
+        if stat.S_ISLNK(info.st_mode) or _is_reparse(info):
+            raise LiveKitClientSdkStageError(
+                "LiveKit SDK output path must not traverse a symlink or reparse point"
+            )
+        if not stat.S_ISDIR(info.st_mode):
+            raise LiveKitClientSdkStageError(
+                "LiveKit SDK output path ancestor must be a directory"
             )
 
 
