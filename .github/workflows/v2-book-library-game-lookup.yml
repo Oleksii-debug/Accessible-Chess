@@ -47,22 +47,23 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - name: Restore frozen Stage1 blobs byte-exact on Windows
+      - name: Restore tracked Stage1 blobs byte-exact on Windows
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          while IFS='=' read -r path expected; do
+          for path in \
+            acs/stage1_release_ui_core.py \
+            acs/webapp_keymap_core.py
+          do
+            expected="$(git rev-parse "HEAD:$path")"
             git cat-file blob "HEAD:$path" > "$path"
             actual="$(git hash-object --no-filters "$path")"
             test "$actual" = "$expected" || {
-              printf 'Frozen Stage 1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              printf 'Tracked Stage1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
               exit 1
             }
-          done <<'FROZEN_STAGE1'
-          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
-          acs/webapp_keymap_core.py=0ba06f548d39dad7372e0339b3e121fd1717cc05
-          FROZEN_STAGE1
+          done
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
