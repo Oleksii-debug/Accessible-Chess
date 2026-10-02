@@ -98,5 +98,8 @@ jobs:
       - name: Run adjacent V2 application contracts
         run: python -m unittest -v tests.test_version2_application
 
+      - name: Run delegated route and focus DOM contract
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
       - name: Run core selftest
         run: python -m acs.selftest
