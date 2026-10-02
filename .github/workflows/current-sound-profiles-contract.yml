@@ -200,6 +200,12 @@ jobs:
           tests/test_version2_package_preflight.py
           tests/test_v2_package_required_resources.py
 
+      - name: Run sound settings DOM regression
+        run: |
+          node --check web/full_product_sound_settings.js
+          node --check tests/js/sound_settings_surface_test.js
+          node tests/js/sound_settings_surface_test.js
+
       - name: Run focused current sound profile regressions
         run: >-
           python -m unittest -v
