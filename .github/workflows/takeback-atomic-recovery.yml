@@ -41,7 +41,9 @@ jobs:
             'acs/engine_game_session.py' \
             'acs/stage1_release_ui_core.py' \
             'tests/test_engine_game_session.py' \
-            'tests/test_engine_takeback_atomic_acceptance.py' | sort)"
+            'tests/test_engine_takeback_atomic_acceptance.py' \
+            'tests/test_dev3_takeback_atomicity.py' \
+            'tests/test_stage1_saturation_refactor_contract.py' | sort)"
           test "$actual" = "$expected" || {
             printf 'Unexpected takeback ownership scope:\n%s\n' "$actual" >&2
             exit 1
@@ -49,6 +51,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
           test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
           test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = 0c6ec99b97b4e561a0bed9f16ed4cc5d42dbc0e0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -67,6 +70,8 @@ jobs:
           tests.test_engine_game_timeout_ownership
           tests.test_stage1_engine_play_ui
           tests.test_clock_engine_serial_acceptance
+          tests.test_dev3_takeback_atomicity
+          tests.test_stage1_saturation_refactor_contract
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
       - name: Full repository pytest
