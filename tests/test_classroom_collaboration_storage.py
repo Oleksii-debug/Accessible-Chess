@@ -12,6 +12,7 @@ from acs.classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
     CollaborationConflictError,
     CollaborationQuotaError,
+    CollaborationSequenceGapError,
     content_sha256,
     safe_display_filename,
 )
@@ -98,6 +99,22 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.append_message(first), first)
         self.store.append_message(second)
         self.assertEqual(self.store.room_messages("room"), (first, second))
+
+    def test_message_sequence_gap_must_be_filled_before_later_commit(self) -> None:
+        first = ChatMessageMetadata("m5", "room", "teacher", 5, "First visible")
+        self.store.append_message(first)
+        with self.assertRaises(CollaborationSequenceGapError):
+            self.store.append_message(
+                ChatMessageMetadata("m7", "room", "teacher", 7, "Too early")
+            )
+        sixth = ChatMessageMetadata("m6", "room", "student", 6, "Recovered")
+        seventh = ChatMessageMetadata("m7", "room", "teacher", 7, "Now valid")
+        self.store.append_message(sixth)
+        self.store.append_message(seventh)
+        self.assertEqual(
+            self.store.room_messages("room"),
+            (first, sixth, seventh),
+        )
 
     def test_message_identity_and_room_sequence_cannot_overwrite(self) -> None:
         self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Hello"))
