@@ -64,8 +64,10 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.api_secret, "server-secret")
         self.assertIsNotNone(runtime.moderation_admin)
         self.assertFalse(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
         await runtime.aclose()
         self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
         self.assertEqual(client.close_calls, 1)
 
     async def test_trailing_root_slash_is_normalized_without_other_url_rewrite(self):
@@ -206,6 +208,7 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await runtime.aclose()
         self.assertEqual(client.close_calls, 1)
         self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
         with self.assertRaisesRegex(
             LiveKitClassroomServerRuntimeError,
             "runtime is closed",
@@ -230,19 +233,50 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             await runtime.aclose()
 
         self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.cleanup_required)
         self.assertEqual(client.close_calls, 1)
         self.assertNotIn(secret, "".join(traceback.format_exception(caught.exception)))
         self.assertIsNone(caught.exception.__cause__)
-        self.assertIsNotNone(runtime.moderation_admin)
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime requires cleanup",
+        ):
+            _ = runtime.moderation_admin
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime requires cleanup",
+        ):
+            await runtime.__aenter__()
+        self.assertIn("state='cleanup_required'", repr(runtime))
 
         client.close_error = None
         await runtime.aclose()
 
         self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
         self.assertEqual(client.close_calls, 2)
         with self.assertRaisesRegex(
             LiveKitClassroomServerRuntimeError,
             "runtime is closed",
+        ):
+            _ = runtime.moderation_admin
+
+    async def test_missing_close_api_marks_runtime_cleanup_required_and_fails_closed(self):
+        runtime = await self.open()
+        client = FakeLiveKitClient.instances[-1]
+        client.aclose = None
+
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "^LiveKit server client lifecycle API is unavailable$",
+        ):
+            await runtime.aclose()
+
+        self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.cleanup_required)
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime requires cleanup",
         ):
             _ = runtime.moderation_admin
 
@@ -292,6 +326,7 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await closing
 
         self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
         self.assertEqual(client.close_calls, 1)
 
     async def test_async_context_manager_closes_exactly_once(self):
@@ -301,6 +336,7 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(entered, runtime)
             self.assertIsNotNone(entered.moderation_admin)
         self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
         self.assertEqual(client.close_calls, 1)
 
     async def test_repr_redacts_endpoint_and_credentials(self):
