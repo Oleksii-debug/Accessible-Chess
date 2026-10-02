@@ -157,17 +157,26 @@ class PreparedPositionDeploymentBatch:
             "digest",
         }
         _exact_keys(data, expected, "prepared-position deployment batch")
+
+        # Bound and canonicalize every variable-size field before hashing the
+        # supplied record. from_json() has a wire-byte cap, but from_record()
+        # is also a public trust boundary and must not serialize an unbounded
+        # caller-owned list/string merely to discover that it is invalid.
         _version(data["version"])
-        supplied = _digest_text(data["digest"], "deployment batch digest")
-        body = {key: data[key] for key in expected if key != "digest"}
-        if _digest(body) != supplied:
-            raise PreparedPositionDeploymentError("deployment batch digest mismatch")
+        _id(data["batch_id"], "prepared-position deployment batch id")
+        _id(data["lesson_session_id"], "lesson session id")
+        _digest_text(data["lesson_session_digest"], "lesson session digest")
 
         target_data = _mapping(data["target"], "deployment target")
         _exact_keys(target_data, {"kind", "student_ids", "group_id"}, "deployment target")
         raw_target_students = target_data["student_ids"]
-        if type(raw_target_students) is not list:
-            raise PreparedPositionDeploymentError("deployment target student ids must be a JSON array")
+        if (
+            type(raw_target_students) is not list
+            or len(raw_target_students) > MAX_DEPLOYMENT_ASSIGNMENTS
+        ):
+            raise PreparedPositionDeploymentError(
+                "deployment target student ids must be a bounded JSON array"
+            )
         target = DeploymentTarget(
             kind=target_data["kind"],
             student_ids=tuple(raw_target_students),
@@ -180,13 +189,20 @@ class PreparedPositionDeploymentBatch:
             or not raw_assignments
             or len(raw_assignments) > MAX_DEPLOYMENT_ASSIGNMENTS
         ):
-            raise PreparedPositionDeploymentError("deployment assignments must be a bounded non-empty JSON array")
+            raise PreparedPositionDeploymentError(
+                "deployment assignments must be a bounded non-empty JSON array"
+            )
         assignment_fields = {field.name for field in fields(PreparedPositionAssignment)}
         assignments = []
         for raw in raw_assignments:
             item = _mapping(raw, "prepared-position assignment")
             _exact_keys(item, assignment_fields, "prepared-position assignment")
             assignments.append(PreparedPositionAssignment(**dict(item)))
+
+        supplied = _digest_text(data["digest"], "deployment batch digest")
+        body = {key: data[key] for key in expected if key != "digest"}
+        if _digest(body) != supplied:
+            raise PreparedPositionDeploymentError("deployment batch digest mismatch")
 
         return cls(
             batch_id=data["batch_id"],
