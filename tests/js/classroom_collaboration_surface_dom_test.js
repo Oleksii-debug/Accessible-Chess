@@ -255,6 +255,13 @@ check(
   root.querySelector("#collaboration-chat-newer").disabled,
   "single-page history must expose native disabled paging boundaries"
 );
+check(
+  root.querySelector("#collaboration-chat-older").getAttribute("aria-describedby") ===
+    "collaboration-chat-page-status" &&
+  root.querySelector("#collaboration-chat-newer").getAttribute("aria-describedby") ===
+    "collaboration-chat-page-status",
+  "chat paging controls must announce the visible page status when focused"
+);
 const pagedSnapshot = collaboration([
   {
     dom_id: "collaboration-message-one",
@@ -320,6 +327,13 @@ check(
   root.querySelector("#collaboration-file-older").disabled &&
   root.querySelector("#collaboration-file-newer").disabled,
   "single-page file history must expose native disabled paging boundaries"
+);
+check(
+  root.querySelector("#collaboration-file-older").getAttribute("aria-describedby") ===
+    "collaboration-file-page-status" &&
+  root.querySelector("#collaboration-file-newer").getAttribute("aria-describedby") ===
+    "collaboration-file-page-status",
+  "file paging controls must announce the visible page status when focused"
 );
 const filePagedSnapshot = collaboration([
   {
