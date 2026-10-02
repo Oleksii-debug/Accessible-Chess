@@ -9,6 +9,7 @@ from pathlib import Path
 from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
@@ -33,7 +34,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 3
+                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 4
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
@@ -85,7 +86,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(message.sent_at_unix_ms)
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     "SELECT value FROM collaboration_schema_meta WHERE key='schema_version'"
                 ).fetchone()[0],
@@ -97,6 +98,89 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 )
             }
             self.assertIn("collaboration_chat_state_cursors", cursor_tables)
+            self.assertIn("collaboration_attachment_state_cursors", cursor_tables)
+
+    def test_attachment_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
+        record = AttachmentMetadata(
+            "a-state",
+            "room",
+            "teacher",
+            0,
+            "file.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/a-state",
+            "stored",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(record)
+        self.assertIsNone(self.store.attachment_state_revision("room"))
+
+        clean = AttachmentStateUpdate(
+            "room",
+            "a-state",
+            0,
+            "stored",
+            "clean",
+        )
+        self.assertEqual(
+            self.store.apply_attachment_state_updates(
+                room_id="room",
+                updates=(clean,),
+            )[0].scan_state,
+            "clean",
+        )
+        self.assertEqual(self.store.attachment_state_revision("room"), 0)
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(reopened.attachment_state_revision("room"), 0)
+        self.assertEqual(
+            reopened.room_attachments("room")[0].scan_state,
+            "clean",
+        )
+
+        with self.assertRaises(CollaborationStorageError):
+            reopened.apply_attachment_state_updates(
+                room_id="room",
+                updates=(
+                    AttachmentStateUpdate(
+                        "room",
+                        "a-state",
+                        1,
+                        "deleted",
+                        "clean",
+                    ),
+                    AttachmentStateUpdate(
+                        "room",
+                        "missing",
+                        2,
+                        "deleted",
+                        "clean",
+                    ),
+                ),
+            )
+        self.assertEqual(reopened.attachment_state_revision("room"), 0)
+        self.assertEqual(
+            reopened.room_attachments("room")[0].transfer_state,
+            "stored",
+        )
+
+        deleted = reopened.apply_attachment_state_updates(
+            room_id="room",
+            updates=(
+                AttachmentStateUpdate(
+                    "room",
+                    "a-state",
+                    1,
+                    "deleted",
+                    "clean",
+                ),
+            ),
+        )
+        self.assertEqual(deleted[0].transfer_state, "deleted")
+        self.assertEqual(reopened.attachment_state_revision("room"), 1)
 
     def test_message_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         message = ChatMessageMetadata(
@@ -583,6 +667,124 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.store.room_attachments("room"),
             (occupied, uploading),
         )
+
+    def test_remote_attachment_batch_rolls_back_on_late_sequence_conflict(self) -> None:
+        occupied = AttachmentMetadata(
+            "occupied",
+            "room",
+            "teacher",
+            1,
+            "occupied.bin",
+            None,
+            1,
+            "0" * 64,
+            "rooms/room/occupied",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        first = AttachmentMetadata(
+            "remote-0",
+            "room",
+            "student",
+            0,
+            "first.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/remote-0",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        conflict = AttachmentMetadata(
+            "remote-1",
+            "room",
+            "student",
+            1,
+            "conflict.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/remote-1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(occupied)
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.register_attachments_atomic((first, conflict))
+
+        self.assertEqual(self.store.room_attachments("room"), (occupied,))
+
+    def test_attachment_sync_commits_history_and_state_in_one_transaction(self) -> None:
+        incoming = AttachmentMetadata(
+            "remote-sync",
+            "room",
+            "teacher",
+            0,
+            "sync.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/remote-sync",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        deleted = AttachmentStateUpdate(
+            room_id="room",
+            attachment_id=incoming.attachment_id,
+            revision=0,
+            transfer_state="deleted",
+            scan_state="clean",
+        )
+
+        persisted = self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(incoming,),
+            updates=(deleted,),
+        )
+
+        self.assertEqual(persisted, (incoming,))
+        current = self.store.room_attachments("room")
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0].transfer_state, "deleted")
+        self.assertEqual(self.store.attachment_state_revision("room"), 0)
+
+    def test_attachment_sync_rolls_back_history_when_state_reconciliation_fails(self) -> None:
+        incoming = AttachmentMetadata(
+            "remote-sync",
+            "room",
+            "teacher",
+            0,
+            "sync.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/remote-sync",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        unknown = AttachmentStateUpdate(
+            room_id="room",
+            attachment_id="missing-attachment",
+            revision=0,
+            transfer_state="deleted",
+            scan_state="clean",
+        )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(incoming,),
+                updates=(unknown,),
+            )
+
+        self.assertEqual(self.store.room_attachments("room"), ())
+        self.assertIsNone(self.store.attachment_state_revision("room"))
 
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(

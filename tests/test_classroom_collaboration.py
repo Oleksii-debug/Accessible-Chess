@@ -15,6 +15,7 @@ from acs.classroom_collaboration import (
 )
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
@@ -132,6 +133,8 @@ class FakeFiles:
         self.attachments = {}
         self.ordered = []
         self.history_override = None
+        self.state_updates = []
+        self.state_override = None
 
     def _next_sequence(self, room_id):
         room_sequences = [
@@ -192,11 +195,47 @@ class FakeFiles:
             )
         )
 
+    def set_authoritative_state(
+        self,
+        attachment_id,
+        *,
+        transfer_state=None,
+        scan_state=None,
+    ):
+        current = self.attachments[attachment_id]
+        updated = replace(
+            current,
+            transfer_state=(
+                current.transfer_state
+                if transfer_state is None
+                else transfer_state
+            ),
+            scan_state=current.scan_state if scan_state is None else scan_state,
+        )
+        self._remember(updated)
+        room_revisions = [
+            item.revision
+            for item in self.state_updates
+            if item.room_id == updated.room_id
+        ]
+        state = AttachmentStateUpdate(
+            room_id=updated.room_id,
+            attachment_id=updated.attachment_id,
+            revision=max(room_revisions, default=-1) + 1,
+            transfer_state=updated.transfer_state,
+            scan_state=updated.scan_state,
+        )
+        self.state_updates.append(state)
+        return state
+
     def cancel(self, *, attachment_id):
         self.cancel_calls.append(attachment_id)
         current = self.attachments.get(attachment_id)
         if current is not None:
-            self._remember(replace(current, transfer_state="deleted"))
+            self.set_authoritative_state(
+                attachment_id,
+                transfer_state="deleted",
+            )
 
     def history_after(self, *, room_id, after_sequence, limit):
         if self.history_override is not None:
@@ -205,8 +244,19 @@ class FakeFiles:
             item
             for item in self.ordered
             if item.room_id == room_id
-            and item.transfer_state == "stored"
+            and item.transfer_state in {"stored", "deleted"}
             and (after_sequence is None or item.sequence_no > after_sequence)
+        )
+        return rows[:limit]
+
+    def state_updates_after(self, *, room_id, after_revision, limit):
+        if self.state_override is not None:
+            return self.state_override
+        rows = tuple(
+            item
+            for item in self.state_updates
+            if item.room_id == room_id
+            and (after_revision is None or item.revision > after_revision)
         )
         return rows[:limit]
 
@@ -974,6 +1024,405 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "short-lived-read-token",
         )
 
+    def test_file_sync_repairs_missing_local_authoritative_prefix(self):
+        history = tuple(
+            AttachmentMetadata(
+                f"remote-prefix-{sequence}",
+                "room-1",
+                "teacher-1" if sequence != 1 else "student-1",
+                sequence,
+                f"prefix-{sequence}.bin",
+                None,
+                1,
+                f"{sequence + 1:x}" * 64,
+                f"rooms/room-1/remote-prefix-{sequence}",
+                "stored",
+                "persistent",
+                "clean",
+            )
+            for sequence in range(3)
+        )
+        self.files.ordered = list(history)
+        # Simulate a recoverable local database that retained only a later
+        # authoritative row. Reconnect must not use that row as a skip cursor.
+        self.store.register_attachment(history[2])
+        controller = self.controller("teacher-1")
+
+        repaired = controller.sync_files()
+
+        self.assertEqual(repaired, history)
+        self.assertEqual(self.store.room_attachments("room-1"), history)
+        self.assertEqual(controller.sync_files(), ())
+
+    def test_file_history_preserves_departed_sender_but_live_receive_requires_membership(self):
+        historical = AttachmentMetadata(
+            "departed-file",
+            "room-1",
+            "student-2",
+            0,
+            "before-leaving.pgn",
+            "application/x-chess-pgn",
+            8,
+            "c" * 64,
+            "rooms/room-1/departed-file",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (historical,)
+        self.roster.roles.pop("student-2")
+        controller = self.controller("teacher-1")
+
+        self.assertEqual(controller.sync_files(), (historical,))
+        self.assertEqual(self.store.room_attachments("room-1"), (historical,))
+
+        live_after_departure = replace(
+            historical,
+            attachment_id="departed-live",
+            sequence_no=1,
+            object_key="rooms/room-1/departed-live",
+        )
+        with self.assertRaises(CollaborationError):
+            controller.receive_file(live_after_departure)
+        self.assertEqual(self.store.room_attachments("room-1"), (historical,))
+
+    def test_receive_later_file_recovers_complete_authoritative_prefix(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "remote-a0",
+            "room-1",
+            "student-1",
+            0,
+            "zero.bin",
+            None,
+            1,
+            "0" * 64,
+            "rooms/room-1/remote-a0",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        missed = AttachmentMetadata(
+            "remote-a1",
+            "room-1",
+            "student-2",
+            1,
+            "one.bin",
+            None,
+            1,
+            "1" * 64,
+            "rooms/room-1/remote-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        later = AttachmentMetadata(
+            "remote-a2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "2" * 64,
+            "rooms/room-1/remote-a2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (first, missed, later)
+
+        received = controller.receive_file(later)
+
+        self.assertEqual(received, later)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (first, missed, later),
+        )
+
+    def test_receive_later_file_fails_closed_when_server_history_omits_prefix(self):
+        controller = self.controller("teacher-1")
+        later = AttachmentMetadata(
+            "remote-a2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "2" * 64,
+            "rooms/room-1/remote-a2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (later,)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "file history has an unresolved sequence gap",
+        ):
+            controller.receive_file(later)
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
+    def test_file_state_sync_promotes_pending_scan_without_duplicate_discovery(self):
+        teacher = self.controller("teacher-1")
+        prepared = teacher.prepare_file(
+            attachment_id="scan-a1",
+            local_path=self.make_file("scan-a1.bin", b"scan me"),
+            sequence_no=17,
+            retention="persistent",
+        )
+        uploaded = teacher.upload_file(prepared)
+        self.assertEqual(uploaded.scan_state, "pending")
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "state-client.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "not cleared for download",
+        ):
+            student.issue_download_token(attachment_id=uploaded.attachment_id)
+
+        state = self.files.set_authoritative_state(
+            uploaded.attachment_id,
+            scan_state="clean",
+        )
+        self.assertEqual(state.revision, 0)
+
+        self.assertEqual(student.sync_files(), ())
+        current = second_store.room_attachments("room-1")
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0].scan_state, "clean")
+        self.assertEqual(second_store.attachment_state_revision("room-1"), 0)
+        self.assertEqual(
+            student.issue_download_token(
+                attachment_id=uploaded.attachment_id,
+                ttl_seconds=60,
+            ),
+            "short-lived-read-token",
+        )
+
+    def test_tombstone_history_preserves_sequence_for_fresh_client(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "clean"
+        first = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="deleted-a0",
+                local_path=self.make_file("deleted-a0.bin", b"old"),
+                sequence_no=50,
+                retention="persistent",
+            )
+        )
+        second = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="live-a1",
+                local_path=self.make_file("live-a1.bin", b"live"),
+                sequence_no=51,
+                retention="persistent",
+            )
+        )
+        self.assertEqual((first.sequence_no, second.sequence_no), (0, 1))
+        self.files.set_authoritative_state(
+            first.attachment_id,
+            transfer_state="deleted",
+        )
+
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "fresh-after-delete.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        discovered = fresh.sync_files()
+
+        self.assertEqual(discovered, (second,))
+        persisted = fresh_store.room_attachments("room-1")
+        self.assertEqual(
+            tuple((item.sequence_no, item.transfer_state) for item in persisted),
+            ((0, "deleted"), (1, "stored")),
+        )
+
+    def test_attachment_state_revision_gap_fails_before_mutating_local_state(self):
+        teacher = self.controller("teacher-1")
+        prepared = teacher.prepare_file(
+            attachment_id="state-gap-a1",
+            local_path=self.make_file("state-gap-a1.bin", b"state"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        uploaded = teacher.upload_file(prepared)
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "state-gap.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                room_id="room-1",
+                attachment_id=uploaded.attachment_id,
+                revision=1,
+                transfer_state="stored",
+                scan_state="clean",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment state has an unresolved revision gap",
+        ):
+            student.sync_files()
+
+        current = second_store.room_attachments("room-1")[0]
+        self.assertEqual(current.scan_state, "pending")
+        self.assertIsNone(second_store.attachment_state_revision("room-1"))
+
+    def test_new_file_history_is_not_exposed_when_state_stream_has_a_gap(self):
+        controller = self.controller("teacher-1")
+        incoming = AttachmentMetadata(
+            "remote-clean-before-gap",
+            "room-1",
+            "student-1",
+            0,
+            "clean-before-gap.pgn",
+            "application/x-chess-pgn",
+            8,
+            "d" * 64,
+            "rooms/room-1/remote-clean-before-gap",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (incoming,)
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                room_id="room-1",
+                attachment_id=incoming.attachment_id,
+                revision=1,
+                transfer_state="deleted",
+                scan_state="clean",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment state has an unresolved revision gap",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
+    def test_live_receive_advances_after_tombstone_prefix(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "remote-deleted-0",
+            "room-1",
+            "student-1",
+            0,
+            "deleted.bin",
+            None,
+            1,
+            "5" * 64,
+            "rooms/room-1/remote-deleted-0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        live = AttachmentMetadata(
+            "remote-live-1",
+            "room-1",
+            "student-2",
+            1,
+            "live.bin",
+            None,
+            1,
+            "6" * 64,
+            "rooms/room-1/remote-live-1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+
+        received = controller.receive_file(live)
+
+        self.assertEqual(received, live)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (tombstone, live),
+        )
+
+    def test_receive_later_file_rejects_partial_catch_up_that_still_has_a_gap(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "remote-partial-0",
+            "room-1",
+            "student-1",
+            0,
+            "zero.bin",
+            None,
+            1,
+            "3" * 64,
+            "rooms/room-1/remote-partial-0",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        later = AttachmentMetadata(
+            "remote-partial-2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "4" * 64,
+            "rooms/room-1/remote-partial-2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        # History can legitimately lag a live delivery. Recover the prefix that
+        # is available, but never anchor sequence 2 while sequence 1 is absent.
+        self.files.history_override = (first,)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live file has an unresolved sequence gap after recovery",
+        ):
+            controller.receive_file(later)
+
+        self.assertEqual(self.store.room_attachments("room-1"), (first,))
+
     def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
         controller = self.controller("teacher-1")
         base = AttachmentMetadata(
@@ -1009,13 +1458,13 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 self.assertEqual(self.store.room_attachments("room-1"), ())
         self.files.history_override = None
 
-    def test_file_history_must_be_strictly_ordered(self):
+    def test_file_history_must_be_contiguous_and_fail_atomically(self):
         controller = self.controller("teacher-1")
         first = AttachmentMetadata(
             "remote-a1",
             "room-1",
             "student-1",
-            3,
+            0,
             "one.bin",
             None,
             1,
@@ -1025,7 +1474,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "persistent",
             "clean",
         )
-        second = AttachmentMetadata(
+        skipped = AttachmentMetadata(
             "remote-a2",
             "room-1",
             "student-2",
@@ -1039,15 +1488,15 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "persistent",
             "clean",
         )
-        self.files.history_override = (first, second)
+        self.files.history_override = (first, skipped)
 
         with self.assertRaisesRegex(
             CollaborationError,
-            "file history is not strictly ordered",
+            "file history has an unresolved sequence gap",
         ):
             controller.sync_files()
 
-        self.assertEqual(self.store.room_attachments("room-1"), (first,))
+        self.assertEqual(self.store.room_attachments("room-1"), ())
 
     def test_upload_failure_is_persisted_failed_and_retry_preserves_identity(self):
         controller = self.controller()
