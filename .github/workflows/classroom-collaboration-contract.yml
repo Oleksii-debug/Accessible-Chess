@@ -56,6 +56,8 @@ jobs:
             feature/classroom-collaboration-contract-20260926)
               expected=(
                 '.github/workflows/classroom-collaboration-contract.yml'
+                'acs/classroom_collaboration.py'
+                'acs/classroom_collaboration_storage.py'
                 'tests/test_classroom_collaboration.py'
               )
               ;;
