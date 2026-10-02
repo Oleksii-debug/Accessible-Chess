@@ -38,6 +38,10 @@ class SoundProfileWriteBlockedError(RuntimeError):
     """Raised when this version must not overwrite a newer profile schema."""
 
 
+class SoundProfileConflictError(RuntimeError):
+    """Raised when persisted profile bytes changed after this owner observed them."""
+
+
 class SoundProfileRecoveryReason(str, Enum):
     ABSENT = "absent"
     LEGACY_MIGRATED = "legacy_migrated"
@@ -200,7 +204,11 @@ class SoundProfileManager:
             raise TypeError("profile must be SoundProfile")
         reasons: list[SoundProfileRecoveryReason] = []
         profile = self._reconcile_pack(profile, reasons)
-        self._persist(profile)
+        try:
+            self._persist(profile)
+        except SoundProfileConflictError:
+            self.load()
+            raise
         self._current = profile
         self._writes_blocked = False
         return profile
@@ -264,7 +272,14 @@ class SoundProfileManager:
             raise TypeError("profile must be SoundProfile")
         reasons: list[SoundProfileRecoveryReason] = []
         profile = self._reconcile_pack(profile, reasons)
-        self._persist(profile)
+        try:
+            self._persist(profile)
+        except SoundProfileConflictError:
+            # Do not replay the stale mutation. Refresh this process to the
+            # authoritative winner so the next user action starts from current
+            # durable state instead of repeatedly conflicting.
+            self.load()
+            raise
         self._current = profile
         return profile
 
