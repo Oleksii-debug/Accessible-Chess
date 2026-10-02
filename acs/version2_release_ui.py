@@ -286,6 +286,34 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 if type(event_id) is not str:
                     raise ValueError("event_id")
                 result = sound.preview(event_id, language=self.lang)
+            elif command == "select_pack":
+                if keys != {"pack_id"}:
+                    raise ValueError("select_pack payload")
+                pack_id = data.get("pack_id")
+                if type(pack_id) is not str:
+                    raise ValueError("pack_id")
+                result = sound.select_pack(pack_id, language=self.lang)
+            elif command == "install_pack":
+                if not keys <= {"pack_id", "activate"} or "pack_id" not in keys:
+                    raise ValueError("install_pack payload")
+                pack_id = data.get("pack_id")
+                if type(pack_id) is not str:
+                    raise ValueError("pack_id")
+                activate = data.get("activate", False)
+                if type(activate) is not bool:
+                    raise ValueError("activate")
+                result = sound.install_pack(
+                    pack_id,
+                    activate=activate,
+                    language=self.lang,
+                )
+            elif command == "uninstall_pack":
+                if keys != {"pack_id"}:
+                    raise ValueError("uninstall_pack payload")
+                pack_id = data.get("pack_id")
+                if type(pack_id) is not str:
+                    raise ValueError("pack_id")
+                result = sound.uninstall_pack(pack_id, language=self.lang)
             else:
                 raise ValueError("command")
         except (TypeError, ValueError):
