@@ -10,6 +10,7 @@ large in-process regression suites and tooling legitimately use both profiles.
 """
 
 from contextlib import contextmanager
+import os
 from typing import Any, Callable, Iterator
 
 from . import version2_release_app as _release_app
@@ -26,8 +27,8 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
     livekit_root = root / "vendor" / "livekit"
     livekit_resources: tuple[tuple[str, Any], ...] = ()
-    if livekit_root.exists():
-        if not livekit_root.is_dir():
+    if os.path.lexists(livekit_root):
+        if livekit_root.is_symlink() or not livekit_root.is_dir():
             raise RuntimeError("LiveKit browser SDK resource root is invalid.")
         livekit_resources = (
             ("LiveKit browser SDK", livekit_root / "livekit-client.umd.js"),
