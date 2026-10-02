@@ -41,16 +41,19 @@ class FakeLocalParticipant {
 
   async setMicrophoneEnabled(enabled) {
     this.sourceCalls.push(["microphone", enabled]);
+    if (FakeRoom.sourceError === "microphone") throw new Error("microphone publication failed");
     this.isMicrophoneEnabled = enabled;
   }
 
   async setCameraEnabled(enabled) {
     this.sourceCalls.push(["camera", enabled]);
+    if (FakeRoom.sourceError === "camera") throw new Error("camera publication failed");
     this.isCameraEnabled = enabled;
   }
 
   async setScreenShareEnabled(enabled) {
     this.sourceCalls.push(["screen_share", enabled]);
+    if (FakeRoom.sourceError === "screen_share") throw new Error("screen-share publication failed");
     this.isScreenShareEnabled = enabled;
   }
 
@@ -95,12 +98,14 @@ FakeRoom.instances = [];
 FakeRoom.nextConnect = null;
 FakeRoom.disconnectError = null;
 FakeRoom.switchResult = undefined;
+FakeRoom.sourceError = null;
 
 function reset() {
   FakeRoom.instances.length = 0;
   FakeRoom.nextConnect = null;
   FakeRoom.disconnectError = null;
   FakeRoom.switchResult = undefined;
+  FakeRoom.sourceError = null;
 }
 
 function adapter(overrides) {
@@ -246,6 +251,46 @@ async function run() {
   check(reconnected.microphone_enabled && !reconnected.camera_enabled && !reconnected.screen_share_enabled,
         "reconnect snapshot exposes wrong source state");
 
+  // Failed disconnect must retain the active Room and visible media state so
+  // cleanup can be retried instead of falsely reporting that capture stopped.
+  reset();
+  const disconnectClient = adapter();
+  await disconnectClient.connect(credential(), ["microphone"]);
+  const disconnectRoom = FakeRoom.instances[0];
+  FakeRoom.disconnectError = new Error("provider teardown failed");
+  await expectError(() => disconnectClient.disconnect(), "room disconnect failed");
+  const failedDisconnectSnapshot = disconnectClient.snapshot();
+  check(disconnectClient.connected === true, "failed disconnect lost the active Room handle");
+  check(failedDisconnectSnapshot.microphone_enabled === true,
+        "failed disconnect hid a microphone that may still be published");
+  check(failedDisconnectSnapshot.cleanup_required === false,
+        "validated active Room was mislabeled as cleanup-only");
+  check(disconnectRoom.disconnectCalls.length === 1, "failed disconnect was not attempted");
+  FakeRoom.disconnectError = null;
+  const disconnectedSnapshot = await disconnectClient.disconnect();
+  check(disconnectedSnapshot.connected === false && disconnectedSnapshot.cleanup_required === false,
+        "disconnect retry did not clear the provider Room");
+
+  // If media enablement fails and rollback teardown also fails, retain the
+  // validated Room rather than losing authority over already-enabled sources.
+  reset();
+  FakeRoom.sourceError = "camera";
+  FakeRoom.disconnectError = new Error("rollback teardown failed");
+  const rollbackClient = adapter();
+  await expectError(
+    () => rollbackClient.connect(credential(), ["microphone", "camera"]),
+    "media cleanup is still required"
+  );
+  const rollbackSnapshot = rollbackClient.snapshot();
+  check(rollbackSnapshot.connected === true,
+        "failed connection rollback lost a validated provider Room");
+  check(rollbackSnapshot.microphone_enabled === true,
+        "failed connection rollback hid already-enabled microphone state");
+  FakeRoom.sourceError = null;
+  FakeRoom.disconnectError = null;
+  await rollbackClient.disconnect();
+  check(rollbackClient.connected === false, "rollback cleanup retry did not disconnect");
+
   // Identity mismatch fails closed and destroys the provider room before publication.
   reset();
   FakeRoom.nextConnect = { room: "room-1", participant: "different-user" };
@@ -253,6 +298,27 @@ async function run() {
   await expectError(() => mismatch.connect(credential(), []), "participant identity does not match");
   check(FakeRoom.instances[0].disconnectCalls.length === 1, "identity mismatch left provider room connected");
   check(mismatch.connected === false, "identity mismatch published connected state");
+  check(mismatch.snapshot().cleanup_required === false,
+        "successful identity-mismatch cleanup left stale cleanup state");
+
+  // If an untrusted identity cannot be disconnected, keep only a cleanup handle:
+  // do not publish it as connected, and do not permit another join until cleanup succeeds.
+  reset();
+  FakeRoom.nextConnect = { room: "room-1", participant: "different-user" };
+  FakeRoom.disconnectError = new Error("identity cleanup failed");
+  const cleanupOnly = adapter();
+  await expectError(
+    () => cleanupOnly.connect(credential(), []),
+    "media cleanup is still required"
+  );
+  const cleanupOnlySnapshot = cleanupOnly.snapshot();
+  check(cleanupOnlySnapshot.connected === false && cleanupOnlySnapshot.cleanup_required === true,
+        "untrusted failed cleanup did not remain explicitly recoverable");
+  await expectError(() => cleanupOnly.connect(credential(), []), "media session cleanup is required");
+  FakeRoom.disconnectError = null;
+  const cleanedSnapshot = await cleanupOnly.disconnect();
+  check(cleanedSnapshot.connected === false && cleanedSnapshot.cleanup_required === false,
+        "cleanup-only Room was not released on retry");
 
   reset();
   FakeRoom.nextConnect = { room: "other-room", participant: "student-1" };
