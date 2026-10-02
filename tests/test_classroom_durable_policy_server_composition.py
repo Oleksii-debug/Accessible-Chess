@@ -191,6 +191,33 @@ class DurablePolicyServerCompositionTests(unittest.IsolatedAsyncioTestCase):
             payload=wire,
         )
 
+    def test_workflow_binds_current_serialized_policy_owner_and_scope(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-durable-policy-server-composition.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "POLICY_OWNER_SHA: 7fa1a19f589968c800bf3d5ecce60fff89c3f225",
+            workflow,
+        )
+        self.assertNotIn("IDENTITY_OWNER_SHA", workflow)
+        self.assertIn(
+            '"$(git rev-parse "$POLICY_OWNER_SHA:$path")"',
+            workflow,
+        )
+        self.assertIn(
+            ".github/workflows/classroom-distinct-moderation-serialization.yml",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+
     async def test_hard_revoke_persists_through_restart_and_shapes_next_join_grant(self):
         authority = self.authority()
         initial = await self.issue_join(authority=authority)
