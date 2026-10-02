@@ -839,6 +839,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(len(stored), 1)
         self.assertTrue(stored[0].hidden)
 
+    def test_new_chat_history_is_not_persisted_when_state_stream_has_a_gap(self):
+        controller = self.controller("student-1")
+        incoming = ChatMessageMetadata(
+            "atomic-chat-history",
+            "room-1",
+            "teacher-1",
+            0,
+            "Do not expose before state reconciliation",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.ordered = [incoming]
+        self.chat.messages[incoming.message_id] = incoming
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                "room-1",
+                incoming.message_id,
+                1,
+            )
+        ]
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "chat moderation state has an unresolved revision gap",
+        ):
+            controller.sync_chat()
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room-1"))
+
     def test_moderation_state_stream_must_be_strict_and_reference_known_message(self):
         controller = self.controller("student-1")
         message = self.chat.send_message(
