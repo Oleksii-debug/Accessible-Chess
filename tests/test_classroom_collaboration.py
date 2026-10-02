@@ -213,6 +213,24 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(controller.sync_chat(), ())
         self.assertEqual(self.store.room_messages("room-1"), (one, two))
 
+    def test_send_repairs_missed_server_message_before_committing_later_sequence(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("m0", "room-1", "teacher-1", "First")
+        )
+        missed = self.chat.send_message(
+            ChatDraft("m1", "room-1", "student-2", "Missed")
+        )
+        controller.receive_chat(first)
+
+        sent = controller.send_chat(message_id="m2", body="My later message")
+
+        self.assertEqual(sent.sequence_no, 2)
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (first, missed, sent),
+        )
+
     def test_sync_rejects_cross_room_or_out_of_order_transport_history(self):
         controller = self.controller()
         self.chat.ordered.append(
