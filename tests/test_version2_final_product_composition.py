@@ -59,4 +59,6 @@ def test_final_bootstrap_is_packaged_and_remote_transport_is_absent():
     assert '"classes"' in source
     assert "AccessibleChessTeacherSurface" in source
     assert "AccessibleChessEducationSurface" in source
+    assert "AccessibleChessClassroomMediaSurface" in source
+    assert 'areaInvoke("media")' in source
     assert "remote.connect" not in source
