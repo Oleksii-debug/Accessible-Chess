@@ -1276,6 +1276,77 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ((0, "deleted"), (1, "stored")),
         )
 
+    def test_file_state_for_next_history_page_is_deferred(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "clean"
+        uploaded = tuple(
+            teacher.upload_file(
+                teacher.prepare_file(
+                    attachment_id=f"paged-a{index}",
+                    local_path=self.make_file(
+                        f"paged-a{index}.bin",
+                        bytes([index + 1]),
+                    ),
+                    sequence_no=100 + index,
+                    retention="persistent",
+                )
+            )
+            for index in range(3)
+        )
+        self.files.set_authoritative_state(
+            uploaded[2].attachment_id,
+            transfer_state="deleted",
+        )
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-state-client.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_ATTACHMENTS", 2):
+            first_page = student.sync_files()
+            self.assertEqual(first_page, uploaded[:2])
+            self.assertIsNone(second_store.attachment_state_revision("room-1"))
+
+            second_page = student.sync_files()
+
+        self.assertEqual(second_page, ())
+        persisted = second_store.room_attachments("room-1")
+        self.assertEqual(
+            tuple((item.sequence_no, item.transfer_state) for item in persisted),
+            ((0, "stored"), (1, "stored"), (2, "deleted")),
+        )
+        self.assertEqual(second_store.attachment_state_revision("room-1"), 0)
+
+    def test_file_state_unknown_after_complete_history_fails_closed(self):
+        controller = self.controller("teacher-1")
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                room_id="room-1",
+                attachment_id="never-in-history",
+                revision=0,
+                transfer_state="deleted",
+                scan_state="clean",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment state references unknown room attachment",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
     def test_attachment_state_revision_gap_fails_before_mutating_local_state(self):
         teacher = self.controller("teacher-1")
         prepared = teacher.prepare_file(
