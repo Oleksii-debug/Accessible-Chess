@@ -81,11 +81,15 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         ]
         self.assertEqual(expected, sorted(expected))
 
-    def test_media_workflow_binds_immutable_pull_request_base(self) -> None:
+    def test_media_workflow_binds_live_pull_request_base_fail_closed(self) -> None:
         source = self.workflow
-        self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", source)
-        self.assertIn('base="$PR_BASE_SHA"', source)
-        self.assertNotIn('git rev-parse "refs/remotes/origin/$PR_BASE_REF"', source)
+        self.assertIn("EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}", source)
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', source)
+        self.assertIn('git fetch --no-tags origin "$PR_BASE_REF"', source)
+        self.assertIn('base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"', source)
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', source)
+        self.assertIn('git diff --name-only "$base...HEAD"', source)
+        self.assertNotIn('base="$EVENT_BASE_SHA"', source)
 
     def test_classes_media_remains_reachable_when_education_is_unavailable(self) -> None:
         source = self.bootstrap
