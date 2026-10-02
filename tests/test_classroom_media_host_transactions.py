@@ -21,6 +21,7 @@ from acs.classroom_realtime_media import (
     MediaDeviceKind,
     MediaSource,
     ModerationAction,
+    ModerationCommand,
 )
 
 
