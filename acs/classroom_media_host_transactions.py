@@ -384,6 +384,7 @@ class ClassroomMediaHostTransactions:
         self._owner_thread_id = get_ident()
         self._pending: _PendingTransaction | None = None
         self._recovery: _PendingTransaction | None = None
+        self._used_transaction_ids: set[str] = set()
 
     @property
     def pending_effect(self) -> MediaProviderEffect | None:
@@ -421,6 +422,11 @@ class ClassroomMediaHostTransactions:
             raise MediaHostTransactionError(
                 "transaction id factory returned invalid identity"
             )
+        if value in self._used_transaction_ids:
+            raise MediaHostTransactionError(
+                "transaction id factory reused a media transaction identity"
+            )
+        self._used_transaction_ids.add(value)
         return value
 
     def _prepare(self, replay: Callable[[], Any]) -> MediaProviderEffect | None:
