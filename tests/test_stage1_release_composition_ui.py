@@ -296,6 +296,24 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("document.addEventListener('keydown'", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
+    def test_new_game_visual_sequence_is_visual_only_interruptible_and_sound_timed(self) -> None:
+        text = self.bootstrap
+        self.assertIn("const NEW_GAME_IMPACT_MS = Object.freeze([", text)
+        self.assertIn("160, 374, 748, 853", text)
+        self.assertIn("8062, 8231", text)
+        self.assertIn("function startNewGameVisualSequence()", text)
+        self.assertIn("function finishNewGameVisualSequence()", text)
+        self.assertIn("prefers-reduced-motion: reduce", text)
+        self.assertIn("piece.setAttribute('aria-hidden', 'true')", text)
+        self.assertIn("document.addEventListener('keydown'", text)
+        self.assertIn("document.addEventListener('pointerdown'", text)
+        self.assertIn("window.startNewGameVisualSequence = startNewGameVisualSequence", text)
+        self.assertIn("stage1-new-game-animating", text)
+
+        menu = (self.root / "acs" / "ui_native_menu.py").read_text(encoding="utf-8")
+        self.assertIn('getattr(fn, "__name__", "") == "new_game"', menu)
+        self.assertIn("window.startNewGameVisualSequence", menu)
+
     def test_webview_bootstrap_exposes_accessible_sound_controls_without_new_live_region(self) -> None:
         text = self.bootstrap
         for element_id in (
