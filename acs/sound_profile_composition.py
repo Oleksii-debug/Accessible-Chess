@@ -175,17 +175,18 @@ def create_local_sound_composition(
 
     profile_storage = JsonSoundProfileStorage(profile_path)
     pack_store = FilesystemSoundPackStore(packs_root)
+
+    # Parse legacy state before materializing any new profile file. Otherwise a
+    # malformed legacy payload could leave a default sound-profile.json behind,
+    # causing the next startup to treat migration as already completed.
+    profile_preexisted = os.path.lexists(profile_path)
+    migrated = None if profile_preexisted else _legacy_profile(legacy_settings)
     profile_manager = SoundProfileManager(
         profile_storage,
         _local_pack_resolver(pack_store),
+        default_profile=migrated,
     )
-
-    profile_preexisted = os.path.lexists(profile_path)
     profile_manager.load()
-    if not profile_preexisted:
-        migrated = _legacy_profile(legacy_settings)
-        if migrated is not None:
-            profile_manager.save(migrated)
 
     playback = _asset_playback(
         asset_playback,
