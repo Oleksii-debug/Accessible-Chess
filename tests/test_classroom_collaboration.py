@@ -1500,6 +1500,42 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertIsNone(self.store.attachment_state_revision("room-1"))
 
+    def test_live_receive_cannot_restore_blocked_failed_upload(self):
+        controller = self.controller("student-1")
+        prepared = controller.prepare_file(
+            attachment_id="blocked-live-a0",
+            local_path=self.make_file("blocked-live-a0.bin", b"blocked"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        blocked = self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+        authoritative = replace(
+            prepared.metadata,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "remote attachment could not be reconciled",
+        ):
+            controller.receive_file(authoritative)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (blocked,),
+        )
+
     def test_live_receive_adopts_authority_over_ambiguous_failed_upload(self):
         controller = self.controller("student-1")
         prepared = controller.prepare_file(
