@@ -27,31 +27,33 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact candidate and pull-request scope
+      - name: Prove current Product merge and exact identity scope
         shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          expected='${{ github.event.pull_request.head.sha || github.sha }}'
-          test "$(git rev-parse HEAD)" = "$expected"
-          echo "LOCAL_PROFILE_IDENTITY_EXACT_HEAD=$expected"
 
           if test '${{ github.event_name }}' = 'pull_request'; then
-            event_base='${{ github.event.pull_request.base.sha }}'
-            base_ref='${{ github.event.pull_request.base.ref }}'
-            test -n "$event_base"
-            test -n "$base_ref"
-            git cat-file -e "${event_base}^{commit}"
-            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
-            live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
-            git merge-base --is-ancestor "$event_base" "$live_base"
-            git merge-base --is-ancestor "$live_base" HEAD
-            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-            mapfile -t changed < <(git diff --name-only "$live_base" HEAD)
+            test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+            test -n "$PR_BASE_SHA"
+            test -n "$PR_HEAD_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git cat-file -e "$PR_HEAD_SHA^{commit}"
+
+            # GitHub's pull_request checkout is the synthetic merge of the
+            # current Product base and this exact identity head. Proving both
+            # parents avoids a race against an independently moving base.
+            test "$(git rev-parse HEAD^1)" = "$PR_BASE_SHA"
+            test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+
+            mapfile -t changed < <(git diff --name-only "$PR_BASE_SHA...$PR_HEAD_SHA")
             printf '%s\n' "${changed[@]}"
             allowed='^(acs/local_profile\.py|tests/test_local_profile\.py|\.github/workflows/local-profile-identity\.yml)$'
             for path in "${changed[@]}"; do
@@ -61,13 +63,18 @@ jobs:
               fi
             done
             test "${#changed[@]}" -eq 3
-            git diff --check "$live_base" HEAD
-            echo "LOCAL_PROFILE_IDENTITY_EVENT_BASE=$event_base"
-            echo "LOCAL_PROFILE_IDENTITY_LIVE_BASE=$live_base"
+            git diff --check "$PR_BASE_SHA...$PR_HEAD_SHA"
+            echo "LOCAL_PROFILE_IDENTITY_BASE=$PR_BASE_SHA"
+            echo "LOCAL_PROFILE_IDENTITY_HEAD=$PR_HEAD_SHA"
             echo "LOCAL_PROFILE_IDENTITY_SCOPE=EXACT_THREE_PATHS"
+          else
+            expected='${{ github.sha }}'
+            test "$(git rev-parse HEAD)" = "$expected"
+            git diff --check HEAD^ HEAD
+            echo "LOCAL_PROFILE_IDENTITY_EXACT_HEAD=$expected"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
 
