@@ -26,6 +26,7 @@ env:
   CURRENT_PREFLIGHT_BLOB: 4f51c74d295b8bcc0053af81aebfe735ea76b586
   CURRENT_PREFLIGHT_LIVEKIT_BLOB: 2107875f013424c962af9534f75acb45142d3539
   CURRENT_ASSEMBLER_TEST_BLOB: 49470870cc9ead8d9113c7edb530867deee22d16
+  CURRENT_ASSEMBLER_TEST_LIVEKIT_BLOB: 4daa07a54efe3f09805b4a3d0ed15fb06a7981f9
 
 jobs:
   focused:
@@ -66,11 +67,15 @@ jobs:
             # instead of requiring the whole Product to equal an old ancestor.
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
             preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
-            case "$preflight_blob" in
-              "$CURRENT_PREFLIGHT_BLOB"|"$CURRENT_PREFLIGHT_LIVEKIT_BLOB") ;;
-              *) echo "Unreviewed V2 package-preflight identity: $preflight_blob" >&2; exit 1 ;;
-            esac
-            test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_TEST_BLOB"
+            assembler_test_blob="$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
+            if [ "$preflight_blob" = "$CURRENT_PREFLIGHT_LIVEKIT_BLOB" ]; then
+              test "$assembler_test_blob" = "$CURRENT_ASSEMBLER_TEST_LIVEKIT_BLOB"
+              echo 'W6_ASSEMBLER_IDENTITY=LIVEKIT_PREFLIGHT_SUCCESSOR'
+            else
+              test "$preflight_blob" = "$CURRENT_PREFLIGHT_BLOB"
+              test "$assembler_test_blob" = "$CURRENT_ASSEMBLER_TEST_BLOB"
+              echo 'W6_ASSEMBLER_IDENTITY=PRE_LIVEKIT_BASELINE'
+            fi
             echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
           fi
 
