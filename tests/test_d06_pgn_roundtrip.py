@@ -273,6 +273,42 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 (game,),
             )
 
+    def test_serialization_preflight_matches_strict_lexical_token_budget(self):
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.", nags=["!"])],
+                result="*",
+            ),
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 5):
+            text = serialize_pgn_text((game,))
+            self.assertEqual(parse_pgn_text(text), (game,))
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 4):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+
+    def test_serialization_preflight_counts_implicit_result_header(self):
+        fits = PgnGame(
+            tags={"Event": "One"},
+            line=VariationLine(moves=[MoveNode("e4", move_number="1.")], result="*"),
+        )
+        overflow = PgnGame(
+            tags={"Event": "One", "Site": "Here"},
+            line=VariationLine(moves=[MoveNode("e4", move_number="1.")], result="*"),
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_TAGS_PER_GAME", 2):
+            text = serialize_pgn_text((fits,))
+            self.assertIn('[Result "*"]', text)
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+                serialize_pgn_text,
+                (overflow,),
+            )
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
