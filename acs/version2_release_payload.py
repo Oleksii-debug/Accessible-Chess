@@ -139,12 +139,16 @@ def _sha256(path: Path) -> str:
 
 def _is_link_like(path: Path) -> bool:
     try:
-        if path.is_symlink():
-            return True
-        is_junction = getattr(path, "is_junction", None)
-        return bool(is_junction()) if callable(is_junction) else False
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
     except OSError:
         return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(
+        stat.S_ISLNK(info.st_mode)
+        or (getattr(info, "st_file_attributes", 0) & reparse_flag)
+    )
 
 
 def _require_clean_source_tree(root: Path, *, label: str) -> None:
