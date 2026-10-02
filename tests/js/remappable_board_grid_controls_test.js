@@ -34,7 +34,13 @@ const boardEnd = html.indexOf('\nfunction focusHistoryJump', boardStart);
 assert.notStrictEqual(boardStart, -1, 'onBoardKey not found');
 assert.notStrictEqual(boardEnd, -1, 'onBoardKey terminator not found');
 const boardHandler = html.slice(boardStart, boardEnd);
-assert.ok(boardHandler.includes("resolveBinding(eventChord(e),'board','board')"));
+assert.ok(boardHandler.includes("keymapActionForEvent(e,'board')"));
+assert.ok(boardHandler.includes("resolveBinding(chord,'board','board')"));
+const boardCancel = boardHandler.indexOf('e.preventDefault()');
+const boardAwait = boardHandler.indexOf('await resolveBinding');
+assert.ok(boardCancel >= 0, 'board handler must synchronously cancel its known remapped gesture');
+assert.ok(boardAwait > boardCancel, 'board preventDefault must occur before asynchronous bridge validation');
+assert.ok(boardHandler.includes("a&&a.actionId===candidate"), 'board execution must fail closed if bridge result differs from cached candidate');
 for (const hardcoded of [
   "key==='Escape'",
   "key==='Enter'",
