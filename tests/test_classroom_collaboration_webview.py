@@ -87,6 +87,56 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(1, len(self.store.room_messages("room-1")))
         self.assertNotIn("browser-owned", repr(rejected.payload))
 
+    def test_chat_history_is_bounded_pageable_and_keeps_semantic_order(self) -> None:
+        for sequence in range(105):
+            self.store.append_message(
+                ChatMessageMetadata(
+                    f"history-{sequence}",
+                    "room-1",
+                    "student-2",
+                    sequence,
+                    f"Message {sequence}",
+                    sent_at_unix_ms=1700000000000 + sequence,
+                )
+            )
+        view = self.webview()
+
+        latest = view.snapshot()["chat"]
+        self.assertEqual(5, len(latest["messages"]))
+        self.assertEqual("Message 100", latest["messages"][0]["body"])
+        self.assertEqual("Message 104", latest["messages"][-1]["body"])
+        self.assertEqual("Message history page 3 of 3", latest["page_label"])
+        self.assertTrue(latest["can_older"])
+        self.assertFalse(latest["can_newer"])
+
+        beyond_latest = view.dispatch("collaboration.chat.newer", {})
+        self.assertEqual("error", beyond_latest.kind)
+
+        middle_event = view.dispatch("collaboration.chat.older", {})
+        middle = middle_event.payload["collaboration"]["chat"]
+        self.assertEqual("collaboration.chat.page", middle_event.kind)
+        self.assertEqual("collaboration-chat-older", middle_event.payload["focus_target"])
+        self.assertEqual(50, len(middle["messages"]))
+        self.assertEqual("Message 50", middle["messages"][0]["body"])
+        self.assertEqual("Message 99", middle["messages"][-1]["body"])
+        self.assertTrue(middle["can_older"])
+        self.assertTrue(middle["can_newer"])
+
+        oldest_event = view.dispatch("collaboration.chat.older", {})
+        oldest = oldest_event.payload["collaboration"]["chat"]
+        self.assertEqual("collaboration-chat-newer", oldest_event.payload["focus_target"])
+        self.assertEqual(50, len(oldest["messages"]))
+        self.assertEqual("Message 0", oldest["messages"][0]["body"])
+        self.assertEqual("Message 49", oldest["messages"][-1]["body"])
+        self.assertFalse(oldest["can_older"])
+        self.assertTrue(oldest["can_newer"])
+
+        middle_again = view.dispatch("collaboration.chat.newer", {})
+        self.assertEqual(
+            "Message 50",
+            middle_again.payload["collaboration"]["chat"]["messages"][0]["body"],
+        )
+
     def test_sync_marks_only_new_remote_messages_unread_and_announcement_has_no_focus_request(self) -> None:
         view = self.webview()
         view.dispatch("collaboration.chat.send", {"body": "Local"})
