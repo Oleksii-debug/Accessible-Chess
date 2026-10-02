@@ -560,7 +560,20 @@ def _claim_model_chars(budget: list[int], amount: int) -> None:
         )
 
 
-def _measure_comment(comment: object, budget: list[int]) -> None:
+def _claim_model_tokens(counter: list[int], amount: int = 1) -> None:
+    counter[0] += amount
+    if counter[0] > MAX_PGN_LEXICAL_TOKENS:
+        _raise_limit(
+            "PGN model exceeds the lexical-work safety limit",
+            PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+        )
+
+
+def _measure_comment(
+    comment: object,
+    budget: list[int],
+    token_count: list[int],
+) -> None:
     if not isinstance(comment, Comment) or type(comment.text) is not str:
         raise PgnRoundTripError(
             "PGN model contains an invalid comment",
@@ -577,6 +590,7 @@ def _measure_comment(comment: object, budget: list[int]) -> None:
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     _claim_model_chars(budget, len(comment.text) + 16)
+    _claim_model_tokens(token_count)
 
 
 def _measure_line(
@@ -585,6 +599,7 @@ def _measure_line(
     seen: set[int],
     active: set[int],
     node_count: list[int],
+    token_count: list[int],
     *,
     depth: int,
 ) -> None:
@@ -625,7 +640,7 @@ def _measure_line(
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     for comment in line.leading_comments:
-        _measure_comment(comment, budget)
+        _measure_comment(comment, budget, token_count)
     for node in line.moves:
         if not isinstance(node, MoveNode):
             raise PgnRoundTripError(
@@ -647,6 +662,7 @@ def _measure_line(
             )
         _validate_san(node.san)
         _claim_model_chars(budget, len(node.san) + 32)
+        _claim_model_tokens(token_count)
         if node.move_number is not None:
             if type(node.move_number) is not str or len(node.move_number) > MAX_PGN_TOKEN_CHARS:
                 raise PgnRoundTripError(
@@ -654,6 +670,7 @@ def _measure_line(
                     code=PgnRoundTripErrorCode.INVALID_MODEL,
                 )
             _claim_model_chars(budget, len(node.move_number) + 4)
+            _claim_model_tokens(token_count)
         if type(node.nags) is not list:
             raise PgnRoundTripError(
                 "PGN move NAG collection must be a list",
@@ -666,15 +683,16 @@ def _measure_line(
                     code=PgnRoundTripErrorCode.INVALID_MODEL,
                 )
             _claim_model_chars(budget, len(nag) + 4)
+            _claim_model_tokens(token_count)
         if type(node.comments_before) is not list or type(node.comments_after) is not list:
             raise PgnRoundTripError(
                 "PGN move comment collections must be lists",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
         for comment in node.comments_before:
-            _measure_comment(comment, budget)
+            _measure_comment(comment, budget, token_count)
         for comment in node.comments_after:
-            _measure_comment(comment, budget)
+            _measure_comment(comment, budget, token_count)
         if type(node.variations) is not list:
             raise PgnRoundTripError(
                 "PGN move variations must be a list",
@@ -682,16 +700,18 @@ def _measure_line(
             )
         for variation in node.variations:
             _claim_model_chars(budget, 4)
+            _claim_model_tokens(token_count, 2)
             _measure_line(
                 variation,
                 budget,
                 seen,
                 active,
                 node_count,
+                token_count,
                 depth=depth + 1,
             )
     for comment in line.trailing_comments:
-        _measure_comment(comment, budget)
+        _measure_comment(comment, budget, token_count)
     if line.result is not None:
         if type(line.result) is not str or len(line.result) > MAX_PGN_TOKEN_CHARS:
             raise PgnRoundTripError(
@@ -699,6 +719,7 @@ def _measure_line(
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
         _claim_model_chars(budget, len(line.result) + 4)
+        _claim_model_tokens(token_count)
     active.remove(identity)
 
 
@@ -712,13 +733,15 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
     seen: set[int] = set()
     active: set[int] = set()
     node_count = [0]
+    token_count = [0]
     for game in games:
         if not isinstance(game, PgnGame) or type(game.tags) is not dict:
             raise PgnRoundTripError(
                 "PGN serialization requires PgnGame values",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
-        if len(game.tags) > MAX_PGN_TAGS_PER_GAME:
+        serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
+        if serialized_tag_count > MAX_PGN_TAGS_PER_GAME:
             _raise_limit(
                 "PGN game contains too many tag pairs",
                 PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
@@ -746,7 +769,25 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
             _claim_model_chars(budget, len(key) + len(value) + 16)
-        _measure_line(game.line, budget, seen, active, node_count, depth=0)
+            _claim_model_tokens(token_count)
+        _measure_line(
+            game.line,
+            budget,
+            seen,
+            active,
+            node_count,
+            token_count,
+            depth=0,
+        )
+        if "Result" not in game.tags:
+            result = game.result
+            if type(result) is not str:
+                raise PgnRoundTripError(
+                    "PGN model contains an invalid effective result",
+                    code=PgnRoundTripErrorCode.INVALID_MODEL,
+                )
+            _claim_model_chars(budget, len("Result") + len(result) + 16)
+            _claim_model_tokens(token_count)
 
 
 def materialize_pgn_games_bounded(
