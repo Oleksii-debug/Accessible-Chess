@@ -24,9 +24,20 @@ from .version2_final_product_profile import (
 
 def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
+    livekit_root = root / "vendor" / "livekit"
+    livekit_resources: tuple[tuple[str, object], ...] = ()
+    if livekit_root.exists():
+        if not livekit_root.is_dir():
+            raise RuntimeError("LiveKit browser SDK resource root is invalid.")
+        livekit_resources = (
+            ("LiveKit browser SDK", livekit_root / "livekit-client.umd.js"),
+            ("Classroom LiveKit media adapter", root / "livekit_classroom_media.js"),
+        )
+
     resources = (
         ("Stage 1 WebView bootstrap", root / "stage1_release_bootstrap.js"),
         ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
+        *livekit_resources,
         ("V2 PGN surface", root / "full_product_pgn.js"),
         ("V2 Library surface", root / "full_product_library.js"),
         ("V2 Books surface", root / "full_product_books_training.js"),
