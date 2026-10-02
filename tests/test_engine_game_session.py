@@ -587,6 +587,7 @@ class EngineGameSessionTests(unittest.TestCase):
         optional = (
             "undo_committed_move",
             "clock_restore_provider",
+            "takeback_transaction",
             "no_move_resolver",
             "timeout_mating_capability_provider",
             "analysis_handoff",
