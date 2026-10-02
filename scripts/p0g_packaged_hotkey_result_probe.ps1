@@ -24,6 +24,11 @@ public static class AccessibleChessP0GKeys {
   private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
   private const uint KEYEVENTF_KEYUP = 0x0002;
   private const byte VK_MENU = 0x12;
+  private const byte VK_RETURN = 0x0D;
+  public static void Enter() {
+    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
   public static void Alt(byte key) {
     keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, 0, UIntPtr.Zero);
@@ -202,14 +207,14 @@ function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha
 
   $relative='AccessibleChess/AccessibleChess.exe'
   $checksum=$null
-  $matches=0
+  $checksumMatchCount=0
   foreach($line in @(Get-Content -LiteralPath $checksumsPath -Encoding UTF8)){
     if($line -cmatch '^(?<digest>[0-9A-Fa-f]{64})  AccessibleChess/AccessibleChess\.exe$'){
-      $matches++
+      $checksumMatchCount++
       $checksum=$Matches['digest'].ToLowerInvariant()
     }
   }
-  if($matches -ne 1 -or -not $checksum){
+  if($checksumMatchCount -ne 1 -or -not $checksum){
     throw "SHA256SUMS.txt must contain exactly one canonical checksum for $relative"
   }
   $actual=(Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -239,6 +244,58 @@ function FindVariationButton($Roots,[int]$Index) {
     } catch {}
   }
   return $null
+}
+
+
+function ActivateVariationPrecondition($Roots,$Button,[int]$Index,$Shell,$Process) {
+  if($null -eq $Button){throw "analysis variation $Index precondition is missing"}
+  $name=([string]$Button.Current.Name).Trim()
+  $expected="^(Варіант|Variant)\\s+$Index\\."
+  if([string]$Button.Current.ControlType.ProgrammaticName -ne 'ControlType.Button' -or
+     $name -notmatch $expected){
+    throw "analysis variation $Index precondition is not the named UIA Button"
+  }
+  if(-not [bool]$Button.Current.IsEnabled){
+    throw "analysis variation $Index precondition is disabled"
+  }
+  $targetRuntime=RuntimeId $Button
+  if(-not $targetRuntime){throw "analysis variation $Index has no stable UIA runtime identity"}
+  $invokePattern=$null
+  $hasInvoke=$false
+  try {
+    $hasInvoke=$Button.TryGetCurrentPattern(
+      [System.Windows.Automation.InvokePattern]::Pattern,[ref]$invokePattern
+    )
+  } catch {
+    throw "analysis variation $Index InvokePattern availability could not be read"
+  }
+  if($hasInvoke -and $null -ne $invokePattern){
+    $invokePattern.Invoke()
+    return 'uia-invoke'
+  }
+  # Chromium/WebView2 can expose an enabled HTML button through ControlView
+  # without offering InvokePattern. Use the user's native focus + Enter path,
+  # never a scripted DOM click or application API shortcut.
+  if(-not [bool]$Button.Current.IsKeyboardFocusable){
+    throw "analysis variation $Index lacks InvokePattern and keyboard focus"
+  }
+  ActivateProduct $Shell $Process
+  AssertProductForeground $Process
+  $Button.SetFocus()
+  $null=WaitFor {
+    $focus=[System.Windows.Automation.AutomationElement]::FocusedElement
+    if($null -ne $focus -and (RuntimeId $focus) -ceq $targetRuntime -and
+       [string]$focus.Current.ControlType.ProgrammaticName -eq 'ControlType.Button'){
+      return $true
+    }
+    return $null
+  } 2500 "analysis variation $Index could not receive exact native keyboard focus"
+  if(-not [bool]$Button.Current.IsEnabled -or (RuntimeId $Button) -cne $targetRuntime){
+    throw "analysis variation $Index identity/enabled state changed before Enter"
+  }
+  AssertProductForeground $Process
+  [AccessibleChessP0GKeys]::Enter()
+  return 'native-enter'
 }
 
 function SelectedVariation($Roots,[int]$Index) {
@@ -297,15 +354,18 @@ try {
   } ([Math]::Min($TimeoutSeconds*1000,30000)) 'Packaged Stockfish did not expose two analysis variations in time'
 
   $preconditionStates=@()
+  $preconditionModes=@()
   $selectedStates=@()
   $announcements=@()
   foreach($case in @(@{index=1; key=0x31},@{index=2; key=0x32})){
     $index=[int]$case.index
     $opposite=if($index -eq 1){2}else{1}
     $preconditionButton=WaitFor {
-      FindVariationButton $roots $opposite
-    } 5000 "Could not find opposite variation $opposite for Alt+$index causal precondition"
-    Invoke $preconditionButton "analysis variation $opposite precondition"
+      $candidate=FindVariationButton $roots $opposite
+      if($null -ne $candidate -and [bool]$candidate.Current.IsEnabled){return $candidate}
+      return $null
+    } 12000 "Could not find enabled opposite variation $opposite for Alt+$index causal precondition"
+    $preconditionMode=ActivateVariationPrecondition $roots $preconditionButton $opposite $shell $process
     $precondition=WaitFor {
       SelectedVariation $roots $opposite
     } 5000 "Could not establish opposite variation $opposite before Alt+$index"
@@ -324,12 +384,13 @@ try {
     } 5000 "Alt+$index did not expose a matching live-region result"
     AssertCleanAnnouncement $text $index
     $preconditionStates += $precondition
+    $preconditionModes += $preconditionMode
     $selectedStates += $selected
     $announcements += $text
-    Write-Host "PACKAGED_P0G_ALT_${index}=PASS precondition='$precondition' selected='$selected' result='$text'"
+    Write-Host "PACKAGED_P0G_ALT_${index}=PASS precondition='$precondition' activation=$preconditionMode selected='$selected' result='$text'"
   }
 
-  if($preconditionStates.Count -ne 2 -or $selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
+  if($preconditionStates.Count -ne 2 -or $preconditionModes.Count -ne 2 -or $selectedStates.Count -ne 2 -or $announcements.Count -ne 2 -or $announcements[0] -eq $announcements[1]){
     throw 'Alt+1 and Alt+2 did not prove causal selected-state transitions and distinct accessible results'
   }
 
@@ -344,11 +405,13 @@ try {
     manifest_product_sha_verified=$true
     executable_checksum_verified=$true
     alt_1_precondition_selected_state=$preconditionStates[0]
+    alt_1_precondition_activation=$preconditionModes[0]
     alt_1_action_occurred=$true
     alt_1_selected_state=$selectedStates[0]
     alt_1_accessible_result_exposed=$true
     alt_1_result=$announcements[0]
     alt_2_precondition_selected_state=$preconditionStates[1]
+    alt_2_precondition_activation=$preconditionModes[1]
     alt_2_action_occurred=$true
     alt_2_selected_state=$selectedStates[1]
     alt_2_accessible_result_exposed=$true
