@@ -61,6 +61,26 @@
     return root.contains(active) ? String(active.id) : "";
   }
 
+  function collaborationOwnsFocus(root) {
+    if (!root || typeof root.querySelector !== "function") return false;
+    const collaboration = root.querySelector("#classroom-collaboration");
+    return !!(
+      collaboration &&
+      typeof collaboration.contains === "function" &&
+      collaboration.contains(document.activeElement)
+    );
+  }
+
+  function collaborationFocusTarget(value) {
+    if (typeof value !== "string") return "";
+    return [
+      "classroom-collaboration-heading",
+      "collaboration-chat-input",
+      "collaboration-chat-sync",
+      "collaboration-file-choose"
+    ].indexOf(value) >= 0 ? value : "";
+  }
+
   function collaborationDraftInside(root) {
     if (!root || typeof root.querySelector !== "function") return null;
     const input = root.querySelector("#collaboration-chat-input");
@@ -94,6 +114,7 @@
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     const previousFocus = activeIdInside(root);
+    const collaborationWasFocused = collaborationOwnsFocus(root);
     const previousDraft = collaborationDraftInside(root);
     if ((result.kind === "selection" || result.kind === "page") && payload.snapshot) {
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
@@ -120,7 +141,14 @@
     }
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
-    const requestedFocus = payload.focus_target || previousFocus || "";
+    const payloadFocus = payload.collaboration
+      ? (
+        collaborationWasFocused
+          ? collaborationFocusTarget(payload.focus_target)
+          : ""
+      )
+      : (typeof payload.focus_target === "string" ? payload.focus_target : "");
+    const requestedFocus = payloadFocus || previousFocus || "";
     if (
       !focusTarget(root, requestedFocus) &&
       payload.collaboration &&
