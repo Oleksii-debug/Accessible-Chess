@@ -437,9 +437,9 @@ class ClassroomCollaborationSQLiteStore:
                 )
                 db.execute(
                     """
-                    CREATE UNIQUE INDEX uq_collaboration_attachments_terminal_sequence
+                    CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
                     ON collaboration_attachments(room_id, sequence_no)
-                    WHERE transfer_state IN ('stored','deleted')
+                    WHERE transfer_state='stored'
                     """
                 )
                 db.execute(
@@ -453,6 +453,9 @@ class ClassroomCollaborationSQLiteStore:
                 # a placeholder sequence before server reconciliation.
                 db.execute(
                     "DROP INDEX IF EXISTS uq_collaboration_attachments_stored_sequence"
+                )
+                db.execute(
+                    "DROP INDEX IF EXISTS uq_collaboration_attachments_terminal_sequence"
                 )
                 db.execute(
                     """
@@ -771,6 +774,10 @@ class ClassroomCollaborationSQLiteStore:
             if safe_display_filename(attachment.display_name) != attachment.display_name:
                 raise ValueError("display_name must already be sanitized")
             _safe_object_key(attachment.object_key)
+            if attachment.transfer_state not in {"stored", "deleted"}:
+                raise CollaborationStorageError(
+                    "attachment sync requires authoritative terminal metadata"
+                )
         if not attachments:
             return ()
 
@@ -853,11 +860,72 @@ class ClassroomCollaborationSQLiteStore:
                     ).fetchone()
                     if existing is not None:
                         loaded = self._attachment_from_row(existing)
-                        if loaded != attachment:
+                        if loaded == attachment:
+                            persisted.append(loaded)
+                            continue
+                        immutable = (
+                            "attachment_id",
+                            "room_id",
+                            "sender_id",
+                            "display_name",
+                            "mime_type",
+                            "size_bytes",
+                            "sha256",
+                            "object_key",
+                            "retention",
+                        )
+                        if any(
+                            getattr(loaded, field) != getattr(attachment, field)
+                            for field in immutable
+                        ):
                             raise CollaborationConflictError(
                                 "attachment identity reused with different payload"
                             )
-                        persisted.append(loaded)
+                        if loaded.transfer_state in {"uploading", "failed"}:
+                            # A provider call can succeed remotely even when the
+                            # client crashes or observes an ambiguous failure.
+                            # Server history owns sequence and terminal state,
+                            # except that a malware-blocked failure may only be
+                            # made safer by authoritative deletion.
+                            if (
+                                loaded.scan_state == "blocked"
+                                and attachment.transfer_state != "deleted"
+                            ):
+                                raise CollaborationConflictError(
+                                    "blocked attachment cannot be restored by sync authority"
+                                )
+                        else:
+                            if loaded.sequence_no != attachment.sequence_no:
+                                raise CollaborationConflictError(
+                                    "authoritative attachment sequence changed"
+                                )
+                            _validate_transfer_transition(
+                                loaded.transfer_state,
+                                attachment.transfer_state,
+                            )
+                            _validate_scan_transition(
+                                loaded.scan_state,
+                                attachment.scan_state,
+                            )
+                        try:
+                            db.execute(
+                                """
+                                UPDATE collaboration_attachments
+                                SET sequence_no=?, transfer_state=?, scan_state=?
+                                WHERE attachment_id=?
+                                """,
+                                (
+                                    attachment.sequence_no,
+                                    attachment.transfer_state,
+                                    attachment.scan_state,
+                                    attachment.attachment_id,
+                                ),
+                            )
+                        except sqlite3.IntegrityError as exc:
+                            raise CollaborationConflictError(
+                                "authoritative attachment conflicts with room ordering"
+                            ) from exc
+                        persisted.append(attachment)
                         continue
                     try:
                         db.execute(

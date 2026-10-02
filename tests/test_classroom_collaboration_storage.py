@@ -41,14 +41,62 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.assertIn("sent_at_unix_ms", columns)
             index_row = db.execute(
                 "SELECT sql FROM sqlite_master "
-                "WHERE type='index' AND name='uq_collaboration_attachments_terminal_sequence'"
+                "WHERE type='index' AND name='uq_collaboration_attachments_authoritative_sequence'"
             ).fetchone()
             self.assertIsNotNone(index_row)
+            normalized_index_sql = " ".join(index_row[0].split()).replace(", ", ",")
             self.assertIn(
                 "WHERE transfer_state IN ('stored','deleted')",
-                " ".join(index_row[0].split()),
+                normalized_index_sql,
+            )
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='index' AND name='uq_collaboration_attachments_terminal_sequence'"
+                ).fetchone()
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
+
+    def test_v5_sequence_index_upgrades_without_leaving_legacy_index(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
+            )
+            db.execute(
+                """
+                CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                ON collaboration_attachments(room_id, sequence_no)
+                WHERE transfer_state='stored'
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=5 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        reopened.integrity_check()
+
+        with closing(sqlite3.connect(self.db_path)) as db:
+            indexes = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA index_list(collaboration_attachments)"
+                )
+            }
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertIn(
+            "uq_collaboration_attachments_authoritative_sequence",
+            indexes,
+        )
+        self.assertNotIn(
+            "uq_collaboration_attachments_stored_sequence",
+            indexes,
+        )
 
     def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
         self.db_path.unlink()
@@ -1034,6 +1082,178 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.store.register_attachments_atomic((first, conflict))
 
         self.assertEqual(self.store.room_attachments("room"), (occupied,))
+
+    def test_attachment_sync_adopts_authority_over_uncertain_local_transfer(self) -> None:
+        for local_state in ("uploading", "failed"):
+            with self.subTest(local_state=local_state):
+                db_path = Path(self.temp.name) / f"uncertain-{local_state}.sqlite3"
+                store = ClassroomCollaborationSQLiteStore(str(db_path))
+                provisional = AttachmentMetadata(
+                    "uncertain-a",
+                    "room",
+                    "teacher",
+                    73,
+                    "file.bin",
+                    None,
+                    1,
+                    "f" * 64,
+                    "rooms/room/uncertain-a",
+                    "pending",
+                    "persistent",
+                    "pending",
+                )
+                store.register_attachment(provisional)
+                store.update_attachment_state(
+                    provisional.attachment_id,
+                    transfer_state="uploading",
+                )
+                if local_state == "failed":
+                    store.update_attachment_state(
+                        provisional.attachment_id,
+                        transfer_state="failed",
+                    )
+                authoritative = AttachmentMetadata(
+                    provisional.attachment_id,
+                    provisional.room_id,
+                    provisional.sender_id,
+                    0,
+                    provisional.display_name,
+                    provisional.mime_type,
+                    provisional.size_bytes,
+                    provisional.sha256,
+                    provisional.object_key,
+                    "stored",
+                    provisional.retention,
+                    "clean",
+                )
+
+                persisted = store.reconcile_attachment_sync_atomic(
+                    room_id="room",
+                    attachments=(authoritative,),
+                    updates=(),
+                )
+
+                self.assertEqual(persisted, (authoritative,))
+                self.assertEqual(store.room_attachments("room"), (authoritative,))
+
+    def test_attachment_sync_never_restores_blocked_failed_file(self) -> None:
+        provisional = AttachmentMetadata(
+            "blocked-uncertain",
+            "room",
+            "teacher",
+            73,
+            "blocked.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/blocked-uncertain",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        blocked = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+        restored = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationConflictError,
+            "blocked attachment cannot be restored",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(restored,),
+                updates=(),
+            )
+        self.assertEqual(self.store.room_attachments("room"), (blocked,))
+
+        tombstone = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "deleted",
+            provisional.retention,
+            "blocked",
+        )
+        self.assertEqual(
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(tombstone,),
+                updates=(),
+            ),
+            (tombstone,),
+        )
+        self.assertEqual(self.store.room_attachments("room"), (tombstone,))
+
+    def test_attachment_sync_rejects_authority_over_mismatched_uncertain_identity(self) -> None:
+        provisional = AttachmentMetadata(
+            "uncertain-a",
+            "room",
+            "teacher",
+            73,
+            "file.bin",
+            None,
+            1,
+            "f" * 64,
+            "rooms/room/uncertain-a",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        forged = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            "different.bin",
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(forged,),
+                updates=(),
+            )
+
+        self.assertEqual(self.store.room_attachments("room"), (uploading,))
 
     def test_attachment_sync_commits_history_and_state_in_one_transaction(self) -> None:
         incoming = AttachmentMetadata(

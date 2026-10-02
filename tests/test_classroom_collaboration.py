@@ -1000,6 +1000,49 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), (stored,))
         self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
 
+    def test_failed_provisional_sequence_does_not_block_remote_authoritative_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="local-failed",
+            local_path=self.make_file("local-failed.bin", b"failed-local"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+
+        failed = self.store.room_attachments("room-1")
+        self.assertEqual(len(failed), 1)
+        self.assertEqual((failed[0].sequence_no, failed[0].transfer_state), (0, "failed"))
+
+        remote = AttachmentMetadata(
+            "remote-authoritative",
+            "room-1",
+            "student-1",
+            0,
+            "remote.bin",
+            None,
+            1,
+            "e" * 64,
+            "rooms/room-1/remote-authoritative",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (remote,)
+
+        self.assertEqual(controller.sync_files(), (remote,))
+        persisted = self.store.room_attachments("room-1")
+        self.assertEqual(
+            {(item.attachment_id, item.sequence_no, item.transfer_state) for item in persisted},
+            {
+                ("local-failed", 0, "failed"),
+                ("remote-authoritative", 0, "stored"),
+            },
+        )
+
     def test_second_client_discovers_durable_shared_file_from_server_history(self):
         teacher = self.controller("teacher-1")
         prepared = teacher.prepare_file(
@@ -1180,6 +1223,37 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room-1"), ())
 
+    def test_reconnect_recovers_remote_success_over_stranded_local_upload(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="uncertain-upload",
+            local_path=self.make_file("uncertain-upload.bin", b"opaque"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        uploading = self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = replace(
+            uploading,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.files._remember(authoritative)
+
+        recovered = controller.sync_files()
+
+        self.assertEqual(recovered, (authoritative,))
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (authoritative,),
+        )
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.files.retry_calls, [])
+
     def test_file_state_sync_promotes_pending_scan_without_duplicate_discovery(self):
         teacher = self.controller("teacher-1")
         prepared = teacher.prepare_file(
@@ -1276,6 +1350,77 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ((0, "deleted"), (1, "stored")),
         )
 
+    def test_file_state_for_next_history_page_is_deferred(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "clean"
+        uploaded = tuple(
+            teacher.upload_file(
+                teacher.prepare_file(
+                    attachment_id=f"paged-a{index}",
+                    local_path=self.make_file(
+                        f"paged-a{index}.bin",
+                        bytes([index + 1]),
+                    ),
+                    sequence_no=100 + index,
+                    retention="persistent",
+                )
+            )
+            for index in range(3)
+        )
+        self.files.set_authoritative_state(
+            uploaded[2].attachment_id,
+            transfer_state="deleted",
+        )
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-state-client.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_ATTACHMENTS", 2):
+            first_page = student.sync_files()
+            self.assertEqual(first_page, uploaded[:2])
+            self.assertIsNone(second_store.attachment_state_revision("room-1"))
+
+            second_page = student.sync_files()
+
+        self.assertEqual(second_page, ())
+        persisted = second_store.room_attachments("room-1")
+        self.assertEqual(
+            tuple((item.sequence_no, item.transfer_state) for item in persisted),
+            ((0, "stored"), (1, "stored"), (2, "deleted")),
+        )
+        self.assertEqual(second_store.attachment_state_revision("room-1"), 0)
+
+    def test_file_state_unknown_after_complete_history_fails_closed(self):
+        controller = self.controller("teacher-1")
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                room_id="room-1",
+                attachment_id="never-in-history",
+                revision=0,
+                transfer_state="deleted",
+                scan_state="clean",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment state references unknown room attachment",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
     def test_attachment_state_revision_gap_fails_before_mutating_local_state(self):
         teacher = self.controller("teacher-1")
         prepared = teacher.prepare_file(
@@ -1354,6 +1499,40 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
+    def test_live_receive_adopts_authority_over_ambiguous_failed_upload(self):
+        controller = self.controller("student-1")
+        prepared = controller.prepare_file(
+            attachment_id="ambiguous-live-a0",
+            local_path=self.make_file("ambiguous-live-a0.bin", b"payload"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        failed = self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+        )
+        self.assertEqual(failed.sequence_no, 73)
+
+        authoritative = replace(
+            prepared.metadata,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        received = controller.receive_file(authoritative)
+
+        self.assertEqual(received, authoritative)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (authoritative,),
+        )
 
     def test_live_receive_advances_after_tombstone_prefix(self):
         controller = self.controller("teacher-1")
