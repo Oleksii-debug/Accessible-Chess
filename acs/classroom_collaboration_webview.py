@@ -354,7 +354,10 @@ class ClassroomCollaborationWebView:
                 and item.scan_state != "blocked"
                 and item.attachment_id in self._prepared
             ),
-            "can_cancel": item.transfer_state in {"pending", "uploading", "failed"},
+            "can_cancel": (
+                item.sender_id == self._controller.local_participant_id
+                and item.transfer_state in {"pending", "uploading", "failed"}
+            ),
         }
 
     def unavailable_snapshot(self) -> dict[str, object]:
