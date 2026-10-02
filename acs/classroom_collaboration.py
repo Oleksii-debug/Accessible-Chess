@@ -26,6 +26,7 @@ from .classroom_collaboration_storage import (
     FileStorePort,
     safe_display_filename,
 )
+from .classroom_domain import MAX_WIRE_INTEGER
 from .classroom_realtime_media import ClassroomRole, ClassroomRosterPort
 
 
@@ -100,8 +101,13 @@ class FileQuotaPolicy:
             (self.max_file_bytes, "max file bytes"),
             (self.max_room_bytes, "max room bytes"),
         ):
-            if type(value) is not int or value <= 0:
-                raise CollaborationError(f"{label} must be a positive integer")
+            if (
+                type(value) is not int
+                or not 1 <= value <= MAX_WIRE_INTEGER
+            ):
+                raise CollaborationError(
+                    f"{label} must be a positive bounded JSON-safe integer"
+                )
         if self.max_file_bytes > self.max_room_bytes:
             raise CollaborationError("max file bytes cannot exceed max room bytes")
 
@@ -719,8 +725,13 @@ def _enum(value: object, enum_type: type[Enum], label: str):
 
 
 def _nonnegative_int(value: object, label: str) -> int:
-    if type(value) is not int or value < 0:
-        raise CollaborationError(f"{label} must be a non-negative integer")
+    if (
+        type(value) is not int
+        or not 0 <= value <= MAX_WIRE_INTEGER
+    ):
+        raise CollaborationError(
+            f"{label} must be a bounded non-negative JSON-safe integer"
+        )
     return value
 
 
