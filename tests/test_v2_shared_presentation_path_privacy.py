@@ -55,6 +55,8 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         r"\\?\C:\Users\PrivateUser\Documents\study.pgn",
         r"\\?\UNC\server\private-share\PrivateUser\study.pgn",
         "file:///C:/Users/PrivateUser/Documents/study.pgn",
+        "file:///C:/Users/Public/My Private Folder/PrivateUser/study.pgn",
+        "file://private-server/Public Share/PrivateUser/study.pgn",
         "file:/home/PrivateUser/study.pgn",
         "/home/PrivateUser/study.pgn",
         "/opt/accessible-chess/private/study.pgn",
