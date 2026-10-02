@@ -235,6 +235,27 @@ check(
   "collaboration actions must expose stable focus anchors"
 );
 
+const throwingRoot = new FakeElement("div");
+const bridgeFailureAnnouncements = [];
+window.AccessibleChessEducationSurface.render(
+  throwingRoot,
+  snapshot,
+  () => { throw new Error("host bridge failed synchronously"); },
+  (message) => bridgeFailureAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+let synchronousBridgeFailureEscaped = false;
+try {
+  throwingRoot.querySelector("#collaboration-chat-sync").listeners.click();
+} catch (_error) {
+  synchronousBridgeFailureEscaped = true;
+}
+check(
+  !synchronousBridgeFailureEscaped,
+  "synchronous host bridge failures must be contained by the async command boundary"
+);
+
 input.value = "Prepared reply";
 input.setSelectionRange(4, 9);
 input.focus();
@@ -494,4 +515,16 @@ check(
   "unavailable collaboration must expose no stale actions"
 );
 
-console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
+Promise.resolve()
+  .then(() => Promise.resolve())
+  .then(() => {
+    check(
+      bridgeFailureAnnouncements.includes("Action failed"),
+      "contained synchronous host bridge failures must reach the fallback announcement"
+    );
+    console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
