@@ -257,6 +257,22 @@ class LiveKitModerationRpcTransportTests(unittest.IsolatedAsyncioTestCase):
             "moderation request is not authorized",
         )
 
+    async def test_arbitrary_classified_core_error_cannot_leak_on_wire(self):
+        secret = "provider-secret-should-never-cross-rpc"
+
+        class MisclassifiedService:
+            async def handle_rpc(self, **kwargs):
+                raise ClassroomModerationRpcError(secret)
+
+        self.bind(service=MisclassifiedService())
+        with self.assertRaises(FakeRpcError) as raised:
+            await self.invoke()
+
+        self.assert_rpc_error(raised.exception, "moderation request failed")
+        rendered = "".join(traceback.format_exception(raised.exception))
+        self.assertNotIn(secret, rendered)
+        self.assertIsNone(raised.exception.__cause__)
+
     async def test_oversized_or_control_core_error_falls_back_to_generic_wire_error(self):
         for message in (
             "x" * (MAX_RPC_ERROR_MESSAGE_BYTES + 1),
