@@ -8,8 +8,9 @@ such as LiveKit are asynchronous, so blocking the native owner thread until
 JavaScript completes is unsafe.
 
 During prepare_* the port captures the exact provider effect and deliberately
-interrupts controller execution before canonical state is mutated. After exact
-provider success, commit_provider_success replays the same controller operation.
+interrupts controller execution before canonical state is mutated. The host then
+executes only pending_browser_payload and acknowledges each exact provider chunk
+in order. The final ordered acknowledgement replays the same controller operation.
 The port consumes only the exact captured effect and then permits the controller's
 existing post-provider commit path.
 
@@ -136,9 +137,10 @@ class MediaProviderEffect:
         """Return an ordered, bounded browser execution plan.
 
         A moderation effect remains one canonical transaction even when its
-        provider execution needs multiple RPC-sized chunks. The host must execute
-        every chunk in order and call commit_provider_success only after all
-        chunks have exact provider success. Any partial/unknown outcome is
+        provider execution needs multiple RPC-sized chunks. The coordinator
+        exposes only the next chunk and records each success through
+        acknowledge_provider_chunk_success; the final ordered acknowledgement
+        performs the canonical commit. Any partial/unknown outcome is
         recovery-required.
         """
 
