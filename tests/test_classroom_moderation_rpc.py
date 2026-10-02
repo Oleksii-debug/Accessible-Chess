@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 import traceback
 import unittest
 
@@ -163,6 +164,28 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(error.__cause__)
         rendered = "".join(traceback.format_exception(error))
         self.assertNotIn(secret, rendered)
+
+    def test_workflow_binds_scope_to_live_product_base_fail_closed(self) -> None:
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-moderation-rpc.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
+        self.assertIn('git fetch --no-tags origin "$PR_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+        self.assertNotIn('base="$EVENT_BASE_SHA"', workflow)
 
     def test_parser_matches_livekit_client_wire_contract(self) -> None:
         parsed = parse_moderation_rpc(
