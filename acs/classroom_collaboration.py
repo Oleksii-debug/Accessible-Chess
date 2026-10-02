@@ -573,7 +573,7 @@ class ClassroomCollaborationController:
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
-        self._validate_remote_attachment(attachment)
+        self._validate_remote_attachment(attachment, require_current_sender=True)
         try:
             return self._store.register_attachment(attachment)
         except CollaborationStorageError as error:
@@ -599,7 +599,10 @@ class ClassroomCollaborationController:
 
         expected_sequence = 0 if after is None else after + 1
         for attachment in incoming:
-            self._validate_remote_attachment(attachment)
+            self._validate_remote_attachment(
+                attachment,
+                require_current_sender=False,
+            )
             if attachment.sequence_no != expected_sequence:
                 raise CollaborationError(
                     "file history has an unresolved sequence gap"
@@ -738,12 +741,23 @@ class ClassroomCollaborationController:
         if result.transfer_state not in {"stored", "failed"}:
             raise CollaborationError("file transport returned non-terminal upload state")
 
-    def _validate_remote_attachment(self, attachment: AttachmentMetadata) -> None:
+    def _validate_remote_attachment(
+        self,
+        attachment: AttachmentMetadata,
+        *,
+        require_current_sender: bool,
+    ) -> None:
         if type(attachment) is not AttachmentMetadata:
             raise CollaborationError("file history contains invalid attachment type")
         if attachment.room_id != self.room_id:
             raise CollaborationError("file history crossed room boundary")
-        self._require_member(attachment.sender_id)
+        if require_current_sender:
+            self._require_member(attachment.sender_id)
+        else:
+            # Durable room history survives participant departure. Live receive
+            # still requires current membership, while replay trusts the
+            # room-scoped authoritative transport and validates sender identity.
+            _id(attachment.sender_id, "sender id")
         canonical_key = (
             f"rooms/{_storage_key_segment(self.room_id)}/"
             f"{_storage_key_segment(attachment.attachment_id)}"
