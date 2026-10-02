@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 25b6da6 / p0g 31e0918 / p0-document f8b4bde
+# exact-package-reconvergence: 25b6da6 / p0g 31e0918 / p0-document 9dd9092
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LINEAGE_PARENT_SHA: 33f88e089b346f09807d4502ac3a513a08e61cd7
-  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: a8b3ebb85f099d9396b830602fdfa1cb994460b0
+  LINEAGE_PARENT_SHA: 6dc07204e759062553d485a9a7d974acb7951843
+  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 288f4bb1aaa420fb86354ecac0f709633ccb99ad
   AUDITED_PARENT_SHA: 036e72bcec14a0b070c30fa846bc353ac08176ef
   PACKAGE_ANCHOR_SHA: e6bc2406dba105f8d1721fee13e66ffc067d4e54
   PRODUCT_PARENT_SHA: 25b6da6eb8bccea95628ecfce5ba81fece1a5666
@@ -31,8 +31,8 @@ env:
   P0G_QA_SHA: 31e0918efe824d7ec2fe95cad4b4e26d6c5bb92a
   P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: f8b4bdef980443329c679ee0d7d8f03de23b4902
-  P0_DOCUMENT_PROBE_BLOB_SHA: 84ad467f446e9e32d107907b94ce0c6db6807854
+  P0_DOCUMENT_QA_SHA: 9dd909293251301aaa6b5f6346367b0fbafb8d99
+  P0_DOCUMENT_PROBE_BLOB_SHA: 9d2626ff5f4a4666011bcebcc50047744a508391
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -135,6 +135,11 @@ jobs:
           grep -Fq 'executable_checksum_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing one exact visible static UIA child target'" .p0-packaged-document-copy-probe.ps1
           grep -Fq "static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$navigationDocument.SetFocus()' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "AssertProviderFocus \$roots 'native document Ctrl+Home'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '[AccessibleChessCopyKeys]::Ctrl([byte]0x24)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$documents=$currentDocuments' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'P0_NATIVE_DOCUMENT_HOME_NAVIGATION=PASS' .p0-packaged-document-copy-probe.ps1
           grep -Fq '$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
           grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
