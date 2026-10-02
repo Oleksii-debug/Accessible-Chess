@@ -54,6 +54,11 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         self.assertIn('const main = root.querySelector("main")', source)
         self.assertIn("(main || root).appendChild(section)", source)
 
+    def test_participant_rows_are_programmatic_recovery_targets_not_tab_stops(self) -> None:
+        source = self.source
+        self.assertIn("row.tabIndex = -1", source)
+        self.assertNotIn("row.tabIndex = 0", source)
+
     def test_action_updates_replace_only_media_section_and_restore_explicit_focus(self) -> None:
         source = self.source
         self.assertIn('root.querySelector("#classroom-media-section")', source)
