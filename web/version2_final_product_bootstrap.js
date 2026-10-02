@@ -302,6 +302,12 @@
         if (items.length && items[0].dom_id) return String(items[0].dom_id);
       }
     }
+    if (routeId === "classes" && snapshot.media && typeof snapshot.media === "object") {
+      const own = snapshot.media.own && typeof snapshot.media.own === "object" ? snapshot.media.own : {};
+      const actions = Array.isArray(own.actions) ? own.actions : [];
+      if (actions.length && actions[0].id) return String(actions[0].id);
+      return "classroom-media-heading";
+    }
     return emptyStatusId(routeId);
   }
 
@@ -445,6 +451,16 @@
           requestedFocus || "",
           uiText("Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
         );
+        if (global.AccessibleChessClassroomMediaSurface &&
+            typeof global.AccessibleChessClassroomMediaSurface.mount === "function") {
+          global.AccessibleChessClassroomMediaSurface.mount(
+            workspace,
+            snapshot.media || null,
+            areaInvoke("media"),
+            announce,
+            currentLanguage
+          );
+        }
       } else {
         renderEmptyProduct(routeId, heading);
       }
