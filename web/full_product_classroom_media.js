@@ -83,7 +83,7 @@
     return row;
   }
 
-  function renderSection(snapshot, invoke, announce, root, language) {
+  function renderSection(snapshot, invoke, announce, root, language, availability) {
     const section = node("section");
     section.id = "classroom-media-section";
     section.setAttribute("aria-labelledby", "classroom-media-heading");
@@ -99,10 +99,17 @@
     section.appendChild(heading);
 
     if (!snapshot || typeof snapshot !== "object") {
+      const recoveryRequired = availability &&
+        typeof availability === "object" &&
+        availability.recovery_required === true;
       section.appendChild(node("p", uiText(
         language,
-        "Медіазв’язок ще не налаштовано для цієї збірки. Шахова дошка й дані заняття залишаються доступними без відео.",
-        "Realtime media is not configured for this build yet. The chess board and lesson data remain available without video."
+        recoveryRequired
+          ? "Керування медіа тимчасово недоступне. Шахова дошка й дані заняття залишаються доступними без відео."
+          : "Медіазв’язок ще не налаштовано для цієї збірки. Шахова дошка й дані заняття залишаються доступними без відео.",
+        recoveryRequired
+          ? "Media controls are temporarily unavailable. The chess board and lesson data remain available without video."
+          : "Realtime media is not configured for this build yet. The chess board and lesson data remain available without video."
       )));
       return section;
     }
@@ -158,7 +165,7 @@
     if (payload.snapshot && typeof payload.snapshot === "object") {
       const current = root.querySelector("#classroom-media-section");
       if (current && typeof current.replaceWith === "function") {
-        current.replaceWith(renderSection(payload.snapshot, invoke, announce, root, language));
+        current.replaceWith(renderSection(payload.snapshot, invoke, announce, root, language, null));
       }
     }
     if (payload.announcement) announce(String(payload.announcement));
@@ -166,14 +173,21 @@
     focusById(root, payload.focus_target || "");
   }
 
-  function mount(root, snapshot, invoke, announce, language) {
+  function mount(root, snapshot, invoke, announce, language, availability) {
     if (!root || typeof root.appendChild !== "function") {
       throw new TypeError("classroom media root must support appendChild");
     }
     requireFunction(invoke, "classroom media invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "classroom media announce");
     const existing = root.querySelector("#classroom-media-section");
-    const section = renderSection(snapshot, invoke, announce, root, language === "en" ? "en" : "uk");
+    const section = renderSection(
+      snapshot,
+      invoke,
+      announce,
+      root,
+      language === "en" ? "en" : "uk",
+      availability || null
+    );
     if (existing && typeof existing.replaceWith === "function") {
       existing.replaceWith(section);
     } else {
