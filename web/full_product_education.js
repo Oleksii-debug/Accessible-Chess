@@ -96,6 +96,52 @@
     ].indexOf(value) >= 0 ? value : "";
   }
 
+  function collaborationPendingState(root) {
+    if (!root || typeof root.querySelector !== "function") return null;
+    const wrapper = root.querySelector("#classroom-collaboration");
+    if (!wrapper || wrapper.getAttribute("aria-busy") !== "true") return null;
+    return {
+      command: String(wrapper.getAttribute("data-pending-command") || ""),
+      lockComposer: wrapper.getAttribute("data-pending-lock-composer") === "true"
+    };
+  }
+
+  function applyCollaborationPendingState(wrapper, pending) {
+    if (!wrapper || !pending) return;
+    wrapper.setAttribute("aria-busy", "true");
+    wrapper.setAttribute("data-pending-command", String(pending.command || ""));
+    wrapper.setAttribute(
+      "data-pending-lock-composer",
+      pending.lockComposer ? "true" : "false"
+    );
+    wrapper.querySelectorAll("BUTTON").forEach(function (control) {
+      control.setAttribute("aria-disabled", "true");
+    });
+    if (pending.lockComposer) {
+      const composer = wrapper.querySelector("#collaboration-chat-input");
+      const form = wrapper.querySelector("#collaboration-chat-form");
+      if (composer) composer.readOnly = true;
+      if (form) form.setAttribute("aria-busy", "true");
+    }
+  }
+
+  function clearCollaborationPendingState(wrapper) {
+    if (!wrapper) return;
+    const lockComposer = wrapper.getAttribute("data-pending-lock-composer") === "true";
+    wrapper.setAttribute("aria-busy", "false");
+    wrapper.removeAttribute("data-pending-command");
+    wrapper.removeAttribute("data-pending-lock-composer");
+    wrapper.querySelectorAll("BUTTON").forEach(function (control) {
+      control.removeAttribute("aria-disabled");
+    });
+    if (lockComposer) {
+      const composer = wrapper.querySelector("#collaboration-chat-input");
+      const form = wrapper.querySelector("#collaboration-chat-form");
+      if (composer) composer.readOnly = false;
+      if (form) form.setAttribute("aria-busy", "false");
+    }
+  }
+
   function collaborationDraftInside(root) {
     if (!root || typeof root.querySelector !== "function") return null;
     const input = root.querySelector("#collaboration-chat-input");
@@ -125,11 +171,19 @@
     }
   }
 
-  function applyEducationEvent(root, result, invoke, announce, fallbackMessage) {
+  function applyEducationEvent(
+    root,
+    result,
+    invoke,
+    announce,
+    fallbackMessage,
+    settledCollaborationCommand
+  ) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     const previousFocus = activeIdInside(root);
     const collaborationWasFocused = collaborationOwnsFocus(root);
+    const previousPending = collaborationPendingState(root);
     const previousDraft = collaborationDraftInside(root);
     if ((result.kind === "selection" || result.kind === "page") && payload.snapshot) {
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
@@ -151,6 +205,15 @@
         );
         if (result.kind !== "collaboration.chat.sent") {
           restoreCollaborationDraft(root, previousDraft);
+        }
+        if (
+          previousPending &&
+          previousPending.command !== String(settledCollaborationCommand || "")
+        ) {
+          applyCollaborationPendingState(
+            root.querySelector("#classroom-collaboration"),
+            previousPending
+          );
         }
       }
     }
@@ -301,36 +364,38 @@
   ) {
     if (!wrapper || wrapper.getAttribute("aria-busy") === "true") return false;
     const root = wrapper.parentNode;
-    const controls = wrapper.querySelectorAll("BUTTON");
-    const priorAriaDisabled = controls.map(function (control) {
-      return control.getAttribute("aria-disabled");
-    });
-    const composer = wrapper.querySelector("#collaboration-chat-input");
-    const form = wrapper.querySelector("#collaboration-chat-form");
-    const lockComposer = !!(options && options.lockComposer);
-    wrapper.setAttribute("aria-busy", "true");
-    controls.forEach(function (control) {
-      control.setAttribute("aria-disabled", "true");
-    });
-    if (lockComposer && composer) composer.readOnly = true;
-    if (lockComposer && form) form.setAttribute("aria-busy", "true");
+    const pending = {
+      command: String(command || ""),
+      lockComposer: !!(options && options.lockComposer)
+    };
+    applyCollaborationPendingState(wrapper, pending);
 
     function releasePendingState() {
-      wrapper.setAttribute("aria-busy", "false");
-      controls.forEach(function (control, index) {
-        const previous = priorAriaDisabled[index];
-        if (previous === null && typeof control.removeAttribute === "function") {
-          control.removeAttribute("aria-disabled");
-        } else if (previous !== null) {
-          control.setAttribute("aria-disabled", previous);
+      const current = (
+        root && typeof root.querySelector === "function"
+          ? root.querySelector("#classroom-collaboration")
+          : null
+      );
+      [wrapper, current].forEach(function (candidate, index, values) {
+        if (
+          candidate &&
+          values.indexOf(candidate) === index &&
+          candidate.getAttribute("data-pending-command") === pending.command
+        ) {
+          clearCollaborationPendingState(candidate);
         }
       });
-      if (lockComposer && composer) composer.readOnly = false;
-      if (lockComposer && form) form.setAttribute("aria-busy", "false");
     }
 
     safeInvoke(invoke, command, payload, function (result) {
-      applyEducationEvent(root, result, invoke, announce, fallbackMessage);
+      applyEducationEvent(
+        root,
+        result,
+        invoke,
+        announce,
+        fallbackMessage,
+        pending.command
+      );
       if (wrapper.parentNode) releasePendingState();
     }, announce, fallbackMessage, releasePendingState);
     return true;
