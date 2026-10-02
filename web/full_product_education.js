@@ -58,10 +58,40 @@
     return root.contains(active) ? String(active.id) : "";
   }
 
+  function collaborationDraftInside(root) {
+    if (!root || typeof root.querySelector !== "function") return null;
+    const input = root.querySelector("#collaboration-chat-input");
+    if (!input) return null;
+    return {
+      value: String(input.value || ""),
+      selectionStart: Number.isInteger(input.selectionStart) ? input.selectionStart : null,
+      selectionEnd: Number.isInteger(input.selectionEnd) ? input.selectionEnd : null
+    };
+  }
+
+  function restoreCollaborationDraft(root, draft) {
+    if (!draft || !root || typeof root.querySelector !== "function") return;
+    const input = root.querySelector("#collaboration-chat-input");
+    if (!input) return;
+    input.value = draft.value;
+    if (
+      typeof input.setSelectionRange === "function" &&
+      Number.isInteger(draft.selectionStart) &&
+      Number.isInteger(draft.selectionEnd)
+    ) {
+      try {
+        input.setSelectionRange(draft.selectionStart, draft.selectionEnd);
+      } catch (_error) {
+        // Keep the draft even when this host cannot restore a text selection.
+      }
+    }
+  }
+
   function applyEducationEvent(root, result, invoke, announce, fallbackMessage) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     const previousFocus = activeIdInside(root);
+    const previousDraft = collaborationDraftInside(root);
     if ((result.kind === "selection" || result.kind === "page") && payload.snapshot) {
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
       if (previous && typeof previous.replaceWith === "function") {
@@ -80,6 +110,9 @@
         previousCollaboration.replaceWith(
           renderCollaboration(payload.collaboration, invoke, announce, fallbackMessage)
         );
+        if (result.kind !== "collaboration.chat.sent") {
+          restoreCollaborationDraft(root, previousDraft);
+        }
       }
     }
     if (payload.announcement) announce(String(payload.announcement));
@@ -251,7 +284,6 @@
     const sync = node("button", chat.sync_label || "Refresh chat");
     sync.id = "collaboration-chat-sync";
     sync.type = "button";
-    sync.id = "collaboration-chat-sync";
     sync.setAttribute("data-command", "collaboration.chat.sync");
     sync.addEventListener("click", function () {
       invokeCollaboration(invoke, "collaboration.chat.sync", {}, wrapper, announce, fallbackMessage);
@@ -260,7 +292,6 @@
     const markRead = node("button", chat.mark_read_label || "Mark read");
     markRead.id = "collaboration-chat-mark-read";
     markRead.type = "button";
-    markRead.id = "collaboration-chat-mark-read";
     markRead.disabled = !(Number(chat.unread_count || 0) > 0);
     markRead.setAttribute("data-command", "collaboration.chat.mark_read");
     markRead.addEventListener("click", function () {
@@ -271,7 +302,6 @@
       const muteAll = node("button", chat.mute_all_label || "Mute all students");
       muteAll.id = "collaboration-chat-mute-all";
       muteAll.type = "button";
-      muteAll.id = "collaboration-chat-mute-all-students";
       muteAll.setAttribute("data-command", "collaboration.chat.mute_all_students");
       muteAll.addEventListener("click", function () {
         invokeCollaboration(
@@ -287,7 +317,6 @@
       const allowAll = node("button", chat.allow_all_label || "Allow all students");
       allowAll.id = "collaboration-chat-allow-all";
       allowAll.type = "button";
-      allowAll.id = "collaboration-chat-allow-all-students";
       allowAll.setAttribute("data-command", "collaboration.chat.allow_all_students");
       allowAll.addEventListener("click", function () {
         invokeCollaboration(
@@ -317,7 +346,6 @@
     const send = node("button", chat.send_label || "Send");
     send.id = "collaboration-chat-send";
     send.type = "submit";
-    send.id = "collaboration-chat-send";
     send.setAttribute("data-command", "collaboration.chat.send");
     form.appendChild(send);
     form.addEventListener("submit", function (event) {
@@ -369,7 +397,6 @@
           const hide = node("button", chat.hide_label || "Hide message");
           hide.id = item.id + "-hide";
           hide.type = "button";
-          hide.id = String(message.dom_id || "") + "-hide";
           hide.setAttribute("data-command", "collaboration.chat.hide");
           hide.addEventListener("click", function () {
             invokeCollaboration(
@@ -387,7 +414,6 @@
           const mute = node("button", chat.mute_sender_label || "Mute sender");
           mute.id = item.id + "-mute";
           mute.type = "button";
-          mute.id = String(message.dom_id || "") + "-mute-sender";
           mute.setAttribute("data-command", "collaboration.chat.mute_sender");
           mute.addEventListener("click", function () {
             invokeCollaboration(
@@ -403,7 +429,6 @@
           const allow = node("button", chat.allow_sender_label || "Allow sender");
           allow.id = item.id + "-allow";
           allow.type = "button";
-          allow.id = String(message.dom_id || "") + "-allow-sender";
           allow.setAttribute("data-command", "collaboration.chat.allow_sender");
           allow.addEventListener("click", function () {
             invokeCollaboration(
@@ -421,7 +446,6 @@
           const remove = node("button", chat.remove_sender_label || "Remove participant");
           remove.id = item.id + "-remove";
           remove.type = "button";
-          remove.id = String(message.dom_id || "") + "-remove-sender";
           remove.setAttribute("data-command", "collaboration.participant.remove_sender");
           remove.addEventListener("click", function () {
             invokeCollaboration(
@@ -437,7 +461,6 @@
           const block = node("button", chat.block_sender_label || "Remove and block participant");
           block.id = item.id + "-block";
           block.type = "button";
-          block.id = String(message.dom_id || "") + "-block-sender";
           block.setAttribute("data-command", "collaboration.participant.block_sender");
           block.addEventListener("click", function () {
             invokeCollaboration(
@@ -498,7 +521,6 @@
           const save = node("button", files.save_label || "Save");
           save.id = item.id + "-save";
           save.type = "button";
-          save.id = String(file.dom_id || "") + "-save";
           save.setAttribute("data-command", "collaboration.file.save");
           save.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.save", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
@@ -509,7 +531,6 @@
           const open = node("button", files.open_label || "Open");
           open.id = item.id + "-open";
           open.type = "button";
-          open.id = String(file.dom_id || "") + "-open";
           open.setAttribute("data-command", "collaboration.file.open");
           open.addEventListener("click", function () {
             invokeCollaboration(
@@ -527,7 +548,6 @@
           const retry = node("button", files.retry_label || "Retry");
           retry.id = item.id + "-retry";
           retry.type = "button";
-          retry.id = String(file.dom_id || "") + "-retry";
           retry.setAttribute("data-command", "collaboration.file.retry");
           retry.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.retry", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
@@ -538,7 +558,6 @@
           const cancel = node("button", files.cancel_label || "Cancel");
           cancel.id = item.id + "-cancel";
           cancel.type = "button";
-          cancel.id = String(file.dom_id || "") + "-cancel";
           cancel.setAttribute("data-command", "collaboration.file.cancel");
           cancel.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.cancel", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
