@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  CURRENT_PRODUCT_BASE: 25b6da6eb8bccea95628ecfce5ba81fece1a5666
+  CURRENT_PRODUCT_BASE: d8f2da508f31dad0bd262afaef5f6e5a0ccaa312
   OWNER_HEAD: fix/p0-document-copy-match-counter-20260929
   PROBE_BLOB: 4309220ad1e8dfccb43366c643c0a7690860c8b6
   TEST_BLOB: af2c5541772d7f5809e8527593f257ded1fc5c02
