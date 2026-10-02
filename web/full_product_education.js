@@ -407,7 +407,9 @@
         if (message.unread) item.setAttribute("data-unread", "true");
         item.appendChild(node("strong", message.sender || ""));
         item.appendChild(document.createTextNode(": "));
-        item.appendChild(node("span", message.body || ""));
+        const body = node("bdi", message.body || "");
+        body.setAttribute("dir", "auto");
+        item.appendChild(body);
         if (message.timestamp_text) {
           const timestampDetails = node("details");
           timestampDetails.setAttribute("data-message-timestamp", "true");
