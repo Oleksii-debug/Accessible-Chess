@@ -151,7 +151,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tests/livekit_two_client_token_fixture.py             --api-key devkey             --api-secret secret             --room accessible-chess-media-smoke             --output .livekit-smoke/credentials.json
+          PYTHONPATH=. python tests/livekit_two_client_token_fixture.py             --api-key devkey             --api-secret secret             --room accessible-chess-media-smoke             --output .livekit-smoke/credentials.json
           node tests/js/livekit_two_client_media_smoke.js             --credentials .livekit-smoke/credentials.json             --sdk .livekit-smoke/vendor/livekit-client.umd.js             --adapter web/livekit_classroom_media.js
           rm -f .livekit-smoke/credentials.json
 
