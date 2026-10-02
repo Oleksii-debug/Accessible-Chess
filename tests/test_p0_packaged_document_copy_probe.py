@@ -300,7 +300,9 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("$null=$shell.AppActivate($process.Id)", self.text)
 
         static_assert = self.text.index("AssertProductForeground $process 'static document copy dispatch'")
-        static_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)")
+        # A failure-only diagnostic copy may precede the accepted path. Bind
+        # the foreground assertion to the accepted path's *own* native Ctrl+C.
+        static_copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", static_assert)
         self.assertLess(static_assert, static_copy)
 
         edit_assert = self.text.index("AssertProductForeground $process 'move input copy dispatch'")
@@ -393,6 +395,35 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         )
         self.assertNotIn("if($activeSelectedText -ceq $freshText)", self.text)
         self.assertNotIn("if($startDelta -ne 0 -or $endDelta -ne 0){continue}", self.text)
+
+
+    def test_endpoint_mismatch_diagnostic_attempts_real_copy_but_always_fails(self) -> None:
+        self.assertIn("P0_STATIC_MISMATCH_NATIVE_CTRL_C_DIAGNOSTIC", self.text)
+        self.assertIn("$copyDiagnosticStatus='skipped-identity'", self.text)
+        self.assertIn("$copyDiagnosticStatus='skipped-visibility'", self.text)
+        self.assertIn("$copyDiagnosticStatus='skipped-focus'", self.text)
+        self.assertIn("AssertProductForeground $process 'static endpoint diagnostic dispatch'", self.text)
+        self.assertIn("AssertProviderFocus $roots 'static endpoint diagnostic native Ctrl+C'", self.text)
+        self.assertIn("AssertProductForeground $process 'static endpoint diagnostic native Ctrl+C'", self.text)
+        self.assertIn("$copyAttempted=$true", self.text)
+        self.assertIn("$copyActual=[string](Get-Clipboard -Raw -ErrorAction Stop)", self.text)
+        self.assertIn("$copyWatch.ElapsedMilliseconds -lt 2500", self.text)
+        self.assertIn("if($copyActual -ceq $selected)", self.text)
+        self.assertIn("ClipboardCodeUnits $copyActual 48", self.text)
+        self.assertIn("$copyDiagnosticStatus='diagnostic-error'", self.text)
+        # A successful diagnostic clipboard result never reaches acceptance:
+        # the original strict endpoint failure still executes unconditionally.
+        failure = self.text.index("P0_STATIC_MISMATCH_NATIVE_CTRL_C_DIAGNOSTIC")
+        rejection = self.text.index(
+            'throw "Static TextPattern active selection endpoints differ from target range"',
+            failure,
+        )
+        normal_sentinel = self.text.index(
+            "Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'", rejection,
+        )
+        self.assertLess(failure, rejection)
+        self.assertLess(rejection, normal_sentinel)
+        self.assertNotIn("PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS", self.text[failure:rejection])
 
 
 if __name__ == "__main__":

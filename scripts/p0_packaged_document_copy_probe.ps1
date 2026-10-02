@@ -644,6 +644,61 @@ try {
     $focusBeforeSafe=if($preSelectFocusRuntime){$preSelectFocusRuntime}else{'unavailable'}
     $freshUnits=ClipboardCodeUnits $freshText 48
     Write-Host ("P0_STATIC_ENDPOINT_DIFFERENTIAL old_active_start={0} old_active_end={1} old_clone_pre={2} old_clone_post={3} old_fresh={4} active_clone={5} active_fresh={6} fresh_status={7} old_length={8} active_length={9} fresh_length={10} old_units='{11}' active_units='{12}' fresh_units='{13}' focus_before={14} focus_after={15} focus_after_type={16} focus_after_id={17} document_before={18} document_after={19} target_before={20} target_after={21}" -f $startDelta,$endDelta,$preSelectCloneDelta,(RangeEndpointDiagnostic $target $preSelectClone),(RangeEndpointDiagnostic $target $freshRange),(RangeEndpointDiagnostic $activeSelection $preSelectClone),(RangeEndpointDiagnostic $activeSelection $freshRange),$freshStatus,$targetText.Length,$activeSelectedText.Length,$freshText.Length,(ClipboardCodeUnits $targetText 48),(ClipboardCodeUnits $activeSelectedText 48),$freshUnits,$focusBeforeSafe,$focusAfterRuntime,$focusAfterType,$focusAfterId,$navigationRuntime,$postDocumentRuntime,$targetRuntime,$postTargetRuntime)
+    # Non-accepting native clipboard experiment on the original failure path.
+    # The strict endpoint mismatch below ALWAYS fails this package run, even
+    # if WebView2 happens to copy exactly the visible heading.
+    $copyDiagnosticStatus='skipped'
+    $copyActual=''
+    $copyAttempted=$false
+    $copySentinel='P0_STATIC_ENDPOINT_MISMATCH_SENTINEL'
+    try {
+      if($postTargetRuntime -cne $targetRuntime -or $postDocumentRuntime -cne $navigationRuntime){
+        $copyDiagnosticStatus='skipped-identity'
+      } else {
+        $copyBounds=$targetElement.Current.BoundingRectangle
+        if([bool]$targetElement.Current.IsOffscreen -or
+           [double]$copyBounds.Width -le 0 -or
+           [double]$copyBounds.Height -le 0){
+          $copyDiagnosticStatus='skipped-visibility'
+        } else {
+          $copyFocus=AssertProviderFocus $roots 'static endpoint diagnostic dispatch'
+          if((RuntimeId $copyFocus) -cne $navigationRuntime -or
+             [string]$copyFocus.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+            $copyDiagnosticStatus='skipped-focus'
+          } else {
+            AssertProductForeground $process 'static endpoint diagnostic dispatch'
+            Set-Clipboard -Value $copySentinel
+            Start-Sleep -Milliseconds 150
+            $copyFocus=AssertProviderFocus $roots 'static endpoint diagnostic native Ctrl+C'
+            AssertProductForeground $process 'static endpoint diagnostic native Ctrl+C'
+            if((RuntimeId $copyFocus) -cne $navigationRuntime -or
+               [string]$copyFocus.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+              $copyDiagnosticStatus='skipped-focus'
+            } else {
+              $copyAttempted=$true
+              [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+              $copyWatch=[System.Diagnostics.Stopwatch]::StartNew()
+              do {
+                Start-Sleep -Milliseconds 100
+                $copyActual=[string](Get-Clipboard -Raw -ErrorAction Stop)
+                if($copyActual -cne $copySentinel){break}
+              } while($copyWatch.ElapsedMilliseconds -lt 2500)
+              $copyDiagnosticStatus=if($copyActual -ceq $selected){
+                'exact'
+              } elseif($copyActual -ceq $copySentinel){
+                'unchanged'
+              } else {
+                'different'
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      # Do not leak process paths or a clipboard exception into the evidence.
+      $copyDiagnosticStatus='diagnostic-error'
+    }
+    Write-Host ("P0_STATIC_MISMATCH_NATIVE_CTRL_C_DIAGNOSTIC status={0} attempted={1} expected_length={2} actual_length={3} expected_units='{4}' actual_units='{5}'" -f $copyDiagnosticStatus,$copyAttempted,$selected.Length,$copyActual.Length,(ClipboardCodeUnits $selected 48),(ClipboardCodeUnits $copyActual 48))
     throw "Static TextPattern active selection endpoints differ from target range"
   }
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
