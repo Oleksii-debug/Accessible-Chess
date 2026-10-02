@@ -625,7 +625,8 @@ class ClassroomChatServerService:
         caller = _identifier(trusted_caller_identity, "trusted caller identity")
         room = _identifier(room_id, "room id")
         if after_revision is not None and (
-            type(after_revision) is not int or after_revision < 0
+            type(after_revision) is not int
+            or not 0 <= after_revision <= MAX_WIRE_INTEGER
         ):
             raise ClassroomChatServerError("state revision is invalid")
         bounded = _history_limit(limit)
