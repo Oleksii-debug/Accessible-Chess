@@ -358,9 +358,16 @@ class ClassroomCollaborationWebView:
             and item.sender_id not in self._removed_participant_ids
             and self._controller.can_moderate_chat_participant(item.sender_id)
         )
+        sender_label = self._label(item.sender_id)
+        action_sender = self._announcement_body(sender_label)
+        action_message = self._announcement_body(
+            f"{sender_label}: {item.body}"
+        )
         view: dict[str, object] = {
             "dom_id": "collaboration-message-" + sha256(item.message_id.encode("utf-8")).hexdigest()[:16],
-            "sender": self._label(item.sender_id),
+            "sender": sender_label,
+            "action_sender": action_sender,
+            "action_message": action_message,
             "body": item.body,
             "unread": item.message_id in self._unread_message_ids,
             "can_hide": moderator,
