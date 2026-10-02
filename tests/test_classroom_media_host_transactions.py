@@ -139,7 +139,20 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
             controller.set_local_source(MediaSource.CAMERA, True)
         self.assertEqual(controller.state, before)
 
-    def test_confirmed_provider_failure_discards_pending_without_state_change(self):
+    def test_provider_not_started_can_discard_without_state_change(self):
+        controller, _roster, _session, _port, host = self.make_host()
+        before = controller.state
+        effect = host.prepare_local_source(MediaSource.CAMERA, True)
+
+        host.provider_not_started(effect.transaction_id)
+
+        self.assertEqual(controller.state, before)
+        self.assertIsNone(host.pending_effect)
+        retry = host.prepare_local_source(MediaSource.CAMERA, True)
+        self.assertIsNotNone(retry)
+        self.assertNotEqual(retry.transaction_id, effect.transaction_id)
+
+    def test_provider_failure_requires_recovery_for_possible_partial_effect(self):
         controller, _roster, _session, _port, host = self.make_host()
         before = controller.state
         effect = host.prepare_local_source(MediaSource.CAMERA, True)
@@ -147,10 +160,9 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         host.provider_failed(effect.transaction_id)
 
         self.assertEqual(controller.state, before)
-        self.assertIsNone(host.pending_effect)
-        retry = host.prepare_local_source(MediaSource.CAMERA, True)
-        self.assertIsNotNone(retry)
-        self.assertNotEqual(retry.transaction_id, effect.transaction_id)
+        self.assertEqual(host.recovery_effect, effect)
+        with self.assertRaises(MediaHostRecoveryRequired):
+            host.prepare_local_source(MediaSource.MICROPHONE, True)
 
     def test_unknown_provider_outcome_requires_explicit_recovery(self):
         controller, _roster, _session, _port, host = self.make_host()
