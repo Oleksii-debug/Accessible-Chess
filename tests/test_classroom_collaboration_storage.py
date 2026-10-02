@@ -584,6 +584,56 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             (occupied, uploading),
         )
 
+    def test_remote_attachment_batch_rolls_back_on_late_sequence_conflict(self) -> None:
+        occupied = AttachmentMetadata(
+            "occupied",
+            "room",
+            "teacher",
+            1,
+            "occupied.bin",
+            None,
+            1,
+            "0" * 64,
+            "rooms/room/occupied",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        first = AttachmentMetadata(
+            "remote-0",
+            "room",
+            "student",
+            0,
+            "first.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/remote-0",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        conflict = AttachmentMetadata(
+            "remote-1",
+            "room",
+            "student",
+            1,
+            "conflict.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/remote-1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(occupied)
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.register_attachments_atomic((first, conflict))
+
+        self.assertEqual(self.store.room_attachments("room"), (occupied,))
+
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(
             "a1", "room", "teacher", 0, "file.bin", None, 1,
