@@ -80,6 +80,8 @@ EVENT_VARIANTS = {
 PROVENANCE_SOURCE = "urn:accessible-chess:user-upload:sound-archive:2026-10-03"
 PROVENANCE_LICENSE = "USER_PROVIDED"
 PROVENANCE_CREATOR = "User-provided legacy chess sound archive"
+EXPECTED_SOURCE_WAV_COUNT = 330
+EXPECTED_SOURCE_INVENTORY_SHA256 = "41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920"
 
 
 class SoundPackBuildError(RuntimeError):
@@ -170,6 +172,7 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
     library.mkdir()
 
     inventory: list[dict[str, object]] = []
+    source_fingerprint_rows: list[bytes] = []
     seen_casefold: set[str] = set()
     for source_path in sorted(sounds.rglob("*"), key=lambda item: item.as_posix().casefold()):
         if not source_path.is_file():
@@ -182,6 +185,11 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
             raise SoundPackBuildError(f"case-insensitive duplicate sound path: {relative}")
         seen_casefold.add(folded)
 
+        source_digest = _sha256(source_path)
+        source_fingerprint_rows.append(
+            f"{relative.as_posix()}\0{source_digest}\n".encode("utf-8")
+        )
+
         target = library / Path(*relative.parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_path, target)
@@ -189,15 +197,23 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
         inventory.append(
             {
                 "file": f"library/{relative.as_posix()}",
-                "sha256": _sha256(target),
+                "sha256": source_digest,
                 "bytes": target.stat().st_size,
                 **info,
             }
         )
 
-    if len(inventory) != 330:
+    if len(inventory) != EXPECTED_SOURCE_WAV_COUNT:
         raise SoundPackBuildError(
-            f"expected 330 WAV files from the supplied archive, found {len(inventory)}"
+            f"expected {EXPECTED_SOURCE_WAV_COUNT} WAV files from the supplied archive, "
+            f"found {len(inventory)}"
+        )
+    source_inventory_sha256 = hashlib.sha256(
+        b"".join(source_fingerprint_rows)
+    ).hexdigest()
+    if source_inventory_sha256 != EXPECTED_SOURCE_INVENTORY_SHA256:
+        raise SoundPackBuildError(
+            "source sound inventory does not match the exact user-supplied archive"
         )
 
     _validate_event_paths(destination)
@@ -238,6 +254,7 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
         "schema_version": 1,
         "source": PROVENANCE_SOURCE,
         "file_count": len(inventory),
+        "source_inventory_sha256": source_inventory_sha256,
         "files": inventory,
     }
 
