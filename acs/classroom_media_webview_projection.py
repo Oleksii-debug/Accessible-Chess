@@ -469,7 +469,16 @@ class ClassroomMediaWebViewProjection:
         participants: list[dict[str, object]] = []
         own: dict[str, object] | None = None
 
-        for participant_id, label in labels.items():
+        # A generic Mapping does not promise a stable presentation order.
+        # Sort by visible label, then canonical opaque identity, so repeated
+        # rerenders cannot move NVDA users to a different participant merely
+        # because the provider returned the same roster in another iteration
+        # order. The canonical identity is never emitted to the browser.
+        for participant_id in sorted(
+            labels,
+            key=lambda item: (labels[item].casefold(), item),
+        ):
+            label = labels[participant_id]
             policy = self._controller.participant_policy(participant_id)
             key = self._participant_key(participant_id)
             is_local = participant_id == local_id
