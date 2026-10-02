@@ -110,7 +110,7 @@ class ClassroomMediaWebViewBridge:
                     source,
                     self._boolean(data["allowed"]),
                     focus_target=(
-                        f"media-participant-{participant_key[:16]}-"
+                        f"media-participant-{participant_key}-"
                         f"{'mic' if source == 'microphone' else 'camera'}-permission"
                     ),
                 )
@@ -121,7 +121,7 @@ class ClassroomMediaWebViewBridge:
                 return self._projection.set_soft_mute(
                     participant_key,
                     self._boolean(data["muted"]),
-                    focus_target=f"media-participant-{participant_key[:16]}-soft-mute",
+                    focus_target=f"media-participant-{participant_key}-soft-mute",
                 )
 
             if command_id == "media.all_publish_permission":
@@ -157,7 +157,7 @@ class ClassroomMediaWebViewBridge:
                     participant_key,
                     block,
                     focus_target=(
-                        f"media-participant-{participant_key[:16]}-"
+                        f"media-participant-{participant_key}-"
                         f"{'block' if block else 'remove'}"
                     ),
                 )
