@@ -20,6 +20,7 @@ on:
       - 'tests/test_dev3_sound_failure_isolation.py'
       - 'tests/test_sound_scaled_cache_integrity_workflow.py'
       - '.github/workflows/sound-scaled-cache-integrity.yml'
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
 
 permissions:
   contents: read
