@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
-            base=25b6da6eb8bccea95628ecfce5ba81fece1a5666
+            base="${{ github.event.pull_request.base.sha }}"
             test "${{ github.event.pull_request.base.ref }}" = "work/full-product-teacher-education-reachability-20260911"
             expected="$(printf '%s\n' \
               '.github/workflows/chess-clock-switch-boundary.yml' \
