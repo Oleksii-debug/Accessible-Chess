@@ -230,9 +230,17 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     "Sound profile settings are unavailable.",
                 )
             )
+        def command_error(message: str) -> dict[str, Any]:
+            response = self._error(message)
+            try:
+                response["snapshot"] = sound.snapshot(language=self.lang)
+            except Exception:
+                pass
+            return response
+
         data = {} if payload is None else payload
         if not isinstance(data, Mapping):
-            return self._error(
+            return command_error(
                 self._sound_message("Некоректні параметри звуку.", "Invalid sound settings.")
             )
         try:
@@ -317,14 +325,14 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             else:
                 raise ValueError("command")
         except (TypeError, ValueError):
-            return self._error(
+            return command_error(
                 self._sound_message("Некоректні параметри звуку.", "Invalid sound settings.")
             )
         except Exception:
-            return self._error(
+            return command_error(
                 self._sound_message(
-                    "Не вдалося застосувати налаштування звуку.",
-                    "Sound settings could not be applied.",
+                    "Не вдалося повністю застосувати налаштування звуку. Поточний стан оновлено.",
+                    "Sound settings could not be fully applied. Current state was refreshed.",
                 )
             )
         return {
