@@ -492,6 +492,18 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             )
 
     def test_chat_moderation_capability_projects_canonical_role_hierarchy_without_side_effects(self):
+        for actor, expected in (
+            ("teacher-1", True),
+            ("co-1", True),
+            ("student-1", False),
+            ("observer-1", False),
+        ):
+            with self.subTest(local_actor=actor):
+                controller = self.controller(actor)
+                calls_before = len(self.chat.moderation_calls)
+                self.assertIs(controller.can_moderate_chat(), expected)
+                self.assertEqual(len(self.chat.moderation_calls), calls_before)
+
         cases = (
             ("teacher-1", "co-1", True),
             ("teacher-1", "student-1", True),
@@ -517,6 +529,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.roster.roles.pop("student-2")
         teacher = self.controller("teacher-1")
         self.assertFalse(teacher.can_moderate_chat_participant("student-2"))
+        self.roster.roles.pop("teacher-1")
+        self.assertFalse(teacher.can_moderate_chat())
         self.assertEqual(self.chat.moderation_calls, [])
 
     def test_teacher_chat_lock_is_server_authoritative_across_controller_recreation(self):
@@ -1423,6 +1437,48 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room-1"), (first,))
 
+    def test_live_file_rejects_stale_sequence_and_never_resurrects_tombstone(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "deleted-a0",
+            "room-1",
+            "student-2",
+            0,
+            "deleted.bin",
+            None,
+            1,
+            "f" * 64,
+            "rooms/room-1/deleted-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+
+        stale_other = AttachmentMetadata(
+            "stale-other",
+            "room-1",
+            "student-1",
+            0,
+            "stale.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room-1/stale-other",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live file sequence is stale",
+        ):
+            controller.receive_file(stale_other)
+
+        delayed_same = replace(tombstone, transfer_state="stored")
+        self.assertEqual(controller.receive_file(delayed_same), tombstone)
+        self.assertEqual(self.store.room_attachments("room-1"), (tombstone,))
+
     def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
         controller = self.controller("teacher-1")
         base = AttachmentMetadata(
@@ -1595,7 +1651,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         cancelled = controller.cancel_file("a1")
         self.assertEqual(cancelled.transfer_state, "deleted")
         self.assertEqual(self.files.cancel_calls, ["a1"])
+        self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertTrue(path.exists())
+
+    def test_cancelled_provisional_sequence_does_not_block_authoritative_history(self):
+        controller = self.controller("student-1")
+        path = self.make_file("cancel-provisional.bin", b"cancel")
+        prepared = controller.prepare_file(
+            attachment_id="local-provisional",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.store.register_attachment(prepared.metadata)
+        controller.cancel_file(prepared.metadata.attachment_id)
+
+        remote = AttachmentMetadata(
+            "remote-authoritative",
+            "room-1",
+            "student-2",
+            0,
+            "remote.bin",
+            None,
+            1,
+            "e" * 64,
+            "rooms/room-1/remote-authoritative",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (remote,)
+
+        self.assertEqual(controller.sync_files(), (remote,))
+        self.assertEqual(self.store.room_attachments("room-1"), (remote,))
 
     def test_cancel_cannot_delete_another_participant_attachment(self):
         controller = self.controller("student-1")

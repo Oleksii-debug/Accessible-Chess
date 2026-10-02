@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -437,15 +437,34 @@ class ClassroomCollaborationSQLiteStore:
                 )
                 db.execute(
                     """
-                    CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                    CREATE UNIQUE INDEX uq_collaboration_attachments_terminal_sequence
                     ON collaboration_attachments(room_id, sequence_no)
-                    WHERE transfer_state='stored'
+                    WHERE transfer_state IN ('stored','deleted')
                     """
                 )
                 db.execute(
                     "UPDATE collaboration_schema_meta SET value=5 WHERE key='schema_version'"
                 )
                 version = 5
+            if version < 6:
+                # Deleted attachments are authoritative room-history tombstones.
+                # They must keep reserving their server sequence just like stored
+                # attachments, while provisional local states remain free to use
+                # a placeholder sequence before server reconciliation.
+                db.execute(
+                    "DROP INDEX IF EXISTS uq_collaboration_attachments_stored_sequence"
+                )
+                db.execute(
+                    """
+                    CREATE UNIQUE INDEX uq_collaboration_attachments_authoritative_sequence
+                    ON collaboration_attachments(room_id, sequence_no)
+                    WHERE transfer_state IN ('stored', 'deleted')
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=6 WHERE key='schema_version'"
+                )
+                version = 6
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -693,6 +712,52 @@ class ClassroomCollaborationSQLiteStore:
                     "attachment conflicts with ordering or storage identity"
                 ) from exc
         return attachment
+
+    def discard_provisional_attachment(
+        self,
+        attachment_id: str,
+    ) -> AttachmentMetadata:
+        _canonical_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment_id,),
+                ).fetchone()
+                if row is None:
+                    raise CollaborationStorageError(
+                        f"unknown attachment: {attachment_id}"
+                    )
+                current = self._attachment_from_row(row)
+                if current.transfer_state not in {"pending", "uploading", "failed"}:
+                    raise CollaborationStorageError(
+                        "only provisional attachment metadata can be discarded"
+                    )
+                _validate_transfer_transition(current.transfer_state, "deleted")
+                tombstone = AttachmentMetadata(
+                    current.attachment_id,
+                    current.room_id,
+                    current.sender_id,
+                    current.sequence_no,
+                    current.display_name,
+                    current.mime_type,
+                    current.size_bytes,
+                    current.sha256,
+                    current.object_key,
+                    "deleted",
+                    current.retention,
+                    current.scan_state,
+                )
+                db.execute(
+                    "DELETE FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment_id,),
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        return tombstone
 
     def register_attachments_atomic(
         self,
