@@ -9,7 +9,9 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/version2_final_release.py'
+      - 'run_accessible_chess_v2.py'
       - 'scripts/stage_livekit_client_sdk.py'
+      - 'tests/test_p0g_final_product_runtime_reachability.py'
       - 'tests/test_stage_livekit_client_sdk.py'
       - 'tests/test_version2_final_release_binding.py'
       - 'tests/test_version2_package_assembler.py'
@@ -68,7 +70,9 @@ jobs:
             'acs/version2_final_release.py'
             'acs/version2_package_preflight.py'
             'acs/version2_release_payload.py'
+            'run_accessible_chess_v2.py'
             'scripts/stage_livekit_client_sdk.py'
+            'tests/test_p0g_final_product_runtime_reachability.py'
             'tests/test_stage_livekit_client_sdk.py'
             'tests/test_v2_package_required_resources.py'
             'tests/test_version2_final_release_binding.py'
