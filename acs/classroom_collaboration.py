@@ -724,10 +724,14 @@ class ClassroomCollaborationController:
         if attachment.transfer_state not in {"pending", "uploading", "failed"}:
             raise CollaborationError("attachment cannot be cancelled from current state")
         self._files.cancel(attachment_id=attachment.attachment_id)
-        return self._store.update_attachment_state(
-            attachment.attachment_id,
-            transfer_state="deleted",
-        )
+        try:
+            return self._store.discard_provisional_attachment(
+                attachment.attachment_id
+            )
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "cancelled provisional attachment could not be discarded"
+            ) from error
 
     def issue_download_token(
         self,
