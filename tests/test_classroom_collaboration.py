@@ -372,7 +372,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.chat.messages[accepted.message_id] = accepted
         self.chat.ordered = [accepted]
 
-        with mock.patch.object(
+        with patch.object(
             self.chat,
             "send_message",
             side_effect=RuntimeError("ambiguous transport failure"),
@@ -401,7 +401,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.chat.messages[tampered.message_id] = tampered
         self.chat.ordered = [tampered]
 
-        with mock.patch.object(
+        with patch.object(
             self.chat,
             "send_message",
             side_effect=RuntimeError("ambiguous transport failure"),
