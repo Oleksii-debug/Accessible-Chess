@@ -10,6 +10,7 @@ chess state, or provider policy, and it never serializes API credentials.
 
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
+import re
 from typing import Callable
 
 from .classroom_join_credentials import ClassroomJoinGrant
@@ -19,6 +20,7 @@ from .classroom_realtime_media import MAX_JOIN_TTL_SECONDS, MAX_TOKEN_LENGTH
 LIVEKIT_API_DISTRIBUTION = "livekit-api"
 LIVEKIT_API_VERSION = "1.2.1"
 MAX_PROVIDER_CREDENTIAL_LENGTH = 4096
+_LIVEKIT_COMPACT_JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
 
 
 class LiveKitClassroomTokenIssuerError(ValueError):
@@ -53,14 +55,8 @@ def _provider_credential(value: object, label: str) -> str:
 def _provider_token(value: object) -> str:
     if (
         type(value) is not str
-        or not value
         or len(value) > MAX_TOKEN_LENGTH
-        or any(
-            character.isspace()
-            or ord(character) < 0x20
-            or ord(character) == 0x7F
-            for character in value
-        )
+        or _LIVEKIT_COMPACT_JWT_RE.fullmatch(value) is None
     ):
         raise LiveKitClassroomTokenIssuerError("LiveKit token output is invalid")
     return value
