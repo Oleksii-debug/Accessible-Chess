@@ -798,6 +798,7 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             SqliteClassroomMediaPolicyAuthority(
                 ":memory:",
                 roster_resolver=self.resolver,
+                join_identity_resolver=self.join_identity,
             )
 
     def test_invalid_roster_and_timeout_inputs_fail_closed(self):
