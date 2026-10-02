@@ -10,6 +10,7 @@ this child is composing/running, then restore the exact previous objects.
 """
 
 from contextlib import contextmanager
+import os
 from typing import Any, Callable, Iterator
 
 from . import version2_release_app as _release_app
@@ -26,21 +27,36 @@ def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     """Return the exact #645 Teacher/Education-capable packaged WebView sources."""
 
     root = _release_ui._asset_root() / "web"
-    livekit_sdk = root / "vendor" / "livekit" / "livekit-client.umd.js"
+    livekit_root = root / "vendor" / "livekit"
+    livekit_resources: tuple[tuple[str, Any], ...] = ()
+    source_adapter_resources: tuple[tuple[str, Any], ...] = (
+        ("V2 Classroom LiveKit adapter", root / "livekit_classroom_media.js"),
+    )
+    if os.path.lexists(livekit_root):
+        if livekit_root.is_symlink() or not livekit_root.is_dir():
+            raise RuntimeError("LiveKit browser SDK resource root is invalid.")
+        livekit_resources = (
+            ("LiveKit browser SDK", livekit_root / "livekit-client.umd.js"),
+            (
+                "Classroom LiveKit media adapter",
+                root / "livekit_classroom_media.js",
+            ),
+        )
+        # A staged package uses the #1079 shipping labels/order. An ordinary
+        # source checkout retains the historical presentation-only adapter label
+        # so #1068 remains testable without materializing third-party bytes.
+        source_adapter_resources = ()
+
     resources = (
         ("Stage 1 WebView bootstrap", root / "stage1_release_bootstrap.js"),
         ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
+        *livekit_resources,
         ("V2 PGN surface", root / "full_product_pgn.js"),
         ("V2 Library surface", root / "full_product_library.js"),
         ("V2 Books surface", root / "full_product_books_training.js"),
         ("V2 Teacher surface", root / "full_product_teacher.js"),
         ("V2 Education surface", root / "full_product_education.js"),
-        *(
-            (("V2 Classroom LiveKit SDK", livekit_sdk),)
-            if livekit_sdk.exists()
-            else ()
-        ),
-        ("V2 Classroom LiveKit adapter", root / "livekit_classroom_media.js"),
+        *source_adapter_resources,
         ("V2 Classroom media surface", root / "full_product_classroom_media.js"),
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
         ("P0 accessibility runtime", root / "p0_accessibility_runtime.js"),
