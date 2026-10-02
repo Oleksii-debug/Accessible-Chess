@@ -70,9 +70,20 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             )
 
         livekit_root = self.standalone / "web" / "vendor" / "livekit"
-        livekit_bundle = b"/* packaged LiveKit fixture */ LivekitClient Room\n"
+        livekit_bundle = (
+            b"/* packaged LiveKit fixture */ LivekitClient Room\n"
+            + b"".join(
+                hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
+                for index in range(4000)
+            )
+        )
         livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
-        livekit_notice = b"Copyright LiveKit\nApache License\n"
+        livekit_notice = (
+            b"Copyright 2021 LiveKit, Inc.\n"
+            b"Apache License, Version 2.0\n"
+            b"fixture redistribution notice\n"
+            b"Distributed on an AS IS basis without warranties or conditions.\n"
+        )
         (livekit_root / "livekit-client.umd.js").write_bytes(livekit_bundle)
         (livekit_root / "LICENSE").write_bytes(livekit_license)
         (livekit_root / "NOTICE").write_bytes(livekit_notice)
