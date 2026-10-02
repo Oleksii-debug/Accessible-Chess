@@ -336,6 +336,51 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("collaboration-chat-sync", hidden.payload["focus_target"])
         self.assertEqual((), self.store.room_messages("room-1"))
 
+    def test_departed_sender_history_has_no_stale_sender_moderation_actions(self) -> None:
+        teacher_chat = FakeChat()
+        teacher_media = FakeMedia()
+        participant_moderation = ClassroomMediaController(
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            media=teacher_media,
+        )
+        teacher_controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=teacher_chat,
+            files=FakeFiles(),
+            store=self.store,
+            file_store=self.file_store,
+        )
+        historical = ChatMessageMetadata(
+            "departed-message",
+            "room-1",
+            "student-2",
+            0,
+            "Historical contribution",
+            sent_at_unix_ms=1700000000000,
+        )
+        teacher_chat.ordered.append(historical)
+        teacher_controller.sync_chat()
+        self.roster.roles.pop("student-2")
+
+        view = ClassroomCollaborationWebView(
+            teacher_controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            moderation_allowed=lambda: True,
+            participant_moderation=participant_moderation,
+            id_factory=self.next_id,
+        )
+        message = view.snapshot()["chat"]["messages"][0]
+
+        self.assertEqual("Historical contribution", message["body"])
+        self.assertTrue(message["can_hide"])
+        self.assertFalse(message["can_moderate_sender"])
+        self.assertFalse(message["can_remove_sender"])
+
     def test_non_moderator_snapshot_does_not_expose_message_action_key(self) -> None:
         view = self.webview()
         view.dispatch("collaboration.chat.send", {"body": "Local"})
