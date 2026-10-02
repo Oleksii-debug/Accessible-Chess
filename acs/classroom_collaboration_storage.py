@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Protocol, runtime_checkable
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -77,6 +77,22 @@ class ChatMessageMetadata:
             or not 0 <= self.sent_at_unix_ms <= MAX_CHAT_TIMESTAMP_UNIX_MS
         ):
             raise ValueError("sent_at_unix_ms must be a bounded UTC Unix millisecond timestamp")
+
+
+@dataclass(frozen=True)
+class ChatMessageStateUpdate:
+    room_id: str
+    message_id: str
+    revision: int
+    hidden: bool = True
+
+    def __post_init__(self) -> None:
+        _canonical_id(self.room_id, "room id")
+        _canonical_id(self.message_id, "message id")
+        if type(self.revision) is not int or self.revision < 0:
+            raise ValueError("state revision must be a non-negative integer")
+        if self.hidden is not True:
+            raise ValueError("chat message state updates are monotonic hide operations")
 
 
 @dataclass(frozen=True)
@@ -291,6 +307,19 @@ class ClassroomCollaborationSQLiteStore:
                     "CHECK(sent_at_unix_ms IS NULL OR sent_at_unix_ms >= 0)"
                 )
                 db.execute(
+                    "UPDATE collaboration_schema_meta SET value=2 WHERE key='schema_version'"
+                )
+                version = 2
+            if version < 3:
+                db.execute(
+                    """
+                    CREATE TABLE collaboration_chat_state_cursors(
+                        room_id TEXT PRIMARY KEY,
+                        revision INTEGER NOT NULL CHECK(revision >= 0)
+                    )
+                    """
+                )
+                db.execute(
                     "UPDATE collaboration_schema_meta SET value=? WHERE key='schema_version'",
                     (SCHEMA_VERSION,),
                 )
@@ -397,6 +426,75 @@ class ClassroomCollaborationSQLiteStore:
             db.execute("UPDATE collaboration_messages SET hidden=? WHERE message_id=?", (int(hidden), message_id))
             updated = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
         return self._message_from_row(updated)
+
+    def chat_state_revision(self, room_id: str) -> int | None:
+        _canonical_id(room_id, "room id")
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
+                (room_id,),
+            ).fetchone()
+        return None if row is None else int(row["revision"])
+
+    def apply_message_state_updates(
+        self,
+        *,
+        room_id: str,
+        updates: tuple[ChatMessageStateUpdate, ...],
+    ) -> None:
+        _canonical_id(room_id, "room id")
+        if type(updates) is not tuple:
+            raise ValueError("message state updates must be a tuple")
+        if not updates:
+            return
+        if any(type(update) is not ChatMessageStateUpdate for update in updates):
+            raise ValueError("message state update has invalid type")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
+                (room_id,),
+            ).fetchone()
+            previous = None if row is None else int(row["revision"])
+            try:
+                for update in updates:
+                    if update.room_id != room_id:
+                        raise CollaborationStorageError(
+                            "message state update crossed room boundary"
+                        )
+                    if previous is not None and update.revision <= previous:
+                        raise CollaborationStorageError(
+                            "message state updates are not strictly ordered"
+                        )
+                    message = db.execute(
+                        """
+                        SELECT room_id, hidden FROM collaboration_messages
+                        WHERE message_id=?
+                        """,
+                        (update.message_id,),
+                    ).fetchone()
+                    if message is None or message["room_id"] != room_id:
+                        raise CollaborationStorageError(
+                            "message state update references unknown room message"
+                        )
+                    if not bool(message["hidden"]):
+                        db.execute(
+                            "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
+                            (update.message_id,),
+                        )
+                    db.execute(
+                        """
+                        INSERT INTO collaboration_chat_state_cursors(room_id, revision)
+                        VALUES(?,?)
+                        ON CONFLICT(room_id) DO UPDATE SET revision=excluded.revision
+                        """,
+                        (room_id, update.revision),
+                    )
+                    previous = update.revision
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
 
     def register_attachment(
         self,

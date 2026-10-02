@@ -9,10 +9,12 @@ from pathlib import Path
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
     CollaborationConflictError,
     CollaborationQuotaError,
     CollaborationSequenceGapError,
+    CollaborationStorageError,
     content_sha256,
     safe_display_filename,
 )
@@ -30,7 +32,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 2
+                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 3
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
@@ -82,11 +84,65 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(message.sent_at_unix_ms)
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                2,
+                3,
                 db.execute(
                     "SELECT value FROM collaboration_schema_meta WHERE key='schema_version'"
                 ).fetchone()[0],
             )
+            cursor_tables = {
+                row[0]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            self.assertIn("collaboration_chat_state_cursors", cursor_tables)
+
+    def test_message_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
+        message = ChatMessageMetadata(
+            "m-state", "room", "teacher", 0, "Visible",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(message)
+        self.assertIsNone(self.store.chat_state_revision("room"))
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(ChatMessageStateUpdate("room", "m-state", 0),),
+        )
+        self.assertEqual(self.store.room_messages("room"), ())
+        hidden = self.store.room_messages("room", include_hidden=True)
+        self.assertTrue(hidden[0].hidden)
+        self.assertEqual(self.store.chat_state_revision("room"), 0)
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(reopened.chat_state_revision("room"), 0)
+        self.assertTrue(reopened.room_messages("room", include_hidden=True)[0].hidden)
+
+        with self.assertRaises(CollaborationStorageError):
+            reopened.apply_message_state_updates(
+                room_id="room",
+                updates=(ChatMessageStateUpdate("room", "m-state", 0),),
+            )
+        self.assertEqual(reopened.chat_state_revision("room"), 0)
+
+    def test_message_state_update_failure_rolls_back_cursor_and_visibility(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata(
+                "m1", "room", "teacher", 0, "One",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        with self.assertRaises(CollaborationStorageError):
+            self.store.apply_message_state_updates(
+                room_id="room",
+                updates=(
+                    ChatMessageStateUpdate("room", "m1", 0),
+                    ChatMessageStateUpdate("room", "missing", 1),
+                ),
+            )
+        self.assertIsNone(self.store.chat_state_revision("room"))
+        self.assertFalse(
+            self.store.room_messages("room", include_hidden=True)[0].hidden
+        )
 
     def test_messages_are_ordered_and_reconnect_is_idempotent(self) -> None:
         first = ChatMessageMetadata(
@@ -211,6 +267,10 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=True)
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=-1)
+        with self.assertRaises(ValueError):
+            ChatMessageStateUpdate("room", "m1", -1)
+        with self.assertRaises(ValueError):
+            ChatMessageStateUpdate("room", "m1", 0, hidden=False)
         with self.assertRaises(ValueError):
             ChatMessageMetadata(
                 "m1", "room", "teacher", 0, "Hello",
