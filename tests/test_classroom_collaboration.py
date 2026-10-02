@@ -337,6 +337,21 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (historical,),
         )
 
+    def test_departed_sender_history_is_preserved_on_reconnect(self):
+        controller = self.controller()
+        historical = self.chat.send_message(
+            ChatDraft("m1", "room-1", "student-2", "Before leaving")
+        )
+        self.roster.roles.pop("student-2")
+
+        synced = controller.sync_chat()
+
+        self.assertEqual(synced, (historical,))
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (historical,),
+        )
+
     def test_removed_sender_is_rejected_from_received_chat(self):
         controller = self.controller()
         self.roster.roles.pop("student-2")
