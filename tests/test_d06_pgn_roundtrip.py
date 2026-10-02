@@ -389,6 +389,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
             (representable,),
         )
 
+    def test_serialization_preflight_budgets_escaped_tag_expansion_before_build(self):
+        game = PgnGame(
+            tags={"Event": chr(92) * 200, "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TEXT_CHARS", 380),
+            patch("acs.pgn_roundtrip.serialize_games") as serializer,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+            serializer.assert_not_called()
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
