@@ -122,6 +122,28 @@ class WindowsSoundPackCompatibilityTests(unittest.TestCase):
             self.assertEqual("soft.pack", persisted["pack_id"])
 
 
+class SoundCachePathSafetyTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_cache_directory_symlink_is_rejected_without_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-symlink-") as raw:
+            root = Path(raw)
+            outside = root / "outside"
+            outside.mkdir()
+            sentinel = outside / "custom-redaction-v50.wav"
+            sentinel.write_bytes(b"keep")
+            cache = root / "cache"
+            cache.symlink_to(outside, target_is_directory=True)
+            source = root / "source.wav"
+            _write_wav(source)
+            adapter = _cache_adapter(cache, mock.Mock())
+
+            with self.assertRaisesRegex(ValueError, "real directory"):
+                adapter._scaled_copy(source, "custom-redaction", 50)
+
+            self.assertEqual(b"keep", sentinel.read_bytes())
+            self.assertEqual([sentinel], list(outside.iterdir()))
+
+
 class SoundCacheWarningRedactionTests(unittest.TestCase):
     def test_temporary_cleanup_warning_does_not_expose_private_path_or_exception(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-cache-warning-") as raw:
