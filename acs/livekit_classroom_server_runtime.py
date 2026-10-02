@@ -179,7 +179,7 @@ def _endpoint(value: object) -> str:
         or not value
         or len(value) > MAX_PROVIDER_ENDPOINT_CHARS
         or value != value.strip()
-        or any(character in value for character in ("\x00", "\r", "\n"))
+        or any(character.isspace() or ord(character) < 32 for character in value)
     ):
         raise LiveKitClassroomServerRuntimeError(
             "LiveKit server endpoint is invalid"
@@ -200,7 +200,9 @@ def _endpoint(value: object) -> str:
         or parts.query
         or parts.fragment
         or parts.path not in {"", "/"}
-        or port is None and ":" in parts.netloc.rsplit("]", 1)[-1]
+        or (port is None and ":" in parts.netloc.rsplit("]", 1)[-1])
+        or (port is not None and port == 0)
+        or any(character.isspace() for character in (parts.hostname or ""))
     ):
         raise LiveKitClassroomServerRuntimeError(
             "LiveKit server endpoint is invalid"
@@ -227,7 +229,7 @@ def _credential(value: object, label: str) -> str:
         or not value
         or len(value) > MAX_PROVIDER_CREDENTIAL_CHARS
         or value != value.strip()
-        or any(character in value for character in ("\x00", "\r", "\n"))
+        or any(character.isspace() or ord(character) < 32 for character in value)
     ):
         raise LiveKitClassroomServerRuntimeError(f"{label} is invalid")
     return value
