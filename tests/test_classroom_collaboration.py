@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.classroom_collaboration import (
     ChatDraft,
@@ -250,6 +251,37 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(controller.sync_chat(), ())
         self.assertEqual(self.store.room_messages("room-1"), (one, two))
 
+    def test_sync_defers_state_for_message_on_next_history_page(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("m-page-0", "room-1", "teacher-1", "First")
+        )
+        second = self.chat.send_message(
+            ChatDraft("m-page-1", "room-1", "student-2", "Second")
+        )
+        third = self.chat.send_message(
+            ChatDraft("m-page-2", "room-1", "teacher-1", "Third")
+        )
+        self.chat.ordered[2] = replace(third, hidden=True)
+        self.chat.messages[third.message_id] = self.chat.ordered[2]
+        self.chat.state_updates = [
+            ChatMessageStateUpdate("room-1", third.message_id, 0),
+        ]
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_MESSAGES", 2):
+            self.assertEqual(controller.sync_chat(), (first, second))
+            self.assertIsNone(self.store.chat_state_revision("room-1"))
+            self.assertEqual(controller.sync_chat(), ())
+
+        stored = self.store.room_messages("room-1", include_hidden=True)
+        self.assertEqual(tuple(item.message_id for item in stored), (
+            first.message_id,
+            second.message_id,
+            third.message_id,
+        ))
+        self.assertTrue(stored[-1].hidden)
+        self.assertEqual(self.store.chat_state_revision("room-1"), 0)
+
     def test_send_repairs_missed_server_message_before_committing_later_sequence(self):
         controller = self.controller()
         first = self.chat.send_message(
@@ -268,6 +300,43 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (first, missed, sent),
         )
 
+    def test_receive_later_message_on_empty_store_recovers_complete_prefix(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("m0", "room-1", "teacher-1", "First")
+        )
+        missed = self.chat.send_message(
+            ChatDraft("m1", "room-1", "student-2", "Missed")
+        )
+        later = self.chat.send_message(
+            ChatDraft("m2", "room-1", "teacher-1", "Later")
+        )
+
+        received = controller.receive_chat(later)
+
+        self.assertEqual(received, later)
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (first, missed, later),
+        )
+
+    def test_receive_later_message_fails_closed_when_server_history_omits_prefix(self):
+        controller = self.controller()
+        later = ChatMessageMetadata(
+            "m2",
+            "room-1",
+            "teacher-1",
+            2,
+            "Incomplete history",
+            sent_at_unix_ms=1700000002000,
+        )
+        self.chat.ordered = [later]
+
+        with self.assertRaises(CollaborationError):
+            controller.receive_chat(later)
+
+        self.assertEqual(self.store.room_messages("room-1"), ())
+
     def test_sync_rejects_cross_room_or_out_of_order_transport_history(self):
         controller = self.controller()
         self.chat.ordered.append(
@@ -282,6 +351,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         with self.assertRaises(CollaborationError):
             controller.sync_chat()
 
+    def test_current_participant_query_tracks_canonical_roster(self):
+        controller = self.controller()
+        self.assertTrue(controller.is_current_participant("student-2"))
+
+        self.roster.roles.pop("student-2")
+
+        self.assertFalse(controller.is_current_participant("student-2"))
+        with self.assertRaises(CollaborationError):
+            controller.is_current_participant("bad id")
+
+    def test_departed_sender_history_is_preserved_on_reconnect(self):
+        controller = self.controller()
+        historical = self.chat.send_message(
+            ChatDraft("m1", "room-1", "student-2", "Before leaving")
+        )
+        self.roster.roles.pop("student-2")
+
+        synced = controller.sync_chat()
+
+        self.assertEqual(synced, (historical,))
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (historical,),
+        )
+
     def test_removed_sender_is_rejected_from_received_chat(self):
         controller = self.controller()
         self.roster.roles.pop("student-2")
@@ -289,6 +383,34 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.receive_chat(
                 ChatMessageMetadata("m1", "room-1", "student-2", 0, "orphan", sent_at_unix_ms=1700000000000)
             )
+
+    def test_chat_moderation_capability_projects_canonical_role_hierarchy_without_side_effects(self):
+        cases = (
+            ("teacher-1", "co-1", True),
+            ("teacher-1", "student-1", True),
+            ("teacher-1", "observer-1", True),
+            ("teacher-1", "teacher-1", False),
+            ("co-1", "student-1", True),
+            ("co-1", "observer-1", True),
+            ("co-1", "teacher-1", False),
+            ("co-1", "co-1", False),
+            ("student-1", "student-2", False),
+            ("observer-1", "student-1", False),
+        )
+        for actor, target, expected in cases:
+            with self.subTest(actor=actor, target=target):
+                controller = self.controller(actor)
+                calls_before = len(self.chat.moderation_calls)
+                self.assertIs(
+                    controller.can_moderate_chat_participant(target),
+                    expected,
+                )
+                self.assertEqual(len(self.chat.moderation_calls), calls_before)
+
+        self.roster.roles.pop("student-2")
+        teacher = self.controller("teacher-1")
+        self.assertFalse(teacher.can_moderate_chat_participant("student-2"))
+        self.assertEqual(self.chat.moderation_calls, [])
 
     def test_teacher_chat_lock_is_server_authoritative_across_controller_recreation(self):
         teacher = self.controller("teacher-1")
@@ -331,6 +453,30 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual({item.target_id for item in commands}, {"student-1", "student-2"})
         self.assertNotIn("co-1", {item.target_id for item in commands})
         self.assertNotIn("observer-1", {item.target_id for item in commands})
+
+    def test_empty_student_batch_still_validates_operation_identity(self):
+        self.roster.roles.pop("student-1")
+        self.roster.roles.pop("student-2")
+        controller = self.controller("teacher-1")
+        calls_before = len(self.chat.moderation_calls)
+
+        with self.assertRaises(CollaborationError):
+            controller.set_all_students_chat_send_permission(
+                actor_id="teacher-1",
+                allowed=False,
+                operation_id="",
+            )
+
+        self.assertEqual(len(self.chat.moderation_calls), calls_before)
+        self.assertEqual(
+            controller.set_all_students_chat_send_permission(
+                actor_id="teacher-1",
+                allowed=False,
+                operation_id="lock-empty-student-set",
+            ),
+            (),
+        )
+        self.assertEqual(len(self.chat.moderation_calls), calls_before)
 
     def test_all_students_lock_is_enforced_by_server_transport_across_fresh_clients(self):
         teacher = self.controller("teacher-1")
@@ -682,6 +828,39 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         with self.assertRaises(CollaborationError):
             controller.upload_file(prepared)
         self.assertEqual(self.files.upload_calls, [])
+
+    def test_upload_rejects_forged_prepared_metadata_before_transport(self):
+        controller = self.controller()
+        path = self.make_file(content=b"opaque prepared payload")
+        prepared = controller.prepare_file(
+            attachment_id="a-forged",
+            local_path=path,
+            sequence_no=0,
+        )
+
+        forged_metadata = (
+            replace(
+                prepared.metadata,
+                display_name="misleading.txt",
+                mime_type="text/plain",
+            ),
+            replace(prepared.metadata, mime_type="text/plain"),
+            replace(
+                prepared.metadata,
+                object_key="rooms/room-1/not-the-attachment",
+            ),
+            replace(prepared.metadata, transfer_state="uploading"),
+            replace(prepared.metadata, scan_state="clean"),
+        )
+        for metadata in forged_metadata:
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(CollaborationError):
+                    controller.upload_file(
+                        PreparedFile(prepared.local_path, metadata)
+                    )
+
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.store.room_attachments("room-1"), ())
 
     def test_upload_failure_is_persisted_failed_and_retry_preserves_identity(self):
         controller = self.controller()

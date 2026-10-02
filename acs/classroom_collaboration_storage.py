@@ -405,7 +405,13 @@ class ClassroomCollaborationSQLiteStore:
                 """,
                 (message.room_id,),
             ).fetchone()[0]
-            if latest is not None and message.sequence_no > int(latest) + 1:
+            if (
+                latest is None
+                and message.sequence_no != 0
+            ) or (
+                latest is not None
+                and message.sequence_no > int(latest) + 1
+            ):
                 raise CollaborationSequenceGapError(
                     "message sequence has an unresolved gap"
                 )

@@ -257,9 +257,15 @@ class ClassroomCollaborationController:
                 raise CollaborationError("chat history contains invalid message type")
             if message.room_id != self.room_id:
                 raise CollaborationError("chat history crossed room boundary")
-            if previous is not None and message.sequence_no <= previous:
-                raise CollaborationError("chat history is not strictly ordered")
-            self._require_member(message.sender_id)
+            expected_sequence = 0 if previous is None else previous + 1
+            if message.sequence_no != expected_sequence:
+                raise CollaborationError(
+                    "chat history has an unresolved sequence gap"
+                )
+            # Historical room messages remain durable after a participant leaves.
+            # Current membership is enforced for the local reader and live receive,
+            # while replay trusts the room-scoped transport's historical sender ID.
+            _id(message.sender_id, "sender id")
             _chat_body(message.body)
             self._require_transport_timestamp(message)
             saved = self._store.append_message(message)
@@ -277,7 +283,16 @@ class ClassroomCollaborationController:
             raise CollaborationError(
                 "chat moderation state response is invalid or too large"
             )
+        history_complete = len(incoming) < MAX_SYNC_MESSAGES
+        known_message_ids = {
+            message.message_id
+            for message in self._store.room_messages(
+                self.room_id,
+                include_hidden=True,
+            )
+        }
         state_previous = state_after
+        applicable_updates: list[ChatMessageStateUpdate] = []
         for update in updates:
             if type(update) is not ChatMessageStateUpdate:
                 raise CollaborationError(
@@ -292,17 +307,24 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "chat moderation state has an unresolved revision gap"
                 )
+            if update.message_id not in known_message_ids:
+                if history_complete:
+                    raise CollaborationError(
+                        "chat moderation state references unknown room message"
+                    )
+                break
+            applicable_updates.append(update)
             state_previous = update.revision
         try:
             self._store.apply_message_state_updates(
                 room_id=self.room_id,
-                updates=updates,
+                updates=tuple(applicable_updates),
             )
         except CollaborationStorageError as error:
             raise CollaborationError(
                 "chat moderation state could not be reconciled"
             ) from error
-        if updates and persisted:
+        if applicable_updates and persisted:
             visible_ids = {
                 message.message_id
                 for message in self._store.room_messages(self.room_id)
@@ -313,6 +335,19 @@ class ClassroomCollaborationController:
                 if message.message_id in visible_ids
             ]
         return tuple(persisted)
+
+    def can_moderate_chat_participant(self, participant_id: str) -> bool:
+        """Return whether the local participant may moderate this chat target.
+
+        This is a side-effect-free projection of the same canonical authorization
+        used by set_chat_send_permission. Presentation layers may use it to avoid
+        exposing controls that the core will deterministically reject.
+        """
+        try:
+            self._moderation_pair(self.local_participant_id, participant_id)
+        except CollaborationError:
+            return False
+        return True
 
     def set_chat_send_permission(
         self,
@@ -346,6 +381,7 @@ class ClassroomCollaborationController:
             raise CollaborationError("chat send permission must be boolean")
         actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
+        root_operation = _id(operation_id, "operation id")
         targets = tuple(sorted(
             participant
             for participant in self._participant_ids()
@@ -353,7 +389,7 @@ class ClassroomCollaborationController:
         ))
         commands = tuple(
             ChatModerationCommand(
-                operation_id=_child_operation_id(operation_id, target),
+                operation_id=_child_operation_id(root_operation, target),
                 room_id=self.room_id,
                 actor_id=actor,
                 target_id=target,
@@ -412,10 +448,7 @@ class ClassroomCollaborationController:
         display_name = safe_display_filename(path.name)
         digest = _sha256_path(path)
         mime_type, _encoding = mimetypes.guess_type(display_name)
-        canonical_key = (
-            f"rooms/{_storage_key_segment(self.room_id)}/"
-            f"{_storage_key_segment(attachment)}"
-        )
+        canonical_key = _canonical_object_key(self.room_id, attachment)
         if object_key is not None and object_key != canonical_key:
             raise CollaborationError(
                 "custom object key does not match canonical attachment namespace"
@@ -571,6 +604,10 @@ class ClassroomCollaborationController:
             raise CollaborationError("file store returned invalid short-lived token")
         return token
 
+    def is_current_participant(self, participant_id: str) -> bool:
+        participant = _id(participant_id, "participant id")
+        return participant in self._participant_ids()
+
     def _message(self, message_id: str) -> ChatMessageMetadata:
         matches = tuple(
             item
@@ -602,7 +639,20 @@ class ClassroomCollaborationController:
             raise CollaborationError("prepared file belongs to another room")
         if metadata.sender_id != self.local_participant_id:
             raise CollaborationError("prepared file belongs to another sender")
+        if metadata.transfer_state != "pending" or metadata.scan_state != "pending":
+            raise CollaborationError("prepared file must start in pending state")
         path = _existing_regular_file(prepared.local_path)
+        display_name = safe_display_filename(path.name)
+        if metadata.display_name != display_name:
+            raise CollaborationError("prepared file display name does not match selected file")
+        mime_type, _encoding = mimetypes.guess_type(display_name)
+        if metadata.mime_type != mime_type:
+            raise CollaborationError("prepared file MIME type does not match selected file")
+        if metadata.object_key != _canonical_object_key(
+            self.room_id,
+            metadata.attachment_id,
+        ):
+            raise CollaborationError("prepared file object key is outside canonical namespace")
         if path.stat().st_size != metadata.size_bytes:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
@@ -776,6 +826,13 @@ def _storage_key_segment(identifier: str) -> str:
         return identifier
     digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()
     return f"id-{digest}"
+
+
+def _canonical_object_key(room_id: str, attachment_id: str) -> str:
+    return (
+        f"rooms/{_storage_key_segment(room_id)}/"
+        f"{_storage_key_segment(attachment_id)}"
+    )
 
 
 def _child_operation_id(root: str, target_id: str) -> str:

@@ -157,20 +157,26 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.store.append_message(second)
         self.assertEqual(self.store.room_messages("room"), (first, second))
 
-    def test_message_sequence_gap_must_be_filled_before_later_commit(self) -> None:
-        first = ChatMessageMetadata("m5", "room", "teacher", 5, "First visible")
+    def test_message_sequence_must_start_at_zero_and_remain_contiguous(self) -> None:
+        with self.assertRaises(CollaborationSequenceGapError):
+            self.store.append_message(
+                ChatMessageMetadata("m5", "room", "teacher", 5, "Missing prefix")
+            )
+        self.assertEqual(self.store.room_messages("room"), ())
+
+        first = ChatMessageMetadata("m0", "room", "teacher", 0, "First")
         self.store.append_message(first)
         with self.assertRaises(CollaborationSequenceGapError):
             self.store.append_message(
-                ChatMessageMetadata("m7", "room", "teacher", 7, "Too early")
+                ChatMessageMetadata("m2", "room", "teacher", 2, "Too early")
             )
-        sixth = ChatMessageMetadata("m6", "room", "student", 6, "Recovered")
-        seventh = ChatMessageMetadata("m7", "room", "teacher", 7, "Now valid")
-        self.store.append_message(sixth)
-        self.store.append_message(seventh)
+        second = ChatMessageMetadata("m1", "room", "student", 1, "Recovered")
+        third = ChatMessageMetadata("m2", "room", "teacher", 2, "Now valid")
+        self.store.append_message(second)
+        self.store.append_message(third)
         self.assertEqual(
             self.store.room_messages("room"),
-            (first, sixth, seventh),
+            (first, second, third),
         )
 
     def test_message_identity_and_room_sequence_cannot_overwrite(self) -> None:
