@@ -92,11 +92,23 @@
   eventList.setAttribute("aria-labelledby", eventHeading.id);
   root.appendChild(eventList);
 
+  const packHeading = documentRef.createElement("h3");
+  packHeading.id = "sound-packs-heading";
+  root.appendChild(packHeading);
+  const packStatus = documentRef.createElement("p");
+  packStatus.id = "sound-packs-status";
+  root.appendChild(packStatus);
+  const packList = documentRef.createElement("div");
+  packList.id = "sound-packs-list";
+  packList.setAttribute("aria-labelledby", packHeading.id);
+  root.appendChild(packList);
+
   heading.parentNode.appendChild(root);
 
   let currentSnapshot = null;
   let busy = false;
   let eventControls = [];
+  let packControls = [];
 
   function writesBlocked() {
     return !!(currentSnapshot && currentSnapshot.writes_blocked === true);
@@ -108,6 +120,9 @@
     masterEnabled.disabled = busy || writesBlocked();
     masterVolume.disabled = busy || writesBlocked();
     eventControls.forEach(function (entry) {
+      entry.control.disabled = busy || (writesBlocked() && entry.mutation);
+    });
+    packControls.forEach(function (entry) {
       entry.control.disabled = busy || (writesBlocked() && entry.mutation);
     });
   }
@@ -227,17 +242,91 @@
     return group;
   }
 
+  function packRow(item, writesBlocked) {
+    const packId = String(item.pack_id || "");
+    const safeId = packId.replace(/[^a-z0-9_-]/g, "-");
+    const group = documentRef.createElement("fieldset");
+    group.className = "sound-pack";
+    const groupLegend = documentRef.createElement("legend");
+    groupLegend.textContent = String(item.title || packId);
+    group.appendChild(groupLegend);
+
+    const metadata = documentRef.createElement("p");
+    metadata.id = "sound-pack-" + safeId + "-metadata";
+    const installed = item.installed_version == null
+      ? text("не встановлено", "not installed")
+      : text("встановлено ", "installed ") + String(item.installed_version);
+    metadata.textContent =
+      text("Версія ", "Version ") + String(item.version || "") + ". " +
+      text("Автор: ", "Author: ") + String(item.author || "") + ". " +
+      text("Ліцензія: ", "License: ") + String(item.license_id || "") + ". " +
+      installed + ".";
+    group.appendChild(metadata);
+
+    if (item.active === true) {
+      const active = documentRef.createElement("p");
+      active.id = "sound-pack-" + safeId + "-active";
+      active.textContent = text("Активний набір.", "Active pack.");
+      group.appendChild(active);
+    }
+
+    if (item.installed_version != null && item.active !== true) {
+      const select = documentRef.createElement("button");
+      select.type = "button";
+      select.id = "sound-pack-" + safeId + "-select";
+      select.textContent = text("Використовувати", "Use this pack");
+      select.disabled = writesBlocked || busy;
+      select.addEventListener("click", function () {
+        invoke("select_pack", {pack_id: packId});
+      });
+      group.appendChild(select);
+      packControls.push({control: select, mutation: true});
+    }
+
+    if (item.can_install === true) {
+      const install = documentRef.createElement("button");
+      install.type = "button";
+      install.id = "sound-pack-" + safeId + "-install";
+      install.textContent = item.installed_version == null
+        ? text("Установити й використовувати", "Install and use")
+        : text("Оновити й використовувати", "Update and use");
+      install.disabled = writesBlocked || busy;
+      install.addEventListener("click", function () {
+        invoke("install_pack", {pack_id: packId, activate: true});
+      });
+      group.appendChild(install);
+      packControls.push({control: install, mutation: true});
+    }
+
+    if (item.can_uninstall === true) {
+      const uninstall = documentRef.createElement("button");
+      uninstall.type = "button";
+      uninstall.id = "sound-pack-" + safeId + "-uninstall";
+      uninstall.textContent = text("Видалити", "Remove");
+      uninstall.disabled = writesBlocked || busy;
+      uninstall.addEventListener("click", function () {
+        invoke("uninstall_pack", {pack_id: packId});
+      });
+      group.appendChild(uninstall);
+      packControls.push({control: uninstall, mutation: true});
+    }
+    return group;
+  }
+
   function render(snapshot) {
     legend.textContent = text("Звуки", "Sounds");
     masterEnabledLabel.textContent = text("Увімкнути звуки", "Enable sounds");
     masterVolumeLabel.textContent = text("Загальна гучність, відсотків", "Master volume, percent");
     eventHeading.textContent = text("Події", "Events");
+    packHeading.textContent = text("Набори звуків", "Sound packs");
 
     if (!snapshot || typeof snapshot !== "object") {
       setStatus(text("Завантаження налаштувань звуку.", "Loading sound settings."));
       masterEnabled.disabled = true;
       masterVolume.disabled = true;
       eventList.replaceChildren();
+      packList.replaceChildren();
+      packStatus.textContent = "";
       return;
     }
 
@@ -263,6 +352,23 @@
       if (item && typeof item === "object") fragment.appendChild(eventRow(item, writesBlocked));
     });
     eventList.replaceChildren(fragment);
+
+    packControls = [];
+    const packFragment = documentRef.createDocumentFragment();
+    const packs = Array.isArray(snapshot.packs) ? snapshot.packs : [];
+    packs.forEach(function (item) {
+      if (item && typeof item === "object") packFragment.appendChild(packRow(item, writesBlocked));
+    });
+    packList.replaceChildren(packFragment);
+    packStatus.textContent = packs.length === 0
+      ? text(
+          "Каталог наборів звуків не налаштовано.",
+          "No sound-pack catalog is configured."
+        )
+      : text(
+          "Доступні набори: " + String(packs.length) + ".",
+          "Available packs: " + String(packs.length) + "."
+        );
   }
 
   masterEnabled.addEventListener("change", function () {
