@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
@@ -280,6 +281,54 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             AttachmentMetadata(
                 "a1", "room", "teacher", 0, "safe.bin", None, True, "0" * 64,
                 "rooms/room/a1", "pending"
+            )
+
+    def test_wire_numeric_metadata_uses_canonical_json_safe_integer_bound(self) -> None:
+        limit = MAX_WIRE_INTEGER
+        ChatMessageMetadata("m-max", "room", "teacher", limit, "ok")
+        ChatMessageStateUpdate("room", "m-max", limit)
+        AttachmentMetadata(
+            "a-max",
+            "room",
+            "teacher",
+            limit,
+            "safe.bin",
+            None,
+            limit,
+            "0" * 64,
+            "rooms/room/a-max",
+            "pending",
+        )
+
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata("m-over", "room", "teacher", limit + 1, "bad")
+        with self.assertRaises(ValueError):
+            ChatMessageStateUpdate("room", "m-max", limit + 1)
+        with self.assertRaises(ValueError):
+            AttachmentMetadata(
+                "a-seq-over",
+                "room",
+                "teacher",
+                limit + 1,
+                "safe.bin",
+                None,
+                1,
+                "0" * 64,
+                "rooms/room/a-seq-over",
+                "pending",
+            )
+        with self.assertRaises(ValueError):
+            AttachmentMetadata(
+                "a-size-over",
+                "room",
+                "teacher",
+                0,
+                "safe.bin",
+                None,
+                limit + 1,
+                "0" * 64,
+                "rooms/room/a-size-over",
+                "pending",
             )
 
     def test_object_key_rejects_windows_absolute_colon_backslash_and_empty_segments(self) -> None:
