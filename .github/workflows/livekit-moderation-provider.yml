@@ -91,11 +91,11 @@ jobs:
 
           enum = api.TrackInfo.DESCRIPTOR.fields_by_name["source"].enum_type
           expected = {
-              "UNKNOWN": 0,
-              "CAMERA": 1,
-              "MICROPHONE": 2,
-              "SCREEN_SHARE": 3,
-              "SCREEN_SHARE_AUDIO": 4,
+              "SOURCE_UNKNOWN": 0,
+              "SOURCE_CAMERA": 1,
+              "SOURCE_MICROPHONE": 2,
+              "SOURCE_SCREENSHARE": 3,
+              "SOURCE_SCREENSHARE_AUDIO": 4,
           }
           actual = {item.name: item.number for item in enum.values}
           assert actual == expected, actual
