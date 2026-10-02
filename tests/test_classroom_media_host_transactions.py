@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from threading import Thread
 import unittest
 
 from acs.classroom_media_host_transactions import (
@@ -207,6 +208,27 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         ):
             host.commit_provider_success(effect.transaction_id)
         self.assertEqual(controller.state, after)
+
+    def test_transaction_mutation_from_non_owner_thread_is_rejected(self):
+        controller, _roster, _session, _port, host = self.make_host()
+        before = controller.state
+        errors = []
+
+        def mutate():
+            try:
+                host.prepare_local_source(MediaSource.CAMERA, True)
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = Thread(target=mutate)
+        worker.start()
+        worker.join()
+
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], MediaHostTransactionError)
+        self.assertIn("owner thread", str(errors[0]))
+        self.assertEqual(controller.state, before)
+        self.assertIsNone(host.pending_effect)
 
     def test_only_one_provider_effect_can_be_in_flight(self):
         _controller, _roster, _session, _port, host = self.make_host()
