@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -159,10 +160,38 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_archive_link_is_rejected_before_read(self) -> None:
-        with mock.patch.object(sdk.stat, "S_ISLNK", return_value=True):
+        original_lstat = Path.lstat
+
+        def fake_lstat(path: Path):
+            if path == self.archive:
+                return mock.Mock(st_mode=stat.S_IFLNK, st_file_attributes=0)
+            return original_lstat(path)
+
+        with mock.patch.object(Path, "lstat", side_effect=fake_lstat):
             with self.assertRaisesRegex(
                 sdk.LiveKitClientSdkStageError,
                 "regular file, not a link",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_archive_reparse_point_is_rejected_before_read(self) -> None:
+        original_lstat = Path.lstat
+
+        def fake_lstat(path: Path):
+            if path == self.archive:
+                return mock.Mock(
+                    st_mode=stat.S_IFREG,
+                    st_file_attributes=getattr(
+                        stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400
+                    ),
+                )
+            return original_lstat(path)
+
+        with mock.patch.object(Path, "lstat", side_effect=fake_lstat):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "reparse point",
             ):
                 self._stage()
         self.assertFalse(self.output.exists())
@@ -233,27 +262,70 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
         linked_ancestor = self.root / "linked"
         self.output = linked_ancestor / "nested" / "out"
         original_lexists = sdk.os.path.lexists
-        original_is_symlink = Path.is_symlink
+        original_lstat = Path.lstat
 
         def fake_lexists(path: object) -> bool:
             if Path(path) == linked_ancestor:
                 return True
             return original_lexists(path)
 
-        def fake_is_symlink(path: Path) -> bool:
+        def fake_lstat(path: Path):
             if path == linked_ancestor:
-                return True
-            return original_is_symlink(path)
+                return mock.Mock(st_mode=stat.S_IFLNK, st_file_attributes=0)
+            return original_lstat(path)
 
         with (
             mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists),
-            mock.patch.object(Path, "is_symlink", side_effect=fake_is_symlink),
+            mock.patch.object(Path, "lstat", side_effect=fake_lstat),
         ):
             with self.assertRaisesRegex(
                 sdk.LiveKitClientSdkStageError,
                 "must not traverse a symlink",
             ):
                 self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_reparse_output_ancestor_is_rejected(self) -> None:
+        linked_ancestor = self.root / "junction"
+        self.output = linked_ancestor / "nested" / "out"
+        original_lexists = sdk.os.path.lexists
+        original_lstat = Path.lstat
+
+        def fake_lexists(path: object) -> bool:
+            if Path(path) == linked_ancestor:
+                return True
+            return original_lexists(path)
+
+        def fake_lstat(path: Path):
+            if path == linked_ancestor:
+                return mock.Mock(
+                    st_mode=stat.S_IFDIR,
+                    st_file_attributes=getattr(
+                        stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400
+                    ),
+                )
+            return original_lstat(path)
+
+        with (
+            mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists),
+            mock.patch.object(Path, "lstat", side_effect=fake_lstat),
+        ):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "reparse point",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_non_directory_output_ancestor_is_rejected(self) -> None:
+        blocked = self.root / "blocked"
+        blocked.write_text("not a directory", encoding="utf-8")
+        self.output = blocked / "out"
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "ancestor must be a directory",
+        ):
+            self._stage()
         self.assertFalse(self.output.exists())
 
     def test_write_failure_leaves_no_partial_output_or_staging_directory(self) -> None:
