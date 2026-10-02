@@ -484,6 +484,7 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.chat.read",
             announcement=_LABELS[self._language]["read"],
+            focus_target="collaboration-chat-sync",
         )
 
     def _hide_message(self, message_key: object) -> ClassroomCollaborationWebViewEvent:
@@ -497,6 +498,7 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.chat.hidden",
             announcement=_LABELS[self._language]["hidden"],
+            focus_target="collaboration-chat-sync",
         )
 
     def _set_sender_allowed(
@@ -546,6 +548,7 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.participant.removed",
             announcement=_LABELS[self._language]["blocked" if block else "removed"],
+            focus_target="collaboration-chat-sync",
         )
 
     def _choose_upload(self) -> ClassroomCollaborationWebViewEvent:
@@ -594,6 +597,11 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.file.retried",
             announcement=_LABELS[self._language]["file_retried"],
+            focus_target=(
+                "collaboration-file-choose"
+                if retried.transfer_state != "failed"
+                else ""
+            ),
         )
 
     def _cancel_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
@@ -603,6 +611,7 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.file.cancelled",
             announcement=_LABELS[self._language]["file_cancelled"],
+            focus_target="collaboration-file-choose",
         )
 
     def _save_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
