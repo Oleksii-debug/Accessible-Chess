@@ -340,7 +340,7 @@ class ClassroomMediaWebViewProjection:
         text = _TEXT[self._language]
         microphone = target.source(MediaSource.MICROPHONE)
         camera = target.source(MediaSource.CAMERA)
-        prefix = f"media-participant-{target_key[:16]}"
+        prefix = f"media-participant-{target_key}"
         return (
             {
                 "id": prefix + "-soft-mute",
@@ -464,7 +464,7 @@ class ClassroomMediaWebViewProjection:
             is_local = participant_id == local_id
             row = {
                 "participant_key": key,
-                "dom_id": "media-participant-" + key[:16],
+                "dom_id": "media-participant-" + key,
                 "label": label,
                 "role": policy.role.value,
                 "role_label": self._role_label(policy.role),
