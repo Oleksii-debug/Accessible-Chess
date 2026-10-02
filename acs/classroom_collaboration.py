@@ -20,6 +20,7 @@ from .classroom_collaboration_storage import (
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
     CollaborationQuotaError,
+    CollaborationSequenceGapError,
     FileStorePort,
     safe_display_filename,
 )
@@ -198,7 +199,7 @@ class ClassroomCollaborationController:
         )
         delivered = self._chat.send_message(draft)
         self._validate_delivered_message(draft, delivered)
-        return self._store.append_message(delivered)
+        return self._persist_chat_with_gap_recovery(delivered)
 
     def receive_chat(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         if type(message) is not ChatMessageMetadata:
@@ -208,7 +209,17 @@ class ClassroomCollaborationController:
         self._require_member(message.sender_id)
         _chat_body(message.body)
         self._require_transport_timestamp(message)
-        return self._store.append_message(message)
+        return self._persist_chat_with_gap_recovery(message)
+
+    def _persist_chat_with_gap_recovery(
+        self,
+        message: ChatMessageMetadata,
+    ) -> ChatMessageMetadata:
+        try:
+            return self._store.append_message(message)
+        except CollaborationSequenceGapError:
+            self.sync_chat()
+            return self._store.append_message(message)
 
     def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
         existing = self._store.room_messages(self.room_id, include_hidden=True)
