@@ -246,6 +246,54 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         ):
             _ = runtime.moderation_admin
 
+    async def test_close_in_progress_blocks_use_and_parallel_shutdown(self):
+        close_started = asyncio.Event()
+        allow_close = asyncio.Event()
+
+        class SlowClient(FakeLiveKitClient):
+            instances = []
+
+            async def aclose(self):
+                self.close_calls += 1
+                close_started.set()
+                await allow_close.wait()
+
+        class SlowApi(ModerationFakeApi):
+            LiveKitAPI = SlowClient
+
+        runtime = await self.open(
+            api_module=SlowApi,
+            sdk_version=LIVEKIT_API_VERSION,
+        )
+        client = SlowClient.instances[-1]
+        closing = asyncio.create_task(runtime.aclose())
+        await close_started.wait()
+
+        self.assertFalse(runtime.closed)
+        self.assertIn("state='closing'", repr(runtime))
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime is closing",
+        ):
+            _ = runtime.moderation_admin
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "already in progress",
+        ):
+            await runtime.aclose()
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime is closing",
+        ):
+            await runtime.__aenter__()
+        self.assertEqual(client.close_calls, 1)
+
+        allow_close.set()
+        await closing
+
+        self.assertTrue(runtime.closed)
+        self.assertEqual(client.close_calls, 1)
+
     async def test_async_context_manager_closes_exactly_once(self):
         runtime = await self.open()
         client = FakeLiveKitClient.instances[-1]
