@@ -89,5 +89,45 @@ jobs:
             throw "UIAutomation TextPatternRangeEndpoint runtime resolution mismatch: start=$start end=$end"
           }
           Write-Host 'UIAUTOMATION_TEXTPATTERN_RANGE_ENDPOINT_RUNTIME=PASS'
+      - name: Guard native document navigation and real static copy ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          probe = Path("scripts/p0_packaged_document_copy_probe.ps1").read_text(encoding="utf-8")
+          required = (
+              "$navigationDocument.SetFocus()",
+              "AssertProviderFocus $roots 'native document Ctrl+Home'",
+              "Native document Ctrl+Home focus landed in an edit control",
+              "AssertProductForeground $process 'native document Ctrl+Home'",
+              "[AccessibleChessCopyKeys]::Ctrl([byte]0x24)",
+              "$navigationWatch.ElapsedMilliseconds -lt 3500",
+              "Connected document identity changed during native Ctrl+Home navigation",
+              "$documents=$currentDocuments",
+              "$isOnscreen=-not [bool]$_.Current.IsOffscreen",
+              "$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])",
+              "$target.Select()",
+              "$activeSelection.CompareEndpoints(",
+              "WaitClipboard $selected",
+          )
+          for token in required:
+              if token not in probe:
+                  raise SystemExit(f"Missing native document-copy invariant: {token}")
+          ordered = (
+              "$navigationDocument.SetFocus()",
+              "[AccessibleChessCopyKeys]::Ctrl([byte]0x24)",
+              "$documents=$currentDocuments",
+              "$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])",
+              "$target.Select()",
+              "$activeSelection.CompareEndpoints(",
+              "WaitClipboard $selected",
+          )
+          if [probe.index(token) for token in ordered] != sorted(probe.index(token) for token in ordered):
+              raise SystemExit("Native document navigation/copy order changed")
+          print("P0_NATIVE_DOCUMENT_NAVIGATION_COPY_ORDER=PASS")
+          PY
+
       - name: Execute focused contract regression
         run: python -m unittest -v tests.test_p0_packaged_document_copy_probe
