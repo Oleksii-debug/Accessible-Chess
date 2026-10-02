@@ -32,30 +32,38 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove bounded stacked provider scope
+      - name: Prove current-base merge and bounded provider scope
         if: github.event_name == 'pull_request'
         shell: bash
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           test "$PR_BASE_REF" = "feature/classroom-join-credential-rpc-core-20261002"
           test -n "$PR_BASE_SHA"
+          test -n "$PR_HEAD_SHA"
           git cat-file -e "$PR_BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$PR_BASE_SHA" HEAD
-          test "$(git merge-base "$PR_BASE_SHA" HEAD)" = "$PR_BASE_SHA"
-          git diff --check "$PR_BASE_SHA...HEAD"
-          actual="$(git diff --name-only "$PR_BASE_SHA...HEAD" | sort)"
+          git cat-file -e "$PR_HEAD_SHA^{commit}"
+
+          # pull_request checkout is GitHub's synthetic merge commit. This proves
+          # the exact moving base and exact reviewed head compose before tests run.
+          test "$(git rev-parse HEAD^1)" = "$PR_BASE_SHA"
+          test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+
+          # Three-dot scope remains anchored at the true common ancestor, so base
+          # hardening by parallel workers does not masquerade as this PR's delta.
+          git diff --check "$PR_BASE_SHA...$PR_HEAD_SHA"
+          actual="$(git diff --name-only "$PR_BASE_SHA...$PR_HEAD_SHA" | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/livekit-classroom-join-provider.yml' \
             'acs/livekit_classroom_token_issuer.py' \
             'tests/test_livekit_classroom_token_issuer.py' | sort)"
           test "$actual" = "$expected"
-          git diff --quiet "$PR_BASE_SHA...HEAD" -- \
+          git diff --quiet "$PR_BASE_SHA...$PR_HEAD_SHA" -- \
             acs/chesscore.py \
             acs/classroom_domain.py \
             acs/classroom_realtime_media.py \
