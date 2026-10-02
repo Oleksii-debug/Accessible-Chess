@@ -104,6 +104,19 @@ class PositionTextAuthorityTests(unittest.TestCase):
             parse_move_entry(payload)  # type: ignore[arg-type]
         self.assertEqual(payload.string_calls, 0)
 
+    def test_stage1_falsey_non_text_payloads_are_not_coerced_to_empty_text(self):
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        for payload in (None, 0, False, []):
+            with self.subTest(payload=payload):
+                result = api.set_position_text(payload, "w")  # type: ignore[arg-type]
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.board.fen(), before)
+                self.assertEqual(
+                    result["announcement"],
+                    "Текст позиції має бути текстовим значенням",
+                )
+
     def test_legacy_direct_adapter_defaults_to_ukrainian_errors(self):
         with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):
             parse_position_text("broken position")
