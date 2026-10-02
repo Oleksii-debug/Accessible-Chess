@@ -330,6 +330,32 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertNotIn("co-1", {item.target_id for item in commands})
         self.assertNotIn("observer-1", {item.target_id for item in commands})
 
+    def test_all_students_lock_is_enforced_by_server_transport_across_fresh_clients(self):
+        teacher = self.controller("teacher-1")
+        teacher.set_all_students_chat_send_permission(
+            actor_id="teacher-1",
+            allowed=False,
+            operation_id="lock-all-students",
+        )
+
+        for participant in ("student-1", "student-2"):
+            with self.subTest(participant=participant):
+                student = self.controller(participant)
+                with self.assertRaisesRegex(
+                    CollaborationError,
+                    "server rejected locked chat sender",
+                ):
+                    student.send_chat(
+                        message_id=f"blocked-{participant}",
+                        body="blocked",
+                    )
+
+        observer = self.controller("observer-1")
+        self.assertEqual(
+            observer.send_chat(message_id="observer-ok", body="observer").body,
+            "observer",
+        )
+
     def test_student_batch_operation_ids_are_stable_across_roster_order(self):
         controller = self.controller("teacher-1")
         self.roster.participant_ids = lambda: (
