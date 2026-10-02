@@ -140,6 +140,24 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         for internal in ("student-1", "teacher-1", "message-ui-1", "remote-message-2"):
             self.assertNotIn(internal, exposed)
 
+    def test_participant_label_strips_bidi_and_control_formatting(self) -> None:
+        self.labels["student-2"] = "Stu\u202Edent\u200b\n Name"
+        self.store.append_message(
+            ChatMessageMetadata(
+                "remote-label-message",
+                "room-1",
+                "student-2",
+                0,
+                "Visible body",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+
+        message = self.webview().snapshot()["chat"]["messages"][0]
+        self.assertEqual("Student Name", message["sender"])
+        self.assertNotIn("\u202E", repr(message))
+        self.assertNotIn("\u200b", repr(message))
+
     def test_legacy_persisted_message_does_not_invent_timestamp(self) -> None:
         self.store.append_message(
             ChatMessageMetadata("legacy-message", "room-1", "teacher-1", 0, "Legacy")
@@ -187,6 +205,23 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             self.open_calls,
         )
         self.assertNotIn("short-lived-read-token", repr(opened.payload))
+
+    def test_nonretriable_upload_failure_does_not_retain_local_source_path(self) -> None:
+        self.selected_file = self.root / "nonretriable.pgn"
+        self.selected_file.write_text('[Event "No retry"]\n\n1. e4 e5 *\n', encoding="utf-8")
+        view = self.webview()
+
+        with mock.patch.object(
+            self.controller,
+            "upload_file",
+            side_effect=RuntimeError("failed before canonical attachment registration"),
+        ):
+            event = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("error", event.kind)
+        self.assertEqual({}, view._prepared)
+        self.assertEqual((), self.store.room_attachments("room-1"))
+        self.assertNotIn(str(self.selected_file), repr(event.payload))
 
     def test_teacher_moderation_uses_core_permissions_without_browser_participant_ids(self) -> None:
         teacher_chat = FakeChat()
