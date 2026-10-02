@@ -18,6 +18,7 @@ class Element {
     this.value = "";
     this.checked = false;
     this.disabled = false;
+    this.hidden = false;
   }
   set id(value) {
     this._id = String(value);
@@ -40,7 +41,10 @@ class Element {
   }
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   addEventListener(name, callback) { this.listeners[String(name)] = callback; }
-  focus() { document.activeElement = this; }
+  focus() {
+    if (this.hidden === true || this.disabled === true) return;
+    document.activeElement = this;
+  }
   dispatch(name) {
     const callback = this.listeners[name];
     if (callback) callback({target: this});
@@ -82,6 +86,7 @@ const initial = {
   master_enabled: true,
   master_volume_percent: 65,
   active_pack_id: "classic",
+  can_select_classic: false,
   writes_blocked: false,
   events: [
     {
@@ -111,6 +116,7 @@ const initial = {
 };
 let serverSnapshot = initial;
 let commandMode = "success";
+let partialFailureSnapshot = null;
 
 const api = {
   sound_settings_snapshot() {
@@ -121,6 +127,13 @@ const api = {
     if (commandMode === "failure") {
       return Promise.resolve({ok: false, message: "Save failed."});
     }
+    if (commandMode === "partial") {
+      return Promise.resolve({
+        ok: false,
+        message: "Remove failed. Current state was refreshed.",
+        snapshot: partialFailureSnapshot
+      });
+    }
     if (commandMode === "reject") {
       return Promise.reject(new Error("bridge failure"));
     }
@@ -130,14 +143,23 @@ const api = {
     }
     if (command === "install_pack") {
       snapshot.active_pack_id = payload.pack_id;
+      snapshot.can_select_classic = payload.pack_id !== "classic";
       snapshot.packs[0].installed_version = snapshot.packs[0].version;
       snapshot.packs[0].state = "current";
       snapshot.packs[0].active = payload.activate === true;
       snapshot.packs[0].can_install = false;
       snapshot.packs[0].can_uninstall = true;
     }
+    if (command === "select_pack") {
+      snapshot.active_pack_id = payload.pack_id;
+      snapshot.can_select_classic = payload.pack_id !== "classic";
+      snapshot.packs.forEach(item => {
+        item.active = item.pack_id === payload.pack_id;
+      });
+    }
     if (command === "uninstall_pack") {
       snapshot.active_pack_id = "classic";
+      snapshot.can_select_classic = false;
       snapshot.packs[0].installed_version = null;
       snapshot.packs[0].state = "not_installed";
       snapshot.packs[0].active = false;
@@ -241,6 +263,87 @@ async function run() {
   assert.ok(removePack, "installed non-fallback pack must expose a native remove button");
   assert.strictEqual(document.activeElement.id, "sound-pack-soft",
     "pack mutation must move focus to the stable pack group when its action control disappears");
+
+  const classicSelectAfterInstall = elements.get("sound-pack-classic-select");
+  assert.strictEqual(classicSelectAfterInstall.hidden, false,
+    "custom active pack must expose a safe return-to-classic control");
+  classicSelectAfterInstall.focus();
+  classicSelectAfterInstall.dispatch("click");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepStrictEqual(calls[3], ["select_pack", {pack_id: "classic"}]);
+  assert.strictEqual(elements.get("sound-pack-classic-select").hidden, true);
+  assert.strictEqual(document.activeElement.id, "sound-packs-heading",
+    "hidden classic action must restore focus to the stable pack heading");
+
+  serverSnapshot = {
+    ...initial,
+    active_pack_id: "classic",
+    can_select_classic: false,
+    packs: [
+      {
+        pack_id: "local.wood",
+        title: "Local Wood",
+        version: "2.0.0",
+        author: "Local author",
+        license_id: "CC0-1.0",
+        compatible: true,
+        installed_version: "2.0.0",
+        state: "local_installed",
+        active: false,
+        can_install: false,
+        can_uninstall: false
+      }
+    ]
+  };
+  await window.AccessibleChessSoundSettingsSurface.refresh();
+  await Promise.resolve();
+  const localSelect = elements.get("sound-pack-local-wood-select");
+  assert.ok(localSelect,
+    "verified local installed pack must expose a native select button");
+  localSelect.focus();
+  localSelect.dispatch("click");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepStrictEqual(calls[4], ["select_pack", {pack_id: "local.wood"}]);
+  assert.strictEqual(document.activeElement.id, "sound-pack-local-wood");
+
+  partialFailureSnapshot = {
+    ...serverSnapshot,
+    active_pack_id: "classic",
+    can_select_classic: false,
+    packs: serverSnapshot.packs.map(item => ({
+      ...item,
+      active: false,
+      can_uninstall: true
+    }))
+  };
+  serverSnapshot = {
+    ...serverSnapshot,
+    active_pack_id: "local.wood",
+    can_select_classic: true,
+    packs: serverSnapshot.packs.map(item => ({...item, active: true, can_uninstall: true}))
+  };
+  await window.AccessibleChessSoundSettingsSurface.refresh();
+  await Promise.resolve();
+  commandMode = "partial";
+  const partialRemove = elements.get("sound-pack-local-wood-uninstall");
+  partialRemove.focus();
+  partialRemove.dispatch("click");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepStrictEqual(calls[5], ["uninstall_pack", {pack_id: "local.wood"}]);
+  assert.strictEqual(elements.get("sound-pack-classic-select").hidden, true,
+    "partial failure snapshot must replace stale active-pack state");
+  assert.strictEqual(
+    elements.get("sound-profile-settings-status").textContent,
+    "Remove failed. Current state was refreshed.",
+    "mutation failure must remain visible/selectable as well as announced"
+  );
+  commandMode = "success";
 
   commandMode = "failure";
   let failedMaster = elements.get("sound-master-enabled");
