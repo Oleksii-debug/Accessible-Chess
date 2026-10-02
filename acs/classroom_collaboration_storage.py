@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Protocol, runtime_checkable
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
 MAX_OBJECT_KEY_CHARS = 1024
@@ -35,6 +36,7 @@ class ChatMessageMetadata:
     body: str
     retention: str = "session"
     hidden: bool = False
+    sent_at_unix_ms: int | None = None
 
     def __post_init__(self) -> None:
         _canonical_id(self.message_id, "message id")
@@ -50,6 +52,11 @@ class ChatMessageMetadata:
             raise ValueError("unsupported retention policy")
         if type(self.hidden) is not bool:
             raise ValueError("hidden flag must be boolean")
+        if self.sent_at_unix_ms is not None and (
+            type(self.sent_at_unix_ms) is not int
+            or not 0 <= self.sent_at_unix_ms <= MAX_CHAT_TIMESTAMP_UNIX_MS
+        ):
+            raise ValueError("sent_at_unix_ms must be a bounded UTC Unix millisecond timestamp")
 
 
 @dataclass(frozen=True)
@@ -228,6 +235,17 @@ class ClassroomCollaborationSQLiteStore:
                 )
                 db.execute(
                     "INSERT INTO collaboration_schema_meta(key,value) VALUES('schema_version',?)",
+                    (1,),
+                )
+                version = 1
+            if version < 2:
+                db.execute(
+                    "ALTER TABLE collaboration_messages "
+                    "ADD COLUMN sent_at_unix_ms INTEGER "
+                    "CHECK(sent_at_unix_ms IS NULL OR sent_at_unix_ms >= 0)"
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=? WHERE key='schema_version'",
                     (SCHEMA_VERSION,),
                 )
 
@@ -243,10 +261,15 @@ class ClassroomCollaborationSQLiteStore:
                 return loaded
             try:
                 db.execute(
-                    "INSERT INTO collaboration_messages VALUES(?,?,?,?,?,?,?)",
+                    """
+                    INSERT INTO collaboration_messages(
+                        message_id, room_id, sender_id, sequence_no, body,
+                        retention, hidden, sent_at_unix_ms
+                    ) VALUES(?,?,?,?,?,?,?,?)
+                    """,
                     (
                         message.message_id, message.room_id, message.sender_id, message.sequence_no,
-                        message.body, message.retention, int(message.hidden),
+                        message.body, message.retention, int(message.hidden), message.sent_at_unix_ms,
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -341,6 +364,7 @@ class ClassroomCollaborationSQLiteStore:
         return ChatMessageMetadata(
             row["message_id"], row["room_id"], row["sender_id"], int(row["sequence_no"]),
             row["body"], row["retention"], bool(row["hidden"]),
+            int(row["sent_at_unix_ms"]) if row["sent_at_unix_ms"] is not None else None,
         )
 
     @staticmethod
