@@ -51,6 +51,13 @@
     if (status.textContent !== next) status.textContent = next;
   }
 
+  function exposeError(message) {
+    const next = String(message ||
+      text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."));
+    setStatus(next);
+    announce(next, true);
+  }
+
   const root = documentRef.createElement("fieldset");
   root.id = "sound-profile-settings";
   root.setAttribute("aria-busy", "false");
@@ -98,6 +105,11 @@
   const packStatus = documentRef.createElement("p");
   packStatus.id = "sound-packs-status";
   root.appendChild(packStatus);
+  const classicPack = documentRef.createElement("button");
+  classicPack.type = "button";
+  classicPack.id = "sound-pack-classic-select";
+  classicPack.hidden = true;
+  root.appendChild(classicPack);
   const packList = documentRef.createElement("div");
   packList.id = "sound-packs-list";
   packList.setAttribute("aria-labelledby", packHeading.id);
@@ -119,6 +131,7 @@
     root.setAttribute("aria-busy", busy ? "true" : "false");
     masterEnabled.disabled = busy || writesBlocked();
     masterVolume.disabled = busy || writesBlocked();
+    classicPack.disabled = busy || writesBlocked();
     eventControls.forEach(function (entry) {
       entry.control.disabled = busy || (writesBlocked() && entry.mutation);
     });
@@ -127,10 +140,23 @@
     });
   }
 
+  function usableFocusTarget(id) {
+    if (!id) return null;
+    const target = documentRef.getElementById(id);
+    if (
+      !target ||
+      target.hidden === true ||
+      target.disabled === true ||
+      typeof target.focus !== "function"
+    ) {
+      return null;
+    }
+    return target;
+  }
+
   function restoreFocus(id, fallbackId) {
-    const target = (id && documentRef.getElementById(id)) ||
-      (fallbackId && documentRef.getElementById(fallbackId));
-    if (target && typeof target.focus === "function") target.focus();
+    const target = usableFocusTarget(id) || usableFocusTarget(fallbackId);
+    if (target) target.focus();
   }
 
   function clampVolume(value) {
@@ -149,15 +175,20 @@
     const bridge = api();
     if (busy || !bridge || typeof bridge.sound_settings_command !== "function") {
       restoreConfirmedSnapshot();
-      announce(text("Налаштування звуку недоступні.", "Sound settings are unavailable."), true);
+      exposeError(text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
       return Promise.resolve(false);
     }
     setBusy(true);
     return bridge.sound_settings_command(command, payload || {}).then(function (result) {
       if (!result || result.ok !== true || !result.snapshot) {
-        restoreConfirmedSnapshot();
-        announce(result && result.message ? result.message :
-          text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."), true);
+        if (result && result.snapshot && typeof result.snapshot === "object") {
+          currentSnapshot = result.snapshot;
+          render(currentSnapshot);
+        } else {
+          restoreConfirmedSnapshot();
+        }
+        exposeError(result && result.message ? result.message :
+          text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."));
         return false;
       }
       currentSnapshot = result.snapshot;
@@ -166,7 +197,7 @@
       return true;
     }, function () {
       restoreConfirmedSnapshot();
-      announce(text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."), true);
+      exposeError(text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."));
       return false;
     }).finally(function () {
       setBusy(false);
@@ -214,7 +245,7 @@
       const value = clampVolume(volume.value);
       if (value === null) {
         volume.value = String(item.volume_percent);
-        announce(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."), true);
+        exposeError(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."));
         return;
       }
       invoke("set_event", {event_id: eventId, volume_percent: value});
@@ -255,9 +286,11 @@
 
     const metadata = documentRef.createElement("p");
     metadata.id = "sound-pack-" + safeId + "-metadata";
-    const installed = item.installed_version == null
-      ? text("не встановлено", "not installed")
-      : text("встановлено ", "installed ") + String(item.installed_version);
+    const installed = item.compatible === false
+      ? text("несумісний із цією версією", "incompatible with this version")
+      : item.installed_version == null
+        ? text("не встановлено", "not installed")
+        : text("встановлено ", "installed ") + String(item.installed_version);
     metadata.textContent =
       text("Версія ", "Version ") + String(item.version || "") + ". " +
       text("Автор: ", "Author: ") + String(item.author || "") + ". " +
@@ -272,7 +305,7 @@
       group.appendChild(active);
     }
 
-    if (item.installed_version != null && item.active !== true) {
+    if (item.installed_version != null && item.active !== true && item.compatible !== false) {
       const select = documentRef.createElement("button");
       select.type = "button";
       select.id = "sound-pack-" + safeId + "-select";
@@ -321,6 +354,8 @@
     masterVolumeLabel.textContent = text("Загальна гучність, відсотків", "Master volume, percent");
     eventHeading.textContent = text("Події", "Events");
     packHeading.textContent = text("Набори звуків", "Sound packs");
+    packHeading.tabIndex = -1;
+    classicPack.textContent = text("Використовувати класичні звуки", "Use classic sounds");
 
     if (!snapshot || typeof snapshot !== "object") {
       setStatus(text("Завантаження налаштувань звуку.", "Loading sound settings."));
@@ -329,10 +364,13 @@
       eventList.replaceChildren();
       packList.replaceChildren();
       packStatus.textContent = "";
+      classicPack.hidden = true;
       return;
     }
 
     const writesBlocked = snapshot.writes_blocked === true;
+    classicPack.hidden = snapshot.can_select_classic !== true;
+    classicPack.disabled = writesBlocked || busy;
     setStatus(writesBlocked
       ? text(
           "Цей профіль створено новішою версією. Зміни заблоковано, щоб не пошкодити дані.",
@@ -373,6 +411,10 @@
         );
   }
 
+  classicPack.addEventListener("click", function () {
+    invoke("select_pack", {pack_id: "classic"}, packHeading.id);
+  });
+
   masterEnabled.addEventListener("change", function () {
     invoke("set_master", {enabled: masterEnabled.checked});
   });
@@ -381,7 +423,7 @@
     const value = clampVolume(masterVolume.value);
     if (value === null) {
       if (currentSnapshot) masterVolume.value = String(currentSnapshot.master_volume_percent);
-      announce(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."), true);
+      exposeError(text("Гучність має бути від 0 до 100.", "Volume must be from 0 to 100."));
       return;
     }
     invoke("set_master", {volume_percent: value});
