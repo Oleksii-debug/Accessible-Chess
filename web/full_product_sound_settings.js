@@ -307,7 +307,10 @@
 
   function packRow(item, writesBlocked) {
     const packId = String(item.pack_id || "");
-    const safeId = packId.replace(/[^a-z0-9_-]/g, "-");
+    // Backend pack IDs are canonical lowercase ASCII [a-z0-9_.-]. Preserve the
+    // exact identity in DOM ids: replacing "." with "-" makes distinct valid
+    // packs such as "local.wood" and "local-wood" collide.
+    const safeId = packId;
     const group = documentRef.createElement("fieldset");
     group.className = "sound-pack";
     group.id = "sound-pack-" + safeId;
