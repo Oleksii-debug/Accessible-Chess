@@ -345,35 +345,41 @@ class ClassroomCollaborationWebView:
 
     def _file_view(self, item: AttachmentMetadata) -> dict[str, object]:
         labels = _LABELS[self._language]
-        return {
+        can_save = (
+            item.transfer_state == "stored"
+            and item.scan_state == "clean"
+            and self._file_saver is not None
+        )
+        can_open = (
+            item.transfer_state == "stored"
+            and item.scan_state == "clean"
+            and self._file_opener is not None
+        )
+        can_retry = (
+            item.transfer_state == "failed"
+            and item.scan_state != "blocked"
+            and item.attachment_id in self._prepared
+        )
+        can_cancel = (
+            item.sender_id == self._controller.local_participant_id
+            and item.transfer_state in {"pending", "uploading", "failed"}
+        )
+        view: dict[str, object] = {
             "dom_id": "collaboration-file-" + sha256(item.attachment_id.encode("utf-8")).hexdigest()[:16],
-            "file_key": self._file_key(item.attachment_id),
             "sender": self._label(item.sender_id),
             "name": item.display_name,
             "type_label": f"{labels['type']}: {item.mime_type or '—'}",
             "size_label": f"{labels['size']}: {self._size_label(item.size_bytes)}",
             "status_label": f"{labels['status']}: {_TRANSFER_LABELS[self._language][item.transfer_state]}",
             "scan_label": f"{labels['scan']}: {_SCAN_LABELS[self._language][item.scan_state]}",
-            "can_save": (
-                item.transfer_state == "stored"
-                and item.scan_state == "clean"
-                and self._file_saver is not None
-            ),
-            "can_open": (
-                item.transfer_state == "stored"
-                and item.scan_state == "clean"
-                and self._file_opener is not None
-            ),
-            "can_retry": (
-                item.transfer_state == "failed"
-                and item.scan_state != "blocked"
-                and item.attachment_id in self._prepared
-            ),
-            "can_cancel": (
-                item.sender_id == self._controller.local_participant_id
-                and item.transfer_state in {"pending", "uploading", "failed"}
-            ),
+            "can_save": can_save,
+            "can_open": can_open,
+            "can_retry": can_retry,
+            "can_cancel": can_cancel,
         }
+        if can_save or can_open or can_retry or can_cancel:
+            view["file_key"] = self._file_key(item.attachment_id)
+        return view
 
     def unavailable_snapshot(self) -> dict[str, object]:
         labels = _LABELS[self._language]
