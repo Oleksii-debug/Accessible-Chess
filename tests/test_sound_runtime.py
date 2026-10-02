@@ -505,6 +505,41 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertEqual(resolver.calls, [(SoundEvent.MOVE, "2")])
             self.assertEqual(calls[0][0], str(source))
 
+    def test_long_start_and_clock_assets_use_non_blocking_windows_playback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "long.wav"
+            self._write_silent_wav(source)
+
+            class StaticResolver:
+                def resolve(self, event):
+                    return source
+
+            calls = []
+            fake_winsound = types.SimpleNamespace(
+                SND_FILENAME=0x00020000,
+                SND_NODEFAULT=0x00000002,
+                SND_ASYNC=0x00000001,
+                PlaySound=lambda sound, flags: calls.append((sound, flags)),
+            )
+            adapter = WindowsSoundPlaybackAdapter(
+                StaticResolver(),
+                cache_dir=Path(tmp) / "cache",
+            )
+
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules,
+                {"winsound": fake_winsound},
+            ):
+                adapter.play(SoundEvent.START, volume=100)
+                adapter.play(SoundEvent.TICK, volume=100)
+
+            expected = (
+                fake_winsound.SND_FILENAME
+                | fake_winsound.SND_NODEFAULT
+                | fake_winsound.SND_ASYNC
+            )
+            self.assertEqual([flags for _sound, flags in calls], [expected, expected])
+
     def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
