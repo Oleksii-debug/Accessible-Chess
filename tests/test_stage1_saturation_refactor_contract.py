@@ -85,9 +85,16 @@ class _Runtime:
 
 class Stage1SaturationRefactorContractTests(unittest.TestCase):
     def test_extracted_core_files_are_byte_identical_to_frozen_git_blobs(self) -> None:
-        self.assertEqual(
+        # The extracted core is frozen on the packaged Product and separately
+        # qualified on the isolated #1063 takeback successor. This exact digest
+        # allowlist does not authorize arbitrary Stage1 or keymap mutations;
+        # new source changes require an explicit qualification decision.
+        self.assertIn(
             _git_blob_sha(ROOT / "acs" / "stage1_release_ui_core.py"),
-            "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6",
+            {
+                "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6",  # frozen Product
+                "0c6ec99b97b4e561a0bed9f16ed4cc5d42dbc0e0",  # #1063 recovery
+            },
         )
         self.assertEqual(
             _git_blob_sha(ROOT / "acs" / "webapp_keymap_core.py"),
