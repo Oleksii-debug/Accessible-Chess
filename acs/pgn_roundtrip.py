@@ -204,6 +204,10 @@ def _raise_limit(message: str, code: PgnRoundTripErrorCode) -> None:
     raise PgnRoundTripError(message, code=code)
 
 
+def _contains_invalid_unicode_scalar(value: str) -> bool:
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+
+
 def _claim_token(counter: list[int], source_budget: PgnSourceBudget) -> None:
     counter[0] += 1
     if counter[0] > MAX_PGN_LEXICAL_TOKENS:
@@ -271,6 +275,11 @@ def _preflight_text(
         _raise_limit(
             "PGN text exceeds the character safety limit",
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+        )
+    if _contains_invalid_unicode_scalar(text):
+        raise PgnRoundTripError(
+            "PGN text contains an invalid Unicode scalar value",
+            code=PgnRoundTripErrorCode.INVALID_TEXT,
         )
     if not text_precounted:
         source_budget.claim_text_chars(len(text))
@@ -557,6 +566,11 @@ def _measure_comment(comment: object, budget: list[int]) -> None:
             "PGN comment exceeds the field safety limit",
             PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
         )
+    if _contains_invalid_unicode_scalar(comment.text):
+        raise PgnRoundTripError(
+            "PGN comment contains an invalid Unicode scalar value",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
     _claim_model_chars(budget, len(comment.text) + 16)
 
 
@@ -709,6 +723,11 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
             if type(key) is not str or type(value) is not str:
                 raise PgnRoundTripError(
                     "PGN tags must contain exact text keys and values",
+                    code=PgnRoundTripErrorCode.INVALID_MODEL,
+                )
+            if _contains_invalid_unicode_scalar(key) or _contains_invalid_unicode_scalar(value):
+                raise PgnRoundTripError(
+                    "PGN tags contain an invalid Unicode scalar value",
                     code=PgnRoundTripErrorCode.INVALID_MODEL,
                 )
             if len(value) > MAX_PGN_TAG_VALUE_CHARS:
