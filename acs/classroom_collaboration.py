@@ -247,23 +247,52 @@ class ClassroomCollaborationController:
             try:
                 delivered = self._chat.send_message(draft)
             except Exception:
-                try:
-                    self.sync_chat()
-                except Exception:
-                    raise initial_error
-                recovered = next(
-                    (
-                        message
-                        for message in self._store.room_messages(
-                            self.room_id,
-                            include_hidden=True,
-                        )
-                        if message.message_id == draft.message_id
-                    ),
-                    None,
+                existing = self._store.room_messages(
+                    self.room_id,
+                    include_hidden=True,
                 )
-                if recovered is None:
-                    raise initial_error
+                matches = tuple(
+                    message
+                    for message in existing
+                    if message.message_id == draft.message_id
+                )
+                if not matches:
+                    after: int | None = None
+                    for current in existing:
+                        expected = 0 if after is None else after + 1
+                        if current.sequence_no != expected:
+                            break
+                        after = current.sequence_no
+                    try:
+                        history = self._chat.history_after(
+                            room_id=self.room_id,
+                            after_sequence=after,
+                            limit=MAX_SYNC_MESSAGES,
+                        )
+                    except Exception:
+                        raise initial_error
+                    if (
+                        type(history) is not tuple
+                        or len(history) > MAX_SYNC_MESSAGES
+                    ):
+                        raise CollaborationError(
+                            "ambiguous chat recovery history is invalid or too large"
+                        )
+                    matches = tuple(
+                        message
+                        for message in history
+                        if (
+                            type(message) is ChatMessageMetadata
+                            and message.message_id == draft.message_id
+                        )
+                    )
+                if len(matches) != 1:
+                    if not matches:
+                        raise initial_error
+                    raise CollaborationError(
+                        "ambiguous chat recovery returned duplicate message identity"
+                    )
+                recovered = matches[0]
                 if (
                     recovered.room_id != draft.room_id
                     or recovered.sender_id != draft.sender_id
@@ -274,7 +303,7 @@ class ClassroomCollaborationController:
                     raise CollaborationError(
                         "recovered chat message changed immutable message identity"
                     )
-                return recovered
+                return self._persist_chat_with_gap_recovery(recovered)
         self._validate_delivered_message(draft, delivered)
         return self._persist_chat_with_gap_recovery(delivered)
 
