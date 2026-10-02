@@ -207,6 +207,7 @@ class _SemanticHtmlParser(HTMLParser):
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._suppressed_tags: list[str] = []
+        self._head_depth = 0
         self._node_count = 0
         self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
@@ -372,6 +373,14 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if tag == "head":
+            self._head_depth += 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            # HEAD is metadata, not a source of readable or chess-semantic
+            # blocks. In particular, an explicit marker in hidden metadata
+            # must never publish a position/image note or a PGN game.
+            return
         attrs: dict[str, str] = {}
         for name, value in attrs_list:
             normalized_name = name.lower()
@@ -486,6 +495,12 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if tag == "head":
+            if self._head_depth:
+                self._head_depth -= 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            return
         if self._captures and self._captures[-1].tag == tag:
             capture = self._captures.pop()
             self._finish_capture(capture)
@@ -510,6 +525,15 @@ class _SemanticHtmlParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self._suppressed_depth:
+            return
+        if self._head_depth or any(capture.kind == "title" for capture in self._captures):
+            # HTML title still supplies the book title; it and all other
+            # non-rendered HEAD text are excluded from the visible stream that
+            # owns explicit {PGN N} markers. Do not fan metadata into an
+            # unclosed outer Paragraph/Heading capture either.
+            for capture in self._captures:
+                if capture.kind == "title":
+                    capture.parts.append(data)
             return
         self._append_visible(data)
         for capture in self._captures:
@@ -566,6 +590,11 @@ class _SemanticHtmlParser(HTMLParser):
 
     def close(self) -> None:
         super().close()
+        if self._head_depth:
+            self._warning(
+                "malformed HTML left head metadata unclosed; subsequent readable text may have been omitted"
+            )
+            self._head_depth = 0
         if self._suppressed_depth:
             self._warning(
                 "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"

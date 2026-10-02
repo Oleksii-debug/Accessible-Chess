@@ -472,5 +472,63 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn("implicit PGN inference from ordinary text", non_claims)
 
 
+    def test_hidden_html_title_marker_cannot_own_unmarked_body_pgn(self) -> None:
+        source = f"""<html><head><title>{{PGN 1}}</title>
+<meta name="author" content="Автор Émile"></head>
+<body><h1>Visible study</h1><pre>{PGN}</pre></body></html>"""
+        result = import_html_book(source, source_name="metadata-marker.html")
+        self.assertEqual(result.document.title, "{PGN 1}")
+        self.assertEqual(result.document.author, "Автор Émile")
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and '[Event "Accessible book demo"]' in block.text
+                for block in result.document.blocks
+            )
+        )
+
+    def test_non_rendered_head_text_cannot_create_pgn_game_or_chess_position(self) -> None:
+        source = f"""<html lang="uk"><head>{{PGN 2}}
+<img id="hidden-diagram" src="images/hidden.png" alt="Not rendered" data-acs-fen="{Board.START}">
+<div data-acs-fen="{Board.START}">Hidden metadata position</div>
+<title>Readable book title</title>
+</head><body><h1>Visible chapter</h1><pre>{PGN}</pre></body></html>"""
+        result = import_html_book(source, source_name="head-chess-markers.html")
+        self.assertEqual(result.document.title, "Readable book title")
+        self.assertEqual(result.document.language, "uk")
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Game, Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(isinstance(block, Heading) and block.text == "Visible chapter"
+                for block in result.document.blocks)
+        )
+
+    def test_visible_body_marker_still_publishes_one_canonical_pgn_game(self) -> None:
+        source = f"""<html><head><title>{{PGN 9}}</title></head>
+<body><h1>Game</h1><pre>{{PGN 1}}
+{PGN}</pre></body></html>"""
+        result = import_html_book(source, source_name="visible-body-marker.html")
+        self.assertEqual(result.document.title, "{PGN 9}")
+        self.assertEqual(result.pgn_games, 1)
+        self.assertEqual(sum(isinstance(block, Game) for block in result.document.blocks), 1)
+        self.assertFalse(
+            any(
+                isinstance(block, Paragraph) and '[Event "Accessible book demo"]' in block.text
+                for block in result.document.blocks
+            )
+        )
+
+    def test_unclosed_head_cannot_recover_hidden_markers_as_readable_games(self) -> None:
+        source = f"""<html><head><title>{{PGN 1}}</title><div data-acs-fen="{Board.START}">
+<pre>{PGN}</pre>"""
+        with self.assertRaises(BookHtmlImportError) as caught:
+            import_html_book(source, source_name="unclosed-head.html")
+        self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.NO_READABLE_CONTENT)
+
+
 if __name__ == "__main__":
     unittest.main()
