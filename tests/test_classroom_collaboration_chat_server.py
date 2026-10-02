@@ -148,7 +148,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.assertEqual(0, first.sequence_no)
         self.assertEqual(1700000000000, first.sent_at_unix_ms)
         self.assertFalse(first.hidden)
-        self.assertEqual(2, self.clock.calls)
+        self.assertEqual(1, self.clock.calls)
         self.assertEqual(
             [(ROOM, STUDENT, STUDENT), (ROOM, STUDENT, STUDENT)],
             self.auth.send_calls,
@@ -158,6 +158,19 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.assertEqual(
             (first,),
             reopened.history_after(room_id=ROOM, after_sequence=None, limit=10),
+        )
+
+        retry_without_clock = ClassroomChatServerService(
+            store=reopened,
+            authorization=self.auth,
+            clock_unix_ms=lambda: (_ for _ in ()).throw(RuntimeError("clock down")),
+        )
+        self.assertEqual(
+            first,
+            retry_without_clock.send_message(
+                trusted_caller_identity=STUDENT,
+                draft=draft,
+            ),
         )
 
     def test_same_message_id_cannot_change_content_or_cross_room(self) -> None:
