@@ -172,7 +172,8 @@
     if (existing && typeof existing.replaceWith === "function") {
       existing.replaceWith(section);
     } else {
-      root.appendChild(section);
+      const main = root.querySelector("main");
+      (main || root).appendChild(section);
     }
   }
 
