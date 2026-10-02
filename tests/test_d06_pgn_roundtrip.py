@@ -251,6 +251,28 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 '[Event "One"]\n[Result "*"]\n\n1. e4 *',
             )
 
+    def test_tag_names_share_the_canonical_lexical_token_bound(self):
+        source = '[EventLong "x"]\\n[Result "*"]\\n\\n1. e4 *'
+        with patch("acs.pgn_roundtrip.MAX_PGN_TOKEN_CHARS", 8):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+
+            game = PgnGame(
+                tags={"EventLong": "x", "Result": "*"},
+                line=VariationLine(
+                    moves=[MoveNode("e4", move_number="1.")],
+                    result="*",
+                ),
+            )
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
