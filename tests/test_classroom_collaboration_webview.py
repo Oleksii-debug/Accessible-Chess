@@ -741,9 +741,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view = self.webview(language=UILanguage.EN)
         self.assertEqual("Chat", view.snapshot()["chat"]["heading"])
         self.assertEqual("Message time", view.snapshot()["chat"]["timestamp_label"])
+        self.assertEqual("Refresh files", view.snapshot()["files"]["sync_label"])
         view.set_language(UILanguage.UA)
         self.assertEqual("Чат", view.snapshot()["chat"]["heading"])
         self.assertEqual("Час повідомлення", view.snapshot()["chat"]["timestamp_label"])
+        self.assertEqual("Оновити файли", view.snapshot()["files"]["sync_label"])
 
 
 if __name__ == "__main__":
