@@ -358,45 +358,6 @@ def save_prepared_position(
     )
 
 
-def delete_prepared_position(
-    workspace: EducationWorkspace,
-    *,
-    position_id: str,
-    expected_position_revision: int,
-) -> EducationWorkspace:
-    """CAS-delete one durable prepared position.
-
-    Deletion is explicit rather than an overloaded save operation. Requiring
-    the exact per-position revision prevents a stale authoring surface from
-    deleting a position that has been edited or repointed since it was read.
-    """
-
-    workspace = _workspace(workspace)
-    position_id = _id(position_id, "prepared position id")
-    expected = _revision(
-        expected_position_revision,
-        "expected prepared position revision",
-    )
-    matches = tuple(
-        item
-        for item in workspace.prepared_positions
-        if item.position_id == position_id
-    )
-    if len(matches) != 1:
-        raise EducationWorkspaceError("unknown or ambiguous prepared position")
-    current = matches[0]
-    if current.revision != expected:
-        raise EducationWorkspaceError("stale prepared position revision")
-    return replace(
-        workspace,
-        prepared_positions=tuple(
-            item
-            for item in workspace.prepared_positions
-            if item.position_id != position_id
-        ),
-    )
-
-
 def ordered_prepared_positions(
     workspace: EducationWorkspace,
 ) -> tuple[PreparedPosition, ...]:
