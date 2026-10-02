@@ -360,6 +360,7 @@ def _preflight_text(
         index = 0
         if starts_inside_comment:
             if comment_until > line_end:
+                claim_framed_line(line)
                 line_start = line_end + 1
                 continue
             index = comment_until - line_start
