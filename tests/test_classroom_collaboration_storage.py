@@ -113,6 +113,16 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.room_messages("room"), ())
         self.assertEqual(self.store.room_messages("room", include_hidden=True), (hidden,))
 
+    def test_hidden_state_requires_strict_boolean(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        )
+        with self.assertRaises(ValueError):
+            self.store.set_message_hidden("m1", 1)
+        self.assertFalse(
+            self.store.room_messages("room", include_hidden=True)[0].hidden
+        )
+
     def test_replay_preserves_hide_and_backfills_legacy_timestamp_once(self) -> None:
         original = ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
         self.store.append_message(original)
