@@ -50,36 +50,66 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove current authority provenance and bounded successor scope
+      - name: Prove owner lineage or retained shared-policy safety
         shell: bash
         env:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          for commit in "$CURRENT_PRODUCT_BASE" "$PRIOR_COMPOSED_HEAD" "$PRIOR_SAME_HEAD"; do
-            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
-          done
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
-          test "$(git rev-parse HEAD^1)" = "$PRIOR_COMPOSED_HEAD"
-          test "$(git rev-parse "$PRIOR_COMPOSED_HEAD^1")" = "$CURRENT_PRODUCT_BASE"
-          test "$(git rev-parse "$PRIOR_COMPOSED_HEAD^2")" = "$PRIOR_SAME_HEAD"
-          test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
-          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
-          changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-d07-canonical-ingress-current.yml' \
-            '.github/workflows/v2-library-player-identity-search.yml' \
-            'acs/acsdb.py' \
-            'acs/search_policy.py' \
-            'tests/test_v2_library_player_identity_search.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected player-search successor scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
-          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$ACSDB_BLOB"
-          test "$(git rev-parse HEAD:acs/search_policy.py)" = "$SEARCH_POLICY_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_library_player_identity_search.py)" = "$TEST_BLOB"
-          git diff --quiet "$CURRENT_PRODUCT_BASE" HEAD -- \
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            # The canonical owner branch keeps its original exact topology and
+            # blob assertions. A shared-policy successor must not silently
+            # rewrite that historical authority.
+            for commit in "$CURRENT_PRODUCT_BASE" "$PRIOR_COMPOSED_HEAD" "$PRIOR_SAME_HEAD"; do
+              git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+            done
+            test "$(git rev-parse HEAD^1)" = "$PRIOR_COMPOSED_HEAD"
+            test "$(git rev-parse "$PRIOR_COMPOSED_HEAD^1")" = "$CURRENT_PRODUCT_BASE"
+            test "$(git rev-parse "$PRIOR_COMPOSED_HEAD^2")" = "$PRIOR_SAME_HEAD"
+            test "$(git merge-base HEAD "$CURRENT_PRODUCT_BASE")" = "$CURRENT_PRODUCT_BASE"
+            git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+            changed="$(git diff --name-only "$CURRENT_PRODUCT_BASE" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-d07-canonical-ingress-current.yml' \
+              '.github/workflows/v2-library-player-identity-search.yml' \
+              'acs/acsdb.py' \
+              'acs/search_policy.py' \
+              'tests/test_v2_library_player_identity_search.py' | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected player-search successor scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            test "$(git rev-parse HEAD:acs/acsdb.py)" = "$ACSDB_BLOB"
+            test "$(git rev-parse HEAD:acs/search_policy.py)" = "$SEARCH_POLICY_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_library_player_identity_search.py)" = "$TEST_BLOB"
+            base="$CURRENT_PRODUCT_BASE"
+          else
+            # PRs may legitimately evolve the shared search policy for another
+            # product surface. In that retained-regression mode, bind to the
+            # live canonical Product and fail closed if any player-owned source,
+            # test, or ingress authority changes. search_policy.py itself is the
+            # shared dependency under test, so it is intentionally allowed to
+            # differ while the complete player-search regression suite runs.
+            product_ref="work/full-product-teacher-education-reachability-20260911"
+            git fetch --no-tags origin \
+              "refs/heads/$product_ref:refs/remotes/origin/$product_ref"
+            base="$(git rev-parse "refs/remotes/origin/$product_ref")"
+            git merge-base --is-ancestor "$base" HEAD
+            test "$(git merge-base "$base" HEAD)" = "$base"
+            git diff --check "$base" HEAD
+            git diff --quiet "$base" HEAD -- \
+              .github/workflows/v2-d07-canonical-ingress-current.yml \
+              acs/acsdb.py \
+              tests/test_v2_library_player_identity_search.py
+            test "$(git rev-parse HEAD:acs/acsdb.py)" = "$(git rev-parse "$base:acs/acsdb.py")"
+            test "$(git rev-parse HEAD:tests/test_v2_library_player_identity_search.py)" = \
+              "$(git rev-parse "$base:tests/test_v2_library_player_identity_search.py")"
+          fi
+
+          git diff --quiet "$base" HEAD -- \
             acs/search_service.py acs/library_import_service.py acs/gametree.py \
             acs/chessbase_decoder.py acs/chessbase_metadata.py web tools/qa
 
@@ -117,6 +147,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "EVENT_NAME=${{ github.event_name }}"
           echo "CURRENT_PRODUCT_BASE=$CURRENT_PRODUCT_BASE"
           echo "PRIOR_COMPOSED_HEAD=$PRIOR_COMPOSED_HEAD"
           echo "PRIOR_SAME_HEAD=$PRIOR_SAME_HEAD"
