@@ -381,6 +381,89 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertFalse(message["can_moderate_sender"])
         self.assertFalse(message["can_remove_sender"])
 
+    def test_co_teacher_snapshot_hides_forbidden_teacher_target_actions(self) -> None:
+        co_chat = FakeChat()
+        co_media = ClassroomMediaController(
+            local_participant_id="co-1",
+            roster=self.roster,
+            media=FakeMedia(),
+        )
+        co_controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="co-1",
+            roster=self.roster,
+            chat=co_chat,
+            files=FakeFiles(),
+            store=self.store,
+            file_store=self.file_store,
+        )
+        co_controller.receive_chat(
+            ChatMessageMetadata(
+                "teacher-message",
+                "room-1",
+                "teacher-1",
+                0,
+                "Teacher instruction",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        view = ClassroomCollaborationWebView(
+            co_controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            moderation_allowed=lambda: True,
+            participant_moderation=co_media,
+            id_factory=self.next_id,
+        )
+
+        message = view.snapshot()["chat"]["messages"][0]
+        self.assertTrue(message["can_hide"])
+        self.assertFalse(message["can_moderate_sender"])
+        self.assertFalse(message["can_remove_sender"])
+
+    def test_departed_sender_history_has_no_stale_target_actions(self) -> None:
+        teacher_media = ClassroomMediaController(
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            media=FakeMedia(),
+        )
+        teacher_controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=FakeChat(),
+            files=FakeFiles(),
+            store=self.store,
+            file_store=self.file_store,
+        )
+        teacher_controller.receive_chat(
+            ChatMessageMetadata(
+                "departed-student-message",
+                "room-1",
+                "student-2",
+                0,
+                "Historical answer",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        self.roster.roles.pop("student-2")
+        view = ClassroomCollaborationWebView(
+            teacher_controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            moderation_allowed=lambda: True,
+            participant_moderation=teacher_media,
+            id_factory=self.next_id,
+        )
+
+        message = view.snapshot()["chat"]["messages"][0]
+        self.assertEqual("Historical answer", message["body"])
+        self.assertTrue(message["can_hide"])
+        self.assertFalse(message["can_moderate_sender"])
+        self.assertFalse(message["can_remove_sender"])
+
     def test_non_moderator_snapshot_does_not_expose_message_action_key(self) -> None:
         view = self.webview()
         view.dispatch("collaboration.chat.send", {"body": "Local"})
