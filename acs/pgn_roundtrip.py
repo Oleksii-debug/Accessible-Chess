@@ -779,14 +779,20 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
             token_count,
             depth=0,
         )
-        if "Result" not in game.tags:
-            result = game.result
-            if type(result) is not str:
-                raise PgnRoundTripError(
-                    "PGN model contains an invalid effective result",
-                    code=PgnRoundTripErrorCode.INVALID_MODEL,
-                )
-            _claim_model_chars(budget, len("Result") + len(result) + 16)
+        root_result = game.line.result
+        if root_result is None:
+            raise PgnRoundTripError(
+                "PGN root movetext requires an explicit result",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        header_result = game.tags.get("Result")
+        if header_result is not None and header_result != root_result:
+            raise PgnRoundTripError(
+                "PGN Result tag must match the root movetext result",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        if header_result is None:
+            _claim_model_chars(budget, len("Result") + len(root_result) + 16)
             _claim_model_tokens(token_count)
 
 
