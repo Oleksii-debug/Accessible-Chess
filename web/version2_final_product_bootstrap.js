@@ -451,18 +451,22 @@
           requestedFocus || "",
           uiText("Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
         );
-        if (global.AccessibleChessClassroomMediaSurface &&
-            typeof global.AccessibleChessClassroomMediaSurface.mount === "function") {
-          global.AccessibleChessClassroomMediaSurface.mount(
-            workspace,
-            snapshot.media || null,
-            areaInvoke("media"),
-            announce,
-            currentLanguage
-          );
-        }
       } else {
         renderEmptyProduct(routeId, heading);
+      }
+      // Realtime media has an independent canonical owner. Keep own mic/camera
+      // controls and moderation reachable even when the Education workspace is
+      // in recovery, while rendering an explicit unavailable media section when
+      // no media binding exists.
+      if (global.AccessibleChessClassroomMediaSurface &&
+          typeof global.AccessibleChessClassroomMediaSurface.mount === "function") {
+        global.AccessibleChessClassroomMediaSurface.mount(
+          workspace,
+          snapshot.media || null,
+          areaInvoke("media"),
+          announce,
+          currentLanguage
+        );
       }
     }
 
