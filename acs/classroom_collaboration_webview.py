@@ -633,7 +633,7 @@ class ClassroomCollaborationWebView:
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
         retried = self._controller.retry_file(prepared)
-        if retried.transfer_state != "failed":
+        if retried.transfer_state != "failed" or retried.scan_state == "blocked":
             self._prepared.pop(retried.attachment_id, None)
         return self._event(
             "collaboration.file.retried",
