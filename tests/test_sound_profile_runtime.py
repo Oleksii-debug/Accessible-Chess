@@ -18,6 +18,15 @@ class FakeAssetPlayback:
             raise FileNotFoundError(request.sound_id)
 
 
+class PathLeakingAssetPlayback:
+    def __init__(self) -> None:
+        self.requests: list[SoundAssetRequest] = []
+
+    def play_sound(self, request: SoundAssetRequest) -> None:
+        self.requests.append(request)
+        raise FileNotFoundError("C:/Users/private/AppData/AccessibleChess/custom.wav")
+
+
 class ProfiledSoundRuntimeTests(unittest.TestCase):
     def test_filters_selects_and_scales_without_reordering_chess_events(self) -> None:
         assets = FakeAssetPlayback()
@@ -99,13 +108,15 @@ class ProfiledSoundRuntimeTests(unittest.TestCase):
         self.assertIsNone(result.request)
         self.assertEqual(assets.requests, [])
 
-    def test_preview_failure_is_explicit_and_has_no_fallback(self) -> None:
-        assets = FakeAssetPlayback(fail_sound_id="broken.move")
+    def test_preview_failure_is_explicit_path_free_and_has_no_fallback(self) -> None:
+        assets = PathLeakingAssetPlayback()
         profile = SoundProfile(events={"move": SoundEventPreference(sound_id="broken.move")})
         result = ProfiledSoundRuntime(assets, profile).preview("move")
         self.assertFalse(result.ok)
         self.assertFalse(result.delivered)
         self.assertEqual(result.error_type, "FileNotFoundError")
+        self.assertEqual(result.message, "sound preview adapter failed")
+        self.assertNotIn("C:/Users/private", result.message)
         self.assertEqual(len(assets.requests), 1)
 
     def test_game_runtime_keeps_capture_check_end_order_with_profile(self) -> None:
