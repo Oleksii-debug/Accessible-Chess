@@ -1009,13 +1009,13 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 self.assertEqual(self.store.room_attachments("room-1"), ())
         self.files.history_override = None
 
-    def test_file_history_must_be_strictly_ordered(self):
+    def test_file_history_must_be_contiguous_and_fail_atomically(self):
         controller = self.controller("teacher-1")
         first = AttachmentMetadata(
             "remote-a1",
             "room-1",
             "student-1",
-            3,
+            0,
             "one.bin",
             None,
             1,
@@ -1025,7 +1025,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "persistent",
             "clean",
         )
-        second = AttachmentMetadata(
+        skipped = AttachmentMetadata(
             "remote-a2",
             "room-1",
             "student-2",
@@ -1039,15 +1039,15 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "persistent",
             "clean",
         )
-        self.files.history_override = (first, second)
+        self.files.history_override = (first, skipped)
 
         with self.assertRaisesRegex(
             CollaborationError,
-            "file history is not strictly ordered",
+            "file history has an unresolved sequence gap",
         ):
             controller.sync_files()
 
-        self.assertEqual(self.store.room_attachments("room-1"), (first,))
+        self.assertEqual(self.store.room_attachments("room-1"), ())
 
     def test_upload_failure_is_persisted_failed_and_retry_preserves_identity(self):
         controller = self.controller()
