@@ -106,6 +106,7 @@ const initial = {
       version: "1.0.0",
       author: "Accessible Chess",
       license_id: "CC0-1.0",
+      provenance: "https://example.invalid/soft",
       compatible: true,
       installed_version: null,
       state: "not_installed",
@@ -259,6 +260,8 @@ async function run() {
     "catalog packs must expose native controls plus visible metadata");
   assert.ok(packMetadata.textContent.includes("CC0-1.0"),
     "pack license metadata must remain visible/selectable text");
+  assert.ok(packMetadata.textContent.includes("https://example.invalid/soft"),
+    "pack provenance must remain visible/selectable text");
   installPack.focus();
   installPack.dispatch("click");
   await Promise.resolve();
