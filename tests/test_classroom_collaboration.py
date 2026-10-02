@@ -373,7 +373,9 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         repaired = controller.sync_chat()
 
-        self.assertEqual(repaired, history)
+        # Prefix repair returns only messages that were newly recovered. The
+        # already-present later row must not be re-announced or marked unread.
+        self.assertEqual(repaired, history[:2])
         self.assertEqual(
             self.store.room_messages("room-1", include_hidden=True),
             history,
