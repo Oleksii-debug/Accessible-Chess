@@ -14,7 +14,7 @@ Live board state, move legality, Training evaluation, Library/ACSDB data, and li
 D09 Classroom interaction state are not owned here.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 import re
@@ -38,7 +38,26 @@ _WORKSPACE_FIELDS_LEGACY = frozenset({"version", "classroom", "ledger", "digest"
 _WORKSPACE_FIELDS = frozenset(
     {"version", "classroom", "ledger", "prepared_positions", "digest"}
 )
-_PREPARED_POSITION_FIELDS = frozenset({"position_id", "source", "revision"})
+PREPARED_POSITION_RECORD_VERSION = 2
+MAX_PREPARED_POSITION_TITLE_CHARS = 256
+MAX_PREPARED_POSITION_PROMPT_CHARS = 4_096
+MAX_PREPARED_POSITION_TAGS = 32
+MAX_PREPARED_POSITION_TAG_CHARS = 64
+MAX_PREPARED_POSITION_TEACHER_NOTES_CHARS = 16_384
+_PREPARED_POSITION_FIELDS_LEGACY = frozenset({"position_id", "source", "revision"})
+_PREPARED_POSITION_FIELDS = frozenset(
+    {
+        "schema_version",
+        "position_id",
+        "source",
+        "revision",
+        "title",
+        "student_prompt",
+        "tags",
+        "order_index",
+        "teacher_notes",
+    }
+)
 _POSITION_SOURCE_FIELDS = frozenset({"kind", "fen", "source_ref", "source_index"})
 _PROTECTED_IDENTITY_FIELDS = (
     ("classes", "class_id"),
@@ -62,19 +81,56 @@ class EducationWorkspaceError(ValueError):
 
 @dataclass(frozen=True)
 class PreparedPosition:
-    """Durable reusable teaching position with stable identity and CAS revision."""
+    """Durable named lesson position with stable identity and CAS revision.
+
+    The source remains the canonical chess/content authority. The remaining
+    fields are orchestration metadata only and must never be interpreted as
+    chess rules. Teacher notes are excluded from repr so routine diagnostics
+    cannot leak private coaching notes.
+    """
 
     position_id: str
     source: TeachingPositionSource
     revision: int = 0
+    title: str = ""
+    student_prompt: str = ""
+    tags: tuple[str, ...] = ()
+    order_index: int = 0
+    teacher_notes: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "position_id", _id(self.position_id, "prepared position id"))
+        position_id = _id(self.position_id, "prepared position id")
+        object.__setattr__(self, "position_id", position_id)
         if type(self.source) is not TeachingPositionSource:
             raise EducationWorkspaceError(
                 "prepared position source must be canonical TeachingPositionSource"
             )
         _revision(self.revision, "prepared position revision")
+        object.__setattr__(
+            self,
+            "title",
+            _prepared_position_title(self.title, position_id),
+        )
+        object.__setattr__(
+            self,
+            "student_prompt",
+            _prepared_position_text(
+                self.student_prompt,
+                "prepared position student prompt",
+                MAX_PREPARED_POSITION_PROMPT_CHARS,
+            ),
+        )
+        object.__setattr__(self, "tags", _prepared_position_tags(self.tags))
+        _revision(self.order_index, "prepared position order index")
+        object.__setattr__(
+            self,
+            "teacher_notes",
+            _prepared_position_text(
+                self.teacher_notes,
+                "prepared position teacher notes",
+                MAX_PREPARED_POSITION_TEACHER_NOTES_CHARS,
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -223,8 +279,20 @@ def save_prepared_position(
     position_id: str,
     source: TeachingPositionSource,
     expected_position_revision: int,
+    title: str | None = None,
+    student_prompt: str | None = None,
+    tags: tuple[str, ...] | None = None,
+    order_index: int | None = None,
+    teacher_notes: str | None = None,
 ) -> EducationWorkspace:
-    """Create or CAS-update one durable prepared teaching position."""
+    """Create or CAS-update one durable named prepared teaching position.
+
+    Metadata arguments default to None so existing source-only callers keep
+    current metadata unchanged. On first creation, omitted metadata receives
+    deterministic safe defaults; the visible title falls back to position_id.
+    Any source or metadata change increments the same per-position CAS revision,
+    keeping deployment references coherent.
+    """
 
     workspace = _workspace(workspace)
     position_id = _id(position_id, "prepared position id")
@@ -248,7 +316,15 @@ def save_prepared_position(
     if existing is None:
         if expected != 0:
             raise EducationWorkspaceError("stale prepared position revision")
-        candidate = PreparedPosition(position_id=position_id, source=source)
+        candidate = PreparedPosition(
+            position_id=position_id,
+            source=source,
+            title="" if title is None else title,
+            student_prompt="" if student_prompt is None else student_prompt,
+            tags=() if tags is None else tags,
+            order_index=0 if order_index is None else order_index,
+            teacher_notes="" if teacher_notes is None else teacher_notes,
+        )
         return replace(
             workspace,
             prepared_positions=workspace.prepared_positions + (candidate,),
@@ -256,13 +332,23 @@ def save_prepared_position(
 
     if existing.revision != expected:
         raise EducationWorkspaceError("stale prepared position revision")
-    if existing.source == source:
-        return workspace
-    replacement = PreparedPosition(
+    candidate = PreparedPosition(
         position_id=position_id,
         source=source,
-        revision=existing.revision + 1,
+        revision=existing.revision,
+        title=existing.title if title is None else title,
+        student_prompt=(
+            existing.student_prompt if student_prompt is None else student_prompt
+        ),
+        tags=existing.tags if tags is None else tags,
+        order_index=existing.order_index if order_index is None else order_index,
+        teacher_notes=(
+            existing.teacher_notes if teacher_notes is None else teacher_notes
+        ),
     )
+    if candidate == existing:
+        return workspace
+    replacement = replace(candidate, revision=existing.revision + 1)
     return replace(
         workspace,
         prepared_positions=tuple(
@@ -550,6 +636,7 @@ def _workspace(value: object) -> EducationWorkspace:
 
 def _prepared_position_to_record(item: PreparedPosition) -> dict[str, object]:
     return {
+        "schema_version": PREPARED_POSITION_RECORD_VERSION,
         "position_id": item.position_id,
         "source": {
             "kind": item.source.kind.value,
@@ -558,13 +645,32 @@ def _prepared_position_to_record(item: PreparedPosition) -> dict[str, object]:
             "source_index": item.source.source_index,
         },
         "revision": item.revision,
+        "title": item.title,
+        "student_prompt": item.student_prompt,
+        "tags": list(item.tags),
+        "order_index": item.order_index,
+        "teacher_notes": item.teacher_notes,
     }
 
 
 def _prepared_position_from_record(value: object) -> PreparedPosition:
     data = _mapping(value, "prepared position")
-    if set(data) != _PREPARED_POSITION_FIELDS:
+    actual_fields = frozenset(data)
+    if actual_fields == _PREPARED_POSITION_FIELDS_LEGACY:
+        legacy = True
+    elif actual_fields == _PREPARED_POSITION_FIELDS:
+        legacy = False
+        schema_version = data["schema_version"]
+        if (
+            type(schema_version) is not int
+            or schema_version != PREPARED_POSITION_RECORD_VERSION
+        ):
+            raise EducationWorkspaceError(
+                f"unsupported prepared position schema version: {schema_version!r}"
+            )
+    else:
         raise EducationWorkspaceError("prepared position schema mismatch")
+
     source_data = _mapping(data["source"], "prepared position source")
     if set(source_data) != _POSITION_SOURCE_FIELDS:
         raise EducationWorkspaceError("prepared position source schema mismatch")
@@ -579,10 +685,26 @@ def _prepared_position_from_record(value: object) -> PreparedPosition:
         raise EducationWorkspaceError(
             "prepared position source is not canonical"
         ) from exc
+
+    if legacy:
+        return PreparedPosition(
+            position_id=data["position_id"],
+            source=source,
+            revision=data["revision"],
+        )
+
+    raw_tags = data["tags"]
+    if type(raw_tags) is not list:
+        raise EducationWorkspaceError("prepared position tags must be a JSON array")
     return PreparedPosition(
         position_id=data["position_id"],
         source=source,
         revision=data["revision"],
+        title=data["title"],
+        student_prompt=data["student_prompt"],
+        tags=tuple(raw_tags),
+        order_index=data["order_index"],
+        teacher_notes=data["teacher_notes"],
     )
 
 
@@ -713,6 +835,65 @@ def _revision(value: object, label: str) -> int:
             f"{MAX_WIRE_INTEGER}"
         )
     return value
+
+
+def _prepared_position_text(
+    value: object,
+    label: str,
+    max_chars: int,
+    *,
+    single_line: bool = False,
+) -> str:
+    if type(value) is not str:
+        raise EducationWorkspaceError(f"{label} must be exact text")
+    if len(value) > max_chars:
+        raise EducationWorkspaceError(f"{label} exceeds length limit")
+    if "\x00" in value:
+        raise EducationWorkspaceError(f"{label} contains forbidden control text")
+    if single_line and ("\n" in value or "\r" in value):
+        raise EducationWorkspaceError(f"{label} must be one line")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise EducationWorkspaceError(f"{label} contains invalid Unicode") from exc
+    return value
+
+
+def _prepared_position_title(value: object, position_id: str) -> str:
+    if value == "":
+        return position_id
+    text = _prepared_position_text(
+        value,
+        "prepared position title",
+        MAX_PREPARED_POSITION_TITLE_CHARS,
+        single_line=True,
+    )
+    if not text.strip() or text != text.strip():
+        raise EducationWorkspaceError(
+            "prepared position title must be canonical non-blank text"
+        )
+    return text
+
+
+def _prepared_position_tags(value: object) -> tuple[str, ...]:
+    if type(value) is not tuple or len(value) > MAX_PREPARED_POSITION_TAGS:
+        raise EducationWorkspaceError("prepared position tags must be a bounded tuple")
+    checked: list[str] = []
+    for raw_tag in value:
+        tag = _prepared_position_text(
+            raw_tag,
+            "prepared position tag",
+            MAX_PREPARED_POSITION_TAG_CHARS,
+            single_line=True,
+        )
+        if not tag or not tag.strip() or tag != tag.strip():
+            raise EducationWorkspaceError(
+                "prepared position tags must be canonical non-blank text"
+            )
+        checked.append(tag)
+    if len(set(checked)) != len(checked):
+        raise EducationWorkspaceError("prepared position tags must be unique")
+    return tuple(checked)
 
 
 def _mapping(value: object, label: str) -> Mapping[str, Any]:
