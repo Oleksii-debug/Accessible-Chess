@@ -26,7 +26,13 @@ _WINDOWS_RESERVED_BASENAMES = frozenset(
         "AUX",
         "NUL",
         *(f"COM{index}" for index in range(1, 10)),
+        "COM¹",
+        "COM²",
+        "COM³",
         *(f"LPT{index}" for index in range(1, 10)),
+        "LPT¹",
+        "LPT²",
+        "LPT³",
     }
 )
 
