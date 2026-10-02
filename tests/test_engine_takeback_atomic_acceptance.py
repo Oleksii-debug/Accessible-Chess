@@ -478,5 +478,35 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         self.assertEqual(sounds.resumed, 1)
 
 
+    def test_untimed_legacy_undo_without_transaction_rejects_before_mutation(self):
+        state = {"undos": 0}
+        def undo():
+            state["undos"] += 1
+        session = EngineGameSessionCoordinator(
+            EnginePlayService(lambda: FakeMoveEngine("e2e4")),
+            fen_provider=lambda: "fen-w",
+            side_to_move_provider=lambda: "w",
+            history_node_provider=lambda: "node-0",
+            commit_engine_move=lambda _move: None,
+            undo_committed_move=undo,
+        )
+        session.start(
+            EngineGameConfig(
+                engine_side="black",
+                time_control=TimeControl(0, 0),
+            )
+        )
+        session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.REQUEST_TAKEBACK, actor="w")
+        )
+        pending = session._lifecycle.snapshot()
+        with self.assertRaises(EngineContractError):
+            session.handle_handoff(
+                EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="b")
+            )
+        self.assertEqual(state["undos"], 0)
+        self.assertEqual(session._lifecycle.snapshot(), pending)
+
+
 if __name__ == "__main__":
     unittest.main()
