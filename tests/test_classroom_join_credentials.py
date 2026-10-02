@@ -272,6 +272,19 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
                 with self.assertRaises(ClassroomJoinCredentialError):
                     parse_join_request(payload, trusted_caller_identity="account-17")
 
+    def test_expired_during_issuance_is_rejected_before_response(self):
+        clock = iter((NOW, NOW + timedelta(seconds=61)))
+        service, _authorization, issuer = self.make_service(now=lambda: next(clock))
+
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join token issuer returned unusable credential$",
+        ) as caught:
+            self.run_issue(service)
+
+        self.assertEqual(len(issuer.calls), 1)
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_each_reconnect_request_mints_a_fresh_credential(self):
         service, authorization, issuer = self.make_service()
         issuer.token = "fresh-token-one"
