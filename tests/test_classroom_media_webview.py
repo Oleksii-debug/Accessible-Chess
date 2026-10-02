@@ -149,6 +149,35 @@ def test_student_snapshot_separates_local_enabled_permission_soft_mute_and_board
     assert "short-lived-token" not in repr(snapshot)
 
 
+def test_participant_order_is_stable_when_label_mapping_iteration_changes():
+    controller, _roster, _media, labels, _projection, _bridge = composition("teacher-1")
+    canonical_ids = tuple(labels)
+    calls = 0
+
+    def alternating_labels():
+        nonlocal calls
+        order = canonical_ids if calls % 2 == 0 else tuple(reversed(canonical_ids))
+        calls += 1
+        return {participant_id: labels[participant_id] for participant_id in order}
+
+    projection = ClassroomMediaWebViewProjection(
+        controller,
+        alternating_labels,
+        language=UILanguage.EN,
+        operation_id_factory=lambda: "ui-order-test",
+    )
+
+    first = projection.snapshot()["participants"]
+    second = projection.snapshot()["participants"]
+
+    expected_labels = sorted(labels.values(), key=str.casefold)
+    assert [item["label"] for item in first] == expected_labels
+    assert [item["label"] for item in second] == expected_labels
+    assert [item["participant_key"] for item in first] == [
+        item["participant_key"] for item in second
+    ]
+
+
 def test_teacher_projection_exposes_only_role_allowed_moderation_and_keeps_board_authority_independent():
     controller, roster, media, _labels, projection, bridge = composition("teacher-1")
     snapshot = projection.snapshot()
