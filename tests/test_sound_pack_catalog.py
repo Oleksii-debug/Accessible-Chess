@@ -90,6 +90,14 @@ def make_download(entry, **changes):
 
 
 class SoundPackCatalogTests(unittest.TestCase):
+    def test_zero_byte_audio_digest_is_rejected_before_catalog_or_install(self):
+        with self.assertRaisesRegex(ValueError, "positive"):
+            SoundAssetDigest(
+                "audio/move.wav",
+                0,
+                "0" * 64,
+            )
+
     def test_valid_pack_is_verified_before_atomic_install(self):
         entry = make_entry()
         downloaded = make_download(entry)
