@@ -218,6 +218,7 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual("local.wood", item["pack_id"])
         self.assertEqual("local_installed", item["state"])
         self.assertEqual("1.0.0", item["installed_version"])
+        self.assertEqual(local.provenance, item["provenance"])
         self.assertFalse(item["can_install"])
         self.assertFalse(item["can_uninstall"])
 
@@ -312,7 +313,7 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual("not_installed", before["state"])
         self.assertTrue(before["can_install"])
         self.assertNotIn("files", before)
-        self.assertNotIn("provenance", before)
+        self.assertEqual(soft.provenance, before["provenance"])
 
         app.install_pack("soft", activate=True, language="en")
         after = app.snapshot(language="en")["packs"][0]
