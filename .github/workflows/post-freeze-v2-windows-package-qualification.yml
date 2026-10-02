@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 25b6da6 / p0g 31e0918 / p0-document 2802477
+# exact-package-reconvergence: 25b6da6 / p0g c154abd / p0-document 2802477
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LINEAGE_PARENT_SHA: 08de5937ed8c2d30f4dc261e4ca3c28ce91033f7
-  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 6bd842becf5cc19bca252e8de9972d0139373cbc
+  LINEAGE_PARENT_SHA: 0a33751c0458159131bdf19c8b2b9c8f32a5a068
+  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 74982ab6faa2d2e852c78af5c1318920940f12c5
   AUDITED_PARENT_SHA: 036e72bcec14a0b070c30fa846bc353ac08176ef
   PACKAGE_ANCHOR_SHA: e6bc2406dba105f8d1721fee13e66ffc067d4e54
   PRODUCT_PARENT_SHA: 25b6da6eb8bccea95628ecfce5ba81fece1a5666
@@ -28,8 +28,8 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 31e0918efe824d7ec2fe95cad4b4e26d6c5bb92a
-  P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
+  P0G_QA_SHA: c154abd72c2044ef527855609c2e847ad507fdfd
+  P0G_PROBE_BLOB_SHA: ef4101d5947df5639e823142d58f0ffbb063132c
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
   P0_DOCUMENT_QA_SHA: 2802477cffa9cb8abb1f03e871bbc5ef2f8b5eb2
   P0_DOCUMENT_PROBE_BLOB_SHA: 4309220ad1e8dfccb43366c643c0a7690860c8b6
