@@ -791,5 +791,67 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertEqual(session.snapshot(), before)
 
 
+    def test_timed_engine_switch_mover_flag_without_fact_requires_board_rollback(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="white",
+            move="e2e4",
+            time_control=TimeControl(1_000, 2_000),
+            now=now,
+        )
+        pending = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="b")
+        )
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        clock.switch_after_move = lambda side: clock.set_remaining(side, 0)
+
+        with self.assertRaisesRegex(ValueError, "clock flagged before engine move acceptance"):
+            session.request_engine_move()
+
+        # The coordinator reports rollback-required rejection, not success.
+        # Its caller owns restoration of the already-mutated Board callback.
+        self.assertEqual(state["moves"], ["e2e4"])
+        self.assertEqual(session._lifecycle.snapshot(), pending.lifecycle)
+        self.assertEqual(clock.snapshot().flagged, "w")
+
+    def test_timed_human_switch_mover_flag_without_fact_preserves_requests(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="black",
+            time_control=TimeControl(1_000, 2_000),
+            now=now,
+        )
+        pending = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="w")
+        )
+        clock = session._clock
+        self.assertIsNotNone(clock)
+        clock.switch_after_move = lambda side: clock.set_remaining(side, 0)
+        state["side"] = "b"  # A Board-owning caller just tentatively committed.
+
+        with self.assertRaisesRegex(ValueError, "clock flagged before human move acceptance"):
+            session.on_human_move_committed("w")
+
+        self.assertEqual(session._lifecycle.snapshot(), pending.lifecycle)
+        self.assertEqual(clock.snapshot().flagged, "w")
+
+    def test_timed_human_preflight_flag_without_fact_does_not_guess_outcome(self):
+        now = FakeTime()
+        session, _snap, state, _engine, _analysis, _review = self.make_session(
+            engine_side="black",
+            time_control=TimeControl(1_000),
+            now=now,
+        )
+        now.advance(2)
+        state["side"] = "b"  # Tentative Board mutation; no prior mating fact.
+
+        with self.assertRaisesRegex(ValueError, "clock flagged before move commit"):
+            session.on_human_move_committed("w")
+
+        self.assertEqual(session._lifecycle.snapshot().status, GameStatus.ACTIVE)
+        self.assertEqual(session._clock.snapshot().flagged, "w")
+
+
 if __name__ == '__main__':
     unittest.main()

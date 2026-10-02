@@ -434,17 +434,20 @@ class EngineGameSessionCoordinator:
         # acceptance fails. Publish lifecycle move acceptance only after the
         # clock switch succeeds so pending draw/takeback state rolls back with it.
         switched = self._clock.switch_after_move(moved_side)
-        self._lifecycle.on_move_committed()
-        if (
-            switched.flagged == moved_side
-            and timeout_opponent_can_mate is not None
-            and self._lifecycle.snapshot().status is GameStatus.ACTIVE
-        ):
-            self._record_timeout(
-                switched.flagged,
-                opponent_can_mate=timeout_opponent_can_mate,
-            )
+        if switched.flagged == moved_side:
+            # A rejected clock transition must never become an accepted Board
+            # move, even for callers without optional pre-commit mating evidence.
+            # Do not infer an outcome from the still-unrolled-back Board.
+            if (
+                timeout_opponent_can_mate is not None
+                and self._lifecycle.snapshot().status is GameStatus.ACTIVE
+            ):
+                self._record_timeout(
+                    switched.flagged,
+                    opponent_can_mate=timeout_opponent_can_mate,
+                )
             raise ValueError("clock flagged before engine move acceptance")
+        self._lifecycle.on_move_committed()
         return result
 
     def on_human_move_committed(
@@ -470,13 +473,16 @@ class EngineGameSessionCoordinator:
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
+            # This callback runs after its caller committed the Board move.
+            # Without a pre-commit fact, reporting an outcome via the current
+            # (unrolled-back) Board's capability provider would be unsound.
+            if timeout_opponent_can_mate is None:
+                raise ValueError("clock flagged before move commit")
             self._record_timeout(
                 clock.flagged,
                 opponent_can_mate=timeout_opponent_can_mate,
             )
-            if timeout_opponent_can_mate is not None:
-                return self.snapshot()
-            raise ValueError("clock flagged before move commit")
+            return self.snapshot()
         if clock.state is ClockState.RUNNING and clock.active != moved_side:
             raise ValueError("active clock does not match moved side")
         # Clock acceptance must precede lifecycle publication. A failed clock
@@ -484,16 +490,20 @@ class EngineGameSessionCoordinator:
         # rolled back; clearing draw/takeback requests before that boundary
         # would leave lifecycle state ahead of the canonical Board/history.
         switched = self._clock.switch_after_move(moved_side)
+        if switched.flagged == moved_side:
+            # Require Board-owner rollback for an unaccepted mover, even when
+            # no exact pre-commit mating fact was supplied by the caller.
+            if timeout_opponent_can_mate is None:
+                raise ValueError("clock flagged before human move acceptance")
+            if self._lifecycle.snapshot().status is GameStatus.ACTIVE:
+                self._record_timeout(
+                    switched.flagged,
+                    opponent_can_mate=timeout_opponent_can_mate,
+                )
+            return self.snapshot()
+        # An opponent flag on the returned snapshot is different: the mover
+        # was accepted, so retain the move and resolve the next-side timeout.
         self._lifecycle.on_move_committed()
-        if (
-            switched.flagged == moved_side
-            and timeout_opponent_can_mate is not None
-            and self._lifecycle.snapshot().status is GameStatus.ACTIVE
-        ):
-            self._record_timeout(
-                switched.flagged,
-                opponent_can_mate=timeout_opponent_can_mate,
-            )
         return self.snapshot()
 
     def sync_position_outcome(self, result: str, reason: EndReason, winner: str | None = None) -> EngineGameSessionSnapshot:
