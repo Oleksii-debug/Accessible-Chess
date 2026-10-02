@@ -1180,6 +1180,37 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room-1"), ())
 
+    def test_reconnect_recovers_remote_success_over_stranded_local_upload(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="uncertain-upload",
+            local_path=self.make_file("uncertain-upload.bin", b"opaque"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        uploading = self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = replace(
+            uploading,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.files._remember(authoritative)
+
+        recovered = controller.sync_files()
+
+        self.assertEqual(recovered, (authoritative,))
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (authoritative,),
+        )
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.files.retry_calls, [])
+
     def test_file_state_sync_promotes_pending_scan_without_duplicate_discovery(self):
         teacher = self.controller("teacher-1")
         prepared = teacher.prepare_file(
