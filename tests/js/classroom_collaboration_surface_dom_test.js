@@ -251,6 +251,11 @@ check(
     "collaboration.file.save,collaboration.file.open",
   "Save/Open must route through bounded collaboration commands"
 );
+check(
+  buttons[0].getAttribute("aria-label") === "Save: lesson.pgn" &&
+  buttons[1].getAttribute("aria-label") === "Open: lesson.pgn",
+  "repeated file actions must expose the target filename in their accessible names"
+);
 const fileSync = root.querySelector("#collaboration-file-sync");
 check(
   fileSync !== null &&
@@ -597,6 +602,18 @@ const moderationCommands = root.querySelectorAll("BUTTON")
 });
 const muteSender = root.querySelector("#collaboration-message-moderated-mute");
 check(muteSender !== null, "message moderation action must have a stable focus anchor");
+check(
+  muteSender.getAttribute("aria-label") === "Mute sender: Student" &&
+  root.querySelector("#collaboration-message-moderated-allow").getAttribute("aria-label") ===
+    "Allow sender: Student" &&
+  root.querySelector("#collaboration-message-moderated-remove").getAttribute("aria-label") ===
+    "Remove participant: Student" &&
+  root.querySelector("#collaboration-message-moderated-block").getAttribute("aria-label") ===
+    "Remove and block participant: Student" &&
+  root.querySelector("#collaboration-message-moderated-hide").getAttribute("aria-label") ===
+    "Hide message: Student",
+  "repeated moderation actions must expose their participant context to screen readers"
+);
 muteSender.focus();
 window.AccessibleChessEducationSurface.apply(
   root,
