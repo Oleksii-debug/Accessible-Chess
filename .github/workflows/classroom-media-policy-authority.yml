@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: classroom-media-policy-authority-\${{ github.event.pull_request.number || github.ref }}
+  group: classroom-media-policy-authority-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,22 +24,22 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2025]
-    runs-on: \${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Prove exact stacked scope against current join core
         if: github.event_name == 'pull_request'
         shell: bash
         env:
-          EXPECTED_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
-          EVENT_BASE_SHA: \${{ github.event.pull_request.base.sha }}
-          EXPECTED_BASE_REF: \${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
