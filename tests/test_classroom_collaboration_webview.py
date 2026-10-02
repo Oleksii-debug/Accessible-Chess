@@ -193,6 +193,45 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertNotIn("timestamp_text", message)
         self.assertNotIn("timestamp_datetime", message)
 
+    def test_file_sync_surfaces_new_remote_file_once_without_focus_request(self) -> None:
+        remote = AttachmentMetadata(
+            "remote-clean-file",
+            "room-1",
+            "student-2",
+            0,
+            "lesson.pgn",
+            "application/x-chess-pgn",
+            4,
+            "0" * 64,
+            "rooms/room-1/remote-clean-file",
+            "stored",
+            scan_state="clean",
+        )
+        self.files.ordered.append(remote)
+        view = self.webview()
+
+        event = view.dispatch("collaboration.file.sync", {})
+        self.assertEqual("collaboration.files.synced", event.kind)
+        self.assertEqual("New file: lesson.pgn.", event.payload["announcement"])
+        self.assertNotIn("focus_target", event.payload)
+        files = event.payload["collaboration"]["files"]["items"]
+        self.assertEqual(1, len(files))
+        self.assertEqual("lesson.pgn", files[0]["name"])
+        self.assertTrue(files[0]["can_save"])
+        self.assertTrue(files[0]["can_open"])
+        self.assertIn("file_key", files[0])
+
+        repeated = view.dispatch("collaboration.file.sync", {})
+        self.assertEqual("collaboration.files.synced", repeated.kind)
+        self.assertNotIn("announcement", repeated.payload)
+        self.assertEqual(1, len(repeated.payload["collaboration"]["files"]["items"]))
+
+    def test_file_sync_rejects_browser_fields_without_transport_call(self) -> None:
+        view = self.webview()
+        event = view.dispatch("collaboration.file.sync", {"after": 0})
+        self.assertEqual("error", event.kind)
+        self.assertEqual([], self.files.ordered)
+
     def test_file_upload_and_save_keep_local_path_object_key_hash_and_token_out_of_browser(self) -> None:
         self.selected_file = self.root / "lesson notes.txt"
         self.selected_file.write_text("accessible classroom file", encoding="utf-8")
