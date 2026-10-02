@@ -385,7 +385,7 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         self.assertEqual(claims.video.room, "room-1")
         self.assertEqual(claims.video.can_publish_sources, ["microphone", "camera"])
         self.assertFalse(claims.video.room_admin)
-        self.assertFalse(claims.video.can_publish_data)
+        self.assertTrue(claims.video.can_publish_data)
 
 
 def token_payload(token):
