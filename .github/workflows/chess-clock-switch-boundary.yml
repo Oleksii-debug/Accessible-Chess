@@ -1,0 +1,83 @@
+name: Chess Clock Switch Boundary
+
+on:
+  push:
+    branches:
+      - fix/clock-switch-exact-charge-20261002
+  pull_request:
+    paths:
+      - 'acs/clock_service.py'
+      - 'tests/test_clock_service.py'
+      - '.github/workflows/chess-clock-switch-boundary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chess-clock-switch-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Preserve exact source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Verify Product ancestry, isolated scope and exact tested blobs
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          accepted_product=25b6da6eb8bccea95628ecfce5ba81fece1a5666
+          git merge-base --is-ancestor "$accepted_product" HEAD
+          scope_base="$accepted_product"
+          if [ -n "$PR_BASE_REF" ]; then
+            scope_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+            git merge-base --is-ancestor "$scope_base" HEAD
+          fi
+          git diff --check "$scope_base" HEAD
+          actual="$(git diff --name-only "$scope_base" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/chess-clock-switch-boundary.yml' 'acs/clock_service.py' 'tests/test_clock_service.py' | sort)"
+          test "$actual" = "$expected" || {
+            printf 'Unexpected clock lane scope:\n%s\n' "$actual" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 2b0029b6da4dc88494c0e3cd4e891b886df45eda
+          git diff --quiet "$scope_base" HEAD -- acs/stage1_release_ui_core.py acs/chesscore.py acs/gametree.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+      - name: Compile current project
+        run: python -m compileall -q acs tests run_accessible_chess_v2.py
+      - name: Focused clock and engine-session regressions
+        run: >-
+          python -m unittest -v
+          tests.test_clock_service
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_stage1_engine_play_ui
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests
