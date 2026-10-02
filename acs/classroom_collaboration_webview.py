@@ -257,6 +257,7 @@ class ClassroomCollaborationWebView:
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
+        self._pending_chat: tuple[str, str] | None = None
         self._chat_page_bucket: int | None = None
         self._file_page_bucket: int | None = None
         self._removed_participant_ids: set[str] = set()
@@ -708,10 +709,16 @@ class ClassroomCollaborationWebView:
     def _send_chat(self, body: object) -> ClassroomCollaborationWebViewEvent:
         if type(body) is not str:
             raise TypeError("chat body must be text")
+        if self._pending_chat is not None and self._pending_chat[1] == body:
+            message_id = self._pending_chat[0]
+        else:
+            message_id = self._id_factory("message")
+            self._pending_chat = (message_id, body)
         self._controller.send_chat(
-            message_id=self._id_factory("message"),
+            message_id=message_id,
             body=body,
         )
+        self._pending_chat = None
         self._chat_page_bucket = None
         return self._event(
             "collaboration.chat.sent",
@@ -725,6 +732,18 @@ class ClassroomCollaborationWebView:
             for item in self._store.room_messages(self._controller.room_id, include_hidden=True)
         }
         incoming = self._controller.sync_chat()
+        pending_recovered = False
+        if self._pending_chat is not None:
+            pending_id = self._pending_chat[0]
+            pending_recovered = any(
+                item.message_id == pending_id
+                for item in self._store.room_messages(
+                    self._controller.room_id,
+                    include_hidden=True,
+                )
+            )
+            if pending_recovered:
+                self._pending_chat = None
         new_remote = tuple(
             item
             for item in incoming
@@ -740,6 +759,8 @@ class ClassroomCollaborationWebView:
             announcement = f"{self._label(item.sender_id)}: {compact_body}"
         elif len(new_remote) > 1:
             announcement = _LABELS[self._language]["new_many"].format(count=len(new_remote))
+        elif pending_recovered:
+            announcement = _LABELS[self._language]["sent"]
         return self._event("collaboration.chat.synced", announcement=announcement)
 
     def _sync_files(self) -> ClassroomCollaborationWebViewEvent:
