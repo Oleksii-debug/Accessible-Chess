@@ -525,12 +525,22 @@ class ClassroomMediaWebViewProjection:
         }
 
     def _success(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
+        try:
+            snapshot: dict[str, object] | None = self.snapshot()
+        except Exception:
+            # The controller/provider mutation has already committed. A fallible
+            # presentation-label read must not turn that success into a false
+            # failure that invites a duplicate user retry. Retire stale controls
+            # until a later full snapshot can project the canonical state again.
+            snapshot = None
+            focus_target = "classroom-media-heading"
         return ClassroomMediaWebViewEvent(
             "media-updated",
             {
-                "snapshot": self.snapshot(),
+                "snapshot": snapshot,
                 "announcement": _TEXT[self._language]["changed"],
                 "focus_target": focus_target,
+                "recovery_required": snapshot is None,
             },
         )
 
