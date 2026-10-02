@@ -224,7 +224,9 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         self.assertIsNone(self.app.session)
         self.assertEqual(self.app.shell.current_route.route_id, "library")
 
-    def test_modal_focus_blocks_document_publication(self) -> None:
+    def test_modal_focus_blocks_provider_acquisition_and_document_publication(self) -> None:
+        calls = []
+        self.app._board_position_provider = lambda: calls.append(True) or self.current_position
         dialog = self.app.adapter.open_dialog(
             "position-modal",
             opener_focus_id="board-launcher",
@@ -235,16 +237,20 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "active dialog"):
             self.app.router.dispatch("pgn.new_from_position")
 
+        self.assertEqual(calls, [])
         self.assertIsNone(self.app.session)
         self.assertEqual(self.app.shell.active_dialog_id, "position-modal")
         self.assertEqual(self.app.shell.current_route.route_id, "board")
 
-    def test_active_book_board_ownership_blocks_document_publication(self) -> None:
+    def test_active_book_board_ownership_blocks_provider_acquisition_and_document_publication(self) -> None:
+        calls = []
+        self.app._board_position_provider = lambda: calls.append(True) or self.current_position
         self.app.book_workflow = SimpleNamespace(active=True)
 
         with self.assertRaisesRegex(ValueError, "return to the book"):
             self.app.router.dispatch("pgn.new_from_position")
 
+        self.assertEqual(calls, [])
         self.assertIsNone(self.app.session)
         self.assertEqual(self.app.shell.current_route.route_id, "board")
 
