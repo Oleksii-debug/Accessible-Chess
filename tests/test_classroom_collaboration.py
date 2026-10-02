@@ -1305,6 +1305,48 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(current.scan_state, "pending")
         self.assertIsNone(second_store.attachment_state_revision("room-1"))
 
+    def test_receive_later_file_rejects_partial_catch_up_that_still_has_a_gap(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "remote-partial-0",
+            "room-1",
+            "student-1",
+            0,
+            "zero.bin",
+            None,
+            1,
+            "3" * 64,
+            "rooms/room-1/remote-partial-0",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        later = AttachmentMetadata(
+            "remote-partial-2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "4" * 64,
+            "rooms/room-1/remote-partial-2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        # History can legitimately lag a live delivery. Recover the prefix that
+        # is available, but never anchor sequence 2 while sequence 1 is absent.
+        self.files.history_override = (first,)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live file has an unresolved sequence gap after recovery",
+        ):
+            controller.receive_file(later)
+
+        self.assertEqual(self.store.room_attachments("room-1"), (first,))
+
     def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
         controller = self.controller("teacher-1")
         base = AttachmentMetadata(
