@@ -68,6 +68,18 @@ class ClassroomRosterResolverPort(Protocol):
         ...
 
 
+class ClassroomJoinIdentityResolverPort(Protocol):
+    """Map an authenticated caller to its canonical room-scoped participant."""
+
+    def participant_for_caller(
+        self,
+        *,
+        room_id: str,
+        trusted_caller_identity: str,
+    ) -> str:
+        ...
+
+
 class ClassroomModerationProviderPort(Protocol):
     async def apply_moderation_command(
         self,
@@ -93,13 +105,19 @@ class _Overrides:
 class SqliteClassroomMediaPolicyAuthority:
     """Join + moderation authorization over durable media-only state."""
 
-    __slots__ = ("_path", "_resolver", "_timeout_seconds")
+    __slots__ = (
+        "_path",
+        "_resolver",
+        "_join_identity_resolver",
+        "_timeout_seconds",
+    )
 
     def __init__(
         self,
         path: str | Path,
         *,
         roster_resolver: ClassroomRosterResolverPort,
+        join_identity_resolver: ClassroomJoinIdentityResolverPort,
         timeout_seconds: float = 5.0,
     ) -> None:
         if isinstance(path, Path):
@@ -116,6 +134,12 @@ class SqliteClassroomMediaPolicyAuthority:
             getattr(roster_resolver, "roster_for_room", None)
         ):
             raise ClassroomMediaPolicyError("canonical roster resolver is unavailable")
+        if join_identity_resolver is None or not callable(
+            getattr(join_identity_resolver, "participant_for_caller", None)
+        ):
+            raise ClassroomMediaPolicyError(
+                "canonical join identity resolver is unavailable"
+            )
         if (
             type(timeout_seconds) not in (int, float)
             or isinstance(timeout_seconds, bool)
@@ -126,6 +150,7 @@ class SqliteClassroomMediaPolicyAuthority:
 
         self._path = storage_path
         self._resolver = roster_resolver
+        self._join_identity_resolver = join_identity_resolver
         self._timeout_seconds = float(timeout_seconds)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,9 +224,22 @@ class SqliteClassroomMediaPolicyAuthority:
             requested_participant_id,
             "requested participant id",
         )
-        if caller != participant:
+        try:
+            canonical_participant = self._join_identity_resolver.participant_for_caller(
+                room_id=room,
+                trusted_caller_identity=caller,
+            )
+        except Exception:
             raise ClassroomMediaPolicyError(
-                "join participant does not match trusted caller"
+                "canonical join identity lookup failed"
+            ) from None
+        canonical_participant = _identifier(
+            canonical_participant,
+            "canonical join participant id",
+        )
+        if canonical_participant != participant:
+            raise ClassroomMediaPolicyError(
+                "requested participant is not authorized for caller"
             )
         policy = self.participant_policy(
             room_id=room,
@@ -644,6 +682,7 @@ def _rollback(connection: sqlite3.Connection) -> None:
 
 
 __all__ = [
+    "ClassroomJoinIdentityResolverPort",
     "ClassroomMediaPolicyError",
     "ClassroomMediaPolicyProviderAdmin",
     "ClassroomModerationProviderPort",
