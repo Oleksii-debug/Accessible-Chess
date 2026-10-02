@@ -30,8 +30,19 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     if os.path.lexists(livekit_root):
         if livekit_root.is_symlink() or not livekit_root.is_dir():
             raise RuntimeError("LiveKit browser SDK resource root is invalid.")
-        livekit_resources = (
+        livekit_evidence = (
             ("LiveKit browser SDK", livekit_root / "livekit-client.umd.js"),
+            ("LiveKit browser SDK license", livekit_root / "LICENSE"),
+            ("LiveKit browser SDK notice", livekit_root / "NOTICE"),
+            ("LiveKit browser SDK provenance", livekit_root / "provenance.json"),
+        )
+        for label, path in livekit_evidence:
+            if not os.path.lexists(path):
+                raise RuntimeError(f"{label} not found in packaged resources.")
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(f"{label} resource is invalid.")
+        livekit_resources = (
+            livekit_evidence[0],
             ("Classroom LiveKit media adapter", root / "livekit_classroom_media.js"),
         )
 
