@@ -190,6 +190,7 @@ async function run() {
   commandMode = "failure";
   let failedMaster = elements.get("sound-master-enabled");
   const confirmedMaster = failedMaster.checked;
+  failedMaster.focus();
   failedMaster.checked = !confirmedMaster;
   failedMaster.dispatch("change");
   await Promise.resolve();
@@ -204,6 +205,7 @@ async function run() {
   commandMode = "reject";
   let failedVolume = elements.get("sound-event-move-volume");
   const confirmedVolume = failedVolume.value;
+  failedVolume.focus();
   failedVolume.value = "19";
   failedVolume.dispatch("change");
   await Promise.resolve();
