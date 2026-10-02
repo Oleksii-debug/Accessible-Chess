@@ -124,17 +124,23 @@
     return parsed;
   }
 
+  function restoreConfirmedSnapshot() {
+    if (currentSnapshot && typeof currentSnapshot === "object") render(currentSnapshot);
+  }
+
   function invoke(command, payload) {
     const active = documentRef.activeElement;
     const restoreFocusId = active && typeof active.id === "string" ? active.id : "";
     const bridge = api();
     if (busy || !bridge || typeof bridge.sound_settings_command !== "function") {
+      restoreConfirmedSnapshot();
       announce(text("Налаштування звуку недоступні.", "Sound settings are unavailable."), true);
       return Promise.resolve(false);
     }
     setBusy(true);
     return bridge.sound_settings_command(command, payload || {}).then(function (result) {
       if (!result || result.ok !== true || !result.snapshot) {
+        restoreConfirmedSnapshot();
         announce(result && result.message ? result.message :
           text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."), true);
         return false;
@@ -144,6 +150,7 @@
       announce(result.message || "", true);
       return true;
     }, function () {
+      restoreConfirmedSnapshot();
       announce(text("Не вдалося застосувати налаштування звуку.", "Sound settings could not be applied."), true);
       return false;
     }).finally(function () {
