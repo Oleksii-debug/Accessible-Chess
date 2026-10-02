@@ -70,6 +70,10 @@ _LABELS = {
         "files": "Файли",
         "sync_files": "Оновити файли",
         "choose_upload": "Вибрати й надіслати файл",
+        "older_files": "Старіші файли",
+        "newer_files": "Новіші файли",
+        "file_page": "Історія файлів: сторінка {current} з {total}",
+        "file_history_empty": "Історія файлів порожня",
         "no_files": "Файлів немає.",
         "save": "Зберегти",
         "open": "Відкрити",
@@ -124,6 +128,10 @@ _LABELS = {
         "files": "Files",
         "sync_files": "Refresh files",
         "choose_upload": "Choose and send file",
+        "older_files": "Older files",
+        "newer_files": "Newer files",
+        "file_page": "File history page {current} of {total}",
+        "file_history_empty": "File history is empty",
         "no_files": "No files.",
         "save": "Save",
         "open": "Open",
@@ -191,6 +199,7 @@ _SCAN_LABELS = {
 
 
 _CHAT_HISTORY_BUCKET_SIZE = 50
+_FILE_HISTORY_BUCKET_SIZE = 50
 
 
 def _default_id(prefix: str) -> str:
@@ -249,6 +258,7 @@ class ClassroomCollaborationWebView:
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
         self._chat_page_bucket: int | None = None
+        self._file_page_bucket: int | None = None
         self._removed_participant_ids: set[str] = set()
         self._prepared: dict[str, PreparedFile] = {}
 
@@ -508,6 +518,71 @@ class ClassroomCollaborationWebView:
             focus_target=focus_target,
         )
 
+    def _file_page_projection(
+        self,
+        attachments: tuple[AttachmentMetadata, ...],
+    ) -> tuple[tuple[AttachmentMetadata, ...], int, int, bool, bool]:
+        if not attachments:
+            self._file_page_bucket = None
+            return (), 0, 0, False, False
+        buckets = tuple(
+            sorted({item.sequence_no // _FILE_HISTORY_BUCKET_SIZE for item in attachments})
+        )
+        bucket = self._file_page_bucket
+        if bucket is None:
+            bucket = buckets[-1]
+        elif bucket not in buckets:
+            lower = tuple(item for item in buckets if item < bucket)
+            bucket = lower[-1] if lower else buckets[0]
+            self._file_page_bucket = None if bucket == buckets[-1] else bucket
+        index = buckets.index(bucket)
+        page = tuple(
+            item
+            for item in attachments
+            if item.sequence_no // _FILE_HISTORY_BUCKET_SIZE == bucket
+        )
+        return page, index, len(buckets), index > 0, index < len(buckets) - 1
+
+    def _move_file_page(self, direction: int) -> ClassroomCollaborationWebViewEvent:
+        if direction not in {-1, 1}:
+            raise ValueError("file history direction is invalid")
+        attachments = tuple(
+            item
+            for item in self._store.room_attachments(self._controller.room_id)
+            if item.transfer_state != "deleted"
+        )
+        _, index, page_count, can_older, can_newer = self._file_page_projection(attachments)
+        if not page_count:
+            raise ValueError("file history is empty")
+        if direction < 0 and not can_older:
+            raise ValueError("older file history is unavailable")
+        if direction > 0 and not can_newer:
+            raise ValueError("newer file history is unavailable")
+        buckets = tuple(
+            sorted({item.sequence_no // _FILE_HISTORY_BUCKET_SIZE for item in attachments})
+        )
+        target_index = index + direction
+        target_bucket = buckets[target_index]
+        self._file_page_bucket = None if target_index == len(buckets) - 1 else target_bucket
+        target_can_older = target_index > 0
+        target_can_newer = target_index < len(buckets) - 1
+        if direction < 0:
+            focus_target = (
+                "collaboration-file-older"
+                if target_can_older
+                else "collaboration-file-newer"
+            )
+        else:
+            focus_target = (
+                "collaboration-file-newer"
+                if target_can_newer
+                else "collaboration-file-older"
+            )
+        return self._event(
+            "collaboration.file.page",
+            focus_target=focus_target,
+        )
+
     def snapshot(self) -> dict[str, object]:
         labels = _LABELS[self._language]
         messages = self._store.room_messages(self._controller.room_id)
@@ -523,6 +598,13 @@ class ClassroomCollaborationWebView:
             for item in self._store.room_attachments(self._controller.room_id)
             if item.transfer_state != "deleted"
         )
+        (
+            attachment_page,
+            attachment_page_index,
+            attachment_page_count,
+            can_older_files,
+            can_newer_files,
+        ) = self._file_page_projection(attachments)
         visible_ids = {item.message_id for item in messages}
         self._unread_message_ids.intersection_update(visible_ids)
         unread_count = len(self._unread_message_ids)
@@ -566,13 +648,25 @@ class ClassroomCollaborationWebView:
                 "heading": labels["files"],
                 "sync_label": labels["sync_files"],
                 "choose_upload_label": labels["choose_upload"],
+                "older_label": labels["older_files"],
+                "newer_label": labels["newer_files"],
+                "page_label": (
+                    labels["file_page"].format(
+                        current=attachment_page_index + 1,
+                        total=attachment_page_count,
+                    )
+                    if attachment_page_count
+                    else labels["file_history_empty"]
+                ),
+                "can_older": can_older_files,
+                "can_newer": can_newer_files,
                 "empty_message": labels["no_files"],
                 "save_label": labels["save"],
                 "open_label": labels["open"],
                 "retry_label": labels["retry"],
                 "cancel_label": labels["cancel"],
                 "can_choose_upload": self._file_picker is not None,
-                "items": tuple(self._file_view(item) for item in attachments),
+                "items": tuple(self._file_view(item) for item in attachment_page),
             },
         }
 
@@ -793,6 +887,7 @@ class ClassroomCollaborationWebView:
                 self._prepared.pop(uploaded.attachment_id, None)
             return self._error()
         self._prepared.pop(uploaded.attachment_id, None)
+        self._file_page_bucket = None
         return self._event(
             "collaboration.file.sent",
             announcement=_LABELS[self._language]["file_sent"],
@@ -921,6 +1016,10 @@ class ClassroomCollaborationWebView:
                 if data:
                     raise ValueError("file sync accepts no browser fields")
                 return self._sync_files()
+            if command in {"collaboration.file.older", "collaboration.file.newer"}:
+                if data:
+                    raise ValueError("file history paging accepts no fields")
+                return self._move_file_page(-1 if command.endswith("older") else 1)
             if command == "collaboration.file.choose_upload":
                 if data:
                     raise ValueError("file picker accepts no browser fields")
