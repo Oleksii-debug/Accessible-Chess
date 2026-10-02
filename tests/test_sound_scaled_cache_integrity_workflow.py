@@ -34,8 +34,16 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
 
     def test_nested_scope_stays_sound_owner_only(self) -> None:
         self.assertIn("Unexpected sound-cache scope:", self.text)
-        self.assertNotIn("git diff --name-only \"$base\" HEAD", self.text)
+        self.assertNotIn('git diff --name-only "$base" HEAD', self.text)
         self.assertIn("tests/test_sound_scaled_cache_integrity_workflow.py", self.text)
+
+    def test_workflow_structure_is_not_duplicated_or_injected_into_regex(self) -> None:
+        self.assertEqual(self.text.count("- name: Compile sound authority"), 1)
+        self.assertEqual(self.text.count("- name: Run sound regressions"), 1)
+        self.assertIn(
+            "sound-scaled-cache-integrity\\.yml)$' || true)",
+            self.text,
+        )
 
     def test_dual_os_regressions_and_contract_run(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
