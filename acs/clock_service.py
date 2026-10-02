@@ -165,7 +165,14 @@ class ChessClock:
         self._active = side
         self._state = ClockState.RUNNING
         self._last_tick = tick
-        return self.snapshot()
+        try:
+            return self.snapshot()
+        except Exception:
+            # Failed startup cannot leave a running clock behind.
+            self._active = None
+            self._state = ClockState.STOPPED
+            self._last_tick = None
+            raise
 
     def pause(self) -> ClockSnapshot:
         self._sync()
@@ -191,6 +198,13 @@ class ChessClock:
             tick = self._read_now()
             self._state = ClockState.RUNNING
             self._last_tick = tick
+            try:
+                return self.snapshot()
+            except Exception:
+                # A failed resume must remain paused for explicit recovery.
+                self._state = ClockState.PAUSED
+                self._last_tick = None
+                raise
         return self.snapshot()
 
     def stop(self) -> ClockSnapshot:
@@ -306,6 +320,13 @@ class ChessClock:
         if snapshot.state is ClockState.RUNNING and resume_running:
             resume_tick = self._read_now()
 
+        prior = (
+            self._remaining.copy(),
+            self._active,
+            self._flagged,
+            self._state,
+            self._last_tick,
+        )
         self._remaining = {"w": snapshot.white_ms, "b": snapshot.black_ms}
         self._active = snapshot.active
         self._flagged = snapshot.flagged
@@ -318,7 +339,14 @@ class ChessClock:
                 self._last_tick = resume_tick
         else:
             self._state = snapshot.state
-        return self.snapshot()
+        try:
+            return self.snapshot()
+        except Exception:
+            # Preserve the original canonical state if resumed restoration
+            # fails on its final time sample; do not publish a partial restore.
+            (self._remaining, self._active, self._flagged,
+             self._state, self._last_tick) = prior
+            raise
 
     def reset(self, *, side_to_move: str | None = None) -> ClockSnapshot:
         if side_to_move is not None:
