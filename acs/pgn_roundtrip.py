@@ -783,6 +783,11 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                 "PGN serialization requires PgnGame values",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
+        if type(game.warnings) is not list or game.warnings:
+            raise PgnRoundTripError(
+                "PGN serialization refuses recovery-warning state",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
         serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
         if serialized_tag_count > MAX_PGN_TAGS_PER_GAME:
             _raise_limit(
