@@ -476,6 +476,131 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
         )
         self.assertNotIn(MediaSource.MICROPHONE, grant.publish_sources)
 
+    def test_provider_wrapper_failed_restore_does_not_reopen_fresh_join(self):
+        authority = self.authority()
+        authority.record_authorized_command(
+            room_id="room-1",
+            command=command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.MICROPHONE,
+                value=False,
+                operation="op-revoke-before-restore",
+            ),
+        )
+        revision = authority.policy_revision(
+            room_id="room-1",
+            participant_id="student-1",
+        )
+        provider = FakeProviderAdmin()
+        provider.error = RuntimeError("restore failed privately")
+        wrapper = ClassroomMediaPolicyProviderAdmin(
+            authority=authority,
+            provider_admin=provider,
+        )
+        restore = command(
+            ModerationAction.PUBLISH_PERMISSION,
+            source=MediaSource.MICROPHONE,
+            value=True,
+            operation="op-restore-fails",
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomMediaPolicyError,
+            "^media policy provider operation failed$",
+        ):
+            asyncio.run(
+                wrapper.apply_moderation_command(
+                    room_id="room-1",
+                    command=restore,
+                )
+            )
+
+        self.assertEqual(provider.commands, [("room-1", restore)])
+        restarted = self.authority()
+        self.assertEqual(
+            restarted.policy_revision(
+                room_id="room-1",
+                participant_id="student-1",
+            ),
+            revision,
+        )
+        grant = restarted.authorize_join(
+            room_id="room-1",
+            trusted_caller_identity="student-1",
+            requested_participant_id="student-1",
+        )
+        self.assertNotIn(MediaSource.MICROPHONE, grant.publish_sources)
+
+    def test_provider_wrapper_persists_restore_only_after_provider_success(self):
+        authority = self.authority()
+        authority.record_authorized_command(
+            room_id="room-1",
+            command=command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.MICROPHONE,
+                value=False,
+                operation="op-revoke-before-successful-restore",
+            ),
+        )
+        revision = authority.policy_revision(
+            room_id="room-1",
+            participant_id="student-1",
+        )
+
+        class InspectingProvider(FakeProviderAdmin):
+            def __init__(self):
+                super().__init__()
+                self.join_allowed_during_provider = None
+
+            async def apply_moderation_command(self, *, room_id, command):
+                grant = authority.authorize_join(
+                    room_id=room_id,
+                    trusted_caller_identity=command.target_id,
+                    requested_participant_id=command.target_id,
+                )
+                self.join_allowed_during_provider = (
+                    MediaSource.MICROPHONE in grant.publish_sources
+                )
+                await super().apply_moderation_command(
+                    room_id=room_id,
+                    command=command,
+                )
+
+        provider = InspectingProvider()
+        wrapper = ClassroomMediaPolicyProviderAdmin(
+            authority=authority,
+            provider_admin=provider,
+        )
+        restore = command(
+            ModerationAction.PUBLISH_PERMISSION,
+            source=MediaSource.MICROPHONE,
+            value=True,
+            operation="op-restore-succeeds",
+        )
+
+        asyncio.run(
+            wrapper.apply_moderation_command(
+                room_id="room-1",
+                command=restore,
+            )
+        )
+
+        self.assertFalse(provider.join_allowed_during_provider)
+        restarted = self.authority()
+        self.assertEqual(
+            restarted.policy_revision(
+                room_id="room-1",
+                participant_id="student-1",
+            ),
+            revision + 1,
+        )
+        grant = restarted.authorize_join(
+            room_id="room-1",
+            trusted_caller_identity="student-1",
+            requested_participant_id="student-1",
+        )
+        self.assertIn(MediaSource.MICROPHONE, grant.publish_sources)
+
     def test_provider_wrapper_persists_block_before_remove_failure(self):
         authority = self.authority()
         provider = FakeProviderAdmin()
