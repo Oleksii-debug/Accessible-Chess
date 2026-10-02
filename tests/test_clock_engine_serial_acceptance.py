@@ -12,10 +12,12 @@ import unittest
 from pathlib import Path
 
 from acs.chesscore import Board
-from acs.clock_service import ClockState
-from acs.engine_play_service import EngineGameHandoff, EngineGameIntent, EnginePlayService
+from acs.clock_service import ChessClock, ClockState, TimeControl
+from acs.engine_game_session import EngineGameSessionCoordinator
+from acs.engine_play_service import EngineGameConfig, EngineGameHandoff, EngineGameIntent, EnginePlayService
 from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
 from tests.test_stage1_engine_play_ui import _LegalMoveEngine, _RecordingGameSounds
+from tests.test_engine_game_session import FakeMoveEngine
 
 
 class _TimedSamples:
@@ -170,6 +172,93 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
         self.assertEqual(played["engineGame"]["phase"], "finished")
         self.assertEqual(session.snapshot().clock.flagged, "b")
         self.assertEqual(session.snapshot().lifecycle.outcome.result, "1-0")
+
+
+    def make_factless_coordinator(self, *, engine_side):
+        """A real clock and callback-owned Board state; no optional timeout fact."""
+        state = {"fen": "fen-w", "side": "w", "node": "node-0", "moves": []}
+        anchor = 200.0
+
+        def commit(move):
+            state["moves"].append(move)
+            state["side"] = "b"
+            state["fen"] = "fen-b"
+            state["node"] = "node-1"
+
+        coordinator = EngineGameSessionCoordinator(
+            EnginePlayService(lambda: FakeMoveEngine("e2e4")),
+            fen_provider=lambda: state["fen"],
+            side_to_move_provider=lambda: state["side"],
+            commit_engine_move=commit,
+            history_node_provider=lambda: state["node"],
+            timeout_mating_capability_provider=lambda _side: True,
+            clock_factory=lambda control: ChessClock(control, now=lambda: anchor),
+        )
+        coordinator.start(
+            EngineGameConfig(
+                level=6,
+                engine_side=engine_side,
+                time_control=TimeControl(10_000, 2_000),
+            )
+        )
+        clock = coordinator._clock
+        self.assertIsNotNone(clock)
+        self.assertEqual(clock._last_tick, anchor)
+        clock.set_remaining("w", 20)
+        pending = coordinator.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.OFFER_DRAW, actor="b")
+        ).lifecycle
+        return coordinator, clock, state, pending, anchor
+
+    def test_real_clock_mover_flag_rejects_factless_engine_commit(self):
+        coordinator, clock, state, pending, anchor = self.make_factless_coordinator(
+            engine_side="white"
+        )
+        # Preflight occurs at the prior tick; exact switch charges 50ms against
+        # 20ms remaining. This reaches the real #1059 mover-flag boundary.
+        real_switch = clock.switch_after_move
+        clock.switch_after_move = self.inject_switch_samples(
+            clock, real_switch, "w", lambda tick: tick + 0.05
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "clock flagged before engine move acceptance"
+        ):
+            coordinator.request_engine_move()  # intentionally no mating fact
+
+        self.assertEqual(state["moves"], ["e2e4"])
+        self.assertEqual(state["side"], "b")
+        self.assertEqual(clock.flagged, "w")
+        self.assertEqual(clock._remaining["w"], 0)
+        self.assertEqual(clock._remaining["b"], 10_000)
+        # No increment, lifecycle acceptance or guessed outcome while the
+        # Board-owning caller still has to undo its commit.
+        self.assertEqual(coordinator._lifecycle.snapshot(), pending)
+
+    def test_real_clock_mover_flag_rejects_factless_human_commit(self):
+        coordinator, clock, state, pending, anchor = self.make_factless_coordinator(
+            engine_side="black"
+        )
+        # Model the Board owner's already-committed human move. The session
+        # has one pre-switch snapshot, then the real clock takes two readings.
+        state["moves"].append("e2e4")
+        state["side"] = "b"
+        state["fen"] = "fen-b"
+        state["node"] = "node-1"
+        clock._now = _TimedSamples(anchor, anchor, anchor + 0.05)
+
+        with self.assertRaisesRegex(
+            ValueError, "clock flagged before human move acceptance"
+        ):
+            coordinator.on_human_move_committed("w")  # no mating fact
+
+        self.assertEqual(state["moves"], ["e2e4"])
+        self.assertEqual(state["side"], "b")
+        self.assertEqual(clock.flagged, "w")
+        self.assertEqual(clock._remaining["w"], 0)
+        self.assertEqual(clock._remaining["b"], 10_000)
+        self.assertEqual(coordinator._lifecycle.snapshot(), pending)
+
 
 
 if __name__ == "__main__":
