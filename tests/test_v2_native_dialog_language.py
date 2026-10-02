@@ -271,8 +271,15 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 ),
                 mock.patch.object(release_app, "ContinuousAnalysisService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
-                mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
+                mock.patch.object(
+                    release_app,
+                    "create_local_sound_composition",
+                    return_value=SimpleNamespace(
+                        game_runtime=mock.MagicMock(),
+                        profiled_runtime=mock.MagicMock(),
+                        settings=mock.MagicMock(),
+                    ),
+                ),
                 mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
                 mock.patch.object(release_app, "AcsDatabase", return_value=database),
                 mock.patch.object(release_app, "Version2Application", return_value=application),
