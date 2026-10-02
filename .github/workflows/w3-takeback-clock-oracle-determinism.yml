@@ -85,6 +85,18 @@ jobs:
               echo 'W3 Product convergence must not mutate runtime source ownership' >&2
               exit 1
             }
+          elif [ "${{ github.event.pull_request.head.ref }}" = "$product_ref" ]; then
+            # Retained W3 qualification on the long-lived Product PR: do not
+            # reinterpret the entire historical Product diff as a W3 change.
+            # Instead bind the current integrated owner state to the exact
+            # #1061 machine-qualified identities.
+            integrated_product=3f30f0d093fc19afe60e8262a70ccfdb3702d614
+            git merge-base --is-ancestor "$integrated_product" HEAD
+            test "$(git rev-parse HEAD:tests/test_dev3_takeback_atomicity.py)" = 60df98fc2138baa1ece727bac3eef4f8379a8e64
+            test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 02cc2238a0ee3582707f8c926fc8e089faaeccc7
+            test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+            test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+            echo 'W3 retained Product authority PASS'
           elif [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
             # Historical stacked integration remains exactly reproducible.
             base="${{ github.event.pull_request.base.sha }}"
