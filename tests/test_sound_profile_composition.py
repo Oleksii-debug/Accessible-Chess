@@ -89,7 +89,7 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 asset_playback=_Playback(),
             )
             first.settings.set_master(enabled=True, volume_percent=64)
-            first.settings.set_event("check", volume_percent=45, sound_id="check.soft")
+            first.settings.set_event("check", volume_percent=45)
 
             second = create_local_sound_composition(
                 application_dir=root / "app",
@@ -98,7 +98,8 @@ class LocalSoundCompositionTests(unittest.TestCase):
             )
             self.assertEqual(64, second.profile_manager.current.master_volume_percent)
             self.assertEqual(45, second.profile_manager.current.preference_for("check").volume_percent)
-            self.assertEqual("check.soft", second.profile_manager.current.preference_for("check").sound_id)
+            self.assertIsNone(second.profile_manager.current.preference_for("check").sound_id)
+            self.assertEqual("check", second.profile_manager.current.selected_sound_id("check"))
 
     def test_classroom_runtime_reuses_exact_profile_and_playback_authorities(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-classroom-") as raw:
@@ -130,14 +131,14 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 asset_playback=playback,
             )
             composition.settings.set_master(volume_percent=50)
-            composition.settings.set_event("capture", volume_percent=60, sound_id="capture.soft")
+            composition.settings.set_event("capture", volume_percent=60)
             composition.settings.preview("capture", language="en")
 
             self.assertEqual(1, len(playback.requests))
             request = playback.requests[0]
             self.assertEqual("classic", request.pack_id)
             self.assertEqual("capture", request.event_id)
-            self.assertEqual("capture.soft", request.sound_id)
+            self.assertEqual("capture", request.sound_id)
             self.assertEqual(30, request.volume)
             self.assertTrue(request.preview)
 
