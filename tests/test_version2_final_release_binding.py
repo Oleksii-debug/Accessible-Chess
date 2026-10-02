@@ -302,6 +302,23 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
                 ):
                     final_release._final_product_resource_sources()
 
+    def test_linked_livekit_vendor_root_fails_closed_before_following_target(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._write_resource_fixture(root)
+            with (
+                mock.patch.object(final_release._release_ui, "_asset_root", return_value=root),
+                mock.patch.object(final_release.os.path, "lexists", return_value=True),
+                mock.patch.object(Path, "is_symlink", return_value=True),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK resource root is invalid",
+                ):
+                    final_release._final_product_resource_sources()
+
     def test_main_failure_restores_exact_prior_release_owners(self) -> None:
         from acs import version2_final_release as final_release
         from acs import version2_release_app, version2_release_ui
