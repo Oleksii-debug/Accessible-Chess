@@ -405,10 +405,15 @@ class ClassroomCollaborationController:
         display_name = safe_display_filename(path.name)
         digest = _sha256_path(path)
         mime_type, _encoding = mimetypes.guess_type(display_name)
-        key = object_key or (
+        canonical_key = (
             f"rooms/{_storage_key_segment(self.room_id)}/"
             f"{_storage_key_segment(attachment)}"
         )
+        if object_key is not None and object_key != canonical_key:
+            raise CollaborationError(
+                "custom object key does not match canonical attachment namespace"
+            )
+        key = canonical_key
         metadata = AttachmentMetadata(
             attachment_id=attachment,
             room_id=self.room_id,
