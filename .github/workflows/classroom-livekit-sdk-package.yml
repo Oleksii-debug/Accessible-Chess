@@ -8,6 +8,7 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'acs/version2_education_mutation_release.py'
       - 'acs/version2_final_release.py'
       - 'run_accessible_chess_v2.py'
       - 'scripts/stage_livekit_client_sdk.py'
@@ -67,6 +68,7 @@ jobs:
             '.github/workflows/w6-v2-package-assembler.yml'
             '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
             '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+            'acs/version2_education_mutation_release.py'
             'acs/version2_final_release.py'
             'acs/version2_package_preflight.py'
             'acs/version2_release_payload.py'
