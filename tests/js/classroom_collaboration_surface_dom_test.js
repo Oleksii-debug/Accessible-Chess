@@ -94,6 +94,7 @@ function collaboration(messages, unreadCount, moderation) {
       send_label: "Send",
       sync_label: "Refresh chat",
       mark_read_label: "Mark read",
+      timestamp_label: "Message time",
       hide_label: "Hide message",
       mute_sender_label: "Mute sender",
       allow_sender_label: "Allow sender",
@@ -151,6 +152,8 @@ const snapshot = {
       dom_id: "collaboration-message-one",
       sender: "Teacher",
       body: "e4 is the target.",
+      timestamp_text: "2023-11-14 22:13:20 UTC",
+      timestamp_datetime: "2023-11-14T22:13:20Z",
       unread: false
     }
   ], 0)
@@ -185,6 +188,27 @@ check(
   root.querySelector("#collaboration-message-one").tagName === "LI",
   "chat messages must remain selectable list text"
 );
+const messageOne = root.querySelector("#collaboration-message-one");
+const timestampDisclosure = messageOne.querySelector("DETAILS");
+check(timestampDisclosure !== null, "message timestamp must use native on-demand disclosure");
+check(
+  timestampDisclosure.getAttribute("data-message-timestamp") === "true",
+  "timestamp disclosure must be explicitly bounded to message metadata"
+);
+check(
+  timestampDisclosure.querySelector("SUMMARY").textContent === "Message time",
+  "timestamp disclosure must have a concise accessible summary"
+);
+const timestampValue = timestampDisclosure.querySelector("TIME");
+check(
+  timestampValue.textContent === "2023-11-14 22:13:20 UTC" &&
+  timestampValue.getAttribute("datetime") === "2023-11-14T22:13:20Z",
+  "expanded timestamp content must remain real selectable semantic text"
+);
+check(
+  timestampValue.getAttribute("aria-live") === "off",
+  "timestamps must not become live announcements"
+);
 
 const fileItem = root.querySelector("#collaboration-file-a");
 check(fileItem && fileItem.tagName === "LI", "file metadata must be a semantic list item");
@@ -208,12 +232,16 @@ window.AccessibleChessEducationSurface.apply(
           dom_id: "collaboration-message-one",
           sender: "Teacher",
           body: "e4 is the target.",
+          timestamp_text: "2023-11-14 22:13:20 UTC",
+          timestamp_datetime: "2023-11-14T22:13:20Z",
           unread: false
         },
         {
           dom_id: "collaboration-message-two",
           sender: "Student",
           body: "Understood.",
+          timestamp_text: "2023-11-14 22:13:21 UTC",
+          timestamp_datetime: "2023-11-14T22:13:21Z",
           unread: true
         }
       ], 1),
@@ -232,6 +260,10 @@ check(
 check(
   announcements.includes("Student: Understood."),
   "incoming message must use concise external announcement channel"
+);
+check(
+  !announcements.some((message) => String(message).includes("UTC")),
+  "message timestamps must never be forced into live announcements"
 );
 check(
   root.querySelector("#collaboration-message-two") !== null,
