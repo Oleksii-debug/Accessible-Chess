@@ -742,6 +742,12 @@ class BookProgressStore:
                 "book progress changed before this update could be committed",
                 code=BookProgressStoreErrorCode.STALE_WRITE,
             )
+        if previous_raw is None:
+            # Minimize the non-cooperating-writer race window: a backup can
+            # appear after the first orphan check while the primary remains
+            # absent. Recheck recovery data immediately before publication so
+            # an ordinary first-save path does not silently supersede it.
+            self._require_no_orphan_backup_unlocked()
         self._atomic_publish_bytes_unlocked(self._path, encoded)
 
     @staticmethod

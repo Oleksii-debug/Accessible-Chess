@@ -277,6 +277,35 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
 
+    def test_save_rechecks_orphan_backup_immediately_before_primary_publication(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        backup_bytes = b'{"entries":{},"generation":7,"schema_version":2}'
+        real_require = self.store._require_no_orphan_backup_unlocked
+        checks = 0
+
+        def backup_appears_after_first_check() -> None:
+            nonlocal checks
+            checks += 1
+            real_require()
+            if checks == 1:
+                self.store.backup_path.write_bytes(backup_bytes)
+
+        with mock.patch.object(
+            self.store,
+            "_require_no_orphan_backup_unlocked",
+            side_effect=backup_appears_after_first_check,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:late-orphan",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(checks, 2)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
     def test_missing_primary_recovery_rejects_stale_backup_revision(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
