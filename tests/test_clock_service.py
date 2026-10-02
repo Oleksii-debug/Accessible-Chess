@@ -507,6 +507,24 @@ class ChessClockTests(unittest.TestCase):
         self.now.value = 100.0
         self.assertEqual(clock.snapshot(), before)
 
+    def test_extreme_finite_monotonic_delta_fails_with_domain_error_atomically(self):
+        # The subtraction can overflow (opposite signs), or the subtraction
+        # can be finite while conversion to milliseconds overflows.
+        for starting, advanced in ((-1e308, 1e308), (1e308, 1.1e308)):
+            with self.subTest(starting=starting, advanced=advanced):
+                now = FakeTime()
+                now.value = starting
+                clock = ChessClock(TimeControl(2_000, 500), now=now)
+                before = clock.start("w")
+                now.value = advanced
+                with self.assertRaises(ClockError) as caught:
+                    clock.snapshot()
+                self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+                # The invalid reading must not award an increment, flag a side,
+                # or mutate the last accepted snapshot.
+                now.value = starting
+                self.assertEqual(clock.snapshot(), before)
+
     def test_untimed_restore_requires_canonical_stopped_zero_snapshot(self):
         clock = ChessClock(TimeControl(0), now=self.now)
         before = clock.snapshot()
