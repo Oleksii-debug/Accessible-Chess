@@ -153,10 +153,21 @@ def _safe_js(window: Any, code: str) -> None:
 
 
 def _invoke_api(window: Any, fn: Callable[[], Any]) -> None:
+    result: Any = None
     try:
-        fn()
+        result = fn()
     finally:
-        _safe_js(window, "refreshState()")
+        is_new_game = getattr(fn, "__name__", "") == "new_game"
+        if is_new_game and isinstance(result, dict) and result.get("ok"):
+            _safe_js(
+                window,
+                "refreshState().then(() => {"
+                "if (window.startNewGameVisualSequence) "
+                "window.startNewGameVisualSequence();"
+                "})",
+            )
+        else:
+            _safe_js(window, "refreshState()")
 
 
 def _optional_api_action(api: Any, name: str, *args: Any) -> Any:
