@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 import traceback
 import unittest
@@ -260,6 +261,49 @@ class LiveKitModerationProviderAdminTests(unittest.TestCase):
         self.assertTrue(replacement.can_publish)
         self.assertEqual(replacement.can_publish_sources, [1])
 
+    def test_screen_share_lock_also_revokes_provider_screen_share_audio(self):
+        adapter, service = self.make(
+            participant(
+                permission=FakePermission(
+                    can_publish=True,
+                    can_publish_sources=(1, 2, 3, 4),
+                )
+            )
+        )
+        self.apply(
+            adapter,
+            command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.SCREEN_SHARE,
+                value=False,
+            ),
+        )
+        replacement = service.update_calls[-1].permission
+        self.assertEqual(replacement.can_publish_sources, [1, 2])
+        self.assertTrue(replacement.can_publish)
+
+        adapter, service = self.make(
+            participant(
+                permission=FakePermission(
+                    can_publish=True,
+                    can_publish_sources=(1, 2, 4),
+                )
+            )
+        )
+        self.apply(
+            adapter,
+            command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.SCREEN_SHARE,
+                value=False,
+                operation_id="screen-audio-only-lock",
+            ),
+        )
+        self.assertEqual(
+            service.update_calls[-1].permission.can_publish_sources,
+            [1, 2],
+        )
+
     def test_publish_noop_does_not_rotate_provider_permission_or_token(self):
         adapter, service = self.make(
             participant(permission=FakePermission(can_publish=True, can_publish_sources=(2,)))
@@ -325,7 +369,7 @@ class LiveKitModerationProviderAdminTests(unittest.TestCase):
             [("mic-active", True)],
         )
 
-    def test_soft_unmute_is_exact_state_assignment(self):
+    def test_clear_soft_mute_allows_local_unmute_without_forcing_remote_unmute(self):
         current = participant(tracks=[track("mic-1", source=2, muted=True)])
         adapter, service = self.make(current)
         self.apply(
@@ -336,22 +380,37 @@ class LiveKitModerationProviderAdminTests(unittest.TestCase):
                 value=False,
             ),
         )
-        self.assertEqual(
-            [(item.track_sid, item.muted) for item in service.mute_calls],
-            [("mic-1", False)],
-        )
+        self.assertEqual(service.get_calls, [])
+        self.assertEqual(service.mute_calls, [])
 
-    def test_absent_participant_is_already_achieved_current_session_state(self):
-        for action, source, value in (
-            (ModerationAction.PUBLISH_PERMISSION, MediaSource.CAMERA, False),
-            (ModerationAction.SOFT_MUTE, MediaSource.MICROPHONE, True),
+    def test_absent_participant_hard_permission_fails_but_soft_mute_is_vacuous(self):
+        adapter, service = self.make()
+        service.get_error = FakeServerError("not_found")
+        with self.assertRaisesRegex(
+            LiveKitModerationProviderError,
+            "target is not connected",
         ):
-            with self.subTest(action=action):
-                adapter, service = self.make()
-                service.get_error = FakeServerError("not_found")
-                self.apply(adapter, command(action, source=source, value=value))
-                self.assertEqual(service.update_calls, [])
-                self.assertEqual(service.mute_calls, [])
+            self.apply(
+                adapter,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.CAMERA,
+                    value=False,
+                ),
+            )
+        self.assertEqual(service.update_calls, [])
+
+        adapter, service = self.make()
+        service.get_error = FakeServerError("not_found")
+        self.apply(
+            adapter,
+            command(
+                ModerationAction.SOFT_MUTE,
+                source=MediaSource.MICROPHONE,
+                value=True,
+            ),
+        )
+        self.assertEqual(service.mute_calls, [])
 
     def test_remove_is_idempotent_for_structured_not_found_only(self):
         adapter, service = self.make()
@@ -453,6 +512,30 @@ class LiveKitModerationProviderAdminTests(unittest.TestCase):
         self.assertIn("room_service=<redacted>", rendered)
         self.assertIn("1.2.1", rendered)
 
+
+    def test_workflow_binds_scope_to_live_parent_and_pins_wheel_hash(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "livekit-moderation-provider.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+        self.assertIn("livekit_api-1.2.1-py3-none-any.whl", workflow)
+        self.assertIn(
+            "aa15b0a194c9e8167d4261bc61381682df23f98bc6d77760fcded93d2ce4b4ca",
+            workflow,
+        )
 
 if __name__ == "__main__":
     unittest.main()
