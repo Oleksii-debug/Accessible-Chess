@@ -199,6 +199,7 @@
         ? Object.freeze(Object.assign({}, options.roomOptions))
         : Object.freeze({});
       this._room = null;
+      this._cleanupRoom = null;
       this._roomId = null;
       this._participantId = null;
     }
@@ -217,6 +218,7 @@
 
     async connect(credentialValue, enabledSourcesValue) {
       if (this._room !== null) throw new LiveKitClassroomMediaError("media session is already connected");
+      if (this._cleanupRoom !== null) throw new LiveKitClassroomMediaError("media session cleanup is required");
       const credential = normalizeCredential(credentialValue);
       const enabledSources = normalizeSources(enabledSourcesValue || []);
       const room = new this._livekit.Room(this._roomOptions);
@@ -239,11 +241,22 @@
         try {
           await room.disconnect(true);
         } catch (_disconnectError) {
-          // Never replace the original connection/identity failure.
+          // If validation already published this Room as the active session,
+          // retain it so the caller can see any still-enabled media and retry
+          // disconnect. Otherwise retain a cleanup-only handle without
+          // publishing an untrusted room/participant identity as connected.
+          if (this._room !== room) {
+            this._cleanupRoom = room;
+          }
+          throw new LiveKitClassroomMediaError(
+            "LiveKit room connection failed; media cleanup is still required"
+          );
         }
-        this._room = null;
-        this._roomId = null;
-        this._participantId = null;
+        if (this._room === room) {
+          this._room = null;
+          this._roomId = null;
+          this._participantId = null;
+        }
         if (error instanceof LiveKitClassroomMediaError) throw error;
         throw new LiveKitClassroomMediaError("LiveKit room connection failed");
       }
@@ -257,16 +270,22 @@
     }
 
     async disconnect() {
-      const room = this._room;
-      this._room = null;
-      this._roomId = null;
-      this._participantId = null;
-      if (room !== null) {
-        try {
-          await room.disconnect(true);
-        } catch (_error) {
-          throw new LiveKitClassroomMediaError("LiveKit room disconnect failed");
-        }
+      const room = this._room !== null ? this._room : this._cleanupRoom;
+      if (room === null) return this.snapshot();
+      try {
+        await room.disconnect(true);
+      } catch (_error) {
+        // Do not report a false disconnected state or lose the only cleanup
+        // handle when the provider cannot confirm teardown.
+        throw new LiveKitClassroomMediaError("LiveKit room disconnect failed");
+      }
+      if (this._room === room) {
+        this._room = null;
+        this._roomId = null;
+        this._participantId = null;
+      }
+      if (this._cleanupRoom === room) {
+        this._cleanupRoom = null;
       }
       return this.snapshot();
     }
@@ -347,6 +366,7 @@
       if (this._room === null) {
         return Object.freeze({
           connected: false,
+          cleanup_required: this._cleanupRoom !== null,
           room_id: null,
           participant_id: null,
           microphone_enabled: false,
@@ -357,6 +377,7 @@
       const local = this._room.localParticipant;
       return Object.freeze({
         connected: true,
+        cleanup_required: false,
         room_id: this._roomId,
         participant_id: this._participantId,
         microphone_enabled: Boolean(local.isMicrophoneEnabled),
