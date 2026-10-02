@@ -31,6 +31,7 @@ from .classroom_collaboration_storage import (
     ChatMessageStateUpdate,
     MAX_CHAT_TIMESTAMP_UNIX_MS,
 )
+from .classroom_domain import MAX_WIRE_INTEGER
 
 
 MAX_SERVER_HISTORY_MESSAGES = 500
@@ -82,7 +83,7 @@ def _identifier(value: object, label: str) -> str:
 def _nonnegative_sequence(value: object) -> int | None:
     if value is None:
         return None
-    if type(value) is not int or value < 0:
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
         raise ClassroomChatServerError("history sequence is invalid")
     return value
 
@@ -300,6 +301,10 @@ class ClassroomChatServerSQLiteStore:
                         (draft.room_id,),
                     ).fetchone()[0]
                 )
+                if sequence > MAX_WIRE_INTEGER:
+                    raise ClassroomChatServerError(
+                        "server message sequence exhausted"
+                    )
                 db.execute(
                     """
                     INSERT INTO classroom_chat_server_messages(
@@ -372,7 +377,8 @@ class ClassroomChatServerSQLiteStore:
     ) -> tuple[ChatMessageStateUpdate, ...]:
         room = _identifier(room_id, "room id")
         if after_revision is not None and (
-            type(after_revision) is not int or after_revision < 0
+            type(after_revision) is not int
+            or not 0 <= after_revision <= MAX_WIRE_INTEGER
         ):
             raise ClassroomChatServerError("state revision is invalid")
         bounded = _history_limit(limit)
@@ -479,6 +485,10 @@ class ClassroomChatServerSQLiteStore:
                                     (room,),
                                 ).fetchone()[0]
                             )
+                            if revision > MAX_WIRE_INTEGER:
+                                raise ClassroomChatServerError(
+                                    "server moderation revision exhausted"
+                                )
                             db.execute(
                                 """
                                 INSERT INTO classroom_chat_server_state_updates(
