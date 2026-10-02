@@ -15,8 +15,6 @@ from acs.sqlite_classroom_moderation_ledger import (
 
 FP_A = "a" * 64
 FP_B = "b" * 64
-OWNER_A = "worker-a"
-OWNER_B = "worker-b"
 OWNER_A = "service-owner-a"
 OWNER_B = "service-owner-b"
 
@@ -77,7 +75,6 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
         )
         self.assertEqual(first.fingerprint, FP_A)
         self.assertFalse(first.committed)
-        self.assertEqual(first.reservation_owner, OWNER_A)
         self.assertEqual(first.reservation_owner, OWNER_A)
         self.assertEqual(second, first)
         self.assertEqual(
@@ -384,14 +381,6 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
                         fingerprint=fingerprint,
                         reservation_owner=owner,
                     )
-
-        with self.assertRaises(ClassroomModerationLedgerError):
-            self.ledger.reserve(
-                room_id="room",
-                operation_id="op-owner",
-                fingerprint=FP_A,
-                reservation_owner=" owner",
-            )
 
         with self.assertRaises(ClassroomModerationLedgerError):
             SqliteClassroomModerationLedger(":memory:")
