@@ -278,11 +278,25 @@ class ChessClock:
                 code=ClockErrorCode.INVALID_COMMAND,
             )
         self._sync()
+        prior = (
+            self._remaining[side],
+            self._flagged,
+            self._state,
+            self._active,
+            self._last_tick,
+        )
         self._remaining[side] = milliseconds
         if self._state == ClockState.FLAGGED and self._flagged == side and milliseconds > 0:
             self._flagged = None
             self._state = ClockState.PAUSED if self._active is not None else ClockState.STOPPED
-        return self.snapshot()
+        try:
+            return self.snapshot()
+        except Exception:
+            # A failed administrative edit must not leak into persisted
+            # history. Keep time already charged by the initial _sync().
+            (self._remaining[side], self._flagged, self._state,
+             self._active, self._last_tick) = prior
+            raise
 
     def restore(self, snapshot: ClockSnapshot, *, resume_running: bool = False) -> ClockSnapshot:
         """Restore a validated historical clock snapshot without owning history.
