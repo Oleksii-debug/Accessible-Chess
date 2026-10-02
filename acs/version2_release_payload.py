@@ -79,6 +79,11 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_books_training.js",
     Path("web") / "full_product_teacher.js",
     Path("web") / "full_product_education.js",
+    Path("web") / "livekit_classroom_media.js",
+    Path("web") / "vendor" / "livekit" / "livekit-client.umd.js",
+    Path("web") / "vendor" / "livekit" / "LICENSE",
+    Path("web") / "vendor" / "livekit" / "NOTICE",
+    Path("web") / "vendor" / "livekit" / "provenance.json",
     Path("web") / "version2_final_product_bootstrap.js",
     Path("web") / "version2_release_bootstrap.js",
 )
