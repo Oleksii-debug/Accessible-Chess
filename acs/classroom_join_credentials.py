@@ -173,7 +173,7 @@ class ClassroomJoinCredentialService:
                 requested_participant_id=request.participant_id,
             )
         except Exception as error:
-            raise ClassroomJoinCredentialError("join request is not authorized") from error
+            raise ClassroomJoinCredentialError("join request is not authorized") from None
         if type(grant) is not ClassroomJoinGrant:
             raise ClassroomJoinCredentialError("join authorization returned invalid grant")
         if grant.room_id != request.room_id or grant.participant_id != request.participant_id:
@@ -188,7 +188,7 @@ class ClassroomJoinCredentialService:
                 expires_at=expires_at,
             )
         except Exception as error:
-            raise ClassroomJoinCredentialError("join token issuance failed") from error
+            raise ClassroomJoinCredentialError("join token issuance failed") from None
 
         try:
             credential = JoinCredential(
@@ -201,7 +201,7 @@ class ClassroomJoinCredentialService:
         except (ClassroomMediaError, TypeError, ValueError) as error:
             raise ClassroomJoinCredentialError(
                 "join token issuer returned invalid credential"
-            ) from error
+            ) from None
 
         response = json.dumps(
             {
