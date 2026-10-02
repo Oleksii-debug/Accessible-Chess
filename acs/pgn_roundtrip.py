@@ -315,6 +315,11 @@ def _preflight_text(
                     "PGN game contains too many tag pairs",
                     PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
                 )
+            if len(match.group(1)) > MAX_PGN_TOKEN_CHARS:
+                _raise_limit(
+                    "PGN tag name exceeds the lexical safety limit",
+                    PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                )
             if len(match.group(2)) > MAX_PGN_TAG_VALUE_CHARS:
                 _raise_limit(
                     "PGN tag value exceeds the field safety limit",
@@ -729,6 +734,11 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                 raise PgnRoundTripError(
                     "PGN tags contain an invalid Unicode scalar value",
                     code=PgnRoundTripErrorCode.INVALID_MODEL,
+                )
+            if len(key) > MAX_PGN_TOKEN_CHARS:
+                _raise_limit(
+                    "PGN tag name exceeds the lexical safety limit",
+                    PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
                 )
             if len(value) > MAX_PGN_TAG_VALUE_CHARS:
                 _raise_limit(
