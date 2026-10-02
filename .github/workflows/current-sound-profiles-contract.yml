@@ -42,6 +42,7 @@ on:
       - 'tests/test_sound_profile_runtime.py'
       - 'tests/test_sound_profile_store.py'
       - 'tests/test_sound_profile_windows.py'
+      - 'tests/test_sound_profile_windows_compatibility.py'
       - 'tests/test_sound_profile_workflow_contract.py'
       - 'tests/test_sound_profiles.py'
       - 'tests/test_sound_settings_application.py'
@@ -150,6 +151,7 @@ jobs:
               'tests/test_sound_profile_runtime.py' \
               'tests/test_sound_profile_store.py' \
               'tests/test_sound_profile_windows.py' \
+              'tests/test_sound_profile_windows_compatibility.py' \
               'tests/test_sound_profile_workflow_contract.py' \
               'tests/test_sound_profiles.py' \
               'tests/test_sound_settings_application.py' \
@@ -210,6 +212,7 @@ jobs:
           tests/test_classroom_sound.py
           tests/test_sound_settings_application.py
           tests/test_sound_profile_windows.py
+          tests/test_sound_profile_windows_compatibility.py
           tests/test_sound_profile_workflow_contract.py
           tests/test_version2_sound_profile_bridge.py
           tests/test_sound_settings_webview.py
@@ -242,6 +245,7 @@ jobs:
           tests.test_classroom_sound
           tests.test_sound_settings_application
           tests.test_sound_profile_windows
+          tests.test_sound_profile_windows_compatibility
           tests.test_sound_profile_workflow_contract
           tests.test_version2_sound_profile_bridge
           tests.test_sound_settings_webview
