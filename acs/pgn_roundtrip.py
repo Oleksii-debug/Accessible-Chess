@@ -20,6 +20,7 @@ import re
 from typing import Iterable
 
 from .gametree import (
+    CanonicalPgnGameFramer,
     Comment,
     GameTreeContractError,
     GameTreeErrorCode,
@@ -291,8 +292,19 @@ def _preflight_text(
     seen_movetext = False
     comment_until = 0
     line_start = 0
+    game_framer = CanonicalPgnGameFramer()
+    preflight_games = 0
 
     for line in normalized.split("\n"):
+        completed_frame = game_framer.feed_line(line)
+        if completed_frame is not None:
+            preflight_games += 1
+            if preflight_games > MAX_PGN_GAMES:
+                _raise_limit(
+                    "PGN contains too many games",
+                    PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+                )
+            source_budget.claim_games(1)
         line_end = line_start + len(line)
         starts_inside_comment = comment_until > line_start
 
@@ -403,6 +415,16 @@ def _preflight_text(
 
         flush_token()
         line_start = line_end + 1
+
+    completed_frame = game_framer.finish()
+    if completed_frame is not None:
+        preflight_games += 1
+        if preflight_games > MAX_PGN_GAMES:
+            _raise_limit(
+                "PGN contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+        source_budget.claim_games(1)
     return normalized
 
 
@@ -528,7 +550,6 @@ def parse_pgn_text(
             "PGN contains too many games",
             PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
         )
-    source_budget.claim_games(len(games))
     if strict and not games:
         raise PgnRoundTripError(
             "PGN contains no game",
