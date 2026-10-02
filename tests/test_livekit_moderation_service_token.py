@@ -17,6 +17,7 @@ from acs.livekit_moderation_service_token import (
     LiveKitModerationServiceTokenError,
     LiveKitModerationServiceTokenIssuer,
     MIN_MODERATION_SERVICE_TTL_SECONDS,
+    MODERATION_SERVICE_PARTICIPANT_IDENTITY,
 )
 
 
@@ -171,15 +172,19 @@ class LiveKitModerationServiceTokenTests(unittest.TestCase):
         self.assertEqual(api.grant.can_publish_sources, [])
         self.assertIsNone(api.grant.destination_room)
 
-    def test_room_and_service_identity_are_constructor_bound_not_issue_inputs(self):
-        issuer, api = self.issuer(
-            room_id="room-fixed",
-            identity="moderation-service-fixed",
-        )
+    def test_room_is_constructor_bound_and_service_identity_is_canonical(self):
+        issuer, api = self.issuer(room_id="room-fixed")
         issuer.issue_token()
         self.assertEqual(api.grant.room, "room-fixed")
-        self.assertEqual(api.identity, "moderation-service-fixed")
+        self.assertEqual(api.identity, MODERATION_SERVICE_PARTICIPANT_IDENTITY)
+        self.assertEqual(MODERATION_SERVICE_PARTICIPANT_IDENTITY, "moderation-service")
         self.assertEqual(issuer.issue_token.__code__.co_argcount, 1)
+
+        with self.assertRaisesRegex(
+            LiveKitModerationServiceTokenError,
+            "participant identity is not canonical",
+        ):
+            self.issuer(identity="moderation-service-other")
 
     def test_ttl_is_short_bounded_and_reduced_for_provider_clock_safety(self):
         issuer, api = self.issuer(ttl_seconds=MIN_MODERATION_SERVICE_TTL_SECONDS)
