@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import struct
 import sys
@@ -184,6 +185,84 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             self.assertEqual(first.calls[0][0], second.calls[0][0])
             self.assertTrue(Path(first.calls[0][0]).is_file())
             self.assertIn("classic-check-v25.wav", first.calls[0][0])
+
+    def test_scaled_cache_identity_follows_source_bytes_not_mtime(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-cache-bytes-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            source = root / "custom.wav"
+            _write_wav(source, (1000, -1000, 500, -500))
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="move",
+                sound_id="soft.move",
+                volume=50,
+                preview=True,
+            )
+            original_mtime = source.stat().st_mtime_ns
+
+            with mock.patch.object(store, "resolve_asset", return_value=source):
+                first = self._play(adapter, request)
+                first_cache = Path(first.calls[0][0])
+
+                _write_wav(source, (2000, -2000, 750, -750))
+                os.utime(source, ns=(original_mtime, original_mtime))
+                second = self._play(adapter, request)
+
+            second_cache = Path(second.calls[0][0])
+            self.assertNotEqual(first_cache, second_cache)
+            self.assertFalse(first_cache.exists())
+            self.assertTrue(second_cache.is_file())
+
+    def test_scaled_cache_repairs_corrupted_content_addressed_entry(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-cache-repair-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            source = root / "custom.wav"
+            _write_wav(source)
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="check",
+                sound_id="soft.check",
+                volume=40,
+                preview=True,
+            )
+
+            with mock.patch.object(store, "resolve_asset", return_value=source):
+                first = self._play(adapter, request)
+                cache_path = Path(first.calls[0][0])
+                expected = cache_path.read_bytes()
+                cache_path.write_bytes(expected[:-4])
+                second = self._play(adapter, request)
+
+            self.assertEqual(Path(second.calls[0][0]), cache_path)
+            self.assertEqual(cache_path.read_bytes(), expected)
+
+    def test_scaled_cache_publish_is_atomic_and_cleans_temporary_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-cache-atomic-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            source = root / "custom.wav"
+            _write_wav(source)
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="capture",
+                sound_id="soft.capture",
+                volume=50,
+                preview=True,
+            )
+
+            with mock.patch.object(store, "resolve_asset", return_value=source), mock.patch(
+                "acs.sound_profile_windows.os.replace",
+                side_effect=OSError("publish failed"),
+            ), mock.patch.object(sys, "platform", "win32"), self.assertRaisesRegex(
+                OSError, "publish failed"
+            ):
+                adapter.play_sound(request)
+
+            cache = root / "cache"
+            self.assertEqual(list(cache.glob("*.tmp")), [])
+            self.assertEqual(list(cache.glob("custom-*-v50-*.wav")), [])
 
     def test_non_windows_fails_before_resolving_or_playing(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-platform-") as raw:
