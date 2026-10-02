@@ -351,6 +351,16 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         with self.assertRaises(CollaborationError):
             controller.sync_chat()
 
+    def test_current_participant_query_tracks_canonical_roster(self):
+        controller = self.controller()
+        self.assertTrue(controller.is_current_participant("student-2"))
+
+        self.roster.roles.pop("student-2")
+
+        self.assertFalse(controller.is_current_participant("student-2"))
+        with self.assertRaises(CollaborationError):
+            controller.is_current_participant("bad id")
+
     def test_departed_sender_history_is_preserved_on_reconnect(self):
         controller = self.controller()
         historical = self.chat.send_message(
