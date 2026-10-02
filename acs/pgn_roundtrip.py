@@ -778,7 +778,10 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                     "PGN tag value exceeds the field safety limit",
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
-            _claim_model_chars(budget, len(key) + len(value) + 16)
+            escaped_value_chars = (
+                len(value) + value.count("\\") + value.count('"')
+            )
+            _claim_model_chars(budget, len(key) + escaped_value_chars + 16)
             _claim_model_tokens(token_count)
         _measure_line(
             game.line,
