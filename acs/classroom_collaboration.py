@@ -483,9 +483,17 @@ class ClassroomCollaborationController:
             or current.object_key != prepared.metadata.object_key
         ):
             raise CollaborationError("retry source no longer matches stored attachment identity")
+        if current.scan_state == "blocked":
+            raise CollaborationError("blocked attachment cannot be retried")
+        retry_scan_state = (
+            "pending"
+            if current.scan_state == "failed"
+            else current.scan_state
+        )
         uploading = self._store.update_attachment_state(
             current.attachment_id,
             transfer_state="uploading",
+            scan_state=retry_scan_state,
         )
         candidate = PreparedFile(prepared.local_path, uploading)
         try:
