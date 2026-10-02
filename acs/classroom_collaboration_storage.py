@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -156,6 +156,28 @@ class AttachmentMetadata:
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
             raise ValueError("sha256 must be a 64-character hexadecimal digest")
         object.__setattr__(self, "sha256", digest)
+
+
+@dataclass(frozen=True)
+class AttachmentStateUpdate:
+    room_id: str
+    attachment_id: str
+    revision: int
+    transfer_state: str
+    scan_state: str
+
+    def __post_init__(self) -> None:
+        _canonical_id(self.room_id, "room id")
+        _canonical_id(self.attachment_id, "attachment id")
+        if (
+            type(self.revision) is not int
+            or not 0 <= self.revision <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError("attachment state revision must be a bounded JSON-safe integer")
+        if self.transfer_state not in {"pending", "uploading", "stored", "failed", "deleted"}:
+            raise ValueError("unsupported transfer state")
+        if self.scan_state not in {"pending", "clean", "blocked", "failed", "not_required"}:
+            raise ValueError("unsupported scan state")
 
 
 @runtime_checkable
@@ -334,6 +356,19 @@ class ClassroomCollaborationSQLiteStore:
                 db.execute(
                     """
                     CREATE TABLE collaboration_chat_state_cursors(
+                        room_id TEXT PRIMARY KEY,
+                        revision INTEGER NOT NULL CHECK(revision >= 0)
+                    )
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=3 WHERE key='schema_version'"
+                )
+                version = 3
+            if version < 4:
+                db.execute(
+                    """
+                    CREATE TABLE collaboration_attachment_state_cursors(
                         room_id TEXT PRIMARY KEY,
                         revision INTEGER NOT NULL CHECK(revision >= 0)
                     )
@@ -552,6 +587,23 @@ class ClassroomCollaborationSQLiteStore:
                         "attachment identity reused with different payload"
                     )
                 return loaded
+            latest = db.execute(
+                """
+                SELECT MAX(sequence_no)
+                FROM collaboration_attachments
+                WHERE room_id=?
+                """,
+                (attachment.room_id,),
+            ).fetchone()[0]
+            expected_sequence = 0 if latest is None else int(latest) + 1
+            if attachment.sequence_no > expected_sequence:
+                raise CollaborationSequenceGapError(
+                    "attachment sequence has an unresolved gap"
+                )
+            if attachment.sequence_no < expected_sequence:
+                raise CollaborationConflictError(
+                    "attachment sequence is stale or conflicts with room ordering"
+                )
             if max_room_bytes is not None:
                 used = int(
                     db.execute(
@@ -590,6 +642,79 @@ class ClassroomCollaborationSQLiteStore:
                     "attachment conflicts with ordering or storage identity"
                 ) from exc
         return attachment
+
+    def attachment_state_revision(self, room_id: str) -> int | None:
+        _canonical_id(room_id, "room id")
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
+                (room_id,),
+            ).fetchone()
+        return None if row is None else int(row["revision"])
+
+    def apply_attachment_state_updates(
+        self,
+        *,
+        room_id: str,
+        updates: tuple[AttachmentStateUpdate, ...],
+    ) -> None:
+        _canonical_id(room_id, "room id")
+        if type(updates) is not tuple:
+            raise ValueError("attachment state updates must be a tuple")
+        if not updates:
+            return
+        if any(type(update) is not AttachmentStateUpdate for update in updates):
+            raise ValueError("attachment state update has invalid type")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
+                (room_id,),
+            ).fetchone()
+            previous = None if row is None else int(row["revision"])
+            try:
+                for update in updates:
+                    if update.room_id != room_id:
+                        raise CollaborationStorageError(
+                            "attachment state update crossed room boundary"
+                        )
+                    expected_revision = 0 if previous is None else previous + 1
+                    if update.revision != expected_revision:
+                        raise CollaborationStorageError(
+                            "attachment state updates have an unresolved revision gap"
+                        )
+                    row = db.execute(
+                        "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                        (update.attachment_id,),
+                    ).fetchone()
+                    if row is None or row["room_id"] != room_id:
+                        raise CollaborationStorageError(
+                            "attachment state update references unknown room attachment"
+                        )
+                    current = self._attachment_from_row(row)
+                    _validate_transfer_transition(current.transfer_state, update.transfer_state)
+                    _validate_scan_transition(current.scan_state, update.scan_state)
+                    db.execute(
+                        """
+                        UPDATE collaboration_attachments
+                        SET transfer_state=?, scan_state=?
+                        WHERE attachment_id=?
+                        """,
+                        (update.transfer_state, update.scan_state, update.attachment_id),
+                    )
+                    db.execute(
+                        """
+                        INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
+                        VALUES(?,?)
+                        ON CONFLICT(room_id) DO UPDATE SET revision=excluded.revision
+                        """,
+                        (room_id, update.revision),
+                    )
+                    previous = update.revision
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
 
     def update_attachment_state(
         self, attachment_id: str, *, transfer_state: str, scan_state: str | None = None
