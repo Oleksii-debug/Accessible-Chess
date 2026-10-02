@@ -250,7 +250,7 @@ function FindVariationButton($Roots,[int]$Index) {
 function ActivateVariationPrecondition($Roots,$Button,[int]$Index,$Shell,$Process) {
   if($null -eq $Button){throw "analysis variation $Index precondition is missing"}
   $name=([string]$Button.Current.Name).Trim()
-  $expected="^(Варіант|Variant)\\s+$Index\\."
+  $expected="^(Варіант|Variant)\s+$Index\."
   if([string]$Button.Current.ControlType.ProgrammaticName -ne 'ControlType.Button' -or
      $name -notmatch $expected){
     throw "analysis variation $Index precondition is not the named UIA Button"

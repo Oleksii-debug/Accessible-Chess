@@ -144,6 +144,8 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
     def test_variation_precondition_falls_back_only_to_real_native_enter_when_invoke_unsupported(self) -> None:
         self.assertIn("function ActivateVariationPrecondition($Roots,$Button,[int]$Index,$Shell,$Process)", self.text)
         self.assertIn("$name -notmatch $expected", self.text)
+        self.assertIn(r'$expected="^(Варіант|Variant)\\s+$Index\\."', self.text)
+        self.assertNotIn(r'(Варіант|Variant)\\\\s+', self.text)
         self.assertIn("if(-not [bool]$Button.Current.IsEnabled)", self.text)
         self.assertIn("$targetRuntime=RuntimeId $Button", self.text)
         self.assertIn("$Button.TryGetCurrentPattern(", self.text)
