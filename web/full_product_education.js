@@ -639,6 +639,14 @@
     const fileHeading = node("h3", files.heading || "");
     fileHeading.id = "collaboration-files-heading";
     fileSection.appendChild(fileHeading);
+    const syncFiles = node("button", files.sync_label || "Refresh files");
+    syncFiles.id = "collaboration-file-sync";
+    syncFiles.type = "button";
+    syncFiles.setAttribute("data-command", "collaboration.file.sync");
+    syncFiles.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.file.sync", {}, wrapper, announce, fallbackMessage);
+    });
+    fileSection.appendChild(syncFiles);
     const choose = node("button", files.choose_upload_label || "Choose and send file");
     choose.id = "collaboration-file-choose";
     choose.type = "button";
