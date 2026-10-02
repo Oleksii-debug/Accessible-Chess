@@ -29,6 +29,7 @@ DEFAULT_SOUND_VARIANTS_MANIFEST = "variants.json"
 SOUND_VARIANTS_SCHEMA_VERSION = 1
 REQUIRED_SOUND_EVENTS = tuple(SoundEvent)
 SCALED_SOUND_CACHE_FORMAT_VERSION = 1
+ASYNC_SOUND_EVENTS = frozenset({SoundEvent.START, SoundEvent.TICK})
 
 
 @dataclass(frozen=True)
@@ -249,13 +250,15 @@ class WindowsSoundPlaybackAdapter:
             playable = source if volume == 100 else self._scaled_copy(source, event, volume)
             import winsound
 
-            # PlaySound is synchronous unless SND_ASYNC is requested. Avoid
-            # SND_SYNC because Python only exposes that alias from 3.14 onward;
-            # the packaged Windows runtime still supports Python 3.12.
-            winsound.PlaySound(
-                str(playable),
-                winsound.SND_FILENAME | winsound.SND_NODEFAULT,
-            )
+            # Mechanical move/check/end cues remain synchronous so their
+            # deterministic semantic ordering is preserved.  The supplied
+            # NEWGAME and clock assets are intentionally multi-second sounds;
+            # accepting those asynchronously keeps the keyboard/UI responsive
+            # while Windows owns playback of the long cue.
+            flags = winsound.SND_FILENAME | winsound.SND_NODEFAULT
+            if event in ASYNC_SOUND_EVENTS:
+                flags |= winsound.SND_ASYNC
+            winsound.PlaySound(str(playable), flags)
         except Exception:
             self._logger.exception("chess sound playback failed for event=%s", event.value)
             raise
