@@ -171,7 +171,9 @@ class FileTransferPort(Protocol):
     attachment would exceed its server-configured room quota. Client-side quota
     checks are advisory safety only and must not be trusted as room authority.
     Retry of the same attachment must not double-count already reserved/stored
-    bytes.
+    bytes. attachment_id is also a server idempotency key: immutable identity
+    (room, sender, name, type, size, hash, object key and retention) must never
+    be replaced by a different payload under the same ID.
     """
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:

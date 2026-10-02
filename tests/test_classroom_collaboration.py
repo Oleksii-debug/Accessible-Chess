@@ -147,6 +147,28 @@ class FakeFiles:
             and item.attachment_id != excluding_attachment_id
         )
 
+    def _enforce_server_identity(self, prepared):
+        current = self.attachments.get(prepared.metadata.attachment_id)
+        if current is None:
+            return
+        immutable = (
+            "room_id",
+            "sender_id",
+            "display_name",
+            "mime_type",
+            "size_bytes",
+            "sha256",
+            "object_key",
+            "retention",
+        )
+        if any(
+            getattr(current, field) != getattr(prepared.metadata, field)
+            for field in immutable
+        ):
+            raise CollaborationError(
+                "server attachment identity conflict"
+            )
+
     def _enforce_server_room_quota(self, prepared):
         if self.server_max_room_bytes is None:
             return
@@ -184,6 +206,7 @@ class FakeFiles:
         self.upload_calls.append(prepared)
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
+        self._enforce_server_identity(prepared)
         self._enforce_server_room_quota(prepared)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
@@ -204,6 +227,7 @@ class FakeFiles:
         self.retry_calls.append(prepared)
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
+        self._enforce_server_identity(prepared)
         self._enforce_server_room_quota(prepared)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
@@ -1044,6 +1068,61 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             self.files._server_room_bytes("room-1"),
             4,
         )
+
+    def test_server_rejects_cross_client_attachment_id_identity_reuse(self):
+        first_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "identity-first.sqlite3")
+        )
+        first_client = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=first_store,
+            file_store=self.file_store,
+        )
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "identity-second.sqlite3")
+        )
+        second_client = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+
+        first = first_client.upload_file(
+            first_client.prepare_file(
+                attachment_id="shared-id",
+                local_path=self.make_file("first-identity.bin", b"first"),
+                sequence_no=0,
+            )
+        )
+        conflicting = second_client.prepare_file(
+            attachment_id="shared-id",
+            local_path=self.make_file("second-identity.bin", b"different"),
+            sequence_no=0,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server attachment identity conflict",
+        ):
+            second_client.upload_file(conflicting)
+
+        self.assertEqual(
+            self.files.attachments["shared-id"],
+            first,
+        )
+        self.assertEqual(
+            second_store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        self.assertNotEqual(first.sha256, conflicting.metadata.sha256)
 
     def test_file_content_change_after_prepare_fails_closed_before_transport(self):
         controller = self.controller()
