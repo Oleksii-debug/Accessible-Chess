@@ -82,15 +82,15 @@ jobs:
           tests/test_livekit_classroom_token_issuer.py
           tests/test_classroom_join_credentials.py
 
+      - name: Install exact reviewed LiveKit server SDK
+        run: python -m pip install --disable-pip-version-check --no-input livekit-api==1.2.1
+
       - name: Run provider, join and media authority regressions
         run: >-
           python -m unittest -v
           tests.test_livekit_classroom_token_issuer
           tests.test_classroom_join_credentials
           tests.test_classroom_realtime_media
-
-      - name: Install exact reviewed LiveKit server SDK
-        run: python -m pip install --disable-pip-version-check --no-input livekit-api==1.2.1
 
       - name: Prove reviewed LiveKit SDK grant surface
         shell: bash
