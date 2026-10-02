@@ -38,6 +38,7 @@ _REQUIRED_WEB = (
     "full_product_books_training.js",
     "full_product_teacher.js",
     "full_product_education.js",
+    "livekit_classroom_media.js",
     "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
 )
@@ -89,6 +90,39 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         for name in _REQUIRED_WEB:
             (web / name).write_text(f"// canonical fixture {name}\n", encoding="utf-8")
 
+        livekit = web / "vendor" / "livekit"
+        livekit.mkdir(parents=True)
+        livekit_bundle = b"/* fixture */ LivekitClient Room " + (b"x" * 120_000)
+        livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
+        livekit_notice = (
+            b"Copyright 2021 LiveKit, Inc.\n"
+            b"Apache License, Version 2.0\n"
+            b"fixture redistribution notice\n"
+            b"Distributed on an AS IS basis without warranties or conditions.\n"
+        )
+        (livekit / "livekit-client.umd.js").write_bytes(livekit_bundle)
+        (livekit / "LICENSE").write_bytes(livekit_license)
+        (livekit / "NOTICE").write_bytes(livekit_notice)
+        livekit_provenance = {
+            "schema_version": 1,
+            "component": "livekit-client",
+            "version": "2.22.3",
+            "license_id": "Apache-2.0",
+            "source": "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz",
+            "upstream_tag": "v2.22.3",
+            "npm_integrity": (
+                "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMg"
+                "ZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+            ),
+            "bundle_sha256": hashlib.sha256(livekit_bundle).hexdigest(),
+            "license_sha256": hashlib.sha256(livekit_license).hexdigest(),
+            "notice_sha256": hashlib.sha256(livekit_notice).hexdigest(),
+        }
+        livekit_provenance_bytes = (
+            json.dumps(livekit_provenance, sort_keys=True, indent=2) + "\n"
+        ).encode("utf-8")
+        (livekit / "provenance.json").write_bytes(livekit_provenance_bytes)
+
         sounds = product / "assets" / "sounds"
         sounds.mkdir(parents=True)
         sound_files: dict[str, str] = {}
@@ -127,6 +161,11 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             json.dumps(sound_provenance, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
+        (notices / "LiveKit-client-LICENSE.txt").write_bytes(livekit_license)
+        (notices / "LiveKit-client-NOTICE.txt").write_bytes(livekit_notice)
+        (notices / "LIVEKIT_CLIENT_PROVENANCE.json").write_bytes(
+            livekit_provenance_bytes
+        )
         with zipfile.ZipFile(
             notices / "Stockfish-18-source.zip",
             "w",
@@ -164,6 +203,19 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             )
             self.assertTrue(
                 (output / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json").is_file()
+            )
+            self.assertTrue(
+                (
+                    output
+                    / "AccessibleChess"
+                    / "web"
+                    / "vendor"
+                    / "livekit"
+                    / "livekit-client.umd.js"
+                ).is_file()
+            )
+            self.assertTrue(
+                (output / "THIRD_PARTY_NOTICES" / "LIVEKIT_CLIENT_PROVENANCE.json").is_file()
             )
             manifest = json.loads((output / MANIFEST_NAME).read_text(encoding="utf-8"))
             self.assertEqual(manifest["manifest_schema"], V2_PACKAGE_MANIFEST_SCHEMA_VERSION)
