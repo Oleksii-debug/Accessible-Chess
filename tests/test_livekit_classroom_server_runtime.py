@@ -217,7 +217,7 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         ):
             await runtime.__aenter__()
 
-    async def test_close_failure_is_sanitized_and_not_retried_implicitly(self):
+    async def test_close_failure_is_sanitized_and_retry_keeps_cleanup_authority(self):
         secret = "provider-close-secret"
         runtime = await self.open()
         client = FakeLiveKitClient.instances[-1]
@@ -229,12 +229,22 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         ) as caught:
             await runtime.aclose()
 
-        self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.closed)
         self.assertEqual(client.close_calls, 1)
         self.assertNotIn(secret, "".join(traceback.format_exception(caught.exception)))
         self.assertIsNone(caught.exception.__cause__)
+        self.assertIsNotNone(runtime.moderation_admin)
+
+        client.close_error = None
         await runtime.aclose()
-        self.assertEqual(client.close_calls, 1)
+
+        self.assertTrue(runtime.closed)
+        self.assertEqual(client.close_calls, 2)
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime is closed",
+        ):
+            _ = runtime.moderation_admin
 
     async def test_async_context_manager_closes_exactly_once(self):
         runtime = await self.open()
