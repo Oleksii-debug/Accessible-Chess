@@ -107,11 +107,44 @@ def _make_tree(root: Path) -> None:
         "full_product_books_training.js",
         "full_product_teacher.js",
         "full_product_education.js",
+        "livekit_classroom_media.js",
         "version2_final_product_bootstrap.js",
         "version2_release_bootstrap.js",
     )
     for name in web_files:
         (web / name).write_text(f"// fixture {name}\n", encoding="utf-8")
+
+    livekit = web / "vendor" / "livekit"
+    livekit.mkdir(parents=True)
+    livekit_bundle = b"/* fixture */ LivekitClient Room " + (b"x" * 120_000)
+    livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
+    livekit_notice = (
+        b"Copyright 2021 LiveKit, Inc.\n"
+        b"Apache License, Version 2.0\n"
+        b"fixture redistribution notice\n"
+    )
+    (livekit / "livekit-client.umd.js").write_bytes(livekit_bundle)
+    (livekit / "LICENSE").write_bytes(livekit_license)
+    (livekit / "NOTICE").write_bytes(livekit_notice)
+    livekit_provenance = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": "2.22.3",
+        "license_id": "Apache-2.0",
+        "source": "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz",
+        "upstream_tag": "v2.22.3",
+        "npm_integrity": (
+            "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMg"
+            "ZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+        ),
+        "bundle_sha256": hashlib.sha256(livekit_bundle).hexdigest(),
+        "license_sha256": hashlib.sha256(livekit_license).hexdigest(),
+        "notice_sha256": hashlib.sha256(livekit_notice).hexdigest(),
+    }
+    livekit_provenance_bytes = (
+        json.dumps(livekit_provenance, sort_keys=True, indent=2) + "\n"
+    ).encode("utf-8")
+    (livekit / "provenance.json").write_bytes(livekit_provenance_bytes)
 
     assets = product / "assets"
     assets.mkdir()
@@ -155,6 +188,11 @@ def _make_tree(root: Path) -> None:
     (notices / "SOUND_PROVENANCE.json").write_text(
         json.dumps(sound_provenance, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
+    )
+    (notices / "LiveKit-client-LICENSE.txt").write_bytes(livekit_license)
+    (notices / "LiveKit-client-NOTICE.txt").write_bytes(livekit_notice)
+    (notices / "LIVEKIT_CLIENT_PROVENANCE.json").write_bytes(
+        livekit_provenance_bytes
     )
     source_archive = notices / "Stockfish-18-source.zip"
     with zipfile.ZipFile(source_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -366,6 +404,11 @@ class Version2PackagePreflightTests(unittest.TestCase):
         required = (
             "full_product_teacher.js",
             "full_product_education.js",
+            "livekit_classroom_media.js",
+            "vendor/livekit/livekit-client.umd.js",
+            "vendor/livekit/LICENSE",
+            "vendor/livekit/NOTICE",
+            "vendor/livekit/provenance.json",
             "version2_final_product_bootstrap.js",
         )
         for missing in required:
@@ -379,6 +422,34 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     Version2PackagePreflightError, "web resource is missing"
                 ):
                     _validate_tree(root)
+
+    def test_livekit_bundle_digest_tamper_fails_independent_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            bundle = root / "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
+            bundle.write_bytes(bundle.read_bytes() + b"tampered")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "LiveKit client provenance digest mismatch",
+            ):
+                _validate_tree(root)
+
+    def test_livekit_central_notice_divergence_fails_independent_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            notice = root / "THIRD_PARTY_NOTICES/LiveKit-client-NOTICE.txt"
+            notice.write_bytes(notice.read_bytes() + b"tampered")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "central LiveKit NOTICE does not match",
+            ):
+                _validate_tree(root)
 
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:
