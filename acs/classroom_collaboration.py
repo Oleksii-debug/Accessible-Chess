@@ -32,6 +32,7 @@ from .classroom_realtime_media import ClassroomRole, ClassroomRosterPort
 
 MAX_CHAT_BODY_CHARS = 4000
 MAX_SYNC_MESSAGES = 10000
+MAX_SYNC_ATTACHMENTS = 10000
 MAX_DOWNLOAD_TOKEN_CHARS = 8192
 MAX_FILE_BYTES_DEFAULT = 100 * 1024 * 1024
 MAX_ROOM_BYTES_DEFAULT = 1024 * 1024 * 1024
@@ -162,15 +163,27 @@ class ChatTransportPort(Protocol):
 
 
 class FileTransferPort(Protocol):
-    """Realtime/provider upload boundary over opaque local bytes."""
+    """Server-authoritative file metadata plus opaque-byte transfer boundary."""
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
+        """Upload bytes and return authoritative metadata, including room sequence."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
         ...
 
     def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
+        """Retry bytes and return authoritative metadata for the same attachment."""
+        ...
+
+    def history_after(
+        self,
+        *,
+        room_id: str,
+        after_sequence: int | None,
+        limit: int,
+    ) -> tuple[AttachmentMetadata, ...]:
+        """Return stored room attachments ordered by authoritative sequence."""
         ...
 
 
@@ -510,11 +523,12 @@ class ClassroomCollaborationController:
                 transfer_state="failed",
             )
             raise
-        return self._store.update_attachment_state(
-            uploading.attachment_id,
-            transfer_state=result.transfer_state,
-            scan_state=result.scan_state,
-        )
+        try:
+            return self._store.adopt_authoritative_attachment(result)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "file transport authority could not be reconciled"
+            ) from error
 
     def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -550,11 +564,53 @@ class ClassroomCollaborationController:
                 transfer_state="failed",
             )
             raise
-        return self._store.update_attachment_state(
-            current.attachment_id,
-            transfer_state=result.transfer_state,
-            scan_state=result.scan_state,
+        try:
+            return self._store.adopt_authoritative_attachment(result)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "file transport authority could not be reconciled"
+            ) from error
+
+    def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
+        self._require_member(self.local_participant_id)
+        self._validate_remote_attachment(attachment)
+        try:
+            return self._store.register_attachment(attachment)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "remote attachment could not be reconciled"
+            ) from error
+
+    def sync_files(self) -> tuple[AttachmentMetadata, ...]:
+        self._require_member(self.local_participant_id)
+        authoritative = tuple(
+            item
+            for item in self._store.room_attachments(self.room_id)
+            if item.transfer_state == "stored"
         )
+        after = authoritative[-1].sequence_no if authoritative else None
+        incoming = self._files.history_after(
+            room_id=self.room_id,
+            after_sequence=after,
+            limit=MAX_SYNC_ATTACHMENTS,
+        )
+        if type(incoming) is not tuple or len(incoming) > MAX_SYNC_ATTACHMENTS:
+            raise CollaborationError("file history response is invalid or too large")
+        previous = after
+        persisted: list[AttachmentMetadata] = []
+        for attachment in incoming:
+            self._validate_remote_attachment(attachment)
+            if previous is not None and attachment.sequence_no <= previous:
+                raise CollaborationError("file history is not strictly ordered")
+            try:
+                saved = self._store.register_attachment(attachment)
+            except CollaborationStorageError as error:
+                raise CollaborationError(
+                    "remote attachment could not be reconciled"
+                ) from error
+            persisted.append(saved)
+            previous = attachment.sequence_no
+        return tuple(persisted)
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -669,7 +725,6 @@ class ClassroomCollaborationController:
             "attachment_id",
             "room_id",
             "sender_id",
-            "sequence_no",
             "display_name",
             "mime_type",
             "size_bytes",
@@ -681,6 +736,25 @@ class ClassroomCollaborationController:
             raise CollaborationError("file transport changed immutable attachment identity")
         if result.transfer_state not in {"stored", "failed"}:
             raise CollaborationError("file transport returned non-terminal upload state")
+
+    def _validate_remote_attachment(self, attachment: AttachmentMetadata) -> None:
+        if type(attachment) is not AttachmentMetadata:
+            raise CollaborationError("file history contains invalid attachment type")
+        if attachment.room_id != self.room_id:
+            raise CollaborationError("file history crossed room boundary")
+        self._require_member(attachment.sender_id)
+        canonical_key = (
+            f"rooms/{_storage_key_segment(self.room_id)}/"
+            f"{_storage_key_segment(attachment.attachment_id)}"
+        )
+        if attachment.object_key != canonical_key:
+            raise CollaborationError(
+                "file history crossed canonical attachment namespace"
+            )
+        if attachment.transfer_state != "stored":
+            raise CollaborationError(
+                "file history contains non-durable attachment state"
+            )
 
     def _validate_delivered_message(
         self,
