@@ -233,6 +233,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 b'[Result "*"]',
             )
 
+    def test_tag_field_limit_runs_before_game_framer_allocation(self):
+        source = '[Event "abcdef"]\n[Result "*"]\n\n1. e4 *'
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TAG_VALUE_CHARS", 5),
+            patch(
+                "acs.pgn_roundtrip.CanonicalPgnGameFramer.feed_line",
+                side_effect=AssertionError("framer must not receive oversized tag"),
+            ) as feed_line,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            feed_line.assert_not_called()
+
     def test_game_and_tag_count_bounds_are_independent(self):
         two_games = (
             '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
