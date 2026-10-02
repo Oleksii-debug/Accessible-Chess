@@ -20,8 +20,8 @@ permissions:
 env:
   CURRENT_PRODUCT_BASE: 25b6da6eb8bccea95628ecfce5ba81fece1a5666
   OWNER_HEAD: fix/p0g-match-counter-20260929
-  PROBE_BLOB: ef4101d5947df5639e823142d58f0ffbb063132c
-  TEST_BLOB: 2f864334d2e4783d2ccadb0b34a27e4cf4e7bbe3
+  PROBE_BLOB: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
+  TEST_BLOB: c5212dfa0c58d9d7a366a18dd89be8623bac01d0
 
 jobs:
   contract:

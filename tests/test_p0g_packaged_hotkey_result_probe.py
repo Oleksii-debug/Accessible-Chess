@@ -198,6 +198,26 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("alt_2_action_occurred=$true", self.text)
         self.assertIn("alt_2_accessible_result_exposed=$true", self.text)
 
+
+    def test_live_region_readback_scopes_raw_text_to_same_status_root(self) -> None:
+        self.assertIn("function SemanticTexts($Element)", self.text)
+        self.assertIn("TreeWalker]::RawViewWalker", self.text)
+        self.assertIn("$pending.Enqueue(@{element=$Element; depth=0})", self.text)
+        self.assertIn("$traversed -lt 32", self.text)
+        self.assertIn("if($node.depth -ge 3)", self.text)
+        self.assertIn("if($type -eq 'ControlType.Text')", self.text)
+        self.assertIn("$liveRuntime=RuntimeId $live", self.text)
+        self.assertIn("Accessible status live region identity changed before hotkey", self.text)
+        self.assertIn("Accessible status live region identity changed after hotkey", self.text)
+        self.assertIn("$priorLiveTexts=@(SemanticTexts $live)", self.text)
+        self.assertIn("$value -cnotin $priorLiveTexts", self.text)
+        self.assertIn('12000 "Alt+$index did not expose a matching live-region result"', self.text)
+        self.assertIn("P0G_LIVE_REGION_FAILURE", self.text)
+        self.assertIn("function BoundedTextUnits([string]$Value)", self.text)
+        self.assertIn("AssertCleanAnnouncement $text $index", self.text)
+        self.assertNotIn("SemanticText $engine-status", self.text)
+        self.assertNotIn("dispatch_action", self.text)
+
     def test_probe_is_bounded_and_does_not_claim_human_nvda_acceptance(self) -> None:
         self.assertIn("TimeoutSeconds = 60", self.text)
         self.assertIn("Provider-root traversal cap reached", self.text)

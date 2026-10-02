@@ -144,17 +144,60 @@ function EnsureEngineEnabled($EngineToggle) {
   throw "Unrecognized engine-toggle accessible state: '$name'"
 }
 
-function SemanticText($Element) {
-  if($null -eq $Element){return ''}
+function SemanticTexts($Element) {
+  # Read only the SAME live region and its connected RawView subtree.
+  # WebView2 may expose aria-live text through a Text child instead of
+  # the role=status parent's Name or TextPattern. No other region, DOM,
+  # button name or application API is an announcement oracle.
+  $items=New-Object 'System.Collections.Generic.List[string]'
+  if($null -eq $Element){return $items.ToArray()}
   try {
     $name=([string]$Element.Current.Name).Trim()
-    if($name){return $name}
+    if($name){[void]$items.Add($name)}
   } catch {}
   try {
-    $pattern=$Element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-    if($null -ne $pattern){return ([string]$pattern.DocumentRange.GetText(-1)).Trim()}
+    $pattern=$null
+    if($Element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$pattern) -and
+       $null -ne $pattern){
+      $body=([string]$pattern.DocumentRange.GetText(-1)).Trim()
+      if($body){[void]$items.Add($body)}
+    }
   } catch {}
-  return ''
+  $walker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+  $pending=New-Object System.Collections.Queue
+  $pending.Enqueue(@{element=$Element; depth=0})
+  $visited=New-Object 'System.Collections.Generic.HashSet[string]'
+  $traversed=0
+  while($pending.Count -gt 0 -and $traversed -lt 32){
+    $node=$pending.Dequeue()
+    if($node.depth -ge 3){continue}
+    $child=$null
+    try {$child=$walker.GetFirstChild($node.element)} catch {}
+    while($null -ne $child -and $traversed -lt 32){
+      $traversed++
+      $id=RuntimeId $child
+      if(-not $id -or $visited.Add($id)){
+        try {
+          $type=[string]$child.Current.ControlType.ProgrammaticName
+          if($type -eq 'ControlType.Text'){
+            $value=([string]$child.Current.Name).Trim()
+            if($value){[void]$items.Add($value)}
+          }
+        } catch {}
+        $pending.Enqueue(@{element=$child; depth=($node.depth+1)})
+      }
+      try {$child=$walker.GetNextSibling($child)} catch {$child=$null}
+    }
+  }
+  return $items.ToArray()
+}
+
+function BoundedTextUnits([string]$Value) {
+  $units=@()
+  for($i=0;$i -lt [Math]::Min($Value.Length,48);$i++){
+    $units+=('U+{0:X4}' -f [int][char]$Value[$i])
+  }
+  return ($units -join ',')
 }
 
 function WaitFor($Script,[int]$TimeoutMs,[string]$Failure) {
@@ -336,6 +379,8 @@ try {
   $live=FindById $elements 'live'
   if($null -eq $launcher){throw 'board-launcher missing from connected provider roots'}
   if($null -eq $live){throw 'Accessible status live region #live missing from connected provider roots'}
+  $liveRuntime=RuntimeId $live
+  if(-not $liveRuntime){throw 'Accessible status live region lacks stable UIA identity'}
 
   $shell=New-Object -ComObject WScript.Shell
   ActivateProduct $shell $process
@@ -373,15 +418,38 @@ try {
     ActivateProduct $shell $process
     AssertLauncherFocus $launcher
     AssertProductForeground $process
+    if((RuntimeId $live) -cne $liveRuntime -or
+       [string]$live.Current.AutomationId -cne 'live'){
+      throw 'Accessible status live region identity changed before hotkey'
+    }
+    $priorLiveTexts=@(SemanticTexts $live)
     [AccessibleChessP0GKeys]::Alt([byte]$case.key)
     $selected=WaitFor {
       SelectedVariation $roots $index
     } 5000 "Alt+$index did not change packaged selected state from variation $opposite to variation $index"
-    $text=WaitFor {
-      $value=SemanticText $live
-      if($value -and $value.ToLowerInvariant() -match "варіант\s+$index|variant\s+$index"){return $value}
-      return $null
-    } 5000 "Alt+$index did not expose a matching live-region result"
+    $observations=@{texts=@()}
+    try {
+      $text=WaitFor {
+        if((RuntimeId $live) -cne $liveRuntime -or
+           [string]$live.Current.AutomationId -cne 'live'){
+          throw 'Accessible status live region identity changed after hotkey'
+        }
+        $observations.texts=@(SemanticTexts $live)
+        foreach($value in $observations.texts){
+          if($value -and $value -cnotin $priorLiveTexts -and
+             $value.ToLowerInvariant() -match "варіант\s+$index|variant\s+$index"){
+            return $value
+          }
+        }
+        return $null
+      } 12000 "Alt+$index did not expose a matching live-region result"
+    } catch {
+      $snapshots=@($observations.texts | Select-Object -First 5 | ForEach-Object {
+        "len=$($_.Length) units=$(BoundedTextUnits ([string]$_))"
+      })
+      Write-Host ("P0G_LIVE_REGION_FAILURE index={0} same_runtime={1} observed_count={2} observed='{3}'" -f $index,((RuntimeId $live) -ceq $liveRuntime),$observations.texts.Count,($snapshots -join ';'))
+      throw
+    }
     AssertCleanAnnouncement $text $index
     $preconditionStates += $precondition
     $preconditionModes += $preconditionMode
