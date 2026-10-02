@@ -319,7 +319,13 @@ class Version2FinalProductApplication(Version2Application):
             )
             self.teacher = TeacherWebViewBridge(projection, language=language)
         if self.media is not None:
-            self.media.projection.set_language(language)
+            try:
+                self.media.projection.set_language(language)
+            except Exception:
+                # A stale/broken realtime label/provider seam must not abort the
+                # product-wide language switch. snapshot() will expose the media
+                # recovery state while core chess and Education remain usable.
+                pass
 
     def browser_command(
         self,
