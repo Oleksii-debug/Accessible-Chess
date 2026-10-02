@@ -19,7 +19,10 @@ from .classroom_collaboration import (
     ChatModerationCommand,
     ChatTransportPort,
 )
-from .classroom_collaboration_storage import ChatMessageMetadata
+from .classroom_collaboration_storage import (
+    ChatMessageMetadata,
+    ChatMessageStateUpdate,
+)
 
 
 RPC_VERSION = 1
@@ -136,6 +139,44 @@ class ClassroomChatRpcClient(ChatTransportPort):
         )
         return result
 
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        room = _opaque_id(room_id, "room id")
+        if room != self.room_id:
+            raise ClassroomChatRpcError("chat state crossed bound room")
+        after = _optional_revision(after_revision)
+        bounded_limit = _state_limit(limit)
+        response = self._call(
+            {
+                "v": RPC_VERSION,
+                "op": "state",
+                "room_id": self.room_id,
+                "participant_id": self.participant_id,
+                "after_revision": after,
+                "limit": bounded_limit,
+            }
+        )
+        _exact_keys(response, {"v", "ok", "updates"}, "state response")
+        _version_ok(response)
+        if response["ok"] is not True:
+            raise ClassroomChatRpcError("chat state sync failed")
+        raw = response["updates"]
+        if type(raw) is not list or len(raw) > bounded_limit:
+            raise ClassroomChatRpcError("chat state response is invalid")
+        result = tuple(_state_update_from_wire(item) for item in raw)
+        _validate_state_updates(
+            result,
+            room_id=self.room_id,
+            after_revision=after,
+            limit=bounded_limit,
+        )
+        return result
+
     def apply_moderation(self, commands: tuple[ChatModerationCommand, ...]) -> None:
         if type(commands) is not tuple or not commands:
             raise ClassroomChatRpcError("moderation batch must be a non-empty tuple")
@@ -205,6 +246,8 @@ class ClassroomChatRpcService:
             return self._handle_send(request, room=room, participant=participant)
         if op == "history":
             return self._handle_history(request, room=room, participant=participant)
+        if op == "state":
+            return self._handle_state(request, room=room, participant=participant)
         if op == "moderate":
             return self._handle_moderation(request, room=room, participant=participant)
         raise ClassroomChatRpcError("unsupported chat RPC operation")
@@ -284,6 +327,53 @@ class ClassroomChatRpcService:
             "v": RPC_VERSION,
             "ok": True,
             "messages": [_message_to_wire(item) for item in messages],
+        }
+
+    def _handle_state(
+        self,
+        request: dict[str, object],
+        *,
+        room: str,
+        participant: str,
+    ) -> dict[str, object]:
+        _exact_keys(
+            request,
+            {
+                "v",
+                "op",
+                "room_id",
+                "participant_id",
+                "after_revision",
+                "limit",
+            },
+            "state request",
+        )
+        _require_authenticated_identity(request, room=room, participant=participant)
+        after = _optional_revision(request["after_revision"])
+        limit = _state_limit(request["limit"])
+        self._authorize_history(room, participant)
+        try:
+            updates = self._backend.state_updates_after(
+                room_id=room,
+                after_revision=after,
+                limit=limit,
+            )
+        except Exception:
+            raise ClassroomChatRpcError("classroom chat backend failed") from None
+        if type(updates) is not tuple:
+            raise ClassroomChatRpcError(
+                "classroom chat backend returned invalid state history"
+            )
+        _validate_state_updates(
+            updates,
+            room_id=room,
+            after_revision=after,
+            limit=limit,
+        )
+        return {
+            "v": RPC_VERSION,
+            "ok": True,
+            "updates": [_state_update_to_wire(item) for item in updates],
         }
 
     def _handle_moderation(
@@ -459,6 +549,36 @@ def _message_from_wire(value: object) -> ChatMessageMetadata:
     return message
 
 
+def _state_update_to_wire(update: ChatMessageStateUpdate) -> dict[str, object]:
+    if type(update) is not ChatMessageStateUpdate:
+        raise ClassroomChatRpcError("chat state update is invalid")
+    return {
+        "room_id": update.room_id,
+        "message_id": update.message_id,
+        "revision": update.revision,
+        "hidden": update.hidden,
+    }
+
+
+def _state_update_from_wire(value: object) -> ChatMessageStateUpdate:
+    if type(value) is not dict:
+        raise ClassroomChatRpcError("chat state update must be an object")
+    _exact_keys(
+        value,
+        {"room_id", "message_id", "revision", "hidden"},
+        "chat state update",
+    )
+    try:
+        return ChatMessageStateUpdate(
+            room_id=value["room_id"],
+            message_id=value["message_id"],
+            revision=value["revision"],
+            hidden=value["hidden"],
+        )
+    except Exception:
+        raise ClassroomChatRpcError("chat state update is invalid") from None
+
+
 def _require_delivered_identity(
     draft: ChatDraft,
     message: ChatMessageMetadata,
@@ -497,6 +617,29 @@ def _validate_history(
             raise ClassroomChatRpcError("chat history contains duplicate message id")
         seen.add(message.message_id)
         previous = message.sequence_no
+
+
+def _validate_state_updates(
+    updates: tuple[ChatMessageStateUpdate, ...],
+    *,
+    room_id: str,
+    after_revision: int | None,
+    limit: int,
+) -> None:
+    if len(updates) > limit:
+        raise ClassroomChatRpcError("chat state history exceeds requested limit")
+    previous = after_revision
+    for update in updates:
+        if type(update) is not ChatMessageStateUpdate:
+            raise ClassroomChatRpcError("chat state history contains invalid update")
+        if update.room_id != room_id:
+            raise ClassroomChatRpcError("chat state history crossed room boundary")
+        expected = 0 if previous is None else previous + 1
+        if update.revision != expected:
+            raise ClassroomChatRpcError(
+                "chat state history has an unresolved revision gap"
+            )
+        previous = update.revision
 
 
 def _version_ok(value: Mapping[str, object]) -> None:
@@ -545,6 +688,22 @@ def _optional_sequence(value: object) -> int | None:
 def _history_limit(value: object) -> int:
     if type(value) is not int or not 1 <= value <= MAX_SYNC_MESSAGES:
         raise ClassroomChatRpcError("history limit is invalid")
+    return value
+
+
+def _optional_revision(value: object) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or value < 0:
+        raise ClassroomChatRpcError(
+            "after_revision must be null or non-negative integer"
+        )
+    return value
+
+
+def _state_limit(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= MAX_SYNC_MESSAGES:
+        raise ClassroomChatRpcError("state history limit is invalid")
     return value
 
 
