@@ -117,6 +117,21 @@ _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "n
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 _REQUIRED_WINFORMS_APPCONFIG = "AccessibleChess/AccessibleChess.exe.config"
+_LIVEKIT_CLIENT_VERSION = "2.22.3"
+_LIVEKIT_CLIENT_LICENSE_ID = "Apache-2.0"
+_LIVEKIT_CLIENT_SOURCE = (
+    "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz"
+)
+_LIVEKIT_CLIENT_INTEGRITY = (
+    "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMgZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+)
+_REQUIRED_LIVEKIT_BUNDLE = "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
+_REQUIRED_LIVEKIT_LICENSE = "AccessibleChess/web/vendor/livekit/LICENSE"
+_REQUIRED_LIVEKIT_NOTICE = "AccessibleChess/web/vendor/livekit/NOTICE"
+_REQUIRED_LIVEKIT_PROVENANCE = "AccessibleChess/web/vendor/livekit/provenance.json"
+_REQUIRED_LIVEKIT_LICENSE_NOTICE = "THIRD_PARTY_NOTICES/LiveKit-client-LICENSE.txt"
+_REQUIRED_LIVEKIT_TEXT_NOTICE = "THIRD_PARTY_NOTICES/LiveKit-client-NOTICE.txt"
+_REQUIRED_LIVEKIT_PROVENANCE_NOTICE = "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json"
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -126,6 +141,11 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_books_training.js",
     "AccessibleChess/web/full_product_teacher.js",
     "AccessibleChess/web/full_product_education.js",
+    "AccessibleChess/web/livekit_classroom_media.js",
+    _REQUIRED_LIVEKIT_BUNDLE,
+    _REQUIRED_LIVEKIT_LICENSE,
+    _REQUIRED_LIVEKIT_NOTICE,
+    _REQUIRED_LIVEKIT_PROVENANCE,
     "AccessibleChess/web/version2_final_product_bootstrap.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
 )
@@ -811,6 +831,123 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
 
 
+def _validate_livekit_client_package(
+    root: Path,
+    inventory: tuple[str, ...],
+) -> None:
+    bundle_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_BUNDLE,
+        label="packaged LiveKit browser SDK",
+        min_bytes=100_000,
+    )
+    license_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_LICENSE,
+        label="packaged LiveKit license",
+        min_bytes=5_000,
+    )
+    notice_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_NOTICE,
+        label="packaged LiveKit NOTICE",
+        min_bytes=100,
+    )
+    provenance_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_PROVENANCE,
+        label="packaged LiveKit provenance",
+    )
+    central_license = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_LICENSE_NOTICE,
+        label="central LiveKit license notice",
+        min_bytes=5_000,
+    )
+    central_notice = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_TEXT_NOTICE,
+        label="central LiveKit NOTICE",
+        min_bytes=100,
+    )
+    central_provenance = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_PROVENANCE_NOTICE,
+        label="central LiveKit provenance notice",
+    )
+
+    try:
+        bundle = bundle_path.read_bytes()
+        license_bytes = license_path.read_bytes()
+        notice_bytes = notice_path.read_bytes()
+        provenance_bytes = provenance_path.read_bytes()
+        if central_license.read_bytes() != license_bytes:
+            _fail("central LiveKit license does not match packaged SDK license")
+        if central_notice.read_bytes() != notice_bytes:
+            _fail("central LiveKit NOTICE does not match packaged SDK NOTICE")
+        if central_provenance.read_bytes() != provenance_bytes:
+            _fail("central LiveKit provenance does not match packaged SDK provenance")
+        provenance_text = provenance_bytes.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"LiveKit package evidence is unreadable: {type(exc).__name__}")
+
+    if b"LivekitClient" not in bundle or b"Room" not in bundle:
+        _fail("packaged LiveKit browser SDK markers are invalid")
+    if b"Apache License" not in license_bytes or b"Version 2.0" not in license_bytes:
+        _fail("packaged LiveKit license payload is invalid")
+    if b"LiveKit" not in notice_bytes or b"Apache License" not in notice_bytes:
+        _fail("packaged LiveKit NOTICE payload is invalid")
+
+    provenance = _json_no_duplicates(
+        provenance_text,
+        label="LiveKit client provenance",
+    )
+    required = {
+        "schema_version",
+        "component",
+        "version",
+        "license_id",
+        "source",
+        "upstream_tag",
+        "npm_integrity",
+        "bundle_sha256",
+        "license_sha256",
+        "notice_sha256",
+    }
+    if set(provenance) != required:
+        _fail("LiveKit client provenance contract is invalid")
+    expected = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": _LIVEKIT_CLIENT_VERSION,
+        "license_id": _LIVEKIT_CLIENT_LICENSE_ID,
+        "source": _LIVEKIT_CLIENT_SOURCE,
+        "upstream_tag": f"v{_LIVEKIT_CLIENT_VERSION}",
+        "npm_integrity": _LIVEKIT_CLIENT_INTEGRITY,
+    }
+    for name, value in expected.items():
+        if provenance.get(name) != value:
+            _fail(f"LiveKit client provenance {name} does not match pinned release")
+
+    for name, payload in (
+        ("bundle_sha256", bundle),
+        ("license_sha256", license_bytes),
+        ("notice_sha256", notice_bytes),
+    ):
+        digest = provenance.get(name)
+        if type(digest) is not str or _SHA256_RE.fullmatch(digest) is None:
+            _fail(f"LiveKit client provenance {name} is invalid")
+        if hashlib.sha256(payload).hexdigest() != digest:
+            _fail(f"LiveKit client provenance digest mismatch: {name}")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
@@ -830,6 +967,7 @@ def _validate_required_runtime_resources(
             relative,
             label="packaged Version 2 web resource",
         )
+    _validate_livekit_client_package(root, inventory)
 
     stockfish = _require_package_file(
         root,
