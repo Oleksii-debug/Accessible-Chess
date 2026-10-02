@@ -306,6 +306,8 @@ def test_removed_participant_state_stays_textual_and_no_chess_state_enters_proje
     updated = participant(event.payload["snapshot"], "Student Two")
     assert updated["removed"] is True
     assert updated["blocked"] is True
+    assert updated["actions"] == ()
+    assert event.payload["focus_target"] == updated["dom_id"]
     lowered = repr(event.payload["snapshot"]).lower()
     assert "fen" not in lowered
     assert "make_move" not in lowered
