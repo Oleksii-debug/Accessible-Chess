@@ -17,6 +17,16 @@ MAX_MIME_CHARS = 255
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._()\- ]+")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _OBJECT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_WINDOWS_RESERVED_BASENAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
+)
 
 
 class CollaborationStorageError(RuntimeError):
@@ -169,7 +179,11 @@ def safe_display_filename(value: str) -> str:
     clean = _SAFE_NAME_RE.sub("_", name).strip(" .")
     if not clean:
         raise ValueError("filename has no safe display characters")
-    return clean[:255]
+    bounded = clean[:255]
+    windows_stem = bounded.split(".", 1)[0].rstrip(" .").upper()
+    if windows_stem in _WINDOWS_RESERVED_BASENAMES:
+        raise ValueError("filename uses a reserved Windows device name")
+    return bounded
 
 
 def content_sha256(content: bytes) -> str:

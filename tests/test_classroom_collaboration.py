@@ -266,6 +266,47 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertNotIn("co-1", {item.target_id for item in commands})
         self.assertNotIn("observer-1", {item.target_id for item in commands})
 
+    def test_student_batch_operation_ids_are_stable_across_roster_order(self):
+        controller = self.controller("teacher-1")
+        self.roster.participant_ids = lambda: (
+            "teacher-1",
+            "student-2",
+            "observer-1",
+            "student-1",
+            "co-1",
+        )
+        controller.set_all_students_chat_send_permission(
+            actor_id="teacher-1",
+            allowed=False,
+            operation_id="lock-all",
+        )
+        first = {
+            command.target_id: command.operation_id
+            for command in self.chat.moderation_calls[-1]
+        }
+
+        self.roster.participant_ids = lambda: (
+            "student-1",
+            "co-1",
+            "teacher-1",
+            "observer-1",
+            "student-2",
+        )
+        controller.set_all_students_chat_send_permission(
+            actor_id="teacher-1",
+            allowed=False,
+            operation_id="lock-all",
+        )
+        second = {
+            command.target_id: command.operation_id
+            for command in self.chat.moderation_calls[-1]
+        }
+        self.assertEqual(first, second)
+        self.assertEqual(
+            first,
+            {"student-1": "lock-all:1", "student-2": "lock-all:2"},
+        )
+
     def test_student_and_co_teacher_cannot_moderate_teacher_roles(self):
         controller = self.controller("student-1")
         with self.assertRaises(CollaborationError):
@@ -308,6 +349,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             sequence_no=0,
             retention="persistent",
         )
+        self.assertIsInstance(prepared.local_path, Path)
+        self.assertEqual(prepared.local_path, path.resolve())
         self.assertEqual(prepared.metadata.display_name, "lesson.weirdformat")
         self.assertEqual(prepared.metadata.size_bytes, len(content))
         self.assertEqual(prepared.metadata.sha256, content_sha256(content))
@@ -404,17 +447,16 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             [("rooms/room-1/a1", "student-1", 120)],
         )
 
-    def test_unsafe_object_key_is_rejected_by_durable_metadata_boundary(self):
+    def test_unsafe_object_key_is_rejected_before_transport(self):
         controller = self.controller()
         path = self.make_file(content=b"x")
-        prepared = controller.prepare_file(
-            attachment_id="a1",
-            local_path=path,
-            sequence_no=0,
-            object_key="../outside/a1",
-        )
         with self.assertRaises(ValueError):
-            controller.upload_file(prepared)
+            controller.prepare_file(
+                attachment_id="a1",
+                local_path=path,
+                sequence_no=0,
+                object_key="../outside/a1",
+            )
         self.assertEqual(self.files.upload_calls, [])
 
     def test_non_member_cannot_construct_active_room_controller(self):
