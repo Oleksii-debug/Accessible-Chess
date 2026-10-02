@@ -219,6 +219,25 @@ class ClassroomJoinCredentialService:
         except Exception as error:
             raise ClassroomJoinCredentialError("join token issuance failed") from None
 
+        # Token minting can cross a network/provider boundary. Revalidate the
+        # canonical classroom authority before returning that token so a
+        # membership removal, participant rebind, or publish-permission change
+        # that occurred during mint cannot be delivered as a stale credential.
+        try:
+            current_grant = self._authorization.authorize_join(
+                room_id=request.room_id,
+                trusted_caller_identity=request.trusted_caller_identity,
+                requested_participant_id=request.participant_id,
+            )
+        except Exception:
+            raise ClassroomJoinCredentialError(
+                "join request is no longer authorized"
+            ) from None
+        if type(current_grant) is not ClassroomJoinGrant or current_grant != grant:
+            raise ClassroomJoinCredentialError(
+                "join authorization changed during token issuance"
+            )
+
         try:
             credential = JoinCredential(
                 room_id=grant.room_id,
