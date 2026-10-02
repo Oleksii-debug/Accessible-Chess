@@ -43,6 +43,10 @@ class CollaborationQuotaError(CollaborationStorageError):
     pass
 
 
+class CollaborationSequenceGapError(CollaborationStorageError):
+    pass
+
+
 @dataclass(frozen=True)
 class ChatMessageMetadata:
     message_id: str
@@ -344,6 +348,18 @@ class ClassroomCollaborationSQLiteStore:
                     ).fetchone()
                     loaded = self._message_from_row(existing)
                 return loaded
+            latest = db.execute(
+                """
+                SELECT MAX(sequence_no)
+                FROM collaboration_messages
+                WHERE room_id=?
+                """,
+                (message.room_id,),
+            ).fetchone()[0]
+            if latest is not None and message.sequence_no > int(latest) + 1:
+                raise CollaborationSequenceGapError(
+                    "message sequence has an unresolved gap"
+                )
             try:
                 db.execute(
                     """
