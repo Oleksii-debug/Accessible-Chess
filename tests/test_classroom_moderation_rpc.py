@@ -68,9 +68,15 @@ class FakeProviderAdmin:
         self.calls: list[tuple[str, object]] = []
         self.fail_once: set[str] = set()
         self.yield_before_apply = False
+        self.apply_started: asyncio.Event | None = None
+        self.apply_continue: asyncio.Event | None = None
 
     async def apply_moderation_command(self, *, room_id, command):
-        if self.yield_before_apply:
+        if self.apply_started is not None:
+            self.apply_started.set()
+        if self.apply_continue is not None:
+            await self.apply_continue.wait()
+        elif self.yield_before_apply:
             await asyncio.sleep(0)
         self.calls.append((room_id, command))
         if command.operation_id in self.fail_once:
@@ -81,10 +87,10 @@ class FakeProviderAdmin:
 class FakeLedger:
     def __init__(self) -> None:
         self.values: dict[tuple[str, str], str] = {}
-        self.reservations: dict[tuple[str, str], str] = {}
+        self.reservations: dict[tuple[str, str], tuple[str, str]] = {}
         self.read_calls: list[tuple[str, str]] = []
-        self.reserve_calls: list[tuple[str, str, str]] = []
-        self.commit_calls: list[tuple[str, str, str]] = []
+        self.reserve_calls: list[tuple[str, str, str, str]] = []
+        self.commit_calls: list[tuple[str, str, str, str]] = []
         self.fail_read = False
         self.fail_reserve_for: set[str] = set()
         self.fail_commit_for: set[str] = set()
@@ -100,14 +106,18 @@ class FakeLedger:
                 committed=True,
             )
         if key in self.reservations:
+            fingerprint, reservation_owner = self.reservations[key]
             return ModerationOperationState(
-                fingerprint=self.reservations[key],
+                fingerprint=fingerprint,
                 committed=False,
+                reservation_owner=reservation_owner,
             )
         return None
 
-    def reserve(self, *, room_id, operation_id, fingerprint):
-        self.reserve_calls.append((room_id, operation_id, fingerprint))
+    def reserve(self, *, room_id, operation_id, fingerprint, reservation_owner):
+        self.reserve_calls.append(
+            (room_id, operation_id, fingerprint, reservation_owner)
+        )
         if operation_id in self.fail_reserve_for:
             raise RuntimeError("sensitive ledger reservation detail")
         key = (room_id, operation_id)
@@ -118,15 +128,26 @@ class FakeLedger:
             )
         existing = self.reservations.get(key)
         if existing is None:
-            self.reservations[key] = fingerprint
-            existing = fingerprint
+            existing = (fingerprint, reservation_owner)
+            self.reservations[key] = existing
+        existing_fingerprint, existing_owner = existing
         return ModerationOperationState(
-            fingerprint=existing,
+            fingerprint=existing_fingerprint,
             committed=False,
+            reservation_owner=existing_owner,
         )
 
-    def commit(self, *, room_id, operation_id, fingerprint):
-        self.commit_calls.append((room_id, operation_id, fingerprint))
+    def commit(
+        self,
+        *,
+        room_id,
+        operation_id,
+        fingerprint,
+        reservation_owner,
+    ):
+        self.commit_calls.append(
+            (room_id, operation_id, fingerprint, reservation_owner)
+        )
         if operation_id in self.fail_commit_for:
             raise RuntimeError("sensitive ledger commit detail")
         key = (room_id, operation_id)
@@ -136,8 +157,8 @@ class FakeLedger:
                 raise RuntimeError("conflicting committed fingerprint")
             return
         reserved = self.reservations.get(key)
-        if reserved is None or reserved != fingerprint:
-            raise RuntimeError("commit does not match reservation")
+        if reserved != (fingerprint, reservation_owner):
+            raise RuntimeError("commit does not match owned reservation")
         del self.reservations[key]
         self.values[key] = fingerprint
 
@@ -370,6 +391,64 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
             ["op-race"],
         )
         self.assertEqual(len(self.ledger.commit_calls), 1)
+
+    async def test_cross_instance_exact_duplicate_has_one_provider_owner(self) -> None:
+        shared_ledger = FakeLedger()
+        first_authorization = FakeAuthorization()
+        second_authorization = FakeAuthorization()
+        first_provider = FakeProviderAdmin()
+        second_provider = FakeProviderAdmin()
+        first_provider.apply_started = asyncio.Event()
+        first_provider.apply_continue = asyncio.Event()
+        first_service = ClassroomModerationRpcService(
+            authorization=first_authorization,
+            provider_admin=first_provider,
+            ledger=shared_ledger,
+        )
+        second_service = ClassroomModerationRpcService(
+            authorization=second_authorization,
+            provider_admin=second_provider,
+            ledger=shared_ledger,
+        )
+        wire = payload(operation("op-cross-exact", source="camera", value=False))
+
+        first_task = asyncio.create_task(
+            first_service.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+        )
+        await first_provider.apply_started.wait()
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "pending in another service participant",
+        ):
+            await second_service.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+
+        self.assertEqual(second_authorization.calls, [])
+        self.assertEqual(second_provider.calls, [])
+        self.assertIn((ROOM, "op-cross-exact"), shared_ledger.reservations)
+
+        first_provider.apply_continue.set()
+        response = await first_task
+
+        self.assertEqual(
+            json.loads(response)["accepted_operation_ids"],
+            ["op-cross-exact"],
+        )
+        self.assertEqual(
+            [command.operation_id for _, command in first_provider.calls],
+            ["op-cross-exact"],
+        )
+        self.assertEqual(second_provider.calls, [])
+        self.assertNotIn((ROOM, "op-cross-exact"), shared_ledger.reservations)
+        self.assertIn((ROOM, "op-cross-exact"), shared_ledger.values)
 
     async def test_cross_instance_conflicting_semantics_fail_before_second_provider_effect(self) -> None:
         shared_ledger = FakeLedger()
