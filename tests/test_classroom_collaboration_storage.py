@@ -100,6 +100,60 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.assertIn("collaboration_chat_state_cursors", cursor_tables)
             self.assertIn("collaboration_attachment_state_cursors", cursor_tables)
 
+    def test_v3_schema_upgrades_attachment_state_cursor_without_rebuilding_data(self) -> None:
+        message = ChatMessageMetadata(
+            "v3-message",
+            "room",
+            "teacher",
+            0,
+            "Keep me",
+            sent_at_unix_ms=1700000000000,
+        )
+        attachment = AttachmentMetadata(
+            "v3-attachment",
+            "room",
+            "teacher",
+            0,
+            "keep.bin",
+            None,
+            1,
+            "9" * 64,
+            "rooms/room/v3-attachment",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.store.append_message(message)
+        self.store.register_attachment(attachment)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute("DROP TABLE collaboration_attachment_state_cursors")
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=3 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+        self.assertEqual(reopened.room_messages("room"), (message,))
+        self.assertEqual(reopened.room_attachments("room"), (attachment,))
+        self.assertIsNone(reopened.attachment_state_revision("room"))
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT value FROM collaboration_schema_meta "
+                    "WHERE key='schema_version'"
+                ).fetchone()[0],
+                4,
+            )
+            tables = {
+                row[0]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        self.assertIn("collaboration_chat_state_cursors", tables)
+        self.assertIn("collaboration_attachment_state_cursors", tables)
+
     def test_attachment_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         record = AttachmentMetadata(
             "a-state",
