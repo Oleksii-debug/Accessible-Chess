@@ -482,6 +482,108 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertLessEqual(len(safe.encode("utf-16-le")) // 2, 255)
         self.assertEqual(safe, "😀" * 127)
 
+    def test_authoritative_attachment_adoption_replaces_provisional_sequence(self) -> None:
+        provisional = AttachmentMetadata(
+            "a-authority",
+            "room",
+            "teacher",
+            73,
+            "file.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/a-authority",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        adopted = self.store.adopt_authoritative_attachment(authoritative)
+
+        self.assertEqual(adopted, authoritative)
+        self.assertEqual(self.store.room_attachments("room"), (authoritative,))
+        self.assertEqual(
+            self.store.adopt_authoritative_attachment(authoritative),
+            authoritative,
+        )
+
+    def test_authoritative_attachment_sequence_conflict_is_atomic(self) -> None:
+        occupied = AttachmentMetadata(
+            "occupied",
+            "room",
+            "teacher",
+            0,
+            "occupied.bin",
+            None,
+            1,
+            "0" * 64,
+            "rooms/room/occupied",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        provisional = AttachmentMetadata(
+            "a-authority",
+            "room",
+            "teacher",
+            73,
+            "file.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/a-authority",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(occupied)
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.adopt_authoritative_attachment(authoritative)
+
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (occupied, uploading),
+        )
+
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(
             "a1", "room", "teacher", 0, "file.bin", None, 1,
