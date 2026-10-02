@@ -107,8 +107,10 @@ jobs:
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
             actual_stage1_core_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-            if [ "${{ github.event.pull_request.head.ref }}" != "integration/clock-engine-serial-intake-20261002" ] \
-               || [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
+            # The exact successor is now part of canonical Product. Its
+            # authority is its reviewed blob identity, not the historical
+            # integration branch name that introduced it.
+            if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
               echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
               exit 1
             fi
