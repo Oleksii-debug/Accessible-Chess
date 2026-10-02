@@ -265,6 +265,71 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertNotIn("timestamp_text", message)
         self.assertNotIn("timestamp_datetime", message)
 
+    def test_file_history_is_bounded_pageable_and_keeps_semantic_order(self) -> None:
+        for sequence in range(105):
+            self.store.register_attachment(
+                AttachmentMetadata(
+                    f"history-file-{sequence}",
+                    "room-1",
+                    "student-2",
+                    sequence,
+                    f"file-{sequence}.pgn",
+                    "application/x-chess-pgn",
+                    1,
+                    "0" * 64,
+                    f"rooms/room-1/history-file-{sequence}",
+                    "stored",
+                    scan_state="clean",
+                )
+            )
+        view = self.webview()
+
+        latest = view.snapshot()["files"]
+        self.assertEqual(5, len(latest["items"]))
+        self.assertEqual("file-100.pgn", latest["items"][0]["name"])
+        self.assertEqual("file-104.pgn", latest["items"][-1]["name"])
+        self.assertEqual("File history page 3 of 3", latest["page_label"])
+        self.assertTrue(latest["can_older"])
+        self.assertFalse(latest["can_newer"])
+
+        beyond_latest = view.dispatch("collaboration.file.newer", {})
+        self.assertEqual("error", beyond_latest.kind)
+
+        middle_event = view.dispatch("collaboration.file.older", {})
+        middle = middle_event.payload["collaboration"]["files"]
+        self.assertEqual("collaboration.file.page", middle_event.kind)
+        self.assertEqual("collaboration-file-older", middle_event.payload["focus_target"])
+        self.assertEqual(50, len(middle["items"]))
+        self.assertEqual("file-50.pgn", middle["items"][0]["name"])
+        self.assertEqual("file-99.pgn", middle["items"][-1]["name"])
+
+        self.store.register_attachment(
+            AttachmentMetadata(
+                "history-file-105",
+                "room-1",
+                "student-2",
+                105,
+                "file-105.pgn",
+                "application/x-chess-pgn",
+                1,
+                "0" * 64,
+                "rooms/room-1/history-file-105",
+                "stored",
+                scan_state="clean",
+            )
+        )
+        stable_middle = view.snapshot()["files"]
+        self.assertEqual("file-50.pgn", stable_middle["items"][0]["name"])
+        self.assertEqual("file-99.pgn", stable_middle["items"][-1]["name"])
+
+        oldest_event = view.dispatch("collaboration.file.older", {})
+        oldest = oldest_event.payload["collaboration"]["files"]
+        self.assertEqual("collaboration-file-newer", oldest_event.payload["focus_target"])
+        self.assertEqual("file-0.pgn", oldest["items"][0]["name"])
+        self.assertEqual("file-49.pgn", oldest["items"][-1]["name"])
+        self.assertFalse(oldest["can_older"])
+        self.assertTrue(oldest["can_newer"])
+
     def test_file_sync_surfaces_new_remote_file_once_without_focus_request(self) -> None:
         remote = AttachmentMetadata(
             "remote-clean-file",
