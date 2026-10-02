@@ -103,6 +103,25 @@ function trainingSnapshot() {
       hints_used: 0,
       completed: false
     },
+    mastery: {
+      heading: "Mastery",
+      available: true,
+      status: "",
+      mode_label: "Mode",
+      mode: "Adult",
+      level_label: "Level",
+      level: 2,
+      points_label: "Mastery points",
+      points: 630,
+      streak_label: "Current practice-day streak",
+      streak: 3,
+      best_streak_label: "Best practice-day streak",
+      best_streak: 5,
+      completed_label: "Completed exercises",
+      completed: 4,
+      achievements_label: "Achievements",
+      achievements: ["First completed exercise", "<img onerror=bad()>"]
+    },
     message: "",
     answer: { label: "Your move", max_length: 128, submit_label: "Check", disabled: false },
     actions: [
@@ -197,6 +216,10 @@ async function run() {
   const firstAnswer = trainingRoot.querySelector("#training-answer");
   check(firstAnswer !== null, "training answer input missing");
   check(document.activeElement === firstAnswer, "initial training focus missing");
+  check(find(trainingRoot, "H3", "Mastery") !== null, "semantic mastery heading missing");
+  check(find(trainingRoot, "DT", "Mastery points") !== null, "mastery points label missing");
+  check(find(trainingRoot, "DD", "630") !== null, "mastery points value missing");
+  check(find(trainingRoot, "LI", "<img onerror=bad()>") !== null, "mastery achievement must remain literal text");
   firstAnswer.value = "d4";
   const firstForm = find(trainingRoot, "FORM");
   firstForm.listeners.submit({ preventDefault: () => {} });

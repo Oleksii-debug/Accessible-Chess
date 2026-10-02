@@ -101,6 +101,7 @@ class TrainingWebViewProjection:
         *,
         language: UILanguage = UILanguage.UA,
         can_continue: Callable[[], bool] | None = None,
+        mastery_snapshot: Callable[[], Mapping[str, object] | None] | None = None,
     ) -> None:
         if not isinstance(presenter, TrainingPresenter):
             raise TypeError("presenter must be TrainingPresenter")
@@ -108,9 +109,12 @@ class TrainingWebViewProjection:
             raise TypeError("language must be UILanguage")
         if can_continue is not None and not callable(can_continue):
             raise TypeError("can_continue must be callable or None")
+        if mastery_snapshot is not None and not callable(mastery_snapshot):
+            raise TypeError("mastery_snapshot must be callable or None")
         self._presenter = presenter
         self._language = language
         self._can_continue = can_continue
+        self._mastery_snapshot = mastery_snapshot
         self._presenter.set_language(language)
 
     @property
@@ -159,7 +163,7 @@ class TrainingWebViewProjection:
         message = _safe_text(view.message, language=self._language, limit=1200)
         if view.completed and not message:
             message = labels["completed"]
-        return {
+        snapshot: dict[str, object] = {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
             "title": title,
@@ -205,6 +209,15 @@ class TrainingWebViewProjection:
             # Passive snapshot intentionally excludes definition.start_fen,
             # accepted_moves, source_id, metadata and persistence snapshot data.
         }
+        if self._mastery_snapshot is not None:
+            mastery = self._mastery_snapshot()
+            if mastery is not None:
+                if not isinstance(mastery, Mapping):
+                    raise TypeError("mastery snapshot callback must return a mapping or None")
+                if len(mastery) > 24 or any(type(key) is not str for key in mastery):
+                    raise ValueError("mastery presentation snapshot is invalid")
+                snapshot["mastery"] = dict(mastery)
+        return snapshot
 
     def snapshot(self) -> dict[str, object]:
         return self._snapshot_from_view(self._presenter.view())
