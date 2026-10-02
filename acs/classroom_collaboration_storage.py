@@ -270,8 +270,50 @@ class ClassroomCollaborationSQLiteStore:
             ).fetchone()
             if existing is not None:
                 loaded = self._message_from_row(existing)
-                if loaded != message:
-                    raise CollaborationConflictError("message identity reused with different payload")
+                immutable_fields = (
+                    "message_id",
+                    "room_id",
+                    "sender_id",
+                    "sequence_no",
+                    "body",
+                    "retention",
+                )
+                if any(
+                    getattr(loaded, field) != getattr(message, field)
+                    for field in immutable_fields
+                ):
+                    raise CollaborationConflictError(
+                        "message identity reused with different payload"
+                    )
+                if (
+                    loaded.sent_at_unix_ms is not None
+                    and message.sent_at_unix_ms is not None
+                    and loaded.sent_at_unix_ms != message.sent_at_unix_ms
+                ):
+                    raise CollaborationConflictError(
+                        "message identity reused with different authoritative timestamp"
+                    )
+
+                hidden = loaded.hidden or message.hidden
+                sent_at = (
+                    loaded.sent_at_unix_ms
+                    if loaded.sent_at_unix_ms is not None
+                    else message.sent_at_unix_ms
+                )
+                if hidden != loaded.hidden or sent_at != loaded.sent_at_unix_ms:
+                    db.execute(
+                        """
+                        UPDATE collaboration_messages
+                        SET hidden=?, sent_at_unix_ms=?
+                        WHERE message_id=?
+                        """,
+                        (int(hidden), sent_at, loaded.message_id),
+                    )
+                    existing = db.execute(
+                        "SELECT * FROM collaboration_messages WHERE message_id=?",
+                        (loaded.message_id,),
+                    ).fetchone()
+                    loaded = self._message_from_row(existing)
                 return loaded
             try:
                 db.execute(
