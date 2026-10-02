@@ -11,6 +11,9 @@ import unittest
 
 from acs.classroom_join_credentials import ClassroomJoinGrant
 from acs.classroom_realtime_media import MAX_JOIN_TTL_SECONDS, MediaSource
+from acs.livekit_classroom_identities import (
+    MODERATION_SERVICE_PARTICIPANT_IDENTITY,
+)
 from acs.livekit_join_token_issuer import (
     LIVEKIT_API_VERSION,
     LiveKitJoinTokenIssuer,
@@ -146,6 +149,24 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         self.assertTrue(api.grant.can_subscribe)
         self.assertTrue(api.grant.can_publish_data)
         self.assertEqual(api.grant.can_publish_sources, ["microphone"])
+
+    def test_reserved_moderation_service_identity_cannot_receive_member_token(self):
+        issuer, api = self.issuer()
+        reserved = ClassroomJoinGrant(
+            room_id="room-1",
+            participant_id=MODERATION_SERVICE_PARTICIPANT_IDENTITY,
+            publish_sources=(MediaSource.MICROPHONE,),
+        )
+
+        with self.assertRaisesRegex(
+            LiveKitJoinTokenIssuerError,
+            "^LiveKit join grant participant identity is reserved$",
+        ):
+            self.issue(issuer, reserved)
+
+        self.assertIsNone(api.access_credentials)
+        self.assertIsNone(api.identity)
+        self.assertIsNone(api.grant)
 
     def test_every_privileged_provider_grant_is_explicitly_disabled(self):
         issuer, api = self.issuer()
