@@ -219,6 +219,11 @@ def resolve_book_game(
             "book game snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    # BookDocument deliberately accepts str subclasses at its semantic boundary.
+    # The canonical PGN ingress deliberately accepts exact built-in text only.
+    # Normalize only after BookDocument has validated the snapshot so this
+    # adapter preserves both contracts instead of weakening either authority.
+    pgn = str(pgn)
     selected = _source(source)
     has_embedded = bool(pgn.strip())
     has_reference = game_id is not None
@@ -273,12 +278,14 @@ def resolve_book_game(
 
 def _canonical_root_fen(value: object) -> tuple[str, str, bool]:
     """Return preserved/canonical FEN plus whether counters were authored."""
-    if type(value) is not str or not value.strip():
+    if not isinstance(value, str) or not value.strip():
         raise BookGameContentError(
             "book variation root position is invalid",
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
         )
-    preserved = value.strip()
+    # Match the BookDocument text contract, then cross the stricter canonical
+    # Board/PGN boundary with exact built-in text.
+    preserved = str(value).strip()
     fields = preserved.split()
     if len(fields) not in {4, 6}:
         raise BookGameContentError(
@@ -337,6 +344,8 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
             "book variation snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    snapshot_root = str(snapshot_root)
+    pgn = str(pgn)
     if snapshot_root != preserved_root_fen:
         raise BookGameContentError(
             "book variation changed while its canonical snapshot was captured",
