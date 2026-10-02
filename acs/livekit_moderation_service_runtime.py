@@ -115,7 +115,7 @@ class LiveKitModerationServiceRuntime:
             "LiveKitModerationServiceRuntime("
             f"sdk_version={LIVEKIT_RTC_VERSION!r}, state={state!r}, "
             "provider_url=<redacted>, room=<redacted>, "
-            "participant=<redacted>, token=<not-stored>)"
+            "participant=<redacted>, token=<redacted>)"
         )
 
     @property
