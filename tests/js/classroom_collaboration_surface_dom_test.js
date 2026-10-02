@@ -14,6 +14,7 @@ class FakeElement {
     this.value = "";
     this.textContent = "";
     this.disabled = false;
+    this.readOnly = false;
     this.tabIndex = 0;
     this.selectionStart = 0;
     this.selectionEnd = 0;
@@ -244,23 +245,38 @@ check(
 
 const throwingRoot = new FakeElement("div");
 const bridgeFailureAnnouncements = [];
+let bridgeInvokeCount = 0;
 window.AccessibleChessEducationSurface.render(
   throwingRoot,
   snapshot,
-  () => { throw new Error("host bridge failed synchronously"); },
+  () => {
+    bridgeInvokeCount += 1;
+    throw new Error("host bridge failed synchronously");
+  },
   (message) => bridgeFailureAnnouncements.push(message),
   "",
   "Action failed"
 );
+const throwingForm = throwingRoot.querySelector("#collaboration-chat-form");
+const throwingInput = throwingRoot.querySelector("#collaboration-chat-input");
+const throwingSend = throwingRoot.querySelector("#collaboration-chat-send");
+throwingInput.value = "Keep this draft";
 let synchronousBridgeFailureEscaped = false;
 try {
-  throwingRoot.querySelector("#collaboration-chat-sync").listeners.click();
+  throwingForm.listeners.submit({ preventDefault() {} });
+  throwingForm.listeners.submit({ preventDefault() {} });
 } catch (_error) {
   synchronousBridgeFailureEscaped = true;
 }
 check(
   !synchronousBridgeFailureEscaped,
   "synchronous host bridge failures must be contained by the async command boundary"
+);
+check(
+  throwingInput.readOnly &&
+  throwingSend.disabled &&
+  throwingForm.getAttribute("aria-busy") === "true",
+  "pending chat send must be single-flight and expose bounded busy state"
 );
 
 input.value = "Prepared reply";
@@ -590,6 +606,17 @@ Promise.resolve()
     check(
       bridgeFailureAnnouncements.includes("Action failed"),
       "contained synchronous host bridge failures must reach the fallback announcement"
+    );
+    check(
+      bridgeInvokeCount === 1,
+      "pending send must suppress duplicate submissions before the host result"
+    );
+    check(
+      !throwingInput.readOnly &&
+      !throwingSend.disabled &&
+      throwingForm.getAttribute("aria-busy") === "false" &&
+      throwingInput.value === "Keep this draft",
+      "bridge rejection must re-enable chat without discarding the draft"
     );
     console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
   })
