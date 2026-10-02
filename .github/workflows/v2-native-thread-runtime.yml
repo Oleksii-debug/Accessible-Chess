@@ -1,0 +1,51 @@
+name: V2 Native UI Thread Runtime
+
+on:
+  push:
+    branches: [codex/v2-runtime-completion-20260907]
+    paths:
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'tests/test_version2_api_thread_dispatch.py'
+      - 'scripts/v2_native_thread_oracle.py'
+      - '.github/workflows/v2-native-thread-runtime.yml'
+  pull_request:
+    branches: [codex/v2-runtime-completion-20260907]
+    paths:
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'tests/test_version2_api_thread_dispatch.py'
+      - 'scripts/v2_native_thread_oracle.py'
+      - '.github/workflows/v2-native-thread-runtime.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-native-thread-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-windows-host:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Preserve exact source bytes
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned runtime and verification dependencies
+        run: python -m pip install pytest==8.4.2 pywebview==6.2.1 zstandard==0.23.0
+      - name: Canonical state across native and browser worker threads
+        run: python -m pytest -q tests/test_version2_api_thread_dispatch.py tests/test_w3_windows_file_action_ui_thread_affinity.py tests/test_version2_release_ui.py tests/test_version2_release_app.py tests/test_version2_shutdown.py
+      - name: Real WebView2 source runtime and UI-thread SQLite journey
+        timeout-minutes: 3
+        run: python -m scripts.v2_native_thread_oracle

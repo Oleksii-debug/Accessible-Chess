@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-08-28",
+  "scope": "legacy-cbf-cbi-evidence-only",
+  "authority_note": "This file is not a competing whole-ChessBase capability matrix. CBH/CBV capability authority remains with the Version 2 formats integrator and independent audit. This file records only the CBF/CBI evidence lane.",
+  "upstream_product": {
+    "repository": "Oleksii-debug/Accessible-Chess",
+    "pr": 295,
+    "sha": "b18ac89bb7f1ef3d4106517fe3521179ab4522a1"
+  },
+  "status_vocabulary": [
+    "SUPPORTED",
+    "PARTIAL",
+    "UNSUPPORTED",
+    "BLOCKED"
+  ],
+  "formats": [
+    {
+      "id": "legacy-cbf-cbi",
+      "extensions": [".cbf", ".cbi"],
+      "status": "BLOCKED",
+      "availability": "topology and immutable integrity evidence only",
+      "blocker": "no legally reusable real CBF+CBI corpus with independent semantic oracle and no qualified bounded external adapter"
+    }
+  ],
+  "backends": [
+    {
+      "id": "scidb-cbf-research-candidate",
+      "role": "research_candidate_only",
+      "repository": "foolnotion/scidb",
+      "commit": "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
+      "license": "GPL-2.0-or-later for cited CBF source; repository COPYING is GPL v2",
+      "bundled_by_default": false,
+      "build_qualified": false,
+      "semantic_support": false,
+      "source_blobs": {
+        "src/db/cbf/cbf_codec.cpp": "c9608dc93e704070c5ec7f8294d09e6c52374b53",
+        "src/db/cbf/cbf_codec.h": "fe2e1573b8942a2dbb9f5a3138428b94fa48b9ca",
+        "src/db/cbf/cbf_decoder.cpp": "27172abed77db4961d7158337240d00d57474084",
+        "src/db/cbf/cbf_decoder.h": "695584688eec65f432116cd517f651c8fb09c4ce"
+      }
+    }
+  ],
+  "cbf_cbi_evidence": {
+    "pair_required": true,
+    "source_read_only": true,
+    "real_fixture_found": false,
+    "independent_semantic_oracle_found": false,
+    "support_status": "BLOCKED",
+    "unlock_requires": [
+      "legally reusable same-stem CBF+CBI real fixture pair",
+      "independent authoritative PGN or expected game/variation/metadata oracle",
+      "comments/variations/multilingual and large multi-game evidence",
+      "damaged/truncated/missing-companion/resource-limit cases",
+      "bounded external adapter with exact executable/source identity",
+      "canonical move legality validation and explicit loss accounting"
+    ]
+  },
+  "out_of_scope": {
+    "cbh_cbv_capability_status": "Owned by PR #295 / V2-COORD and independent format audit; intentionally not duplicated here.",
+    "other_chessbase_families": "Require separate ownership/evidence cycles before any status artifact is created."
+  }
+}

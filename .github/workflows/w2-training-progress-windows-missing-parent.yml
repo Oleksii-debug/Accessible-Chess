@@ -1,0 +1,80 @@
+name: W2 Training Progress Windows Missing Parent
+
+on:
+  push:
+    branches:
+      - work/w2-training-progress-windows-missing-parent-repair-20260911
+  pull_request:
+    paths:
+      - 'acs/training_progress_store.py'
+      - 'tests/test_w2_training_progress_crash_recovery.py'
+      - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
+      - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w2-training-progress-windows-missing-parent-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  W2_BASE: 5592f24129573cb85abee0ed7a5261e1ce98a855
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Prove exact runtime ancestry and bounded W2 repair scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$W2_BASE" HEAD)" = "$W2_BASE"
+          git diff --check "$W2_BASE" HEAD
+          changed="$(git diff --name-only "$W2_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w2-training-progress-windows-missing-parent.yml' \
+            'acs/training_progress_store.py' \
+            'tests/js/v2_remapped_keyboard_native_editing_test.js' \
+            'tests/test_w2_training_progress_crash_recovery.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected W2 repair scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+      - name: Compile storage repair
+        run: python -m compileall -q acs/training_progress_store.py tests/test_w2_training_progress_crash_recovery.py
+      - name: Training progress crash/restart and first-run oracle
+        run: python -m unittest -v tests.test_w2_training_progress_crash_recovery
+      - name: Current Training and Books integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+          tests.test_d08_book_training_contract
+          tests.test_books_training_ui_integration
+          tests.test_version2_training_current_runtime
+      - name: Native-editing harness survives platform line endings
+        run: node tests/js/v2_remapped_keyboard_native_editing_test.js
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostic
+        shell: bash
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
