@@ -28,6 +28,33 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         )
         self.assertIn("main()", real)
 
+    def test_launcher_diagnoses_staged_livekit_shipping_resource_order(self) -> None:
+        source = LAUNCHER.read_text(encoding="utf-8")
+        diagnostic_marker = 'if "--diagnostic" in sys.argv:'
+        diagnostic = source.split(diagnostic_marker, 1)[1].split("\\nelse:", 1)[0]
+
+        self.assertIn('livekit_sdk_label = "LiveKit browser SDK"', diagnostic)
+        self.assertIn(
+            'livekit_adapter_label = "Classroom LiveKit media adapter"',
+            diagnostic,
+        )
+        self.assertIn("livekit_runtime_ready = (", diagnostic)
+        self.assertIn("resource_names.count(livekit_sdk_label) == 1", diagnostic)
+        self.assertIn("resource_names.count(livekit_adapter_label) == 1", diagnostic)
+        self.assertIn(
+            'resource_names.index("V2 Teacher surface")',
+            diagnostic,
+        )
+        self.assertIn("or not livekit_runtime_ready", diagnostic)
+        self.assertIn(
+            '"livekitRuntimeReady": livekit_runtime_ready',
+            diagnostic,
+        )
+        self.assertIn(
+            "CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS",
+            diagnostic,
+        )
+
     def test_event_aware_runtime_is_in_actual_shipping_resource_order(self) -> None:
         sources = shipping_release.final_product_resource_sources()
         labels = [label for label, _source in sources]
