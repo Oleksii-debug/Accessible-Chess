@@ -514,6 +514,10 @@ class ClassroomCollaborationController:
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
         attachment = self._attachment(_id(attachment_id, "attachment id"))
+        if attachment.sender_id != self.local_participant_id:
+            raise CollaborationError(
+                "participant cannot cancel another participant's attachment"
+            )
         if attachment.transfer_state not in {"pending", "uploading", "failed"}:
             raise CollaborationError("attachment cannot be cancelled from current state")
         self._files.cancel(attachment_id=attachment.attachment_id)
