@@ -159,6 +159,136 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertTrue(store.backup_path.exists())
         self.assertNotEqual(backup_before, b"")
 
+    def test_book_open_can_explicitly_recover_missing_primary_from_valid_backup(self):
+        book, origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+
+        # Create a previous-valid generation at the exact current semantic cursor,
+        # then simulate loss of only the primary file.
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        store.path.unlink()
+
+        restarted = self._restarted_application(store)
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
+
+        restarted.open_book(book)
+
+        self.assertEqual(confirmations, [True])
+        self.assertEqual(restarted.shell.current_route.route_id, "books")
+        self.assertEqual(restarted.reader.location(), origin)
+        self.assertEqual(store.restore(key, restarted.reader.document).location(), origin)
+        self.assertTrue(store.path.exists())
+        self.assertTrue(store.backup_path.exists())
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+
+    def test_book_open_declined_missing_primary_recovery_is_atomic_and_non_destructive(self):
+        book, origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        store.path.unlink()
+
+        restarted = self._restarted_application(store)
+        route_before = restarted.shell.current_route.route_id
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or False
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [True])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertIsNone(restarted.book_workflow)
+        self.assertEqual(restarted.shell.current_route.route_id, route_before)
+        self.assertFalse(store.path.exists())
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+        restored = store.restore(key, self.app.reader.document)
+        self.assertEqual(restored.location(), origin)
+
+    def test_book_open_missing_primary_recovery_rejects_backup_swap_after_confirmation(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        store.path.unlink()
+
+        swapped_backup = b'{"entries":{},"generation":7,"schema_version":2}'
+        restarted = self._restarted_application(store)
+        route_before = restarted.shell.current_route.route_id
+        confirmations = []
+
+        def confirm_and_swap_backup():
+            confirmations.append(True)
+            store.backup_path.write_bytes(swapped_backup)
+            return True
+
+        restarted.confirm_book_progress_recovery = confirm_and_swap_backup
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(confirmations, [True])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertIsNone(restarted.book_workflow)
+        self.assertEqual(restarted.shell.current_route.route_id, route_before)
+        self.assertFalse(store.path.exists())
+        self.assertEqual(store.backup_path.read_bytes(), swapped_backup)
+
+    def test_book_open_missing_primary_future_backup_never_offers_rollback(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        future_backup = b'{"entries":{},"generation":9,"schema_version":999}'
+        store.backup_path.write_bytes(future_backup)
+        store.path.unlink()
+
+        restarted = self._restarted_application(store)
+        route_before = restarted.shell.current_route.route_id
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA)
+        self.assertEqual(confirmations, [])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertEqual(restarted.shell.current_route.route_id, route_before)
+        self.assertFalse(store.path.exists())
+        self.assertEqual(store.backup_path.read_bytes(), future_backup)
+
+    def test_book_open_missing_primary_unrelated_backup_never_offers_cross_book_recovery(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        store.path.unlink()
+        unrelated_backup = b'{"entries":{},"generation":7,"schema_version":2}'
+        store.backup_path.write_bytes(unrelated_backup)
+
+        restarted = self._restarted_application(store)
+        route_before = restarted.shell.current_route.route_id
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertEqual(restarted.shell.current_route.route_id, route_before)
+        self.assertFalse(store.path.exists())
+        self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
+
     def test_book_open_declined_progress_recovery_is_atomic_and_non_destructive(self):
         book, _origin = self._open_book_game()
         store = self.app.progress_store
