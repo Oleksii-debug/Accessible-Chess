@@ -8,6 +8,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 from acs import version2_package_preflight as package_preflight
 from acs import version2_release_payload as release_payload
@@ -172,6 +173,33 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
             "browser API markers",
         ):
             self._stage()
+
+    def test_broken_output_entry_is_rejected_before_validation(self) -> None:
+        original_lexists = sdk.os.path.lexists
+
+        def fake_lexists(path: object) -> bool:
+            if Path(path) == self.output:
+                return True
+            return original_lexists(path)
+
+        with mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "output directory already exists",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_write_failure_leaves_no_partial_output_or_staging_directory(self) -> None:
+        with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                self._stage()
+
+        self.assertFalse(self.output.exists())
+        self.assertEqual(
+            list(self.output.parent.glob(f".{self.output.name}.stage-*")),
+            [],
+        )
 
     def test_existing_output_is_not_overwritten(self) -> None:
         self.output.mkdir()
