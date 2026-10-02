@@ -137,7 +137,10 @@ class LiveKitClassroomJoinTokenIssuer:
         current = _utc(self._now(), "LiveKit token clock")
         if current < issued:
             raise LiveKitClassroomTokenIssuerError("join grant is not active yet")
-        remaining_seconds = int((expires - current).total_seconds())
+        # LiveKit computes JWT nbf/exp from its own clock inside to_jwt().
+        # Keep one whole second of fail-closed headroom so normal signing
+        # latency cannot extend provider authority past the canonical expiry.
+        remaining_seconds = int((expires - current).total_seconds()) - 1
         if remaining_seconds <= 0:
             raise LiveKitClassroomTokenIssuerError(
                 "join grant has expired before token issuance"
