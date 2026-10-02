@@ -39,6 +39,7 @@ class PackStorage:
     def __init__(self, installed, *, operations=None):
         self.items = dict(installed)
         self.operations = operations if operations is not None else []
+        self.fail_install = False
         self.fail_uninstall = False
 
     def installed(self):
@@ -46,6 +47,8 @@ class PackStorage:
 
     def install_atomically(self, downloaded):
         self.operations.append(("pack.install", downloaded.manifest.pack_id))
+        if self.fail_install:
+            raise OSError("pack install failed")
         self.items[downloaded.manifest.pack_id] = downloaded.manifest
 
     def uninstall(self, pack_id):
@@ -160,6 +163,40 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
         self.assertEqual(
             operations[:2],
             [("profile.write", "soft.wood"), ("pack.install", "soft.wood")],
+        )
+
+    def test_active_pack_update_failure_restores_exact_previous_profile(self):
+        operations = []
+        coordinator, pack_manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        current = SoundProfile(
+            pack_id="soft.wood",
+            master_enabled=False,
+            master_volume_percent=61,
+            events={"move": SoundEventPreference(False, 44, "quiet.move")},
+        )
+        coordinator._profiles._current = current
+        profile_storage.raw = current.to_mapping()
+        new_manifest = manifest("soft.wood", version="2.0.0")
+        new_entry, downloaded = entry_for(new_manifest)
+        pack_manager._downloader = Downloader(downloaded)
+        pack_storage.fail_install = True
+
+        with self.assertRaisesRegex(OSError, "pack install failed"):
+            coordinator.install(new_entry)
+
+        self.assertEqual("1.0.0", pack_storage.items["soft.wood"].version)
+        self.assertEqual(current, coordinator.current_profile)
+        self.assertEqual(current.to_mapping(), profile_storage.raw)
+        self.assertEqual(
+            operations,
+            [
+                ("profile.write", "soft.wood"),
+                ("pack.install", "soft.wood"),
+                ("profile.write", "soft.wood"),
+            ],
         )
 
     def test_install_without_activation_does_not_rewrite_profile(self):
