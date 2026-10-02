@@ -603,17 +603,13 @@ class EngineGameSessionCoordinator:
         self._clock.snapshot()
 
         if self._takeback_transaction is None:
-            # Without Board-owned compensation, any fallible post-undo clock
-            # provider makes the old callback contract unsound. Fail before undo.
-            if self._clock_restore_provider is not None:
-                raise EngineContractError(
-                    "historical takeback requires a compensating transaction",
-                    code=EngineContractErrorCode.INVALID_PROVIDER,
-                )
-            self._undo_committed_move()
-            self._lifecycle.accept_takeback(actor)
-            self._lifecycle.invalidate_position_outcome()
-            return self.snapshot()
+            # Even an untimed/no-history-provider takeback has fallible
+            # post-undo side/lifecycle/snapshot callbacks. Do not assume a
+            # legacy undo is reversible without an explicit Board-owner token.
+            raise EngineContractError(
+                "takeback requires a compensating Board transaction",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
 
         transaction = self._takeback_transaction()
         if not isinstance(transaction, TakebackTransaction):
