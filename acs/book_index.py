@@ -75,6 +75,19 @@ class BookIndex:
         snapshot = BookDocument.from_dict(document.as_dict())
         self.document = document
         self._entries = tuple(self._build_entries(snapshot))
+        # A flat ListBlock has one navigation target and a concise first-item
+        # label. Retain search-only projections of its remaining items from
+        # the SAME validated detached snapshot, never from mutable authoring
+        # blocks, so search covers the whole visible list without flattening
+        # the published label or introducing duplicate navigation targets.
+        self._additional_list_search_texts = {
+            index: tuple(
+                search_fold(normalize_search_text(item)) or ""
+                for item in block.items[1:]
+            )
+            for index, block in enumerate(snapshot.blocks)
+            if isinstance(block, ListBlock) and len(block.items) > 1
+        }
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
@@ -191,7 +204,7 @@ class BookIndex:
         return matches[0]
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
-        """Case-insensitive semantic label search preserving linear reading order."""
+        """Search semantic labels and every list item in linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
         if kinds is not None:
@@ -208,5 +221,16 @@ class BookIndex:
             entry
             for entry in self._entries
             if (kinds is None or entry.kind in kinds)
-            and needle in (search_fold(normalize_search_text(entry.label)) or "")
+            and (
+                needle in (search_fold(normalize_search_text(entry.label)) or "")
+                or (
+                    entry.kind is BookEntryKind.LIST
+                    and any(
+                        needle in item
+                        for item in self._additional_list_search_texts.get(
+                            entry.target.index, ()
+                        )
+                    )
+                )
+            )
         )

@@ -8,6 +8,7 @@ from acs.bookdocument import (
     Exercise,
     Game,
     Heading,
+    ListBlock,
     Note,
     Paragraph,
     Position,
@@ -222,6 +223,63 @@ class BookIndexTests(unittest.TestCase):
             ["block:candidate-spacing"],
         )
         self.assertEqual(matches[0].label, "Open   file\tstrategy")
+
+
+    def test_find_covers_all_list_items_without_duplicate_targets_or_mutable_aliases(self):
+        document = BookDocument(
+            title="Search every item",
+            blocks=[
+                Heading(text="Chapter", level=1, block_id="heading"),
+                ListBlock(
+                    items=[
+                        "Opening choices",
+                        "Second  knight\tstrategy ...Nf6",
+                        "Café pawn structures ...Nf6",
+                    ],
+                    ordered=True,
+                    block_id="main-list",
+                ),
+                ListBlock(
+                    items=["Counterplay", "Black replies ...Nf6"],
+                    ordered=False,
+                    source_anchor="reply-list",
+                ),
+                Paragraph(text="Independent commentary", block_id="prose"),
+            ],
+        )
+        index = BookIndex(document)
+
+        # Multiple matching items yield ONE navigable entry per ListBlock.
+        found = index.find("Nf6", kinds={BookEntryKind.LIST})
+        self.assertEqual(
+            [entry.target.key for entry in found],
+            ["block:main-list", "source:reply-list"],
+        )
+        self.assertEqual([entry.target.index for entry in found], [1, 2])
+        self.assertEqual([entry.label for entry in found], ["Opening choices", "Counterplay"])
+        self.assertIs(index.resolve(found[0].target), found[0])
+        self.assertEqual(index.find("Nf6", kinds={BookEntryKind.PARAGRAPH}), ())
+
+        # Non-label items reuse the SAME Unicode/whitespace search authority.
+        spaced = index.find("second knight strategy")
+        self.assertEqual([entry.target.key for entry in spaced], ["block:main-list"])
+        accent = index.find("Cafe\u0301 pawn")
+        self.assertEqual([entry.target.key for entry in accent], ["block:main-list"])
+        self.assertEqual(index.find("Opening choices")[0].label, "Opening choices")
+
+        # Search and labels are detached from later authoring mutations.
+        source_list = document.blocks[1]
+        self.assertIsInstance(source_list, ListBlock)
+        source_list.items[1] = "Changed after indexing"
+        source_list.items.append("New appended item")
+        document.blocks.reverse()
+        self.assertEqual(
+            [entry.target.key for entry in index.find("Nf6")],
+            ["block:main-list", "source:reply-list"],
+        )
+        self.assertEqual(index.find("Changed after indexing"), ())
+        self.assertEqual(index.find("New appended item"), ())
+        self.assertEqual(index.entries[1].label, "Opening choices")
 
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
