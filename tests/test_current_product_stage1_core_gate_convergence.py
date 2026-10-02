@@ -14,6 +14,7 @@ WORKFLOWS = (
     ROOT / ".github" / "workflows" / "w2-library-source-catalog-d07-current.yml",
 )
 COMPOSITION_WORKFLOW = ROOT / ".github" / "workflows" / "version2-windows-composition.yml"
+W3_WORKFLOW = ROOT / ".github" / "workflows" / "w3-takeback-clock-oracle-determinism.yml"
 
 
 class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
@@ -58,6 +59,20 @@ class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
             '"integration/clock-engine-serial-intake-20261002" ]',
             text,
         )
+
+    def test_w3_gate_is_product_aware_and_core_identity_bound(self) -> None:
+        text = W3_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(OLD_STAGE1_CORE, text)
+        self.assertIn(CURRENT_STAGE1_CORE, text)
+        self.assertIn(
+            'if [ "${{ github.event.pull_request.base.ref }}" = "$product_ref" ]; then',
+            text,
+        )
+        self.assertIn(
+            "W3 Product convergence must not mutate runtime source ownership",
+            text,
+        )
+        self.assertNotIn("core_expected=", text)
 
     def test_d01_core_lock_remains_fail_closed(self) -> None:
         text = WORKFLOWS[0].read_text(encoding="utf-8")
