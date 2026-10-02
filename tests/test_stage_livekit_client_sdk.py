@@ -128,6 +128,45 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
             self._stage()
         self.assertFalse(self.output.exists())
 
+    def test_redundant_dot_member_is_rejected(self) -> None:
+        self._write_archive(
+            members=[
+                ("package/./package.json", json.dumps(self.package).encode("utf-8")),
+                ("package/dist/livekit-client.umd.js", self.bundle),
+                ("package/LICENSE", self.license),
+            ]
+        )
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "unsafe member",
+        ):
+            self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_redundant_separator_member_is_rejected(self) -> None:
+        self._write_archive(
+            members=[
+                ("package//package.json", json.dumps(self.package).encode("utf-8")),
+                ("package/dist/livekit-client.umd.js", self.bundle),
+                ("package/LICENSE", self.license),
+            ]
+        )
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "unsafe member",
+        ):
+            self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_archive_link_is_rejected_before_read(self) -> None:
+        with mock.patch.object(sdk.stat, "S_ISLNK", return_value=True):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "regular file, not a link",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
     def test_symlink_is_rejected(self) -> None:
         with tarfile.open(self.archive, "w:gz") as archive:
             info = tarfile.TarInfo("package/package.json")
