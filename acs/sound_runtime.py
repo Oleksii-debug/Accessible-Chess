@@ -151,8 +151,11 @@ class SoundRuntime:
             try:
                 accepted = self._playback.play(event, volume=settings.volume)
             except Exception as exc:  # infrastructure boundary
-                message = str(exc).strip() or type(exc).__name__
-                failure = SoundPlaybackFailure(event, type(exc).__name__, message)
+                failure = SoundPlaybackFailure(
+                    event,
+                    type(exc).__name__,
+                    "sound playback adapter failed",
+                )
                 failures.append(failure)
                 if self._error_sink is not None:
                     try:
@@ -306,7 +309,7 @@ class ProfiledSoundRuntime(SoundRuntime):
                 request,
                 False,
                 error_type=type(exc).__name__,
-                message=str(exc),
+                message="sound preview adapter failed",
             )
         return SoundPreviewResult(request, True)
 
