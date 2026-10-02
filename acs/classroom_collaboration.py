@@ -603,6 +603,22 @@ class ClassroomCollaborationController:
         expected_sequence = 0 if after is None else after + 1
         if attachment.sequence_no > expected_sequence:
             self.sync_files()
+            authoritative = tuple(
+                item
+                for item in self._store.room_attachments(self.room_id)
+                if item.transfer_state == "stored"
+            )
+            after = None
+            for current in authoritative:
+                expected = 0 if after is None else after + 1
+                if current.sequence_no != expected:
+                    break
+                after = current.sequence_no
+            expected_sequence = 0 if after is None else after + 1
+            if attachment.sequence_no > expected_sequence:
+                raise CollaborationError(
+                    "live file has an unresolved sequence gap after recovery"
+                )
         try:
             return self._store.register_attachment(attachment)
         except CollaborationStorageError as error:
