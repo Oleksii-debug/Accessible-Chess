@@ -258,8 +258,6 @@ def _preflight_text(
 
     if type(text_precounted) is not bool:
         raise TypeError("text_precounted must be a boolean")
-    if type(strict) is not bool:
-        raise TypeError("strict must be a boolean")
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
     if not isinstance(source_budget, PgnSourceBudget):
@@ -485,6 +483,8 @@ def parse_pgn_text(
     inspection while retaining D06 resource bounds and SAN normalization.
     """
 
+    if type(strict) is not bool:
+        raise TypeError("strict must be a boolean")
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
     if not isinstance(source_budget, PgnSourceBudget):
