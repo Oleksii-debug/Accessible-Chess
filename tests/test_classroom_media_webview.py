@@ -370,3 +370,43 @@ def test_media_provider_failure_does_not_abort_product_language_synchronization(
 
     assert application.media is not None
     assert application.media.projection.language is UILanguage.UA
+
+
+def test_disconnected_or_removed_room_state_exposes_no_live_moderation_controls():
+    controller, _roster, _media, _labels, projection, _bridge = composition("teacher-1")
+    connected = projection.snapshot()
+    assert participant(connected, "Student One")["actions"]
+    assert connected["all_student_actions"]
+
+    controller.mark_transport_lost()
+    disconnected = projection.snapshot()
+    assert participant(disconnected, "Student One")["actions"] == ()
+    assert disconnected["all_student_actions"] == ()
+
+    controller._state = controller.state.__class__(
+        room_id="room-1",
+        participant_id="teacher-1",
+        connected=True,
+        desired_sources=frozenset(),
+        revision=controller.state.revision + 1,
+    )
+    controller.remove_participant(
+        actor_id="teacher-1",
+        target_id="student-1",
+        block=True,
+        operation_id="remove-before-projection",
+    )
+    removed = participant(projection.snapshot(), "Student One")
+    assert removed["removed"] is True
+    assert removed["blocked"] is True
+    assert removed["actions"] == ()
+
+
+def test_participant_focus_ids_use_full_opaque_key_without_truncation():
+    _controller, _roster, _media, _labels, projection, _bridge = composition("teacher-1")
+    student = participant(projection.snapshot(), "Student One")
+    key = student["participant_key"]
+    assert len(key) == 64
+    assert student["dom_id"] == "media-participant-" + key
+    for action in student["actions"]:
+        assert key in action["id"]
