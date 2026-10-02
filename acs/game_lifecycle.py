@@ -186,9 +186,15 @@ class GameLifecycle:
                 "lifecycle recovery requires a LifecycleSnapshot",
                 code=LifecycleErrorCode.INVALID_STATE,
             )
+        # GameOutcome is frozen in ordinary use, but an injected or deserialized
+        # checkpoint could carry an outcome object altered after construction.
+        # Revalidate the nested DTO before the first live assignment as well.
+        outcome = checkpoint.outcome
+        if isinstance(outcome, GameOutcome):
+            outcome = GameOutcome(outcome.result, outcome.reason, outcome.winner)
         validated = LifecycleSnapshot(
             checkpoint.status,
-            checkpoint.outcome,
+            outcome,
             checkpoint.draw_offered_by,
             checkpoint.takeback_requested_by,
         )
