@@ -260,6 +260,21 @@ check(
   typeof fileSync.listeners.click === "function",
   "file refresh must be a native keyboard button bound only to canonical file sync"
 );
+fileSync.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.files.synced",
+    payload: { collaboration: snapshot.collaboration }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-file-sync"),
+  "file refresh must preserve the stable keyboard focus anchor after rerender"
+);
 check(
   root.querySelector("#collaboration-chat-sync") !== null &&
   root.querySelector("#collaboration-chat-mark-read") !== null &&
