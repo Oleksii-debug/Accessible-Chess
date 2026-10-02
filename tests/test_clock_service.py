@@ -232,6 +232,61 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(switched.flagged, "b")
         self.assertEqual(switched.state, ClockState.FLAGGED)
 
+    def test_failed_start_final_sample_keeps_clock_stopped(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, float("nan")]
+                self.fallback = 100.0
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        clock = ChessClock(TimeControl(3_000), now=Samples())
+        before = clock.snapshot()
+        with self.assertRaises(ClockError) as caught:
+            clock.start("w")
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        self.assertEqual(clock.snapshot(), before)
+        self.assertEqual(clock.start("b").active, "b")
+
+    def test_failed_resume_final_sample_preserves_pause(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, float("nan")]
+                self.fallback = 100.0
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        clock = ChessClock(TimeControl(3_000), now=Samples())
+        before = clock.reset(side_to_move="w")
+        with self.assertRaises(ClockError) as caught:
+            clock.resume()
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        self.assertEqual(clock.snapshot(), before)
+        self.assertEqual(clock.resume().state, ClockState.RUNNING)
+
+    def test_failed_resume_restore_final_sample_keeps_old_game(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, float("nan")]
+                self.fallback = 100.0
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        clock = ChessClock(TimeControl(3_000), now=Samples())
+        before = clock.reset(side_to_move="b")
+        incoming = ClockSnapshot(1_500, 2_000, "w", ClockState.RUNNING)
+        with self.assertRaises(ClockError) as caught:
+            clock.restore(incoming, resume_running=True)
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        self.assertEqual(clock.snapshot(), before)
+        accepted = clock.restore(incoming, resume_running=True)
+        self.assertEqual(accepted.white_ms, 1_500)
+        self.assertEqual(accepted.active, "w")
+        self.assertEqual(accepted.state, ClockState.RUNNING)
+
     def test_pause_resume_does_not_charge_paused_time(self):
         clock = ChessClock(TimeControl(10_000), now=self.now)
         clock.start("b")
