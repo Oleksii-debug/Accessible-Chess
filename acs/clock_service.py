@@ -363,16 +363,26 @@ class ChessClock:
 
     def _read_now(self, *, not_before: float | None = None) -> float:
         value = self._now()
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or not math.isfinite(value)
-        ):
+        # Convert only after rejecting non-numeric/bool samples. math.isfinite()
+        # itself raises OverflowError for integers outside float range; an
+        # untrusted source must instead fail through the stable domain error.
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ClockError(
                 "monotonic time source must return a finite number",
                 code=ClockErrorCode.INVALID_TIME_SOURCE,
             )
-        instant = float(value)
+        try:
+            instant = float(value)
+        except (OverflowError, ValueError, TypeError):
+            raise ClockError(
+                "monotonic time source must return a finite number",
+                code=ClockErrorCode.INVALID_TIME_SOURCE,
+            ) from None
+        if not math.isfinite(instant):
+            raise ClockError(
+                "monotonic time source must return a finite number",
+                code=ClockErrorCode.INVALID_TIME_SOURCE,
+            )
         if not_before is not None and instant < not_before:
             raise ClockError(
                 "monotonic time source moved backwards",
