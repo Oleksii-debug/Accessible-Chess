@@ -283,7 +283,16 @@ class ClassroomCollaborationController:
             raise CollaborationError(
                 "chat moderation state response is invalid or too large"
             )
+        history_complete = len(incoming) < MAX_SYNC_MESSAGES
+        known_message_ids = {
+            message.message_id
+            for message in self._store.room_messages(
+                self.room_id,
+                include_hidden=True,
+            )
+        }
         state_previous = state_after
+        applicable_updates: list[ChatMessageStateUpdate] = []
         for update in updates:
             if type(update) is not ChatMessageStateUpdate:
                 raise CollaborationError(
@@ -298,17 +307,24 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "chat moderation state has an unresolved revision gap"
                 )
+            if update.message_id not in known_message_ids:
+                if history_complete:
+                    raise CollaborationError(
+                        "chat moderation state references unknown room message"
+                    )
+                break
+            applicable_updates.append(update)
             state_previous = update.revision
         try:
             self._store.apply_message_state_updates(
                 room_id=self.room_id,
-                updates=updates,
+                updates=tuple(applicable_updates),
             )
         except CollaborationStorageError as error:
             raise CollaborationError(
                 "chat moderation state could not be reconciled"
             ) from error
-        if updates and persisted:
+        if applicable_updates and persisted:
             visible_ids = {
                 message.message_id
                 for message in self._store.room_messages(self.room_id)
