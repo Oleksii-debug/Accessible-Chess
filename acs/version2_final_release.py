@@ -11,6 +11,7 @@ large in-process regression suites and tooling legitimately use both profiles.
 
 from contextlib import contextmanager
 import os
+import stat
 from typing import Any, Callable, Iterator
 
 from . import version2_release_app as _release_app
@@ -23,12 +24,23 @@ from .version2_final_product_profile import (
 )
 
 
+def _is_link_like_resource(path: Any) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        info = path.lstat()
+    except OSError:
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & reparse_flag)
+
+
 def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
     livekit_root = root / "vendor" / "livekit"
     livekit_resources: tuple[tuple[str, Any], ...] = ()
     if os.path.lexists(livekit_root):
-        if livekit_root.is_symlink() or not livekit_root.is_dir():
+        if _is_link_like_resource(livekit_root) or not livekit_root.is_dir():
             raise RuntimeError("LiveKit browser SDK resource root is invalid.")
         livekit_evidence = (
             ("LiveKit browser SDK", livekit_root / "livekit-client.umd.js"),
@@ -40,7 +52,7 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         for label, path in livekit_evidence:
             if not os.path.lexists(path):
                 raise RuntimeError(f"{label} not found in packaged resources.")
-            if path.is_symlink() or not path.is_file():
+            if _is_link_like_resource(path) or not path.is_file():
                 raise RuntimeError(f"{label} resource is invalid.")
         livekit_resources = (
             livekit_evidence[0],
