@@ -116,6 +116,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         middle = middle_event.payload["collaboration"]["chat"]
         self.assertEqual("collaboration.chat.page", middle_event.kind)
         self.assertEqual("collaboration-chat-older", middle_event.payload["focus_target"])
+        self.assertEqual("Message history page 2 of 3", middle_event.payload["announcement"])
         self.assertEqual(50, len(middle["messages"]))
         self.assertEqual("Message 50", middle["messages"][0]["body"])
         self.assertEqual("Message 99", middle["messages"][-1]["body"])
@@ -299,6 +300,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         middle = middle_event.payload["collaboration"]["files"]
         self.assertEqual("collaboration.file.page", middle_event.kind)
         self.assertEqual("collaboration-file-older", middle_event.payload["focus_target"])
+        self.assertEqual("File history page 2 of 3", middle_event.payload["announcement"])
         self.assertEqual(50, len(middle["items"]))
         self.assertEqual("file-50.pgn", middle["items"][0]["name"])
         self.assertEqual("file-99.pgn", middle["items"][-1]["name"])
