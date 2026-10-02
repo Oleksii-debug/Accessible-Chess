@@ -622,6 +622,8 @@ window.AccessibleChessEducationSurface.apply(
         {
           dom_id: "collaboration-message-moderated",
           sender: "Student",
+          action_sender: "Student",
+          action_message: "Student: Needs moderation.",
           body: "Needs moderation.",
           unread: false,
           message_key: "b".repeat(64),
@@ -661,7 +663,7 @@ check(
   root.querySelector("#collaboration-message-moderated-block").getAttribute("aria-label") ===
     "Remove and block participant: Student" &&
   root.querySelector("#collaboration-message-moderated-hide").getAttribute("aria-label") ===
-    "Hide message: Student",
+    "Hide message: Student: Needs moderation.",
   "repeated moderation actions must expose their participant context to screen readers"
 );
 muteSender.focus();
@@ -674,6 +676,8 @@ window.AccessibleChessEducationSurface.apply(
         {
           dom_id: "collaboration-message-moderated",
           sender: "Student",
+          action_sender: "Student",
+          action_message: "Student: Needs moderation.",
           body: "Needs moderation.",
           unread: false,
           message_key: "b".repeat(64),
