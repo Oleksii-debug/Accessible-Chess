@@ -149,6 +149,18 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertTrue(games[0].warnings)
         self.assertEqual([move.san for move in games[0].line.moves], ["e4", "e5"])
 
+    def test_strict_mode_requires_exact_boolean_and_fails_before_byte_decode(self):
+        damaged = '[Event "Damaged"]\\n[Result "*"]\\n\\n1. e4 e5'
+        for invalid in (0, 1, None, "", "false", (), object()):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaisesRegex(TypeError, "strict must be a boolean"):
+                    parse_pgn_text(damaged, strict=invalid)
+
+        with patch("acs.pgn_roundtrip.decode_pgn_bytes") as decode:
+            with self.assertRaisesRegex(TypeError, "strict must be a boolean"):
+                parse_pgn_bytes(b"not decoded", strict=0)
+            decode.assert_not_called()
+
     def test_empty_input_fails_closed_for_strict_editing(self):
         self.assert_code(PgnRoundTripErrorCode.EMPTY_PGN, parse_pgn_text, "")
         self.assertEqual(parse_pgn_text("", strict=False), ())
