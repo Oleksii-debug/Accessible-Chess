@@ -206,6 +206,33 @@ class Version2ReleasePayloadTests(unittest.TestCase):
     def _assert_no_publication(self, output: Path) -> None:
         self.assertFalse(output.exists(), f"unexpected published payload at {output}")
 
+    def test_tree_copy_never_dereferences_links_and_revalidates_destination(self) -> None:
+        output = self.root / "payload-copy-boundary"
+        with (
+            patch.object(
+                payload.shutil,
+                "copytree",
+                wraps=payload.shutil.copytree,
+            ) as copytree,
+            patch.object(
+                payload,
+                "_require_clean_source_tree",
+                wraps=payload._require_clean_source_tree,
+            ) as validate_tree,
+        ):
+            self._prepare(output)
+
+        self.assertEqual(copytree.call_count, 2)
+        self.assertTrue(
+            all(call.kwargs.get("symlinks") is True for call in copytree.call_args_list)
+        )
+        copied_labels = [
+            call.kwargs.get("label")
+            for call in validate_tree.call_args_list
+            if call.kwargs.get("label") == "copied source"
+        ]
+        self.assertEqual(copied_labels, ["copied source", "copied source"])
+
     def test_missing_winforms_accessibility_app_config_fails_without_output(self) -> None:
         (self.standalone / "AccessibleChess.exe.config").unlink()
         output = self.root / "payload"
