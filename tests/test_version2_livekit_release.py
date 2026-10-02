@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import traceback
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -88,6 +89,37 @@ class Version2LiveKitReleaseTests(unittest.TestCase):
             with patch.object(release._release_ui, "_asset_root", return_value=root):
                 with self.assertRaisesRegex(RuntimeError, "empty"):
                     release.livekit_resource_sources()
+
+    def test_packaged_read_failure_redacts_underlying_filesystem_detail(self):
+        secret = r"C:\\Users\\private-user\\build\\livekit-client.umd.js"
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.staged_root(directory)
+            with (
+                patch.object(release._release_ui, "_asset_root", return_value=root),
+                patch.object(Path, "read_text", side_effect=OSError(secret)),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "could not be read from packaged resources",
+                ) as caught:
+                    release.livekit_resource_sources()
+
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(secret, rendered)
+        self.assertIsNone(caught.exception.__cause__)
+
+    def test_shipping_launcher_routes_only_real_ui_through_livekit_release(self):
+        launcher = (
+            Path(__file__).resolve().parents[1] / "run_accessible_chess_v2.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "from acs.version2_livekit_release import main",
+            launcher,
+        )
+        self.assertIn(
+            "from acs.version2_upgrade_status_release import (",
+            launcher,
+        )
 
     def test_duplicate_registration_fails_instead_of_injecting_sdk_twice(self):
         with tempfile.TemporaryDirectory() as directory:
