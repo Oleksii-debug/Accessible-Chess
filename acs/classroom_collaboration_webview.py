@@ -539,6 +539,16 @@ class ClassroomCollaborationWebView:
         }
         incoming = self._controller.sync_files()
         after_items = self._store.room_attachments(self._controller.room_id)
+        retriable_local_ids = {
+            item.attachment_id
+            for item in after_items
+            if item.sender_id == self._controller.local_participant_id
+            and item.transfer_state == "failed"
+            and item.scan_state != "blocked"
+        }
+        for attachment_id in tuple(self._prepared):
+            if attachment_id not in retriable_local_ids:
+                self._prepared.pop(attachment_id, None)
         new_remote = tuple(
             item
             for item in incoming
