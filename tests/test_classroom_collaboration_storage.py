@@ -693,6 +693,124 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertLessEqual(len(safe.encode("utf-16-le")) // 2, 255)
         self.assertEqual(safe, "😀" * 127)
 
+    def test_provisional_sequences_do_not_reserve_authoritative_room_sequence(self) -> None:
+        first = AttachmentMetadata(
+            "provisional-a",
+            "room",
+            "teacher",
+            0,
+            "first.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/provisional-a",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        second = AttachmentMetadata(
+            "provisional-b",
+            "room",
+            "teacher",
+            0,
+            "second.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/provisional-b",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(first)
+        self.store.register_attachment(second)
+        self.store.update_attachment_state(
+            first.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            second.attachment_id,
+            transfer_state="uploading",
+        )
+
+        first_authoritative = AttachmentMetadata(
+            first.attachment_id,
+            first.room_id,
+            first.sender_id,
+            0,
+            first.display_name,
+            first.mime_type,
+            first.size_bytes,
+            first.sha256,
+            first.object_key,
+            "stored",
+            first.retention,
+            "clean",
+        )
+        second_authoritative = AttachmentMetadata(
+            second.attachment_id,
+            second.room_id,
+            second.sender_id,
+            1,
+            second.display_name,
+            second.mime_type,
+            second.size_bytes,
+            second.sha256,
+            second.object_key,
+            "stored",
+            second.retention,
+            "clean",
+        )
+
+        self.assertEqual(
+            self.store.adopt_authoritative_attachment(first_authoritative),
+            first_authoritative,
+        )
+        self.assertEqual(
+            self.store.adopt_authoritative_attachment(second_authoritative),
+            second_authoritative,
+        )
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (first_authoritative, second_authoritative),
+        )
+
+    def test_deleted_tombstone_keeps_authoritative_sequence_reserved(self) -> None:
+        tombstone = AttachmentMetadata(
+            "deleted-authority",
+            "room",
+            "teacher",
+            0,
+            "deleted.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room/deleted-authority",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        collision = AttachmentMetadata(
+            "replacement",
+            "room",
+            "teacher",
+            0,
+            "replacement.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room/replacement",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.register_attachment(collision)
+
+        self.assertEqual(self.store.room_attachments("room"), (tombstone,))
+
     def test_authoritative_attachment_adoption_replaces_provisional_sequence(self) -> None:
         provisional = AttachmentMetadata(
             "a-authority",
