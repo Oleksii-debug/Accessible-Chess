@@ -136,6 +136,54 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
         self.assertIn("soft.wood", pack_storage.items)
         self.assertEqual(operations[:2], [("pack.install", "soft.wood"), ("profile.write", "soft.wood")])
 
+    def test_activate_different_pack_clears_even_same_spelled_asset_id(self):
+        operations = []
+        coordinator, pack_manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        old_files = dict(pack_storage.items["soft.wood"].files)
+        old_files["shared.soft"] = "audio/old-shared.wav"
+        old_manifest = SoundPackManifest(
+            pack_id="soft.wood",
+            version="1.0.0",
+            title="soft.wood",
+            license_id="CC0-1.0",
+            files=old_files,
+            author="Accessible Chess",
+            provenance="https://example.invalid/sound-pack",
+        )
+        pack_storage.items["soft.wood"] = old_manifest
+        current = SoundProfile(
+            pack_id="soft.wood",
+            events={"move": SoundEventPreference(False, 44, "shared.soft")},
+        )
+        coordinator._profiles._current = current
+        profile_storage.raw = current.to_mapping()
+
+        target_base = manifest("other.pack")
+        target_files = dict(target_base.files)
+        target_files["shared.soft"] = "audio/new-shared.wav"
+        target = SoundPackManifest(
+            pack_id="other.pack",
+            version="1.0.0",
+            title="other.pack",
+            license_id="CC0-1.0",
+            files=target_files,
+            author="Accessible Chess",
+            provenance="https://example.invalid/sound-pack",
+        )
+        entry, downloaded = entry_for(target)
+        pack_manager._downloader = Downloader(downloaded)
+
+        result = coordinator.install(entry, activate=True)
+
+        self.assertEqual("other.pack", result.profile.pack_id)
+        self.assertEqual(
+            SoundEventPreference(False, 44),
+            result.profile.preference_for("move"),
+        )
+
     def test_active_pack_update_sanitizes_removed_asset_before_storage_switch(self):
         operations = []
         coordinator, pack_manager, pack_storage, profile_storage = make_stack(
