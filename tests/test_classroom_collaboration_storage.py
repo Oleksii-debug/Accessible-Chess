@@ -57,6 +57,47 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
 
+    def test_v5_sequence_index_upgrades_without_leaving_legacy_index(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
+            )
+            db.execute(
+                """
+                CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                ON collaboration_attachments(room_id, sequence_no)
+                WHERE transfer_state='stored'
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=5 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        reopened.integrity_check()
+
+        with closing(sqlite3.connect(self.db_path)) as db:
+            indexes = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA index_list(collaboration_attachments)"
+                )
+            }
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertIn(
+            "uq_collaboration_attachments_authoritative_sequence",
+            indexes,
+        )
+        self.assertNotIn(
+            "uq_collaboration_attachments_stored_sequence",
+            indexes,
+        )
+
     def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
         self.db_path.unlink()
         with closing(sqlite3.connect(self.db_path)) as db, db:
