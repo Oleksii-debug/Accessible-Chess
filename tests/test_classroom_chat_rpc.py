@@ -20,51 +20,36 @@ from acs.classroom_collaboration_storage import (
 )
 
 
-class FakeAuthority:
-    def __init__(self) -> None:
-        self.members = {"teacher-1", "student-1", "student-2"}
-        self.send_calls = []
-        self.history_calls = []
-        self.moderation_calls = []
-        self.fail = False
-        self.send_allowed = True
-
-    def authorize_send(self, *, room_id, participant_id) -> None:
-        self.send_calls.append((room_id, participant_id))
-        if (
-            self.fail
-            or not self.send_allowed
-            or room_id != "room-1"
-            or participant_id not in self.members
-        ):
-            raise RuntimeError("authority secret detail")
-
-    def authorize_history(self, *, room_id, participant_id) -> None:
-        self.history_calls.append((room_id, participant_id))
-        if self.fail or room_id != "room-1" or participant_id not in self.members:
-            raise RuntimeError("authority secret detail")
-
-    def authorize_moderation(self, *, room_id, actor_id, commands) -> None:
-        self.moderation_calls.append((room_id, actor_id, commands))
-        if self.fail or room_id != "room-1" or actor_id != "teacher-1":
-            raise RuntimeError("authority secret detail")
-
-
 class FakeBackend:
     def __init__(self) -> None:
+        self.members = {"teacher-1", "student-1", "student-2"}
         self.by_id = {}
         self.ordered = []
+        self.send_callers = []
+        self.history_callers = []
+        self.moderation_callers = []
         self.moderation_calls = []
         self.state_updates = []
         self.fail = False
+        self.auth_fail = False
+        self.send_allowed = True
         self.omit_timestamp = False
         self.mutate_delivery = False
         self.history_override = None
         self.state_override = None
 
-    def send_message(self, draft):
+    def send_message(self, *, trusted_caller_identity, draft):
+        self.send_callers.append(trusted_caller_identity)
         if self.fail:
             raise RuntimeError("backend supersecret token")
+        if (
+            self.auth_fail
+            or not self.send_allowed
+            or trusted_caller_identity not in self.members
+            or draft.room_id != "room-1"
+            or draft.sender_id != trusted_caller_identity
+        ):
+            raise RuntimeError("server authorization secret detail")
         existing = self.by_id.get(draft.message_id)
         if existing is not None:
             return existing
@@ -87,9 +72,23 @@ class FakeBackend:
         self.ordered.append(message)
         return message
 
-    def history_after(self, *, room_id, after_sequence, limit):
+    def history_after(
+        self,
+        *,
+        trusted_caller_identity,
+        room_id,
+        after_sequence,
+        limit,
+    ):
+        self.history_callers.append(trusted_caller_identity)
         if self.fail:
             raise RuntimeError("backend supersecret token")
+        if (
+            self.auth_fail
+            or trusted_caller_identity not in self.members
+            or room_id != "room-1"
+        ):
+            raise RuntimeError("server authorization secret detail")
         if self.history_override is not None:
             return self.history_override
         rows = tuple(
@@ -100,9 +99,23 @@ class FakeBackend:
         )
         return rows[:limit]
 
-    def state_updates_after(self, *, room_id, after_revision, limit):
+    def state_updates_after(
+        self,
+        *,
+        trusted_caller_identity,
+        room_id,
+        after_revision,
+        limit,
+    ):
+        self.history_callers.append(trusted_caller_identity)
         if self.fail:
             raise RuntimeError("backend supersecret token")
+        if (
+            self.auth_fail
+            or trusted_caller_identity not in self.members
+            or room_id != "room-1"
+        ):
+            raise RuntimeError("server authorization secret detail")
         if self.state_override is not None:
             return self.state_override
         rows = tuple(
@@ -113,9 +126,16 @@ class FakeBackend:
         )
         return rows[:limit]
 
-    def apply_moderation(self, commands) -> None:
+    def apply_moderation(self, *, trusted_caller_identity, commands) -> None:
+        self.moderation_callers.append(trusted_caller_identity)
         if self.fail:
             raise RuntimeError("backend supersecret token")
+        if (
+            self.auth_fail
+            or trusted_caller_identity != "teacher-1"
+            or any(command.actor_id != trusted_caller_identity for command in commands)
+        ):
+            raise RuntimeError("server authorization secret detail")
         self.moderation_calls.append(commands)
         for command in commands:
             if command.action is not ChatModerationAction.HIDE_MESSAGE:
@@ -158,10 +178,8 @@ class StaticCall:
 
 class ClassroomChatRpcTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.authority = FakeAuthority()
         self.backend = FakeBackend()
         self.service = ClassroomChatRpcService(
-            authority=self.authority,
             backend=self.backend,
         )
         self.student_call = BoundCall(
@@ -184,8 +202,8 @@ class ClassroomChatRpcTests(unittest.TestCase):
         self.assertEqual(1700000000000, first.sent_at_unix_ms)
         self.assertEqual(1, len(self.backend.ordered))
         self.assertEqual(
-            [("room-1", "student-1"), ("room-1", "student-1")],
-            self.authority.send_calls,
+            ["student-1", "student-1"],
+            self.backend.send_callers,
         )
         self.assertNotIn("sent_at_unix_ms", self.student_call.calls[0]["message"])
 
@@ -241,8 +259,8 @@ class ClassroomChatRpcTests(unittest.TestCase):
         )
         self.assertEqual(["msg-2"], [item.message_id for item in later])
         self.assertEqual(
-            [("room-1", "student-1"), ("room-1", "student-1")],
-            self.authority.history_calls,
+            ["student-1", "student-1"],
+            self.backend.history_callers,
         )
 
     def test_state_update_stream_rejects_room_revision_and_shape_forgery(self):
@@ -311,7 +329,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
         self.assertEqual([], self.student_call.calls)
 
     def test_server_enforces_current_send_policy_before_backend_effect(self):
-        self.authority.send_allowed = False
+        self.backend.send_allowed = False
         request = {
             "v": 1,
             "op": "send",
@@ -323,7 +341,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 "retention": "session",
             },
         }
-        with self.assertRaisesRegex(ClassroomChatRpcError, "authorization"):
+        with self.assertRaisesRegex(ClassroomChatRpcError, "backend failed"):
             self.service.handle(
                 request,
                 authenticated_room_id="room-1",
@@ -486,10 +504,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
         )
         teacher.apply_moderation(commands)
         self.assertEqual(commands, self.backend.moderation_calls[-1])
-        self.assertEqual(
-            ("room-1", "teacher-1", commands),
-            self.authority.moderation_calls[-1],
-        )
+        self.assertEqual("teacher-1", self.backend.moderation_callers[-1])
 
         student_command = replace(commands[0], actor_id="student-1")
         with self.assertRaisesRegex(ClassroomChatRpcError, "service unavailable"):
@@ -506,7 +521,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 "allowed": False,
             }],
         }
-        with self.assertRaisesRegex(ClassroomChatRpcError, "authorization"):
+        with self.assertRaisesRegex(ClassroomChatRpcError, "backend failed"):
             self.service.handle(
                 direct,
                 authenticated_room_id="room-1",
@@ -557,7 +572,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 authenticated_participant_id="teacher-1",
             )
 
-    def test_backend_authority_and_transport_failures_are_sanitized(self):
+    def test_backend_authorization_and_transport_failures_are_sanitized(self):
         self.backend.fail = True
         with self.assertRaises(ClassroomChatRpcError) as caught:
             self.student.send_message(
@@ -566,14 +581,14 @@ class ClassroomChatRpcTests(unittest.TestCase):
         self.assertNotIn("supersecret", str(caught.exception))
 
         self.backend.fail = False
-        self.authority.fail = True
+        self.backend.auth_fail = True
         with self.assertRaises(ClassroomChatRpcError) as caught:
             self.student.send_message(
                 ChatDraft("msg-2", "room-1", "student-1", "Hello")
             )
-        self.assertNotIn("secret detail", str(caught.exception))
+        self.assertNotIn("authorization secret detail", str(caught.exception))
 
-        self.authority.fail = False
+        self.backend.auth_fail = False
         self.student_call.fail = True
         with self.assertRaises(ClassroomChatRpcError) as caught:
             self.student.send_message(
