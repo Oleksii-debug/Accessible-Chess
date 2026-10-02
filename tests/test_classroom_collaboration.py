@@ -515,6 +515,45 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             )
         self.assertEqual(self.files.upload_calls, [])
 
+    def test_removed_local_participant_loses_chat_and_file_access(self):
+        controller = self.controller("student-1")
+        prepared = controller.prepare_file(
+            attachment_id="a1",
+            local_path=self.make_file("before-removal.bin", b"payload"),
+            sequence_no=0,
+        )
+        stored = replace(
+            prepared.metadata,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.store.register_attachment(stored)
+        self.roster.roles.pop("student-1")
+
+        with self.assertRaises(CollaborationError):
+            controller.sync_chat()
+        with self.assertRaises(CollaborationError):
+            controller.receive_chat(
+                ChatMessageMetadata(
+                    "m1",
+                    "room-1",
+                    "teacher-1",
+                    0,
+                    "After removal",
+                    sent_at_unix_ms=1700000000000,
+                )
+            )
+        with self.assertRaises(CollaborationError):
+            controller.upload_file(prepared)
+        with self.assertRaises(CollaborationError):
+            controller.cancel_file("a1")
+        with self.assertRaises(CollaborationError):
+            controller.issue_download_token(attachment_id="a1")
+
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertEqual(self.file_store.read_calls, [])
+
     def test_non_member_cannot_construct_active_room_controller(self):
         self.roster.roles.pop("student-1")
         with self.assertRaises(CollaborationError):
