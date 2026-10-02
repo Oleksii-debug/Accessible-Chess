@@ -194,6 +194,13 @@ check(
   root.querySelector("#collaboration-message-one").tagName === "LI",
   "chat messages must remain selectable list text"
 );
+const isolatedBody = root.querySelector("#collaboration-message-one").querySelector("BDI");
+check(
+  isolatedBody !== null &&
+  isolatedBody.textContent === "e4 is the target." &&
+  isolatedBody.getAttribute("dir") === "auto",
+  "chat message text must remain selectable while isolated from bidi spillover"
+);
 const messageOne = root.querySelector("#collaboration-message-one");
 const timestampDisclosure = messageOne.querySelector("DETAILS");
 check(timestampDisclosure !== null, "message timestamp must use native on-demand disclosure");
