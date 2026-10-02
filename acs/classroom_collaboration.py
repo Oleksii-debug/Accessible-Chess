@@ -266,7 +266,13 @@ class ClassroomCollaborationController:
     def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
         self._require_member(self.local_participant_id)
         existing = self._store.room_messages(self.room_id, include_hidden=True)
-        after = existing[-1].sequence_no if existing else None
+        existing_ids = {message.message_id for message in existing}
+        after: int | None = None
+        for message in existing:
+            expected = 0 if after is None else after + 1
+            if message.sequence_no != expected:
+                break
+            after = message.sequence_no
         incoming = self._chat.history_after(
             room_id=self.room_id,
             after_sequence=after,
@@ -357,7 +363,10 @@ class ClassroomCollaborationController:
         return tuple(
             current_by_id[message.message_id]
             for message in persisted
-            if not current_by_id[message.message_id].hidden
+            if (
+                message.message_id not in existing_ids
+                and not current_by_id[message.message_id].hidden
+            )
         )
 
     def can_moderate_chat(self) -> bool:
