@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Protocol, runtime_checkable
 
+from .classroom_domain import MAX_WIRE_INTEGER
+
 SCHEMA_VERSION = 3
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
@@ -68,8 +70,11 @@ class ChatMessageMetadata:
         _canonical_id(self.message_id, "message id")
         _canonical_id(self.room_id, "room id")
         _canonical_id(self.sender_id, "sender id")
-        if type(self.sequence_no) is not int or self.sequence_no < 0:
-            raise ValueError("sequence_no must be a non-negative integer")
+        if (
+            type(self.sequence_no) is not int
+            or not 0 <= self.sequence_no <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError("sequence_no must be a bounded JSON-safe integer")
         if type(self.body) is not str or not self.body.strip():
             raise ValueError("message body must be non-empty text")
         if len(self.body) > MAX_CHAT_BODY_CHARS or "\x00" in self.body:
@@ -95,8 +100,11 @@ class ChatMessageStateUpdate:
     def __post_init__(self) -> None:
         _canonical_id(self.room_id, "room id")
         _canonical_id(self.message_id, "message id")
-        if type(self.revision) is not int or self.revision < 0:
-            raise ValueError("state revision must be a non-negative integer")
+        if (
+            type(self.revision) is not int
+            or not 0 <= self.revision <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError("state revision must be a bounded JSON-safe integer")
         if self.hidden is not True:
             raise ValueError("chat message state updates are monotonic hide operations")
 
@@ -120,10 +128,16 @@ class AttachmentMetadata:
         _canonical_id(self.attachment_id, "attachment id")
         _canonical_id(self.room_id, "room id")
         _canonical_id(self.sender_id, "sender id")
-        if type(self.sequence_no) is not int or self.sequence_no < 0:
-            raise ValueError("sequence_no must be a non-negative integer")
-        if type(self.size_bytes) is not int or self.size_bytes < 0:
-            raise ValueError("size_bytes must be a non-negative integer")
+        if (
+            type(self.sequence_no) is not int
+            or not 0 <= self.sequence_no <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError("sequence_no must be a bounded JSON-safe integer")
+        if (
+            type(self.size_bytes) is not int
+            or not 0 <= self.size_bytes <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError("size_bytes must be a bounded JSON-safe integer")
         if safe_display_filename(self.display_name) != self.display_name:
             raise ValueError("display_name must already be sanitized")
         if self.mime_type is not None:
