@@ -25,7 +25,7 @@ from .version2_final_product_profile import (
 def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
     livekit_root = root / "vendor" / "livekit"
-    livekit_resources: tuple[tuple[str, object], ...] = ()
+    livekit_resources: tuple[tuple[str, Any], ...] = ()
     if livekit_root.exists():
         if not livekit_root.is_dir():
             raise RuntimeError("LiveKit browser SDK resource root is invalid.")
