@@ -692,6 +692,133 @@ class ClassroomCollaborationSQLiteStore:
                 persisted.append(attachment)
         return tuple(persisted)
 
+    def reconcile_attachment_sync_atomic(
+        self,
+        *,
+        room_id: str,
+        attachments: tuple[AttachmentMetadata, ...],
+        updates: tuple[AttachmentStateUpdate, ...],
+    ) -> tuple[AttachmentMetadata, ...]:
+        _canonical_id(room_id, "room id")
+        if type(attachments) is not tuple:
+            raise ValueError("attachment batch must be a tuple")
+        if type(updates) is not tuple:
+            raise ValueError("attachment state updates must be a tuple")
+        for attachment in attachments:
+            if type(attachment) is not AttachmentMetadata:
+                raise ValueError("attachment batch contains invalid metadata")
+            if attachment.room_id != room_id:
+                raise CollaborationStorageError(
+                    "attachment batch crossed room boundary"
+                )
+            if safe_display_filename(attachment.display_name) != attachment.display_name:
+                raise ValueError("display_name must already be sanitized")
+            _safe_object_key(attachment.object_key)
+        if any(type(update) is not AttachmentStateUpdate for update in updates):
+            raise ValueError("attachment state update has invalid type")
+        if not attachments and not updates:
+            return ()
+
+        persisted: list[AttachmentMetadata] = []
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                for attachment in attachments:
+                    existing = db.execute(
+                        "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                        (attachment.attachment_id,),
+                    ).fetchone()
+                    if existing is not None:
+                        loaded = self._attachment_from_row(existing)
+                        if loaded != attachment:
+                            raise CollaborationConflictError(
+                                "attachment identity reused with different payload"
+                            )
+                        persisted.append(loaded)
+                        continue
+                    try:
+                        db.execute(
+                            "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (
+                                attachment.attachment_id,
+                                attachment.room_id,
+                                attachment.sender_id,
+                                attachment.sequence_no,
+                                attachment.display_name,
+                                attachment.mime_type,
+                                attachment.size_bytes,
+                                attachment.sha256,
+                                attachment.object_key,
+                                attachment.transfer_state,
+                                attachment.retention,
+                                attachment.scan_state,
+                            ),
+                        )
+                    except sqlite3.IntegrityError as exc:
+                        raise CollaborationConflictError(
+                            "attachment batch conflicts with ordering or storage identity"
+                        ) from exc
+                    persisted.append(attachment)
+
+                cursor = db.execute(
+                    "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
+                    (room_id,),
+                ).fetchone()
+                previous = None if cursor is None else int(cursor["revision"])
+                for update in updates:
+                    if update.room_id != room_id:
+                        raise CollaborationStorageError(
+                            "attachment state update crossed room boundary"
+                        )
+                    expected_revision = 0 if previous is None else previous + 1
+                    if update.revision != expected_revision:
+                        raise CollaborationStorageError(
+                            "attachment state updates have an unresolved revision gap"
+                        )
+                    row = db.execute(
+                        "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                        (update.attachment_id,),
+                    ).fetchone()
+                    if row is None or row["room_id"] != room_id:
+                        raise CollaborationStorageError(
+                            "attachment state update references unknown room attachment"
+                        )
+                    current = self._attachment_from_row(row)
+                    _validate_transfer_transition(
+                        current.transfer_state,
+                        update.transfer_state,
+                    )
+                    _validate_scan_transition(
+                        current.scan_state,
+                        update.scan_state,
+                    )
+                    db.execute(
+                        """
+                        UPDATE collaboration_attachments
+                        SET transfer_state=?, scan_state=?
+                        WHERE attachment_id=?
+                        """,
+                        (
+                            update.transfer_state,
+                            update.scan_state,
+                            update.attachment_id,
+                        ),
+                    )
+                    db.execute(
+                        """
+                        INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
+                        VALUES(?,?)
+                        ON CONFLICT(room_id) DO UPDATE SET revision=excluded.revision
+                        """,
+                        (room_id, update.revision),
+                    )
+                    previous = update.revision
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        return tuple(persisted)
+
     def adopt_authoritative_attachment(
         self,
         attachment: AttachmentMetadata,
