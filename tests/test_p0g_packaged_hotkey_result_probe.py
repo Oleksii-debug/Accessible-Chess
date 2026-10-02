@@ -119,7 +119,10 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("TogglePattern]::Pattern", self.text)
         self.assertIn("ToggleState]::On", self.text)
         self.assertIn("$opposite=if($index -eq 1){2}else{1}", self.text)
-        self.assertIn("Invoke $preconditionButton", self.text)
+        self.assertIn(
+            "$preconditionMode=ActivateVariationPrecondition $roots $preconditionButton $opposite $shell $process",
+            self.text,
+        )
         self.assertIn("Could not establish opposite variation $opposite before Alt+$index", self.text)
         self.assertIn("Alt+$index did not change packaged selected state from variation $opposite", self.text)
         self.assertIn("$preconditionStates += $precondition", self.text)
@@ -129,13 +132,50 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("alt_1_selected_state=$selectedStates[0]", self.text)
         self.assertIn("alt_2_selected_state=$selectedStates[1]", self.text)
         self.assertLess(
-            self.text.index("Invoke $preconditionButton"),
+            self.text.index("$preconditionMode=ActivateVariationPrecondition"),
             self.text.index("[AccessibleChessP0GKeys]::Alt([byte]$case.key)"),
         )
         self.assertLess(
             self.text.index("SelectedVariation $roots $index"),
             self.text.index("Alt+$index did not expose a matching live-region result"),
         )
+
+
+    def test_variation_precondition_falls_back_only_to_real_native_enter_when_invoke_unsupported(self) -> None:
+        self.assertIn("function ActivateVariationPrecondition($Roots,$Button,[int]$Index,$Shell,$Process)", self.text)
+        self.assertIn("$name -notmatch $expected", self.text)
+        self.assertIn("if(-not [bool]$Button.Current.IsEnabled)", self.text)
+        self.assertIn("$targetRuntime=RuntimeId $Button", self.text)
+        self.assertIn("$Button.TryGetCurrentPattern(", self.text)
+        self.assertIn("[System.Windows.Automation.InvokePattern]::Pattern,[ref]$invokePattern", self.text)
+        self.assertIn("if($hasInvoke -and $null -ne $invokePattern)", self.text)
+        self.assertIn("$invokePattern.Invoke()", self.text)
+        self.assertIn("return 'uia-invoke'", self.text)
+        self.assertIn("if(-not [bool]$Button.Current.IsKeyboardFocusable)", self.text)
+        self.assertIn("$Button.SetFocus()", self.text)
+        self.assertIn("(RuntimeId $focus) -ceq $targetRuntime", self.text)
+        self.assertIn("2500 \"analysis variation $Index could not receive exact native keyboard focus\"", self.text)
+        self.assertIn("AssertProductForeground $Process", self.text)
+        self.assertIn("[AccessibleChessP0GKeys]::Enter()", self.text)
+        self.assertIn("return 'native-enter'", self.text)
+        self.assertLess(
+            self.text.index("if(-not [bool]$Button.Current.IsEnabled)"),
+            self.text.index("[AccessibleChessP0GKeys]::Enter()"),
+        )
+        self.assertLess(
+            self.text.index("$Button.SetFocus()"),
+            self.text.index("[AccessibleChessP0GKeys]::Enter()"),
+        )
+        self.assertIn("Could not find enabled opposite variation", self.text)
+        self.assertIn("SelectedVariation $roots $opposite", self.text)
+        self.assertLess(
+            self.text.index("$preconditionMode=ActivateVariationPrecondition"),
+            self.text.index("SelectedVariation $roots $opposite"),
+        )
+        self.assertIn("alt_1_precondition_activation=$preconditionModes[0]", self.text)
+        self.assertIn("alt_2_precondition_activation=$preconditionModes[1]", self.text)
+        self.assertNotIn("dispatch_action", self.text)
+        self.assertNotIn(".click()", self.text)
 
     def test_shipping_live_region_retains_status_and_atomic_polite_semantics(self) -> None:
         self.assertIn(
