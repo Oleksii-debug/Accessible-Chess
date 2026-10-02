@@ -34,7 +34,9 @@ class SoundSettingsWebViewTests(unittest.TestCase):
             'bridge.sound_settings_snapshot',
             'bridge.sound_settings_command',
             'AccessibleChessP0Runtime.exposeAnnouncement',
-            'restoreFocus(restoreFocusId)',
+            'restoreFocus(restoreFocusId, restoreFocusFallbackId)',
+            'group.id = "sound-pack-" + safeId',
+            'group.tabIndex = -1',
             'setAttribute("for"',
             'setAttribute("role", "status")',
         ):
