@@ -1,0 +1,123 @@
+name: LiveKit Moderation Service Token
+
+on:
+  pull_request:
+    branches:
+      - feature/livekit-join-token-issuer-20261002
+    paths:
+      - 'acs/livekit_moderation_service_token.py'
+      - 'tests/test_livekit_moderation_service_token.py'
+      - '.github/workflows/livekit-moderation-service-token.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livekit-moderation-service-token-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  moderation-service-token:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact stacked scope against current token owner
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/livekit-join-token-issuer-20261002"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current LiveKit join-token owner $base is not an ancestor of HEAD; synchronize the stacked PR."
+            exit 1
+          fi
+          git diff --check "$base...HEAD"
+          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          allowed="$(printf '%s\n'             '.github/workflows/livekit-moderation-service-token.yml'             'acs/livekit_moderation_service_token.py'             'tests/test_livekit_moderation_service_token.py' | sort)"
+          test "$changed" = "$allowed"
+          git diff --quiet "$base" HEAD --             acs/livekit_join_token_issuer.py             acs/classroom_join_credentials.py             acs/classroom_realtime_media.py             acs/classroom_domain.py             acs/chesscore.py
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile service token boundary
+        run: >-
+          python -m py_compile
+          acs/livekit_moderation_service_token.py
+          tests/test_livekit_moderation_service_token.py
+
+      - name: Run dependency-free service and member token contracts
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_moderation_service_token
+          tests.test_livekit_join_token_issuer
+          tests.test_classroom_join_credentials
+          tests.test_classroom_realtime_media
+
+      - name: Verify pinned official LiveKit server wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --disable-pip-version-check --no-deps             --only-binary=:all: --dest .livekit-sdk livekit-api==1.2.1
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          expected_name = "livekit_api-1.2.1-py3-none-any.whl"
+          expected_sha = "aa15b0a194c9e8167d4261bc61381682df23f98bc6d77760fcded93d2ce4b4ca"
+          files = list(Path(".livekit-sdk").glob("*"))
+          assert len(files) == 1, files
+          assert files[0].name == expected_name, files[0].name
+          assert sha256(files[0].read_bytes()).hexdigest() == expected_sha
+          PY
+
+      - name: Install exact LiveKit server SDK
+        run: python -m pip install --disable-pip-version-check -q livekit-api==1.2.1
+
+      - name: Prove real signed least-privilege service token
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_moderation_service_token.LiveKitModerationServiceTokenTests.test_real_pinned_sdk_emits_verified_rpc_only_service_jwt_when_installed
+
+      - name: Prove service/member authority separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'can_publish=False' acs/livekit_moderation_service_token.py
+          grep -Fq 'can_subscribe=False' acs/livekit_moderation_service_token.py
+          grep -Fq 'can_publish_data=True' acs/livekit_moderation_service_token.py
+          grep -Fq 'room_admin=False' acs/livekit_moderation_service_token.py
+          grep -Fq 'room_create=False' acs/livekit_moderation_service_token.py
+          grep -Fq 'hidden=False' acs/livekit_moderation_service_token.py
+          grep -Fq 'TokenVerifier' acs/livekit_moderation_service_token.py
+          grep -Fq 'LIVEKIT_API_VERSION' acs/livekit_moderation_service_token.py
+          ! grep -Eq 'os\.(environ|getenv)|LIVEKIT_API_SECRET|LIVEKIT_API_KEY'             acs/livekit_moderation_service_token.py
+          ! grep -Eq 'ClassroomJoinGrant|authorize_join|classroom_domain|chesscore|classroom_media_policy_authority'             acs/livekit_moderation_service_token.py
+
+      - name: Re-run browser moderation wire contract
+        run: node tests/js/livekit_classroom_media_adapter_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest
