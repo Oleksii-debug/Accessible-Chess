@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -388,6 +388,64 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=4 WHERE key='schema_version'"
                 )
                 version = 4
+            if version < 5:
+                # File sequence numbers are server-authoritative only after a
+                # transfer becomes durable. Provisional/failed local transfers
+                # must not reserve a room sequence that can block remote history.
+                db.execute(
+                    "ALTER TABLE collaboration_attachments "
+                    "RENAME TO collaboration_attachments_v4"
+                )
+                db.execute(
+                    """
+                    CREATE TABLE collaboration_attachments(
+                        attachment_id TEXT PRIMARY KEY,
+                        room_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                        display_name TEXT NOT NULL,
+                        mime_type TEXT,
+                        size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+                        sha256 TEXT NOT NULL,
+                        object_key TEXT NOT NULL UNIQUE,
+                        transfer_state TEXT NOT NULL,
+                        retention TEXT NOT NULL,
+                        scan_state TEXT NOT NULL
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    INSERT INTO collaboration_attachments(
+                        attachment_id, room_id, sender_id, sequence_no,
+                        display_name, mime_type, size_bytes, sha256,
+                        object_key, transfer_state, retention, scan_state
+                    )
+                    SELECT
+                        attachment_id, room_id, sender_id, sequence_no,
+                        display_name, mime_type, size_bytes, sha256,
+                        object_key, transfer_state, retention, scan_state
+                    FROM collaboration_attachments_v4
+                    """
+                )
+                db.execute("DROP TABLE collaboration_attachments_v4")
+                db.execute(
+                    """
+                    CREATE INDEX idx_collaboration_attachments_room
+                    ON collaboration_attachments(room_id, sequence_no, attachment_id)
+                    """
+                )
+                db.execute(
+                    """
+                    CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                    ON collaboration_attachments(room_id, sequence_no)
+                    WHERE transfer_state='stored'
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=5 WHERE key='schema_version'"
+                )
+                version = 5
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -917,7 +975,9 @@ class ClassroomCollaborationSQLiteStore:
             return tuple(
                 self._attachment_from_row(row)
                 for row in db.execute(
-                    "SELECT * FROM collaboration_attachments WHERE room_id=? ORDER BY sequence_no", (room_id,)
+                    "SELECT * FROM collaboration_attachments "
+                    "WHERE room_id=? ORDER BY sequence_no, attachment_id",
+                    (room_id,),
                 )
             )
 
