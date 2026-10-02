@@ -347,6 +347,68 @@ check(
   "successful chat send must return focus to the composer"
 );
 
+const externalControl = new FakeElement("button");
+externalControl.id = "external-control";
+root.appendChild(externalControl);
+externalControl.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.sent",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-one",
+          sender: "Teacher",
+          body: "e4 is the target.",
+          unread: false
+        },
+        {
+          dom_id: "collaboration-message-two",
+          sender: "Student",
+          body: "Understood.",
+          unread: true
+        }
+      ], 1),
+      focus_target: "collaboration-chat-input"
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === externalControl,
+  "delayed collaboration results must not steal focus after the user leaves the collaboration section"
+);
+
+const scopedSync = root.querySelector("#collaboration-chat-sync");
+scopedSync.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-one",
+          sender: "Teacher",
+          body: "e4 is the target.",
+          unread: false
+        }
+      ], 0),
+      focus_target: "external-control"
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-chat-sync"),
+  "collaboration payloads must not direct focus outside their own stable focus targets"
+);
+
 const refreshedSync = root.querySelector("#collaboration-chat-sync");
 refreshedSync.focus();
 window.AccessibleChessEducationSurface.apply(
