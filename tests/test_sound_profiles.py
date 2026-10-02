@@ -100,12 +100,26 @@ class SoundPackManifestTests(unittest.TestCase):
         self.assertEqual(pack.sound_path("move"), "audio/move.wav")
 
     def test_canonical_semantic_versions_accept_stable_and_prerelease(self) -> None:
-        for version in ("1.0.0", "12.34.56-beta.1", "0.0.1-rc.2"):
+        for version in (
+            "1.0.0",
+            "12.34.56-beta.1",
+            "0.0.1-rc.2",
+            "1.0.0-alpha-beta.1",
+        ):
             with self.subTest(version=version):
                 self.assertEqual(version, self._pack(version=version).version)
 
     def test_noncanonical_semantic_versions_fail_closed(self) -> None:
-        for version in ("1.0", "01.0.0", "1.00.0", "v1.0.0", "1.0.0+build", "1.0.0-"):
+        for version in (
+            "1.0",
+            "01.0.0",
+            "1.00.0",
+            "v1.0.0",
+            "1.0.0+build",
+            "1.0.0-",
+            "1.0.0-01",
+            "1.0.0-alpha.01",
+        ):
             with self.subTest(version=version), self.assertRaisesRegex(
                 ValueError, "canonical semantic version"
             ):
