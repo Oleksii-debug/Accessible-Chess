@@ -58,7 +58,9 @@ class ClassroomSoundRuntime:
 
     @staticmethod
     def _event_id(value: object) -> str:
-        event_id = str(value).strip().lower()
+        if type(value) is not str:
+            raise TypeError("classroom sound event id must be text")
+        event_id = value.strip().lower()
         if not event_id or not any(
             event_id.startswith(prefix) for prefix in CLASSROOM_SOUND_NAMESPACE_PREFIXES
         ):
@@ -93,7 +95,7 @@ class ClassroomSoundRuntime:
                 request,
                 False,
                 error_type=type(exc).__name__,
-                message=str(exc),
+                message="classroom sound adapter failed",
             )
         return ClassroomSoundResult(event_id, request, True)
 
@@ -119,6 +121,6 @@ class ClassroomSoundRuntime:
                 request,
                 False,
                 error_type=type(exc).__name__,
-                message=str(exc),
+                message="classroom sound adapter failed",
             )
         return ClassroomSoundResult(event_id, request, True)
