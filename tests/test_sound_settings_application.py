@@ -313,6 +313,17 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual("soft", profile_manager.current.pack_id)
         self.assertEqual(["soft"], [pack for pack, _limit in downloader.entries])
 
+        active = app.snapshot(language="en")
+        move = next(item for item in active["events"] if item["event_id"] == "move")
+        self.assertEqual(tuple(sorted(soft.files)), move["sound_choices"])
+        changed = app.set_event("move", sound_id="capture", language="en")
+        changed_move = next(
+            item for item in changed.snapshot["events"] if item["event_id"] == "move"
+        )
+        self.assertEqual("capture", changed_move["sound_id"])
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="missing.sound", language="en")
+
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
         storage = _PackStorage([classic])
