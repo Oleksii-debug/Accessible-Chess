@@ -190,7 +190,11 @@ class ClassroomMediaWebViewProjection:
             if type(label) is not str:
                 raise TypeError("participant display label must be text")
             visible = label.strip()
-            if not visible or len(visible) > 120 or any(ord(ch) < 32 for ch in visible):
+            if (
+                not visible
+                or len(visible) > 120
+                or any(ord(ch) < 32 or ord(ch) == 127 for ch in visible)
+            ):
                 raise ValueError("participant display label is invalid")
             result[participant_id] = visible
         local_id = self._controller.state.participant_id
@@ -228,6 +232,8 @@ class ClassroomMediaWebViewProjection:
         local: ParticipantMediaPolicy,
         target: ParticipantMediaPolicy,
     ) -> bool:
+        if not self._controller.state.connected or target.removed or target.blocked:
+            return False
         if local.participant_id == target.participant_id:
             return False
         if local.role is ClassroomRole.TEACHER:
@@ -397,7 +403,12 @@ class ClassroomMediaWebViewProjection:
         self,
         local: ParticipantMediaPolicy,
     ) -> tuple[dict[str, object], ...]:
-        if local.role not in {ClassroomRole.TEACHER, ClassroomRole.CO_TEACHER}:
+        if (
+            not self._controller.state.connected
+            or local.removed
+            or local.blocked
+            or local.role not in {ClassroomRole.TEACHER, ClassroomRole.CO_TEACHER}
+        ):
             return ()
         text = _TEXT[self._language]
         return (
