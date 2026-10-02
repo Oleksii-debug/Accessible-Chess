@@ -302,10 +302,23 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             for command in self.chat.moderation_calls[-1]
         }
         self.assertEqual(first, second)
-        self.assertEqual(
-            first,
-            {"student-1": "lock-all:1", "student-2": "lock-all:2"},
+        self.assertNotEqual(first["student-1"], first["student-2"])
+        self.assertTrue(all(value.startswith("batch:") for value in first.values()))
+
+        del self.roster.roles["student-1"]
+        self.roster.roles["student-3"] = ClassroomRole.STUDENT
+        self.roster.participant_ids = lambda: tuple(self.roster.roles)
+        controller.set_all_students_chat_send_permission(
+            actor_id="teacher-1",
+            allowed=False,
+            operation_id="lock-all",
         )
+        membership_changed = {
+            command.target_id: command.operation_id
+            for command in self.chat.moderation_calls[-1]
+        }
+        self.assertEqual(membership_changed["student-2"], first["student-2"])
+        self.assertNotIn(membership_changed["student-3"], set(first.values()))
 
     def test_student_and_co_teacher_cannot_moderate_teacher_roles(self):
         controller = self.controller("student-1")
