@@ -774,9 +774,19 @@ try {
   # foreground/focus-checked native Ctrl+C and exact WaitClipboard below.
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
   Start-Sleep -Milliseconds 150
-  $null=AssertProviderFocus $roots 'static document copy dispatch'
+  $staticDispatchFocus=AssertProviderFocus $roots 'static document copy dispatch'
+  if((RuntimeId $staticDispatchFocus) -cne $navigationRuntime -or
+     [string]$staticDispatchFocus.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static document copy dispatch focus is not the connected document'
+  }
   AssertProductForeground $process 'static document copy dispatch'
   [AccessibleChessCopyKeys]::Ctrl([byte]0x43)
+  $staticPostCopyFocus=AssertProviderFocus $roots 'static document copy post-dispatch'
+  if((RuntimeId $staticPostCopyFocus) -cne $navigationRuntime -or
+     [string]$staticPostCopyFocus.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Static document copy focus changed during native Ctrl+C'
+  }
+  AssertProductForeground $process 'static document copy post-dispatch'
   $null=WaitClipboard $selected
   Write-Host "PACKAGED_STATIC_DOCUMENT_SELECTION_COPY=PASS text='$selected' document_pid=$([int]$document.Current.ProcessId)"
 
