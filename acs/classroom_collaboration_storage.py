@@ -4,6 +4,7 @@ import hashlib
 from contextlib import closing
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Protocol, runtime_checkable
@@ -14,7 +15,7 @@ MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
 MAX_OBJECT_KEY_CHARS = 1024
 MAX_MIME_CHARS = 255
-_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._()\- ]+")
+_WINDOWS_INVALID_FILENAME_CHARS = frozenset('<>:"/\\|?*')
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _OBJECT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _WINDOWS_RESERVED_BASENAMES = frozenset(
@@ -170,16 +171,26 @@ def _validate_scan_transition(current: str, target: str) -> None:
 
 
 def safe_display_filename(value: str) -> str:
-    raw = str(value).replace("\\", "/")
+    if type(value) is not str:
+        raise ValueError("filename must be text")
+    raw = value.replace("\\", "/")
     if raw.startswith("/") or ".." in PurePath(raw).parts:
         raise ValueError("unsafe file path")
-    name = PurePath(raw).name.strip()
+    name = unicodedata.normalize("NFC", PurePath(raw).name).strip()
     if not name or name in {".", ".."}:
         raise ValueError("filename must not be empty")
-    clean = _SAFE_NAME_RE.sub("_", name).strip(" .")
+    clean = "".join(
+        "_"
+        if ch in _WINDOWS_INVALID_FILENAME_CHARS
+        or unicodedata.category(ch).startswith("C")
+        else ch
+        for ch in name
+    ).strip(" .")
     if not clean:
         raise ValueError("filename has no safe display characters")
-    bounded = clean[:255]
+    bounded = clean[:255].rstrip(" .")
+    if not bounded:
+        raise ValueError("filename has no safe display characters")
     windows_stem = bounded.split(".", 1)[0].rstrip(" .").upper()
     if windows_stem in _WINDOWS_RESERVED_BASENAMES:
         raise ValueError("filename uses a reserved Windows device name")
