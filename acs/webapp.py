@@ -17,8 +17,7 @@ from .history import HistoryError, ReviewHistory
 from .notation import format_accessible_compact_san
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewCommandResult, ReviewPresentationAdapter
-
-VERSION = "0.4.0-dev3"
+from .version import VERSION
 
 PIECE_UK = {
     "K": "білий король", "Q": "білий ферзь", "R": "біла тура",
