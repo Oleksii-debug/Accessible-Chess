@@ -122,6 +122,20 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertTrue(middle["can_older"])
         self.assertTrue(middle["can_newer"])
 
+        self.store.append_message(
+            ChatMessageMetadata(
+                "history-105",
+                "room-1",
+                "student-2",
+                105,
+                "Message 105",
+                sent_at_unix_ms=1700000000105,
+            )
+        )
+        stable_middle = view.snapshot()["chat"]
+        self.assertEqual("Message 50", stable_middle["messages"][0]["body"])
+        self.assertEqual("Message 99", stable_middle["messages"][-1]["body"])
+
         oldest_event = view.dispatch("collaboration.chat.older", {})
         oldest = oldest_event.payload["collaboration"]["chat"]
         self.assertEqual("collaboration-chat-newer", oldest_event.payload["focus_target"])
