@@ -14,6 +14,7 @@ from acs.classroom_collaboration_storage import (
     CollaborationConflictError,
     CollaborationQuotaError,
     CollaborationSequenceGapError,
+    CollaborationStorageError,
     content_sha256,
     safe_display_filename,
 )
