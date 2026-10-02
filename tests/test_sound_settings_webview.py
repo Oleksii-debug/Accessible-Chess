@@ -31,6 +31,7 @@ class SoundSettingsWebViewTests(unittest.TestCase):
             'sound-event-" + safeId + "-sound"',
             'packHeading.id = "sound-packs-heading"',
             'packStatus.id = "sound-packs-status"',
+            'String(item.provenance || "")',
             'invoke("select_pack", {pack_id: packId})',
             'invoke("install_pack", {pack_id: packId, activate: true})',
             'invoke("uninstall_pack", {pack_id: packId})',
