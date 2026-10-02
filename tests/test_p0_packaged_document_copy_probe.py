@@ -370,5 +370,30 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("[A-Z]:\\\\", self.text)
 
 
+    def test_endpoint_failure_differential_keeps_native_copy_gate_fail_closed(self) -> None:
+        # Distinguish stale RangeFromChild projections from UIA provider
+        # selection normalization without accepting either as an exact match.
+        self.assertIn("function RangeEndpointDiagnostic($Left,$Right)", self.text)
+        self.assertIn("$preSelectClone=$target.Clone()", self.text)
+        self.assertIn("$preSelectCloneDelta=RangeEndpointDiagnostic $target $preSelectClone", self.text)
+        self.assertIn("$freshRange=$textPattern.RangeFromChild($targetElement)", self.text)
+        self.assertIn("$postTargetRuntime -ceq $targetRuntime", self.text)
+        self.assertIn("$postDocumentRuntime -ceq $navigationRuntime", self.text)
+        self.assertIn("P0_STATIC_ENDPOINT_DIFFERENTIAL", self.text)
+        self.assertIn("old_active_start={0} old_active_end={1}", self.text)
+        self.assertIn("active_fresh={6}", self.text)
+        self.assertIn("fresh_status={7}", self.text)
+        self.assertIn("focus_before={14} focus_after={15}", self.text)
+        self.assertIn("target_before={20} target_after={21}", self.text)
+        self.assertIn("ClipboardCodeUnits $freshText 48", self.text)
+        self.assertIn('throw "Static TextPattern active selection endpoints differ from target range"', self.text)
+        self.assertLess(
+            self.text.index("if($startDelta -ne 0 -or $endDelta -ne 0)"),
+            self.text.index("Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'"),
+        )
+        self.assertNotIn("if($activeSelectedText -ceq $freshText)", self.text)
+        self.assertNotIn("if($startDelta -ne 0 -or $endDelta -ne 0){continue}", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

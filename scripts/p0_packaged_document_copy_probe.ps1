@@ -231,6 +231,22 @@ function ClipboardCodeUnits([string]$Value,[int]$Limit=96) {
   return ($units -join ',')
 }
 
+
+function RangeEndpointDiagnostic($Left,$Right) {
+  if($null -eq $Left -or $null -eq $Right){return 'unavailable'}
+  try {
+    $start=[int]$Left.CompareEndpoints(
+      [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start,
+      $Right,[System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start
+    )
+    $end=[int]$Left.CompareEndpoints(
+      [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End,
+      $Right,[System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
+    )
+    return ("{0},{1}" -f $start,$end)
+  } catch {return 'error'}
+}
+
 function WaitClipboard([string]$Expected,[int]$TimeoutMs=5000) {
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
   $last=''
@@ -568,7 +584,11 @@ try {
       Start-Sleep -Milliseconds 100
     }
   } while(-not $visibilityEvidence)
-  $null=AssertProviderFocus $roots 'static document visibility proof'
+  $preSelectFocus=AssertProviderFocus $roots 'static document visibility proof'
+  $preSelectFocusRuntime=RuntimeId $preSelectFocus
+  $preSelectClone=$null
+  try {$preSelectClone=$target.Clone()} catch {}
+  $preSelectCloneDelta=RangeEndpointDiagnostic $target $preSelectClone
   $target.Select()
   Start-Sleep -Milliseconds 100
   $activeSelections=@($textPattern.GetSelection())
@@ -592,6 +612,38 @@ try {
     [System.Windows.Automation.Text.TextPatternRangeEndpoint]::End
   )
   if($startDelta -ne 0 -or $endDelta -ne 0){
+    # Failure-only, path-free diagnostic for W5 #88. Never use a fresh or
+    # normalized range to bypass the original strict endpoint acceptance.
+    $targetElement=$usableDocuments[0].target_element
+    $postTargetRuntime=RuntimeId $targetElement
+    $postDocumentRuntime=RuntimeId $document
+    $focusAfterRuntime='unavailable'
+    $focusAfterType='unavailable'
+    $focusAfterId='unavailable'
+    try {
+      $focusAfter=[System.Windows.Automation.AutomationElement]::FocusedElement
+      if($null -ne $focusAfter){
+        $focusAfterRuntime=RuntimeId $focusAfter
+        $focusAfterType=([string]$focusAfter.Current.ControlType.ProgrammaticName -replace '[^A-Za-z0-9_.-]','_')
+        $focusAfterId=([string]$focusAfter.Current.AutomationId -replace '[^A-Za-z0-9_.-]','_')
+        if($focusAfterId.Length -gt 64){$focusAfterId=$focusAfterId.Substring(0,64)}
+      }
+    } catch {}
+    $freshRange=$null
+    $freshText=''
+    $freshStatus='unavailable'
+    if($postTargetRuntime -ceq $targetRuntime -and $postDocumentRuntime -ceq $navigationRuntime){
+      try {
+        $freshRange=$textPattern.RangeFromChild($targetElement)
+        if($null -ne $freshRange){
+          $freshText=[string]$freshRange.GetText(-1)
+          $freshStatus=if($freshText -ceq $selected){'same-text'}else{'different-text'}
+        }
+      } catch {$freshStatus='error'}
+    } else {$freshStatus='identity-changed'}
+    $focusBeforeSafe=if($preSelectFocusRuntime){$preSelectFocusRuntime}else{'unavailable'}
+    $freshUnits=ClipboardCodeUnits $freshText 48
+    Write-Host ("P0_STATIC_ENDPOINT_DIFFERENTIAL old_active_start={0} old_active_end={1} old_clone_pre={2} old_clone_post={3} old_fresh={4} active_clone={5} active_fresh={6} fresh_status={7} old_length={8} active_length={9} fresh_length={10} old_units='{11}' active_units='{12}' fresh_units='{13}' focus_before={14} focus_after={15} focus_after_type={16} focus_after_id={17} document_before={18} document_after={19} target_before={20} target_after={21}" -f $startDelta,$endDelta,$preSelectCloneDelta,(RangeEndpointDiagnostic $target $preSelectClone),(RangeEndpointDiagnostic $target $freshRange),(RangeEndpointDiagnostic $activeSelection $preSelectClone),(RangeEndpointDiagnostic $activeSelection $freshRange),$freshStatus,$targetText.Length,$activeSelectedText.Length,$freshText.Length,(ClipboardCodeUnits $targetText 48),(ClipboardCodeUnits $activeSelectedText 48),$freshUnits,$focusBeforeSafe,$focusAfterRuntime,$focusAfterType,$focusAfterId,$navigationRuntime,$postDocumentRuntime,$targetRuntime,$postTargetRuntime)
     throw "Static TextPattern active selection endpoints differ from target range"
   }
   Set-Clipboard -Value 'P0_COPY_STATIC_SENTINEL'
