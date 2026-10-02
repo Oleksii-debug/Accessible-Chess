@@ -8,6 +8,7 @@ and multiple server workers cannot rebind one room-scoped operation id to
 different semantics.
 """
 
+from contextlib import closing
 from pathlib import Path
 import re
 import sqlite3
