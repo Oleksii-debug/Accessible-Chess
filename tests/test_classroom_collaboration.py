@@ -19,6 +19,7 @@ from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
+    CollaborationQuotaError,
     content_sha256,
 )
 from acs.classroom_domain import MAX_WIRE_INTEGER
@@ -135,6 +136,28 @@ class FakeFiles:
         self.history_override = None
         self.state_updates = []
         self.state_override = None
+        self.server_max_room_bytes = None
+
+    def _server_room_bytes(self, room_id, *, excluding_attachment_id=None):
+        return sum(
+            item.size_bytes
+            for item in self.ordered
+            if item.room_id == room_id
+            and item.transfer_state != "deleted"
+            and item.attachment_id != excluding_attachment_id
+        )
+
+    def _enforce_server_room_quota(self, prepared):
+        if self.server_max_room_bytes is None:
+            return
+        used = self._server_room_bytes(
+            prepared.metadata.room_id,
+            excluding_attachment_id=prepared.metadata.attachment_id,
+        )
+        if used + prepared.metadata.size_bytes > self.server_max_room_bytes:
+            raise CollaborationQuotaError(
+                "server room file quota would be exceeded"
+            )
 
     def _next_sequence(self, room_id):
         room_sequences = [
@@ -161,6 +184,7 @@ class FakeFiles:
         self.upload_calls.append(prepared)
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
+        self._enforce_server_room_quota(prepared)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -180,6 +204,7 @@ class FakeFiles:
         self.retry_calls.append(prepared)
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
+        self._enforce_server_room_quota(prepared)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -941,6 +966,85 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ("a1",),
         )
 
+    def test_server_room_quota_is_authoritative_across_two_clients_and_retry(self):
+        self.files.server_max_room_bytes = 6
+        wide_local_quota = FileQuotaPolicy(
+            max_file_bytes=10,
+            max_room_bytes=100,
+        )
+        teacher_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "server-quota-teacher.sqlite3")
+        )
+        teacher = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=teacher_store,
+            file_store=self.file_store,
+            quota=wide_local_quota,
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "server-quota-student.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+            quota=wide_local_quota,
+        )
+
+        first_prepared = teacher.prepare_file(
+            attachment_id="server-quota-first",
+            local_path=self.make_file("server-quota-first.bin", b"1234"),
+            sequence_no=0,
+        )
+        second_prepared = student.prepare_file(
+            attachment_id="server-quota-second",
+            local_path=self.make_file("server-quota-second.bin", b"5678"),
+            sequence_no=0,
+        )
+        first = teacher.upload_file(first_prepared)
+        self.assertEqual(first.size_bytes, 4)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server room file quota",
+        ):
+            student.upload_file(second_prepared)
+        self.assertEqual(
+            student_store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        self.assertEqual(
+            tuple(item.attachment_id for item in self.files.ordered),
+            ("server-quota-first",),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server room file quota",
+        ):
+            student.retry_file(second_prepared)
+        self.assertEqual(len(self.files.retry_calls), 1)
+
+        self.files.set_authoritative_state(
+            first.attachment_id,
+            transfer_state="deleted",
+        )
+        retried = student.retry_file(second_prepared)
+        self.assertEqual(retried.transfer_state, "stored")
+        self.assertEqual(retried.sequence_no, 1)
+        self.assertEqual(
+            self.files._server_room_bytes("room-1"),
+            4,
+        )
+
     def test_file_content_change_after_prepare_fails_closed_before_transport(self):
         controller = self.controller()
         path = self.make_file(content=b"first")
@@ -1463,6 +1567,60 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         current = second_store.room_attachments("room-1")[0]
         self.assertEqual(current.scan_state, "pending")
         self.assertIsNone(second_store.attachment_state_revision("room-1"))
+
+    def test_file_state_defers_update_for_attachment_on_next_history_page(self):
+        producer_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-file-producer.sqlite3")
+        )
+        producer = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=producer_store,
+            file_store=self.file_store,
+        )
+        uploaded = tuple(
+            producer.upload_file(
+                producer.prepare_file(
+                    attachment_id=f"paged-file-{index}",
+                    local_path=self.make_file(
+                        f"paged-file-{index}.bin",
+                        bytes([index + 1]),
+                    ),
+                    sequence_no=index,
+                    retention="persistent",
+                )
+            )
+            for index in range(3)
+        )
+        self.files.set_authoritative_state(
+            uploaded[2].attachment_id,
+            scan_state="clean",
+        )
+        consumer_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-file-consumer.sqlite3")
+        )
+        consumer = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=consumer_store,
+            file_store=self.file_store,
+        )
+        with patch("acs.classroom_collaboration.MAX_SYNC_ATTACHMENTS", 2):
+            first_page = consumer.sync_files()
+            self.assertEqual(tuple(item.sequence_no for item in first_page), (0, 1))
+            self.assertIsNone(consumer_store.attachment_state_revision("room-1"))
+            second_page = consumer.sync_files()
+            self.assertEqual(tuple(item.sequence_no for item in second_page), (2,))
+        current = consumer_store.room_attachments("room-1")
+        self.assertEqual(tuple(item.sequence_no for item in current), (0, 1, 2))
+        self.assertEqual(current[-1].scan_state, "clean")
+        self.assertEqual(consumer_store.attachment_state_revision("room-1"), 0)
 
     def test_new_file_history_is_not_exposed_when_state_stream_has_a_gap(self):
         controller = self.controller("teacher-1")

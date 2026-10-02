@@ -164,10 +164,18 @@ class ChatTransportPort(Protocol):
 
 
 class FileTransferPort(Protocol):
-    """Server-authoritative file metadata plus opaque-byte transfer boundary."""
+    """Server-authoritative file metadata plus opaque-byte transfer boundary.
+
+    The transport owns authoritative room-quota enforcement. It must atomically
+    reject a new upload with CollaborationQuotaError when accepting that
+    attachment would exceed its server-configured room quota. Client-side quota
+    checks are advisory safety only and must not be trusted as room authority.
+    Retry of the same attachment must not double-count already reserved/stored
+    bytes.
+    """
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        """Upload bytes and return authoritative metadata, including room sequence."""
+        """Upload bytes, enforce server room quota, and return authoritative metadata."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
@@ -536,6 +544,14 @@ class ClassroomCollaborationController:
         try:
             result = self._files.upload(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                uploading.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 uploading.attachment_id,
@@ -577,6 +593,14 @@ class ClassroomCollaborationController:
         try:
             result = self._files.retry(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                current.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 current.attachment_id,
