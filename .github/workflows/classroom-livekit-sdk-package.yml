@@ -12,6 +12,7 @@ on:
       - 'tests/test_stage_livekit_client_sdk.py'
       - 'acs/version2_release_payload.py'
       - 'tests/test_version2_release_payload.py'
+      - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
       - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
       - '.github/workflows/classroom-livekit-sdk-package.yml'
   workflow_dispatch:
@@ -56,6 +57,7 @@ jobs:
             'scripts/stage_livekit_client_sdk.py'
             'tests/test_stage_livekit_client_sdk.py'
             'tests/test_version2_release_payload.py'
+            'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
           )
           if [[ "${actual[*]}" != "${expected[*]}" ]]; then
             printf 'Unexpected LiveKit SDK package PR scope.\nExpected:\n'
@@ -81,7 +83,7 @@ jobs:
           python-version: '3.12.10'
 
       - name: Run adversarial staging and release-payload contracts
-        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload tests.test_classroom_realtime_media
+        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media
 
       - name: Download and stage the real pinned npm artifact
         shell: bash
