@@ -168,6 +168,23 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertFalse(result.delivered)
             self.assertEqual([], playback.requests)
 
+    def test_default_classic_composition_silences_optional_classroom_sound(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-classic-classroom-") as raw:
+            root = Path(raw)
+            playback = _Playback()
+            composition = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=playback,
+            )
+
+            result = composition.classroom_runtime.dispatch("classroom.join")
+
+            self.assertTrue(result.ok)
+            self.assertFalse(result.delivered)
+            self.assertIsNone(result.request)
+            self.assertEqual([], playback.requests)
+
     def test_preview_runs_through_composed_profiled_runtime(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-preview-") as raw:
             root = Path(raw)
