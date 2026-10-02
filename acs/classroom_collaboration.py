@@ -662,13 +662,6 @@ class ClassroomCollaborationController:
                 )
             expected_sequence += 1
 
-        try:
-            persisted = self._store.register_attachments_atomic(incoming)
-        except CollaborationStorageError as error:
-            raise CollaborationError(
-                "remote attachment batch could not be reconciled"
-            ) from error
-
         state_after = self._store.attachment_state_revision(self.room_id)
         updates = self._files.state_updates_after(
             room_id=self.room_id,
@@ -697,14 +690,16 @@ class ClassroomCollaborationController:
                     "attachment state has an unresolved revision gap"
                 )
             state_previous = update.revision
+
         try:
-            self._store.apply_attachment_state_updates(
+            persisted = self._store.reconcile_attachment_sync_atomic(
                 room_id=self.room_id,
+                attachments=incoming,
                 updates=updates,
             )
         except CollaborationStorageError as error:
             raise CollaborationError(
-                "attachment state could not be reconciled"
+                "attachment history and state could not be reconciled atomically"
             ) from error
 
         if not persisted:
