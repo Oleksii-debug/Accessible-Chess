@@ -1136,6 +1136,81 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 self.assertEqual(persisted, (authoritative,))
                 self.assertEqual(store.room_attachments("room"), (authoritative,))
 
+    def test_attachment_sync_never_restores_blocked_failed_file(self) -> None:
+        provisional = AttachmentMetadata(
+            "blocked-uncertain",
+            "room",
+            "teacher",
+            73,
+            "blocked.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/blocked-uncertain",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        blocked = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+        restored = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationConflictError,
+            "blocked attachment cannot be restored",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(restored,),
+                updates=(),
+            )
+        self.assertEqual(self.store.room_attachments("room"), (blocked,))
+
+        tombstone = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "deleted",
+            provisional.retention,
+            "blocked",
+        )
+        self.assertEqual(
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(tombstone,),
+                updates=(),
+            ),
+            (tombstone,),
+        )
+        self.assertEqual(self.store.room_attachments("room"), (tombstone,))
+
     def test_attachment_sync_rejects_authority_over_mismatched_uncertain_identity(self) -> None:
         provisional = AttachmentMetadata(
             "uncertain-a",
