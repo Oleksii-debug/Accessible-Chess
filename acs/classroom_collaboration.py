@@ -589,6 +589,45 @@ class ClassroomCollaborationController:
             require_current_sender=True,
             allow_tombstone=False,
         )
+
+        def existing_delivery() -> AttachmentMetadata | None:
+            matches = tuple(
+                item
+                for item in self._store.room_attachments(self.room_id)
+                if item.attachment_id == attachment.attachment_id
+            )
+            if not matches:
+                return None
+            if len(matches) != 1:
+                raise CollaborationError("duplicate attachment identity in current room")
+            current = matches[0]
+            immutable = (
+                "attachment_id",
+                "room_id",
+                "sender_id",
+                "sequence_no",
+                "display_name",
+                "mime_type",
+                "size_bytes",
+                "sha256",
+                "object_key",
+                "retention",
+            )
+            if any(
+                getattr(current, field) != getattr(attachment, field)
+                for field in immutable
+            ):
+                raise CollaborationError(
+                    "live file reused attachment identity with different payload"
+                )
+            # Preserve any newer mutable state already reconciled locally; a
+            # delayed stored push must never resurrect a tombstone or scan block.
+            return current
+
+        existing = existing_delivery()
+        if existing is not None:
+            return existing
+
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
@@ -603,6 +642,9 @@ class ClassroomCollaborationController:
         expected_sequence = 0 if after is None else after + 1
         if attachment.sequence_no > expected_sequence:
             self.sync_files()
+            existing = existing_delivery()
+            if existing is not None:
+                return existing
             authoritative = tuple(
                 item
                 for item in self._store.room_attachments(self.room_id)
@@ -615,10 +657,10 @@ class ClassroomCollaborationController:
                     break
                 after = current.sequence_no
             expected_sequence = 0 if after is None else after + 1
-            if attachment.sequence_no > expected_sequence:
-                raise CollaborationError(
-                    "live file has an unresolved sequence gap after recovery"
-                )
+        if attachment.sequence_no != expected_sequence:
+            raise CollaborationError(
+                "live file sequence is stale or unresolved after recovery"
+            )
         try:
             return self._store.register_attachment(attachment)
         except CollaborationStorageError as error:
