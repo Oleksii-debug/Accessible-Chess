@@ -34,8 +34,8 @@ class SoundAssetDigest:
         path = _safe_audio_path(self.path)
         if isinstance(self.size_bytes, bool) or not isinstance(self.size_bytes, int):
             raise TypeError("sound asset size_bytes must be an integer")
-        if self.size_bytes < 0:
-            raise ValueError("sound asset size_bytes cannot be negative")
+        if self.size_bytes <= 0:
+            raise ValueError("sound asset size_bytes must be positive")
         if not isinstance(self.sha256, str):
             raise TypeError("sound asset sha256 must be text")
         digest = self.sha256.strip()
