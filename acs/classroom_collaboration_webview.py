@@ -515,6 +515,10 @@ class ClassroomCollaborationWebView:
             )
         return self._event(
             "collaboration.chat.page",
+            announcement=_LABELS[self._language]["history_page"].format(
+                current=target_index + 1,
+                total=len(buckets),
+            ),
             focus_target=focus_target,
         )
 
@@ -580,6 +584,10 @@ class ClassroomCollaborationWebView:
             )
         return self._event(
             "collaboration.file.page",
+            announcement=_LABELS[self._language]["file_page"].format(
+                current=target_index + 1,
+                total=len(buckets),
+            ),
             focus_target=focus_target,
         )
 
