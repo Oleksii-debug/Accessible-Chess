@@ -15,6 +15,7 @@ WORKFLOWS = (
 )
 COMPOSITION_WORKFLOW = ROOT / ".github" / "workflows" / "version2-windows-composition.yml"
 W3_WORKFLOW = ROOT / ".github" / "workflows" / "w3-takeback-clock-oracle-determinism.yml"
+CLOCK_WORKFLOW = ROOT / ".github" / "workflows" / "chess-clock-switch-boundary.yml"
 
 
 class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
@@ -85,6 +86,28 @@ class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
             text,
         )
         self.assertNotIn("core_expected=", text)
+
+    def test_clock_boundary_retains_exact_current_product_authority(self) -> None:
+        text = CLOCK_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            'elif [ "$GH_HEAD_REF" = "$product_ref" ]; then',
+            text,
+        )
+        self.assertIn(
+            "integrated_product=3f30f0d093fc19afe60e8262a70ccfdb3702d614",
+            text,
+        )
+        for digest in (
+            "ced200e24405bbe0f6c1282e99fdc9440b675477",
+            "2b0029b6da4dc88494c0e3cd4e891b886df45eda",
+            "02cc2238a0ee3582707f8c926fc8e089faaeccc7",
+            CURRENT_STAGE1_CORE,
+        ):
+            self.assertIn(digest, text)
+        self.assertIn(
+            "Clock Product convergence crossed foreign runtime ownership",
+            text,
+        )
 
     def test_d01_core_lock_remains_fail_closed(self) -> None:
         text = WORKFLOWS[0].read_text(encoding="utf-8")
