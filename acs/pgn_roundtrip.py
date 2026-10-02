@@ -917,10 +917,10 @@ def canonical_round_trip_text(text: object) -> PgnRoundTripResult:
 
 def canonical_round_trip_bytes(data: object) -> tuple[bytes, tuple[PgnGame, ...]]:
     result = canonical_round_trip_text(decode_pgn_bytes(data))
-    encoded = result.text.encode("utf-8", errors="strict")
-    if len(encoded) > MAX_PGN_SOURCE_BYTES:
+    if _utf8_size_exceeds_limit(result.text, MAX_PGN_SOURCE_BYTES):
         _raise_limit(
             "PGN serialization exceeds the byte safety limit",
             PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
         )
+    encoded = result.text.encode("utf-8", errors="strict")
     return encoded, result.games
