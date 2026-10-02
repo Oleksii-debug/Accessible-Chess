@@ -449,5 +449,34 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         self.assertEqual(api.sans, [])
 
 
+    def test_failed_stage1_takeback_has_no_success_sound_before_retry(self):
+        api = self.make_stage1()
+        class Sounds:
+            resumed = 0
+            def resume_after_takeback(self):
+                self.resumed += 1
+            def move(self, *_args):
+                pass
+            def end(self):
+                pass
+            def illegal(self):
+                pass
+        sounds = Sounds()
+        api._game_sounds = sounds
+        session = api._engine_session
+        original_provider = session._clock_restore_provider
+        def unavailable():
+            raise RuntimeError("injected clock history outage")
+        session._clock_restore_provider = unavailable
+        failure = api.engine_takeback()
+        self.assertFalse(failure["ok"], failure)
+        self.assertEqual(sounds.resumed, 0)
+        self.assertNotIn("Ходи повернено", failure["announcement"])
+        session._clock_restore_provider = original_provider
+        accepted = api.engine_takeback()
+        self.assertTrue(accepted["ok"], accepted)
+        self.assertEqual(sounds.resumed, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
