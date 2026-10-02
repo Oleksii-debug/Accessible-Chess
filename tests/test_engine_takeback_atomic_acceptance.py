@@ -462,6 +462,8 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
             lambda: api.set_turn("b"),
             lambda: api.set_fen(api.board.START),
             lambda: api.set_position_text("reset position"),
+            lambda: api.insert_analysis_move(),
+            lambda: api.insert_analysis_line(),
         ):
             self.assertFalse(rejected_action()["ok"])
             self.assertEqual(api.board.fen(), unsafe_board)

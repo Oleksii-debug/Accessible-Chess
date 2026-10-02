@@ -1106,6 +1106,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             return self._ok(message)
         return result
 
+    def insert_analysis_move(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
+        return super().insert_analysis_move()
+
+    def insert_analysis_line(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
+        return super().insert_analysis_line()
+
     def undo(self) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
             return self._error(self._takeback_recovery_message())
