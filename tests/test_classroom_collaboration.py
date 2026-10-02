@@ -1341,6 +1341,46 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertIsNone(self.store.attachment_state_revision("room-1"))
 
+    def test_live_receive_advances_after_tombstone_prefix(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "remote-deleted-0",
+            "room-1",
+            "student-1",
+            0,
+            "deleted.bin",
+            None,
+            1,
+            "5" * 64,
+            "rooms/room-1/remote-deleted-0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        live = AttachmentMetadata(
+            "remote-live-1",
+            "room-1",
+            "student-2",
+            1,
+            "live.bin",
+            None,
+            1,
+            "6" * 64,
+            "rooms/room-1/remote-live-1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+
+        received = controller.receive_file(live)
+
+        self.assertEqual(received, live)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (tombstone, live),
+        )
+
     def test_receive_later_file_rejects_partial_catch_up_that_still_has_a_gap(self):
         controller = self.controller("teacher-1")
         first = AttachmentMetadata(
