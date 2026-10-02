@@ -264,6 +264,8 @@ class FilesystemSoundPackStore:
             pack_id = _stable_id(raw_id, allow_dot=True)
             if manifest.pack_id != pack_id:
                 raise ValueError("built_in key must match manifest pack_id")
+            if pack_id in normalized:
+                raise ValueError("duplicate built-in sound pack id")
             normalized[pack_id] = manifest
         self._built_in = normalized
 
