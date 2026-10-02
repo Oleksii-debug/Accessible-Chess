@@ -816,6 +816,32 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             )
         self.assertEqual(self.files.upload_calls, [])
 
+    def test_safe_object_key_override_must_match_canonical_room_attachment_namespace(self):
+        controller = self.controller()
+        path = self.make_file(content=b"namespace-bound")
+
+        canonical = controller.prepare_file(
+            attachment_id="a1",
+            local_path=path,
+            sequence_no=0,
+            object_key="rooms/room-1/a1",
+        )
+        self.assertEqual(canonical.metadata.object_key, "rooms/room-1/a1")
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "canonical attachment namespace",
+        ):
+            controller.prepare_file(
+                attachment_id="a2",
+                local_path=path,
+                sequence_no=1,
+                object_key="rooms/other-room/a2",
+            )
+
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
     def test_removed_local_participant_loses_chat_and_file_access(self):
         controller = self.controller("student-1")
         prepared = controller.prepare_file(
