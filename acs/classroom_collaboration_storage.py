@@ -591,6 +591,76 @@ class ClassroomCollaborationSQLiteStore:
                 ) from exc
         return attachment
 
+    def adopt_authoritative_attachment(
+        self,
+        attachment: AttachmentMetadata,
+    ) -> AttachmentMetadata:
+        if type(attachment) is not AttachmentMetadata:
+            raise ValueError("authoritative attachment metadata has invalid type")
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                (attachment.attachment_id,),
+            ).fetchone()
+            if row is None:
+                raise CollaborationStorageError(
+                    f"unknown attachment: {attachment.attachment_id}"
+                )
+            current = self._attachment_from_row(row)
+            immutable = (
+                "attachment_id",
+                "room_id",
+                "sender_id",
+                "display_name",
+                "mime_type",
+                "size_bytes",
+                "sha256",
+                "object_key",
+                "retention",
+            )
+            if any(
+                getattr(current, field) != getattr(attachment, field)
+                for field in immutable
+            ):
+                raise CollaborationConflictError(
+                    "file authority changed immutable attachment identity"
+                )
+            if current == attachment:
+                return current
+            if current.transfer_state != "uploading":
+                raise CollaborationConflictError(
+                    "file authority arrived outside active upload transition"
+                )
+            _validate_transfer_transition(
+                current.transfer_state,
+                attachment.transfer_state,
+            )
+            _validate_scan_transition(current.scan_state, attachment.scan_state)
+            try:
+                db.execute(
+                    """
+                    UPDATE collaboration_attachments
+                    SET sequence_no=?, transfer_state=?, scan_state=?
+                    WHERE attachment_id=?
+                    """,
+                    (
+                        attachment.sequence_no,
+                        attachment.transfer_state,
+                        attachment.scan_state,
+                        attachment.attachment_id,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise CollaborationConflictError(
+                    "authoritative attachment conflicts with room ordering"
+                ) from exc
+            updated = db.execute(
+                "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                (attachment.attachment_id,),
+            ).fetchone()
+        return self._attachment_from_row(updated)
+
     def update_attachment_state(
         self, attachment_id: str, *, transfer_state: str, scan_state: str | None = None
     ) -> AttachmentMetadata:
