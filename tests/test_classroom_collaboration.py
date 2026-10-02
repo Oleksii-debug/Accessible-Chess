@@ -15,9 +15,11 @@ from acs.classroom_collaboration import (
 )
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
+    CollaborationQuotaError,
     content_sha256,
 )
 from acs.classroom_domain import MAX_WIRE_INTEGER
@@ -126,32 +128,120 @@ class FakeFiles:
         self.upload_calls = []
         self.retry_calls = []
         self.cancel_calls = []
+        self.attachments = {}
+        self.ordered = []
+        self.state_updates = []
         self.fail_upload = False
         self.fail_retry = False
         self.scan_state = "pending"
+        self.mutate_reservation = False
+
+    def reserve_upload(self, prepared, *, max_room_bytes):
+        current = self.attachments.get(prepared.metadata.attachment_id)
+        if current is not None:
+            return current
+        room_items = [
+            item for item in self.ordered
+            if item.room_id == prepared.metadata.room_id
+            and item.transfer_state != "deleted"
+        ]
+        if sum(item.size_bytes for item in room_items) + prepared.metadata.size_bytes > max_room_bytes:
+            raise CollaborationQuotaError("room file quota would be exceeded")
+        sequence = sum(
+            1 for item in self.ordered if item.room_id == prepared.metadata.room_id
+        )
+        reserved = replace(
+            prepared.metadata,
+            sequence_no=sequence,
+            transfer_state="pending",
+            scan_state="pending",
+        )
+        if self.mutate_reservation:
+            reserved = replace(reserved, display_name="mutated.bin")
+        self.attachments[reserved.attachment_id] = reserved
+        self.ordered.append(reserved)
+        return reserved
+
+    def history_after(self, *, room_id, after_sequence, limit):
+        rows = tuple(
+            item for item in self.ordered
+            if item.room_id == room_id
+            and (after_sequence is None or item.sequence_no > after_sequence)
+        )
+        return rows[:limit]
+
+    def state_updates_after(self, *, room_id, after_revision, limit):
+        rows = tuple(
+            item for item in self.state_updates
+            if item.room_id == room_id
+            and (after_revision is None or item.revision > after_revision)
+        )
+        return rows[:limit]
+
+    def _replace_attachment(self, attachment):
+        self.attachments[attachment.attachment_id] = attachment
+        for index, item in enumerate(self.ordered):
+            if item.attachment_id == attachment.attachment_id:
+                self.ordered[index] = attachment
+                break
+
+    def _publish_state(self, attachment):
+        revision = sum(
+            1 for item in self.state_updates if item.room_id == attachment.room_id
+        )
+        self.state_updates.append(
+            AttachmentStateUpdate(
+                attachment.room_id,
+                attachment.attachment_id,
+                revision,
+                attachment.transfer_state,
+                attachment.scan_state,
+            )
+        )
 
     def upload(self, prepared):
         self.upload_calls.append(prepared)
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
-        return replace(
+        result = replace(
             prepared.metadata,
             transfer_state="stored",
             scan_state=self.scan_state,
         )
+        self._replace_attachment(result)
+        self._publish_state(result)
+        return result
 
     def retry(self, prepared):
         self.retry_calls.append(prepared)
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
-        return replace(
+        result = replace(
             prepared.metadata,
             transfer_state="stored",
             scan_state=self.scan_state,
         )
+        self._replace_attachment(result)
+        self._publish_state(result)
+        return result
 
     def cancel(self, *, attachment_id):
         self.cancel_calls.append(attachment_id)
+        current = self.attachments[attachment_id]
+        deleted = replace(current, transfer_state="deleted")
+        self._replace_attachment(deleted)
+        self._publish_state(deleted)
+
+    def publish_state(self, attachment_id, *, transfer_state=None, scan_state=None):
+        current = self.attachments[attachment_id]
+        updated = replace(
+            current,
+            transfer_state=current.transfer_state if transfer_state is None else transfer_state,
+            scan_state=current.scan_state if scan_state is None else scan_state,
+        )
+        self._replace_attachment(updated)
+        self._publish_state(updated)
+        return updated
 
 
 class FakeFileStore:
@@ -777,7 +867,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertEqual(self.files.upload_calls, [])
 
-    def test_prepare_file_enforces_per_file_and_room_quota(self):
+    def test_prepare_file_enforces_per_file_and_server_reservation_enforces_room_quota(self):
         path = self.make_file(content=b"12345")
         controller = self.controller(
             quota=FileQuotaPolicy(max_file_bytes=4, max_room_bytes=10)
@@ -788,12 +878,17 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         controller = self.controller(
             quota=FileQuotaPolicy(max_file_bytes=10, max_room_bytes=6)
         )
-        first = controller.prepare_file(attachment_id="a1", local_path=path, sequence_no=0)
+        first = controller.prepare_file(attachment_id="a1", local_path=path, sequence_no=77)
         self.files.scan_state = "clean"
-        controller.upload_file(first)
-        second_path = self.make_file("second.bin", b"12")
+        stored = controller.upload_file(first)
+        self.assertEqual(stored.sequence_no, 0)
+        second = controller.prepare_file(
+            attachment_id="a2",
+            local_path=self.make_file("second.bin", b"12"),
+            sequence_no=0,
+        )
         with self.assertRaises(CollaborationError):
-            controller.prepare_file(attachment_id="a2", local_path=second_path, sequence_no=1)
+            controller.upload_file(second)
 
     def test_upload_rechecks_room_quota_after_multiple_files_were_prepared(self):
         controller = self.controller(
@@ -819,6 +914,224 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             tuple(item.attachment_id for item in self.store.room_attachments("room-1")),
             ("a1",),
         )
+
+    def test_file_sequence_is_server_authoritative_across_two_clients(self):
+        teacher_store = self.store
+        teacher = self.controller("teacher-1")
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "student-files.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+        )
+        teacher_prepared = teacher.prepare_file(
+            attachment_id="teacher-a",
+            local_path=self.make_file("teacher.bin", b"teacher"),
+            sequence_no=0,
+        )
+        student_prepared = student.prepare_file(
+            attachment_id="student-a",
+            local_path=self.make_file("student.bin", b"student"),
+            sequence_no=0,
+        )
+        self.files.scan_state = "clean"
+        teacher_file = teacher.upload_file(teacher_prepared)
+        student_file = student.upload_file(student_prepared)
+        self.assertEqual((teacher_file.sequence_no, student_file.sequence_no), (0, 1))
+        self.assertEqual(
+            tuple(item.attachment_id for item in teacher.sync_files()),
+            ("student-a",),
+        )
+        self.assertEqual(
+            tuple(item.attachment_id for item in student_store.room_attachments("room-1")),
+            ("teacher-a", "student-a"),
+        )
+        self.assertEqual(
+            tuple(item.attachment_id for item in teacher_store.room_attachments("room-1")),
+            ("teacher-a", "student-a"),
+        )
+
+    def test_fresh_second_client_discovers_clean_file_and_can_download(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "clean"
+        uploaded = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="lesson-a",
+                local_path=self.make_file("lesson.pgn", b"1. e4 e5"),
+                sequence_no=999,
+                retention="persistent",
+            )
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "student-download.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+        token = student.issue_download_token(
+            attachment_id=uploaded.attachment_id,
+            ttl_seconds=60,
+        )
+        self.assertEqual(token, "short-lived-read-token")
+        self.assertEqual(
+            self.file_store.read_calls[-1],
+            (uploaded.object_key, "student-1", 60),
+        )
+
+    def test_file_history_from_departed_sender_remains_available_on_reconnect(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "clean"
+        uploaded = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="departed-file",
+                local_path=self.make_file("departed.pgn", b"1. d4 d5"),
+                sequence_no=0,
+            )
+        )
+        self.roster.roles.pop("teacher-1")
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "departed-file.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+
+    def test_remote_attachment_state_update_reconciles_without_reordering(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "pending"
+        uploaded = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="scan-a",
+                local_path=self.make_file("scan.bin", b"scan"),
+                sequence_no=0,
+            )
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "student-scan.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+        self.files.publish_state(
+            uploaded.attachment_id,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.assertEqual(student.sync_files(), ())
+        refreshed = student_store.room_attachments("room-1")[0]
+        self.assertEqual(refreshed.sequence_no, 0)
+        self.assertEqual(refreshed.scan_state, "clean")
+        self.assertEqual(student_store.attachment_state_revision("room-1"), 1)
+
+    def test_file_sync_defers_state_for_attachment_on_next_history_page(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "pending"
+        uploaded = []
+        for index in range(3):
+            uploaded.append(
+                teacher.upload_file(
+                    teacher.prepare_file(
+                        attachment_id=f"page-file-{index}",
+                        local_path=self.make_file(
+                            f"page-{index}.bin",
+                            bytes([index + 1]),
+                        ),
+                        sequence_no=0,
+                    )
+                )
+            )
+        self.files.publish_state(
+            uploaded[2].attachment_id,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-files.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+        )
+        with patch("acs.classroom_collaboration.MAX_SYNC_MESSAGES", 2):
+            self.assertEqual(len(student.sync_files()), 2)
+            self.assertIsNone(student_store.attachment_state_revision("room-1"))
+            self.assertEqual(len(student.sync_files()), 1)
+        self.assertEqual(student_store.attachment_state_revision("room-1"), 3)
+        self.assertEqual(
+            student_store.room_attachments("room-1")[-1].scan_state,
+            "clean",
+        )
+
+    def test_attachment_sync_rejects_cross_room_gap_and_unknown_state_update(self):
+        controller = self.controller("student-1")
+        foreign = AttachmentMetadata(
+            "foreign-a", "room-2", "teacher-1", 0, "foreign.bin", None, 1,
+            "0" * 64, "rooms/room-2/foreign-a", "stored", "session", "clean"
+        )
+        self.files.ordered = [foreign]
+        self.files.attachments = {foreign.attachment_id: foreign}
+        with self.assertRaises(CollaborationError):
+            controller.sync_files()
+        gap = AttachmentMetadata(
+            "gap-a", "room-1", "teacher-1", 2, "gap.bin", None, 1,
+            "1" * 64, "rooms/room-1/gap-a", "stored", "session", "clean"
+        )
+        self.files.ordered = [gap]
+        self.files.attachments = {gap.attachment_id: gap}
+        with self.assertRaisesRegex(CollaborationError, "sequence gap"):
+            controller.sync_files()
+        self.files.ordered = []
+        self.files.attachments = {}
+        self.files.state_updates = [
+            AttachmentStateUpdate("room-1", "unknown-a", 0, "stored", "clean")
+        ]
+        with self.assertRaises(CollaborationError):
+            controller.sync_files()
+
+    def test_upload_rejects_transport_mutation_during_server_reservation(self):
+        controller = self.controller()
+        self.files.mutate_reservation = True
+        prepared = controller.prepare_file(
+            attachment_id="mutated-a",
+            local_path=self.make_file("original.bin", b"x"),
+            sequence_no=0,
+        )
+        with self.assertRaisesRegex(CollaborationError, "immutable attachment identity"):
+            controller.upload_file(prepared)
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.store.room_attachments("room-1"), ())
 
     def test_file_content_change_after_prepare_fails_closed_before_transport(self):
         controller = self.controller()
