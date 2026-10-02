@@ -184,7 +184,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             second = self._play(adapter, request)
             self.assertEqual(first.calls[0][0], second.calls[0][0])
             self.assertTrue(Path(first.calls[0][0]).is_file())
-            self.assertIn("classic-check-v25.wav", first.calls[0][0])
+            self.assertIn("classic-check-v25-s1-", first.calls[0][0])
 
     def test_scaled_cache_identity_follows_source_bytes_not_mtime(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-cache-bytes-") as raw:
