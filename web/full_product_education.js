@@ -297,12 +297,43 @@
     wrapper,
     announce,
     fallbackMessage,
-    onFailure
+    options
   ) {
+    if (!wrapper || wrapper.getAttribute("aria-busy") === "true") return false;
     const root = wrapper.parentNode;
+    const controls = wrapper.querySelectorAll("BUTTON");
+    const priorAriaDisabled = controls.map(function (control) {
+      return control.getAttribute("aria-disabled");
+    });
+    const composer = wrapper.querySelector("#collaboration-chat-input");
+    const form = wrapper.querySelector("#collaboration-chat-form");
+    const lockComposer = !!(options && options.lockComposer);
+    wrapper.setAttribute("aria-busy", "true");
+    controls.forEach(function (control) {
+      control.setAttribute("aria-disabled", "true");
+    });
+    if (lockComposer && composer) composer.readOnly = true;
+    if (lockComposer && form) form.setAttribute("aria-busy", "true");
+
+    function releasePendingState() {
+      wrapper.setAttribute("aria-busy", "false");
+      controls.forEach(function (control, index) {
+        const previous = priorAriaDisabled[index];
+        if (previous === null && typeof control.removeAttribute === "function") {
+          control.removeAttribute("aria-disabled");
+        } else if (previous !== null) {
+          control.setAttribute("aria-disabled", previous);
+        }
+      });
+      if (lockComposer && composer) composer.readOnly = false;
+      if (lockComposer && form) form.setAttribute("aria-busy", "false");
+    }
+
     safeInvoke(invoke, command, payload, function (result) {
       applyEducationEvent(root, result, invoke, announce, fallbackMessage);
-    }, announce, fallbackMessage, onFailure);
+      if (wrapper.parentNode) releasePendingState();
+    }, announce, fallbackMessage, releasePendingState);
+    return true;
   }
 
   function renderCollaboration(snapshot, invoke, announce, fallbackMessage) {
@@ -404,10 +435,7 @@
     form.appendChild(send);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      if (send.disabled || !String(input.value || "").trim()) return;
-      input.readOnly = true;
-      send.disabled = true;
-      form.setAttribute("aria-busy", "true");
+      if (!String(input.value || "").trim()) return;
       invokeCollaboration(
         invoke,
         "collaboration.chat.send",
@@ -415,11 +443,7 @@
         wrapper,
         announce,
         fallbackMessage,
-        function () {
-          input.readOnly = false;
-          send.disabled = false;
-          form.setAttribute("aria-busy", "false");
-        }
+        { lockComposer: true }
       );
     });
     chatSection.appendChild(form);
