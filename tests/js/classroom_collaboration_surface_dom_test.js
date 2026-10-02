@@ -255,6 +255,37 @@ check(
   "collaboration actions must expose stable focus anchors"
 );
 
+fileSync.focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.files.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-one",
+          sender: "Teacher",
+          body: "e4 is the target.",
+          unread: false
+        }
+      ], 0),
+      announcement: "New file: lesson.pgn."
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-file-sync"),
+  "file refresh redraw must retain keyboard focus on the refresh control"
+);
+check(
+  announcements.includes("New file: lesson.pgn.") &&
+  !announcements.some((message) => String(message).includes("a".repeat(64))),
+  "remote file refresh announcement must expose only safe display metadata"
+);
+
 const throwingRoot = new FakeElement("div");
 const bridgeFailureAnnouncements = [];
 let bridgeInvokeCount = 0;
