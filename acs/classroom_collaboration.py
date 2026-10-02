@@ -430,14 +430,20 @@ class ClassroomCollaborationController:
                 )
             previous = attachment.sequence_no
 
-        persisted: list[AttachmentMetadata] = []
-        for attachment in incoming:
-            saved = self._store.register_attachment(
-                attachment,
+        try:
+            saved_batch = self._store.register_attachments_atomic(
+                incoming,
                 max_room_bytes=self._quota.max_room_bytes,
             )
-            if saved.transfer_state != "deleted":
-                persisted.append(saved)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "remote attachment batch could not be reconciled"
+            ) from error
+        persisted = [
+            saved
+            for saved in saved_batch
+            if saved.transfer_state != "deleted"
+        ]
 
         state_after = self._store.attachment_state_revision(self.room_id)
         updates = self._files.state_updates_after(

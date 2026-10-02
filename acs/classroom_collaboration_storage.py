@@ -643,6 +643,115 @@ class ClassroomCollaborationSQLiteStore:
                 ) from exc
         return attachment
 
+    def register_attachments_atomic(
+        self,
+        attachments: tuple[AttachmentMetadata, ...],
+        *,
+        max_room_bytes: int | None = None,
+    ) -> tuple[AttachmentMetadata, ...]:
+        if type(attachments) is not tuple:
+            raise ValueError("attachment batch must be a tuple")
+        if max_room_bytes is not None and (
+            type(max_room_bytes) is not int or max_room_bytes <= 0
+        ):
+            raise ValueError("max_room_bytes must be a positive integer")
+        if not attachments:
+            return ()
+
+        room_id = attachments[0].room_id
+        previous_sequence: int | None = None
+        for attachment in attachments:
+            if type(attachment) is not AttachmentMetadata:
+                raise ValueError("attachment batch contains invalid metadata")
+            if attachment.room_id != room_id:
+                raise ValueError("attachment batch must belong to one room")
+            if safe_display_filename(attachment.display_name) != attachment.display_name:
+                raise ValueError("display_name must already be sanitized")
+            _safe_object_key(attachment.object_key)
+            if (
+                previous_sequence is not None
+                and attachment.sequence_no != previous_sequence + 1
+            ):
+                raise CollaborationSequenceGapError(
+                    "attachment batch has an unresolved sequence gap"
+                )
+            previous_sequence = attachment.sequence_no
+
+        persisted: list[AttachmentMetadata] = []
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            latest = db.execute(
+                "SELECT MAX(sequence_no) FROM collaboration_attachments WHERE room_id=?",
+                (room_id,),
+            ).fetchone()[0]
+            expected_sequence = 0 if latest is None else int(latest) + 1
+            used = int(
+                db.execute(
+                    """
+                    SELECT COALESCE(SUM(size_bytes), 0)
+                    FROM collaboration_attachments
+                    WHERE room_id=? AND transfer_state!='deleted'
+                    """,
+                    (room_id,),
+                ).fetchone()[0]
+            )
+            for attachment in attachments:
+                existing = db.execute(
+                    "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment.attachment_id,),
+                ).fetchone()
+                if existing is not None:
+                    loaded = self._attachment_from_row(existing)
+                    if loaded != attachment:
+                        raise CollaborationConflictError(
+                            "attachment identity reused with different payload"
+                        )
+                    persisted.append(loaded)
+                    continue
+                if attachment.sequence_no > expected_sequence:
+                    raise CollaborationSequenceGapError(
+                        "attachment sequence has an unresolved gap"
+                    )
+                if attachment.sequence_no < expected_sequence:
+                    raise CollaborationConflictError(
+                        "attachment sequence is stale or conflicts with room ordering"
+                    )
+                if (
+                    max_room_bytes is not None
+                    and attachment.transfer_state != "deleted"
+                    and used + attachment.size_bytes > max_room_bytes
+                ):
+                    raise CollaborationQuotaError(
+                        "room file quota would be exceeded"
+                    )
+                try:
+                    db.execute(
+                        "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            attachment.attachment_id,
+                            attachment.room_id,
+                            attachment.sender_id,
+                            attachment.sequence_no,
+                            attachment.display_name,
+                            attachment.mime_type,
+                            attachment.size_bytes,
+                            attachment.sha256,
+                            attachment.object_key,
+                            attachment.transfer_state,
+                            attachment.retention,
+                            attachment.scan_state,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise CollaborationConflictError(
+                        "attachment batch conflicts with ordering or storage identity"
+                    ) from exc
+                if attachment.transfer_state != "deleted":
+                    used += attachment.size_bytes
+                expected_sequence += 1
+                persisted.append(attachment)
+        return tuple(persisted)
+
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
         with closing(self._connect()) as db:
