@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import tarfile
 import tempfile
 
@@ -63,12 +64,85 @@ class LiveKitClientSdkStageError(RuntimeError):
     """Raised when the downloaded SDK cannot be safely identified and staged."""
 
 
-def _sha512_sri(path: Path) -> str:
-    digest = hashlib.sha512()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return "sha512-" + base64.b64encode(digest.digest()).decode("ascii")
+def _snapshot_archive(
+    archive_path: Path,
+    *,
+    expected_integrity: str,
+):
+    """Return an immutable, verified archive snapshot without following links."""
+
+    try:
+        metadata = archive_path.lstat()
+    except FileNotFoundError as exc:
+        raise LiveKitClientSdkStageError(
+            "LiveKit npm archive is missing or empty"
+        ) from exc
+    except OSError as exc:
+        raise LiveKitClientSdkStageError("LiveKit npm archive is unreadable") from exc
+
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise LiveKitClientSdkStageError(
+            "LiveKit npm archive must be a regular file, not a link"
+        )
+    if metadata.st_size <= 0:
+        raise LiveKitClientSdkStageError("LiveKit npm archive is missing or empty")
+    if metadata.st_size > _MAX_ARCHIVE_BYTES:
+        raise LiveKitClientSdkStageError(
+            "LiveKit npm archive exceeds the compressed-size limit"
+        )
+
+    try:
+        source = archive_path.open("rb")
+    except OSError as exc:
+        raise LiveKitClientSdkStageError("LiveKit npm archive is unreadable") from exc
+
+    snapshot = tempfile.TemporaryFile()
+    try:
+        with source:
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode):
+                raise LiveKitClientSdkStageError(
+                    "LiveKit npm archive must remain a regular file"
+                )
+            if (
+                opened.st_dev != metadata.st_dev
+                or opened.st_ino != metadata.st_ino
+                or opened.st_size != metadata.st_size
+            ):
+                raise LiveKitClientSdkStageError(
+                    "LiveKit npm archive changed while it was being opened"
+                )
+
+            digest = hashlib.sha512()
+            copied = 0
+            while True:
+                block = source.read(1024 * 1024)
+                if not block:
+                    break
+                copied += len(block)
+                if copied > _MAX_ARCHIVE_BYTES:
+                    raise LiveKitClientSdkStageError(
+                        "LiveKit npm archive exceeds the compressed-size limit"
+                    )
+                digest.update(block)
+                snapshot.write(block)
+
+        if copied != metadata.st_size:
+            raise LiveKitClientSdkStageError(
+                "LiveKit npm archive changed while it was being read"
+            )
+        actual_integrity = (
+            "sha512-" + base64.b64encode(digest.digest()).decode("ascii")
+        )
+        if actual_integrity != expected_integrity:
+            raise LiveKitClientSdkStageError(
+                "LiveKit npm archive SHA-512 integrity mismatch"
+            )
+        snapshot.seek(0)
+        return snapshot
+    except Exception:
+        snapshot.close()
+        raise
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -103,12 +177,18 @@ def _strict_json_object(data: bytes, *, label: str) -> dict[str, object]:
 def _safe_member_name(name: str) -> str:
     if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
         raise LiveKitClientSdkStageError("LiveKit npm archive contains an unsafe member name")
+    raw_parts = name.split("/")
+    if any(part in {"", ".", ".."} for part in raw_parts[:-1]):
+        raise LiveKitClientSdkStageError("LiveKit npm archive contains an unsafe member name")
+    if raw_parts[-1] in {".", ".."}:
+        raise LiveKitClientSdkStageError("LiveKit npm archive contains an unsafe member name")
     path = PurePosixPath(name)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    canonical = path.as_posix()
+    if path.is_absolute() or canonical not in {name, name.rstrip("/")}:
         raise LiveKitClientSdkStageError("LiveKit npm archive contains an unsafe member name")
     if not path.parts or path.parts[0] != "package":
         raise LiveKitClientSdkStageError("LiveKit npm archive escaped its package root")
-    return path.as_posix()
+    return canonical
 
 
 def _read_regular_member(
@@ -135,19 +215,17 @@ def _validated_payload(
     *,
     expected_integrity: str,
 ) -> tuple[bytes, bytes, bytes]:
-    if not archive_path.is_file() or archive_path.stat().st_size <= 0:
-        raise LiveKitClientSdkStageError("LiveKit npm archive is missing or empty")
-    if archive_path.stat().st_size > _MAX_ARCHIVE_BYTES:
-        raise LiveKitClientSdkStageError("LiveKit npm archive exceeds the compressed-size limit")
-    if _sha512_sri(archive_path) != expected_integrity:
-        raise LiveKitClientSdkStageError("LiveKit npm archive SHA-512 integrity mismatch")
-
+    snapshot = _snapshot_archive(
+        archive_path,
+        expected_integrity=expected_integrity,
+    )
     try:
-        handle = tarfile.open(archive_path, mode="r:gz")
+        handle = tarfile.open(fileobj=snapshot, mode="r:gz")
     except (tarfile.TarError, OSError) as exc:
+        snapshot.close()
         raise LiveKitClientSdkStageError("LiveKit npm archive is invalid") from exc
 
-    with handle as archive:
+    with snapshot, handle as archive:
         members = archive.getmembers()
         if not members or len(members) > _MAX_MEMBERS:
             raise LiveKitClientSdkStageError("LiveKit npm archive member-count limit exceeded")
