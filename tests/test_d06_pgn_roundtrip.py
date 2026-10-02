@@ -423,6 +423,28 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 (),
             )
 
+    def test_canonical_byte_rewrite_rejects_overflow_before_encoding(self):
+        class NoEncodeText(str):
+            def encode(self, *args, **kwargs):
+                raise AssertionError("encode must not run after byte-size preflight fails")
+
+        class CanonicalResult:
+            text = NoEncodeText("é" * 6)
+            games = ()
+
+        with (
+            patch(
+                "acs.pgn_roundtrip.canonical_round_trip_text",
+                return_value=CanonicalResult(),
+            ),
+            patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+                canonical_round_trip_bytes,
+                b"",
+            )
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
