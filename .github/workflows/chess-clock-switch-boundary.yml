@@ -43,14 +43,16 @@ jobs:
         shell: bash
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           accepted_product=25b6da6eb8bccea95628ecfce5ba81fece1a5666
           git merge-base --is-ancestor "$accepted_product" HEAD
           scope_base="$accepted_product"
-          if [ -n "$PR_BASE_REF" ]; then
-            scope_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+          if [ -n "$PR_BASE_SHA" ]; then
+            scope_base="$PR_BASE_SHA"
+            git cat-file -e "$scope_base^{commit}"
             git merge-base --is-ancestor "$scope_base" HEAD
           fi
           git diff --check "$scope_base" HEAD
