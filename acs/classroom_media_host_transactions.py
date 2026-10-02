@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from enum import Enum
 import re
 import secrets
-from threading import RLock
+from threading import RLock, get_ident
 from typing import Any
 
 from .classroom_realtime_media import (
@@ -336,6 +336,7 @@ class ClassroomMediaHostTransactions:
             lambda: "host-" + secrets.token_hex(16)
         )
         self._lock = RLock()
+        self._owner_thread_id = get_ident()
         self._pending: _PendingTransaction | None = None
         self._recovery: _PendingTransaction | None = None
 
@@ -349,6 +350,12 @@ class ClassroomMediaHostTransactions:
         with self._lock:
             return None if self._recovery is None else self._recovery.effect
 
+    def _assert_owner_thread(self) -> None:
+        if get_ident() != self._owner_thread_id:
+            raise MediaHostTransactionError(
+                "media host transaction mutation requires the owner thread"
+            )
+
     def _transaction_id(self) -> str:
         value = self._transaction_id_factory()
         if type(value) is not str or _TRANSACTION_RE.fullmatch(value) is None:
@@ -358,6 +365,7 @@ class ClassroomMediaHostTransactions:
         return value
 
     def _prepare(self, replay: Callable[[], Any]) -> MediaProviderEffect | None:
+        self._assert_owner_thread()
         with self._lock:
             if self._pending is not None:
                 raise MediaHostTransactionError("a media provider effect is already pending")
@@ -481,6 +489,7 @@ class ClassroomMediaHostTransactions:
     def provider_not_started(self, transaction_id: str) -> None:
         """Discard an effect only when the provider was provably never invoked."""
 
+        self._assert_owner_thread()
         with self._lock:
             self._require_pending(transaction_id)
             self._pending = None
@@ -493,6 +502,7 @@ class ClassroomMediaHostTransactions:
     def provider_outcome_unknown(self, transaction_id: str) -> None:
         """Latch recovery when provider success/failure cannot be established."""
 
+        self._assert_owner_thread()
         with self._lock:
             pending = self._require_pending(transaction_id)
             self._pending = None
@@ -501,6 +511,7 @@ class ClassroomMediaHostTransactions:
     def commit_provider_success(self, transaction_id: str) -> Any:
         """Commit canonical state only after exact provider success."""
 
+        self._assert_owner_thread()
         with self._lock:
             pending = self._require_pending(transaction_id)
             if self._controller.state.revision != pending.base_revision:
@@ -523,6 +534,7 @@ class ClassroomMediaHostTransactions:
     def resolve_recovery(self, transaction_id: str) -> None:
         """Clear recovery only after the host has reconciled provider state."""
 
+        self._assert_owner_thread()
         with self._lock:
             if (
                 self._recovery is None
