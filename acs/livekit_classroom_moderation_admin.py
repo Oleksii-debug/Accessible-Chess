@@ -348,9 +348,14 @@ def _explicit_publish_sources(api: object, permission: object) -> set[object]:
         raise LiveKitClassroomModerationAdminError(
             "LiveKit participant has noncanonical publish source permission"
         )
-    if bool(getattr(permission, "can_publish", False)) and not current:
+    can_publish = bool(getattr(permission, "can_publish", False))
+    if can_publish and not current:
         raise LiveKitClassroomModerationAdminError(
             "LiveKit participant has unrestricted publish permission"
+        )
+    if current and not can_publish:
+        raise LiveKitClassroomModerationAdminError(
+            "LiveKit participant publish permission state is inconsistent"
         )
     return current
 
