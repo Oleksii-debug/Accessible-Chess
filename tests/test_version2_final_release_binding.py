@@ -226,6 +226,9 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
                 "globalThis.LivekitClient={Room:function Room(){}};\n",
                 encoding="utf-8",
             )
+            (vendor / "LICENSE").write_text("Apache License Version 2.0\n", encoding="utf-8")
+            (vendor / "NOTICE").write_text("LiveKit Apache License\n", encoding="utf-8")
+            (vendor / "provenance.json").write_text("{}\n", encoding="utf-8")
 
             with mock.patch.object(
                 final_release._release_ui,
@@ -278,6 +281,74 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     RuntimeError,
                     "LiveKit browser SDK not found in packaged resources",
+                ):
+                    final_release._final_product_resource_sources()
+
+    def test_incomplete_livekit_vendor_evidence_fails_closed(self) -> None:
+        from acs import version2_final_release as final_release
+
+        for missing in ("LICENSE", "NOTICE", "provenance.json"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                web = self._write_resource_fixture(root)
+                vendor = web / "vendor" / "livekit"
+                vendor.mkdir(parents=True)
+                (vendor / "livekit-client.umd.js").write_text(
+                    "globalThis.LivekitClient={Room:function Room(){}};\n",
+                    encoding="utf-8",
+                )
+                (vendor / "LICENSE").write_text(
+                    "Apache License Version 2.0\n",
+                    encoding="utf-8",
+                )
+                (vendor / "NOTICE").write_text(
+                    "LiveKit Apache License\n",
+                    encoding="utf-8",
+                )
+                (vendor / "provenance.json").write_text("{}\n", encoding="utf-8")
+                (vendor / missing).unlink()
+
+                with mock.patch.object(
+                    final_release._release_ui,
+                    "_asset_root",
+                    return_value=root,
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "not found in packaged resources",
+                    ):
+                        final_release._final_product_resource_sources()
+
+    def test_linked_livekit_vendor_evidence_fails_closed(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = self._write_resource_fixture(root)
+            vendor = web / "vendor" / "livekit"
+            vendor.mkdir(parents=True)
+            (vendor / "livekit-client.umd.js").write_text(
+                "globalThis.LivekitClient={Room:function Room(){}};\n",
+                encoding="utf-8",
+            )
+            (vendor / "LICENSE").write_text("Apache License Version 2.0\n", encoding="utf-8")
+            (vendor / "NOTICE").write_text("LiveKit Apache License\n", encoding="utf-8")
+            (vendor / "provenance.json").write_text("{}\n", encoding="utf-8")
+
+            original_is_symlink = Path.is_symlink
+
+            def fake_is_symlink(path: Path) -> bool:
+                if path == vendor / "provenance.json":
+                    return True
+                return original_is_symlink(path)
+
+            with (
+                mock.patch.object(final_release._release_ui, "_asset_root", return_value=root),
+                mock.patch.object(Path, "is_symlink", side_effect=fake_is_symlink),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK provenance resource is invalid",
                 ):
                     final_release._final_product_resource_sources()
 
