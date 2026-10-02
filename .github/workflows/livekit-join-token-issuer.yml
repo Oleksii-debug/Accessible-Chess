@@ -102,6 +102,9 @@ jobs:
           python -m unittest -v
           tests.test_livekit_join_token_issuer.LiveKitJoinTokenIssuerTests.test_real_pinned_sdk_emits_verified_source_scoped_jwt_when_installed
 
+      - name: Re-run LiveKit client moderation wire contract
+        run: node tests/js/livekit_classroom_media_adapter_test.js
+
       - name: Prove server-only credential and pin boundary
         shell: bash
         run: |
@@ -110,7 +113,8 @@ jobs:
           grep -Fq 'LIVEKIT_API_VERSION = "1.2.1"' acs/livekit_join_token_issuer.py
           grep -Fq 'LIVEKIT_API_WHEEL_SHA256' acs/livekit_join_token_issuer.py
           grep -Fq 'TokenVerifier' acs/livekit_join_token_issuer.py
-          grep -Fq 'can_publish_data=False' acs/livekit_join_token_issuer.py
+          grep -Fq 'can_publish_data=True' acs/livekit_join_token_issuer.py
+          grep -Fq 'performRpc({' web/livekit_classroom_media.js
           grep -Fq 'room_admin=False' acs/livekit_join_token_issuer.py
           grep -Fq 'api_key=<redacted>, api_secret=<redacted>' acs/livekit_join_token_issuer.py
 

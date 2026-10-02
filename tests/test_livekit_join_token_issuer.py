@@ -144,7 +144,7 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         self.assertEqual(api.grant.room, "room-1")
         self.assertTrue(api.grant.can_publish)
         self.assertTrue(api.grant.can_subscribe)
-        self.assertFalse(api.grant.can_publish_data)
+        self.assertTrue(api.grant.can_publish_data)
         self.assertEqual(api.grant.can_publish_sources, ["microphone"])
 
     def test_every_privileged_provider_grant_is_explicitly_disabled(self):
@@ -179,13 +179,13 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
                 self.assertIs(getattr(api.grant, name), False)
         self.assertIsNone(api.grant.destination_room)
 
-    def test_zero_source_grant_is_subscribe_only(self):
+    def test_zero_media_source_grant_retains_moderation_rpc_transport(self):
         issuer, api = self.issuer()
         self.issue(issuer, grant())
         self.assertFalse(api.grant.can_publish)
         self.assertEqual(api.grant.can_publish_sources, [])
         self.assertTrue(api.grant.can_subscribe)
-        self.assertFalse(api.grant.can_publish_data)
+        self.assertTrue(api.grant.can_publish_data)
 
     def test_mint_delay_reduces_provider_ttl_instead_of_extending_outer_expiry(self):
         issuer, api = self.issuer(now=NOW + timedelta(seconds=20))

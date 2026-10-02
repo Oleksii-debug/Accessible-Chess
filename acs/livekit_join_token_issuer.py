@@ -116,7 +116,11 @@ class LiveKitJoinTokenIssuer:
                 destination_room=None,
                 can_publish=bool(sources),
                 can_subscribe=True,
-                can_publish_data=False,
+                # The shipped client sends teacher moderation through LiveKit RPC;
+                # RPC rides LiveKit data packets. Transport permission is therefore
+                # required for every classroom participant, while the trusted
+                # moderation service still authorizes caller role/room/target.
+                can_publish_data=True,
                 can_publish_sources=sources,
                 can_update_own_metadata=False,
                 ingress_admin=False,
@@ -226,7 +230,7 @@ def _verify_provider_claims(
         "room": room_id,
         "can_publish": bool(publish_sources),
         "can_subscribe": True,
-        "can_publish_data": False,
+        "can_publish_data": True,
         "can_publish_sources": publish_sources,
         "can_update_own_metadata": False,
         "ingress_admin": False,
