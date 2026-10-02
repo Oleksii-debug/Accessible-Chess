@@ -123,8 +123,10 @@ class ChatTransportPort(Protocol):
 
     send_message must be idempotent for the same message_id and returns the
     server-assigned room sequence plus a stable UTC Unix-millisecond send timestamp.
-    history_after is bounded by the caller and returns that same authoritative
-    timestamp for every message.
+    The transport is also the authoritative send-permission enforcement boundary:
+    a participant locked by moderation must be rejected here independently of any
+    client/controller lifetime or reconnect. history_after is bounded by the caller
+    and returns that same authoritative timestamp for every message.
     """
 
     def send_message(self, draft: ChatDraft) -> ChatMessageMetadata:
@@ -188,7 +190,6 @@ class ClassroomCollaborationController:
         self._store = store
         self._file_store = file_store
         self._quota = quota
-        self._chat_locked: set[str] = set()
         self._require_member(self.local_participant_id)
 
     def send_chat(
@@ -199,8 +200,6 @@ class ClassroomCollaborationController:
         retention: str = "session",
     ) -> ChatMessageMetadata:
         self._require_member(self.local_participant_id)
-        if self.local_participant_id in self._chat_locked:
-            raise CollaborationError("chat sending is locked for participant")
         draft = ChatDraft(
             message_id=message_id,
             room_id=self.room_id,
@@ -328,10 +327,6 @@ class ClassroomCollaborationController:
             allowed=allowed,
         )
         self._chat.apply_moderation((command,))
-        if allowed:
-            self._chat_locked.discard(target)
-        else:
-            self._chat_locked.add(target)
 
     def set_all_students_chat_send_permission(
         self,
@@ -362,10 +357,6 @@ class ClassroomCollaborationController:
         )
         if commands:
             self._chat.apply_moderation(commands)
-            if allowed:
-                self._chat_locked.difference_update(targets)
-            else:
-                self._chat_locked.update(targets)
         return targets
 
     def hide_message(
