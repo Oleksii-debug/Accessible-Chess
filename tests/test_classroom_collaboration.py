@@ -338,6 +338,30 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(membership_changed["student-2"], first["student-2"])
         self.assertNotIn(membership_changed["student-3"], set(first.values()))
 
+    def test_student_cannot_spoof_teacher_moderation_identity(self):
+        controller = self.controller("student-1")
+
+        with self.assertRaises(CollaborationError):
+            controller.set_chat_send_permission(
+                actor_id="teacher-1",
+                target_id="student-2",
+                allowed=False,
+                operation_id="spoof-single",
+            )
+        with self.assertRaises(CollaborationError):
+            controller.set_all_students_chat_send_permission(
+                actor_id="teacher-1",
+                allowed=False,
+                operation_id="spoof-all",
+            )
+        with self.assertRaises(CollaborationError):
+            controller.hide_message(
+                actor_id="teacher-1",
+                message_id="m1",
+                operation_id="spoof-hide",
+            )
+        self.assertEqual(self.chat.moderation_calls, [])
+
     def test_student_and_co_teacher_cannot_moderate_teacher_roles(self):
         controller = self.controller("student-1")
         with self.assertRaises(CollaborationError):
