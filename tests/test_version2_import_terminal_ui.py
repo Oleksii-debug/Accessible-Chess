@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
@@ -46,6 +47,136 @@ class ImportTerminalUiTests(unittest.TestCase):
             ui.empty()
         self.assertEqual(ui.phase.value, "running")
         self.assertEqual(ui.complete(LibraryImportResult(7, 1, 2, 0, 1, 2)).payload["import"]["phase"], "completed")
+
+    def test_terminal_event_closes_cancel_port_before_worker_cleanup_finishes(self):
+        terminal_seen = threading.Event()
+        release_cleanup = threading.Event()
+        events = []
+        dialogs = SimpleNamespace(
+            open_pgn=lambda: None,
+            save_pgn_as=lambda *_: None,
+            select_library_import=lambda: Path("terminal-race.cbh"),
+        )
+
+        class Library:
+            def import_games(self, *args, **kwargs):
+                raise AssertionError("unexpected PGN import")
+
+        class ChessBase:
+            def import_database(self, *args, **kwargs):
+                return SimpleNamespace(
+                    library_result=SimpleNamespace(game_count=1, warning_count=0),
+                    warning_count=0,
+                )
+
+        def close_services():
+            if not release_cleanup.wait(5.0):
+                raise RuntimeError("test cleanup release timed out")
+
+        def observe(event):
+            events.append(event)
+            if event.kind is FileWorkflowEventKind.IMPORT_COMPLETED:
+                terminal_seen.set()
+
+        host = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: None,
+            set_pgn_session=lambda _: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                Library(),
+                ChessBase(),
+                close_services,
+            ),
+            event_sink=observe,
+            next_delegate=lambda *_: None,
+        )
+
+        started = host("library.import", {})
+        self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertTrue(
+            terminal_seen.wait(5.0),
+            "worker did not publish terminal import result",
+        )
+        self.assertTrue(
+            host.import_running,
+            "worker must still be alive in deterministic cleanup window",
+        )
+
+        late_cancel = host("library.cancel_import", {})
+        self.assertEqual(late_cancel.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(late_cancel.error_code, "no_import_running")
+        self.assertNotEqual(late_cancel.kind, FileWorkflowEventKind.IMPORT_CANCELLING)
+
+        release_cleanup.set()
+        self.assertTrue(host.wait_for_import(5.0))
+        self.assertFalse(host.import_running)
+
+    def test_cancel_during_terminal_publication_observes_terminal_without_reordering(self):
+        entered_terminal_emit = threading.Event()
+        release_terminal_emit = threading.Event()
+        events = []
+        dialogs = SimpleNamespace(
+            open_pgn=lambda: None,
+            save_pgn_as=lambda *_: None,
+            select_library_import=lambda: Path("terminal-publication-race.cbh"),
+        )
+
+        class Library:
+            def import_games(self, *args, **kwargs):
+                raise AssertionError("unexpected PGN import")
+
+        class ChessBase:
+            def import_database(self, *args, **kwargs):
+                return SimpleNamespace(
+                    library_result=SimpleNamespace(game_count=1, warning_count=0),
+                    warning_count=0,
+                )
+
+        host = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: None,
+            set_pgn_session=lambda _: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                Library(), ChessBase(), lambda: None
+            ),
+            event_sink=events.append,
+            next_delegate=lambda *_: None,
+        )
+        original_emit = host._emit
+
+        def block_terminal_publication(event):
+            if event.kind is FileWorkflowEventKind.IMPORT_COMPLETED:
+                entered_terminal_emit.set()
+                if not release_terminal_emit.wait(5.0):
+                    raise RuntimeError("terminal publication release timed out")
+            return original_emit(event)
+
+        host._emit = block_terminal_publication
+
+        started = host("library.import", {})
+        self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertTrue(
+            entered_terminal_emit.wait(5.0),
+            "worker did not enter deterministic terminal-publication window",
+        )
+
+        losing_cancel = host("library.cancel_import", {})
+        self.assertEqual(losing_cancel.kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+        self.assertEqual(
+            [event.kind for event in events],
+            [FileWorkflowEventKind.IMPORT_STARTED],
+        )
+
+        release_terminal_emit.set()
+        self.assertTrue(host.wait_for_import(5.0))
+        self.assertEqual(
+            [event.kind for event in events],
+            [
+                FileWorkflowEventKind.IMPORT_STARTED,
+                FileWorkflowEventKind.IMPORT_COMPLETED,
+            ],
+        )
+        self.assertIs(losing_cancel, events[-1])
 
     def test_immediate_worker_terminal_cannot_precede_start(self):
         events = []
