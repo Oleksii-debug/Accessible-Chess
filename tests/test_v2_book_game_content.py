@@ -206,6 +206,12 @@ class BookCanonicalGameContentTests(unittest.TestCase):
 
     def test_game_resolution_consumes_one_canonical_embedded_snapshot(self) -> None:
         class MutatesAfterSnapshot(Game):
+            @property
+            def kind(self) -> str:
+                # Keep this test double inside the canonical BookDocument wire
+                # schema; the test is about post-snapshot mutation, not a new kind.
+                return "Game"
+
             def as_dict(self):
                 snapshot = super().as_dict()
                 self.pgn = None  # type: ignore[assignment]
@@ -230,6 +236,12 @@ class BookCanonicalGameContentTests(unittest.TestCase):
 
     def test_game_reference_selection_and_identity_come_from_same_snapshot(self) -> None:
         class MutatesAfterSnapshot(Game):
+            @property
+            def kind(self) -> str:
+                # Keep this test double inside the canonical BookDocument wire
+                # schema; the test is about post-snapshot mutation, not a new kind.
+                return "Game"
+
             def as_dict(self):
                 snapshot = super().as_dict()
                 self.game_id = 999
@@ -250,6 +262,12 @@ class BookCanonicalGameContentTests(unittest.TestCase):
 
     def test_variation_resolution_consumes_one_canonical_snapshot(self) -> None:
         class MutatesAfterSnapshot(VariationTree):
+            @property
+            def kind(self) -> str:
+                # Preserve the canonical semantic block identity while the
+                # overridden as_dict introduces the intended mutation race.
+                return "VariationTree"
+
             def as_dict(self):
                 snapshot = super().as_dict()
                 self.pgn = None  # type: ignore[assignment]
@@ -299,6 +317,10 @@ class BookCanonicalGameContentTests(unittest.TestCase):
 
     def test_variation_root_change_during_snapshot_fails_closed(self) -> None:
         class ChangesRootDuringSnapshot(VariationTree):
+            @property
+            def kind(self) -> str:
+                return "VariationTree"
+
             def as_dict(self):
                 self.root_fen = START_FEN
                 return super().as_dict()
