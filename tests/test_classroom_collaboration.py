@@ -416,6 +416,30 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertNotIn("co-1", {item.target_id for item in commands})
         self.assertNotIn("observer-1", {item.target_id for item in commands})
 
+    def test_empty_student_batch_still_validates_operation_identity(self):
+        self.roster.roles.pop("student-1")
+        self.roster.roles.pop("student-2")
+        controller = self.controller("teacher-1")
+        calls_before = len(self.chat.moderation_calls)
+
+        with self.assertRaises(CollaborationError):
+            controller.set_all_students_chat_send_permission(
+                actor_id="teacher-1",
+                allowed=False,
+                operation_id="",
+            )
+
+        self.assertEqual(len(self.chat.moderation_calls), calls_before)
+        self.assertEqual(
+            controller.set_all_students_chat_send_permission(
+                actor_id="teacher-1",
+                allowed=False,
+                operation_id="lock-empty-student-set",
+            ),
+            (),
+        )
+        self.assertEqual(len(self.chat.moderation_calls), calls_before)
+
     def test_all_students_lock_is_enforced_by_server_transport_across_fresh_clients(self):
         teacher = self.controller("teacher-1")
         teacher.set_all_students_chat_send_permission(
