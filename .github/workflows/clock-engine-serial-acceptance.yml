@@ -49,28 +49,43 @@ jobs:
             '.github/workflows/chess-clock-switch-boundary.yml' \
             '.github/workflows/clock-engine-serial-acceptance.yml' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/takeback-atomic-recovery.yml' \
+            '.github/workflows/takeback-lifecycle-checkpoint.yml' \
             '.github/workflows/version2-windows-composition.yml' \
+            '.github/workflows/w3-takeback-clock-oracle-determinism.yml' \
             'acs/clock_service.py' \
             'acs/engine_game_session.py' \
+            'acs/game_lifecycle.py' \
             'acs/stage1_release_ui.py' \
+            'acs/stage1_release_ui_core.py' \
             'tests/test_clock_service.py' \
             'tests/test_clock_engine_serial_acceptance.py' \
+            'tests/test_dev3_takeback_atomicity.py' \
             'tests/test_engine_game_session.py' \
             'tests/test_engine_game_timeout_ownership.py' \
-            'tests/test_stage1_engine_play_ui.py' | sort)"
+            'tests/test_engine_takeback_atomic_acceptance.py' \
+            'tests/test_game_lifecycle.py' \
+            'tests/test_stage1_engine_play_ui.py' \
+            'tests/test_stage1_saturation_refactor_contract.py' | sort)"
           test "$actual" = "$expected" || {
             printf 'Unexpected qualified clock/engine intake scope:\n%s\n' "$actual" >&2
             exit 1
           }
           test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
           test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 2b0029b6da4dc88494c0e3cd4e891b886df45eda
-          test "$(git rev-parse HEAD:.github/workflows/chess-clock-switch-boundary.yml)" = 104bd00f7d5a648356f8b657152fb11e62c94044
-          test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 37d6c11a782c02850efdc646b034abaafee81dc4
+          test "$(git rev-parse HEAD:.github/workflows/chess-clock-switch-boundary.yml)" = 66d486615fec203dbc84ff1955806bbc6f522928
+          test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 02cc2238a0ee3582707f8c926fc8e089faaeccc7
           test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
-          test "$(git rev-parse HEAD:tests/test_engine_game_session.py)" = be34d22d50d7154dc5cfde3786ff8047f235e8cc
+          test "$(git rev-parse HEAD:tests/test_engine_game_session.py)" = 93d6c46eeb5918ab0cc36b4961106fcfad506096
           test "$(git rev-parse HEAD:tests/test_engine_game_timeout_ownership.py)" = e57d6e53b60c2c4206729be25f59eef8f2821bae
           test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = 9baf99e7a912fe5b3fdc1eab99277e90ac9d9974
-          git diff --quiet "$product" HEAD -- acs/stage1_release_ui_core.py acs/chesscore.py acs/gametree.py
+          test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
+          test "$(git rev-parse HEAD:tests/test_engine_takeback_atomic_acceptance.py)" = 4e302687fd05162c10ac4b1752cbd4a0e1e350ae
+          test "$(git rev-parse HEAD:tests/test_game_lifecycle.py)" = bb23da4522675a7b404238ae1c490514492d0f6e
+          test "$(git rev-parse HEAD:tests/test_dev3_takeback_atomicity.py)" = 60df98fc2138baa1ece727bac3eef4f8379a8e64
+          test "$(git rev-parse HEAD:.github/workflows/w3-takeback-clock-oracle-determinism.yml)" = 95722093cd5319374e6846cb161d6cf70d50a49b
+          git diff --quiet "$product" HEAD -- acs/chesscore.py acs/gametree.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -86,6 +101,10 @@ jobs:
           tests.test_engine_game_session
           tests.test_engine_game_timeout_ownership
           tests.test_stage1_engine_play_ui
+          tests.test_game_lifecycle
+          tests.test_engine_takeback_atomic_acceptance
+          tests.test_dev3_takeback_atomicity
+          tests.test_stage1_saturation_refactor_contract
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
       - name: Full repository pytest
