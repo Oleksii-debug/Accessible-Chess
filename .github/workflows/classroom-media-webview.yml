@@ -21,6 +21,7 @@ on:
       - 'web/full_product_classroom_media.js'
       - 'web/version2_final_product_bootstrap.js'
       - '.github/workflows/classroom-media-webview.yml'
+      - '.github/workflows/p0g-final-product-runtime-reachability.yml'
   workflow_dispatch:
 
 permissions:
@@ -61,6 +62,7 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-media-webview.yml'
+            '.github/workflows/p0g-final-product-runtime-reachability.yml'
             'acs/classroom_media_webview_bridge.py'
             'acs/classroom_media_webview_projection.py'
             'acs/version2_education_mutation_release.py'
