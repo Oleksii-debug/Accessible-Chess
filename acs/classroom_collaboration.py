@@ -574,6 +574,20 @@ class ClassroomCollaborationController:
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
         self._validate_remote_attachment(attachment, require_current_sender=True)
+        authoritative = tuple(
+            item
+            for item in self._store.room_attachments(self.room_id)
+            if item.transfer_state == "stored"
+        )
+        after: int | None = None
+        for current in authoritative:
+            expected = 0 if after is None else after + 1
+            if current.sequence_no != expected:
+                break
+            after = current.sequence_no
+        expected_sequence = 0 if after is None else after + 1
+        if attachment.sequence_no > expected_sequence:
+            self.sync_files()
         try:
             return self._store.register_attachment(attachment)
         except CollaborationStorageError as error:
