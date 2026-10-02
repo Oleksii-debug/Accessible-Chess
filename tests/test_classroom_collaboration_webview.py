@@ -422,47 +422,52 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertFalse(message["can_moderate_sender"])
         self.assertFalse(message["can_remove_sender"])
 
-    def test_departed_sender_history_has_no_stale_target_actions(self) -> None:
-        teacher_media = ClassroomMediaController(
-            local_participant_id="teacher-1",
-            roster=self.roster,
-            media=FakeMedia(),
-        )
+    def test_mismatched_participant_moderation_identity_is_not_exposed_or_dispatched(self) -> None:
+        teacher_chat = FakeChat()
         teacher_controller = ClassroomCollaborationController(
             room_id="room-1",
             local_participant_id="teacher-1",
             roster=self.roster,
-            chat=FakeChat(),
+            chat=teacher_chat,
             files=FakeFiles(),
             store=self.store,
             file_store=self.file_store,
         )
         teacher_controller.receive_chat(
             ChatMessageMetadata(
-                "departed-student-message",
+                "student-message-mismatched-media",
                 "room-1",
                 "student-2",
                 0,
-                "Historical answer",
+                "Keep media authority scoped",
                 sent_at_unix_ms=1700000000000,
             )
         )
-        self.roster.roles.pop("student-2")
+        wrong_media = FakeMedia()
+        mismatched = ClassroomMediaController(
+            local_participant_id="co-1",
+            roster=self.roster,
+            media=wrong_media,
+        )
         view = ClassroomCollaborationWebView(
             teacher_controller,
             self.store,
             lambda participant_id: self.labels[participant_id],
             language=UILanguage.EN,
             moderation_allowed=lambda: True,
-            participant_moderation=teacher_media,
+            participant_moderation=mismatched,
             id_factory=self.next_id,
         )
 
         message = view.snapshot()["chat"]["messages"][0]
-        self.assertEqual("Historical answer", message["body"])
-        self.assertTrue(message["can_hide"])
-        self.assertFalse(message["can_moderate_sender"])
+        self.assertTrue(message["can_moderate_sender"])
         self.assertFalse(message["can_remove_sender"])
+        rejected = view.dispatch(
+            "collaboration.participant.block_sender",
+            {"message_key": message["message_key"]},
+        )
+        self.assertEqual("error", rejected.kind)
+        self.assertEqual([], wrong_media.moderation_calls)
 
     def test_non_moderator_snapshot_does_not_expose_message_action_key(self) -> None:
         view = self.webview()
