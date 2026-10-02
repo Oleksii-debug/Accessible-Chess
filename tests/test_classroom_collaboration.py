@@ -15,6 +15,7 @@ from acs.classroom_collaboration import (
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
     content_sha256,
 )
@@ -46,6 +47,7 @@ class FakeChat:
         self.messages = {}
         self.ordered = []
         self.moderation_calls = []
+        self.state_updates = []
         self.mutate_delivery = False
         self.omit_timestamp = False
 
@@ -80,8 +82,35 @@ class FakeChat:
         )
         return rows[:limit]
 
+    def state_updates_after(self, *, room_id, after_revision, limit):
+        rows = tuple(
+            item for item in self.state_updates
+            if item.room_id == room_id
+            and (after_revision is None or item.revision > after_revision)
+        )
+        return rows[:limit]
+
     def apply_moderation(self, commands):
         self.moderation_calls.append(commands)
+        for command in commands:
+            if command.action.value != "hide_message":
+                continue
+            for index, message in enumerate(self.ordered):
+                if (
+                    message.room_id == command.room_id
+                    and message.message_id == command.message_id
+                ):
+                    hidden = replace(message, hidden=True)
+                    self.ordered[index] = hidden
+                    self.messages[hidden.message_id] = hidden
+                    self.state_updates.append(
+                        ChatMessageStateUpdate(
+                            room_id=hidden.room_id,
+                            message_id=hidden.message_id,
+                            revision=len(self.state_updates),
+                        )
+                    )
+                    break
 
 
 class FakeFiles:
@@ -393,6 +422,72 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             self.store.room_messages("room-1", include_hidden=True),
             (hidden,),
         )
+
+    def test_remote_hide_reconciles_without_reannouncing_old_message(self):
+        teacher_store = self.store
+        teacher = self.controller("teacher-1")
+        message = teacher.send_chat(message_id="m1", body="must disappear")
+
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "student-collaboration.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=student_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_chat(), (message,))
+        teacher.hide_message(
+            actor_id="teacher-1",
+            message_id=message.message_id,
+            operation_id="hide-message-remote",
+        )
+
+        self.assertEqual(student.sync_chat(), ())
+        self.assertEqual(student_store.room_messages("room-1"), ())
+        hidden = student_store.room_messages("room-1", include_hidden=True)
+        self.assertEqual(len(hidden), 1)
+        self.assertTrue(hidden[0].hidden)
+        self.assertEqual(student_store.chat_state_revision("room-1"), 0)
+        self.assertEqual(
+            teacher_store.room_messages("room-1"),
+            (),
+        )
+
+    def test_hidden_history_is_persisted_but_not_returned_for_announcement(self):
+        controller = self.controller("student-1")
+        message = self.chat.send_message(
+            ChatDraft("hidden-before-sync", "room-1", "teacher-1", "hidden")
+        )
+        self.chat.ordered[0] = replace(message, hidden=True)
+        self.chat.messages[message.message_id] = self.chat.ordered[0]
+        self.assertEqual(controller.sync_chat(), ())
+        stored = self.store.room_messages("room-1", include_hidden=True)
+        self.assertEqual(len(stored), 1)
+        self.assertTrue(stored[0].hidden)
+
+    def test_moderation_state_stream_must_be_strict_and_reference_known_message(self):
+        controller = self.controller("student-1")
+        message = self.chat.send_message(
+            ChatDraft("m-state", "room-1", "teacher-1", "state")
+        )
+        self.assertEqual(controller.sync_chat(), (message,))
+        self.chat.state_updates = [
+            ChatMessageStateUpdate("room-1", "m-state", 1),
+            ChatMessageStateUpdate("room-1", "m-state", 0),
+        ]
+        with self.assertRaises(CollaborationError):
+            controller.sync_chat()
+
+        self.chat.state_updates = [
+            ChatMessageStateUpdate("room-1", "unknown-message", 2),
+        ]
+        with self.assertRaises(CollaborationError):
+            controller.sync_chat()
 
     def test_prepare_file_hashes_arbitrary_binary_without_interpreting_extension(self):
         controller = self.controller()
