@@ -70,7 +70,6 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertIn("wrapSurfaceRenderAnnouncement", runtime_source)
         self.assertIn("global.announce = function", runtime_source)
 
-
     def test_packaged_livekit_sdk_precedes_adapter_without_becoming_source_requirement(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -130,7 +129,6 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                 sdk_source,
             )
 
-
     def test_retained_gate_accepts_exact_classroom_media_successor_identities(self) -> None:
         workflow = P0G_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("EDUCATION_RELEASE_MEDIA_BLOB:", workflow)
@@ -139,8 +137,16 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertIn("REACHABILITY_MEDIA_SDK_TEST_BLOB:", workflow)
         self.assertIn('education_blob="$(git rev-parse HEAD:acs/version2_education_mutation_release.py)"', workflow)
         self.assertIn('reachability_test_blob="$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)"', workflow)
-        self.assertIn('"$EDUCATION_RELEASE_BLOB"|"$EDUCATION_RELEASE_MEDIA_BLOB"', workflow)
-        self.assertIn('"$REACHABILITY_TEST_BLOB"|"$REACHABILITY_MEDIA_TEST_BLOB"', workflow)
+        self.assertIn(
+            '"$EDUCATION_RELEASE_BLOB"|"$EDUCATION_RELEASE_MEDIA_BLOB"|'
+            '"$EDUCATION_RELEASE_MEDIA_SDK_BLOB"',
+            workflow,
+        )
+        self.assertIn(
+            '"$REACHABILITY_TEST_BLOB"|"$REACHABILITY_MEDIA_TEST_BLOB"|'
+            '"$REACHABILITY_MEDIA_SDK_TEST_BLOB"',
+            workflow,
+        )
 
 
 if __name__ == "__main__":
