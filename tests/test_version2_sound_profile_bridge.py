@@ -71,13 +71,19 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
 
         result = api.sound_settings_command(
             "set_event",
-            {"event_id": "capture", "enabled": False, "volume_percent": 35},
+            {
+                "event_id": "capture",
+                "enabled": False,
+                "volume_percent": 35,
+                "sound_id": "capture.alt",
+            },
         )
 
         self.assertTrue(result["ok"])
         preference = manager.current.preference_for("capture")
         self.assertFalse(preference.enabled)
         self.assertEqual(35, preference.volume_percent)
+        self.assertEqual("capture.alt", preference.sound_id)
         snapshot = result["snapshot"]
         capture = next(item for item in snapshot["events"] if item["event_id"] == "capture")
         self.assertFalse(capture["enabled"])
@@ -179,7 +185,8 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
             ("set_event", {"event_id": "move"}),
             ("set_event", {"event_id": "move", "enabled": None}),
             ("set_event", {"event_id": "move", "volume_percent": None}),
-            ("set_event", {"event_id": "move", "enabled": False, "sound_id": "move.alt"}),
+            ("set_event", {"event_id": "move", "sound_id": None}),
+            ("set_event", {"event_id": "move", "sound_id": 7}),
             ("preview", {"event_id": "move", "unexpected": True}),
             ("preview", {1: "move"}),
         )
