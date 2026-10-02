@@ -134,7 +134,12 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         cases = (
             ("set_master", {"enabled": False, "unexpected": True}),
             ("set_master", {}),
+            ("set_master", {"enabled": None}),
+            ("set_master", {"volume_percent": None}),
+            ("set_master", {"volume_percent": True}),
             ("set_event", {"event_id": "move"}),
+            ("set_event", {"event_id": "move", "enabled": None}),
+            ("set_event", {"event_id": "move", "volume_percent": None}),
             ("set_event", {"event_id": "move", "enabled": False, "sound_id": "move.alt"}),
             ("preview", {"event_id": "move", "unexpected": True}),
             ("preview", {1: "move"}),
