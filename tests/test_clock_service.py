@@ -469,7 +469,7 @@ class ChessClockTests(unittest.TestCase):
             ClockErrorCode.INVALID_TIME_SOURCE,
         )
 
-        for invalid in (True, "100", float("nan"), float("inf")):
+        for invalid in (True, "100", float("nan"), float("inf"), 10**400, -(10**400)):
             self.now.value = invalid
             clock = ChessClock(TimeControl(1_000), now=self.now)
             with self.subTest(value=invalid):
