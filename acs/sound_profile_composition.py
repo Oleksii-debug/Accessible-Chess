@@ -108,9 +108,16 @@ def _windows_pack_is_playable(manifest: object) -> bool:
 def _playable_installed_packs(
     store: FilesystemSoundPackStore,
 ) -> dict[str, SoundPackManifest]:
+    try:
+        installed = store.installed()
+    except Exception:
+        # Custom packs are optional. The resolver independently reconciles an
+        # unreadable selected pack to classic, so inventory failure must not
+        # make the whole shipping application unavailable.
+        return {}
     return {
         pack_id: manifest
-        for pack_id, manifest in store.installed().items()
+        for pack_id, manifest in installed.items()
         if _windows_pack_is_playable(manifest)
     }
 
