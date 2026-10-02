@@ -759,6 +759,29 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.files.cancel_calls, ["a1"])
         self.assertTrue(path.exists())
 
+    def test_cancel_cannot_delete_another_participant_attachment(self):
+        controller = self.controller("student-1")
+        path = self.make_file(content=b"foreign attachment")
+        prepared = controller.prepare_file(
+            attachment_id="foreign-a1",
+            local_path=path,
+            sequence_no=0,
+        )
+        foreign = replace(prepared.metadata, sender_id="student-2")
+        self.store.register_attachment(foreign)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "cannot cancel another participant",
+        ):
+            controller.cancel_file(foreign.attachment_id)
+
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (foreign,),
+        )
+
     def test_download_token_requires_durable_stored_and_clean_scan(self):
         controller = self.controller()
         path = self.make_file(content=b"download")
