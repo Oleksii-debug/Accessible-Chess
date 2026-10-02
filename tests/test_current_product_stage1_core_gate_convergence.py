@@ -13,6 +13,7 @@ WORKFLOWS = (
     ROOT / ".github" / "workflows" / "v2-markdown-semantic-lists-convergence.yml",
     ROOT / ".github" / "workflows" / "w2-library-source-catalog-d07-current.yml",
 )
+COMPOSITION_WORKFLOW = ROOT / ".github" / "workflows" / "version2-windows-composition.yml"
 
 
 class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
@@ -44,6 +45,19 @@ class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
                     "Protected blob mismatch after Windows materialization",
                     text,
                 )
+
+    def test_windows_composition_uses_exact_successor_identity_not_branch_name(self) -> None:
+        text = COMPOSITION_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(CURRENT_STAGE1_CORE, text)
+        self.assertIn(
+            'if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then',
+            text,
+        )
+        self.assertNotIn(
+            'if [ "${{ github.event.pull_request.head.ref }}" != '
+            '"integration/clock-engine-serial-intake-20261002" ]',
+            text,
+        )
 
     def test_d01_core_lock_remains_fail_closed(self) -> None:
         text = WORKFLOWS[0].read_text(encoding="utf-8")
