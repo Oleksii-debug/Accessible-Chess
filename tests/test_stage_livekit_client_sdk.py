@@ -9,10 +9,42 @@ import tarfile
 import tempfile
 import unittest
 
+from acs import version2_package_preflight as package_preflight
+from acs import version2_release_payload as release_payload
 from scripts import stage_livekit_client_sdk as sdk
 
 
 class LiveKitClientSdkStageTests(unittest.TestCase):
+    def test_pin_identity_matches_release_payload_and_final_preflight(self) -> None:
+        self.assertEqual(
+            (
+                sdk.LIVEKIT_CLIENT_VERSION,
+                sdk.LIVEKIT_CLIENT_LICENSE_ID,
+                sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
+                sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
+            ),
+            (
+                release_payload._LIVEKIT_CLIENT_VERSION,
+                release_payload._LIVEKIT_CLIENT_LICENSE_ID,
+                release_payload._LIVEKIT_CLIENT_NPM_TARBALL_URL,
+                release_payload._LIVEKIT_CLIENT_NPM_INTEGRITY,
+            ),
+        )
+        self.assertEqual(
+            (
+                sdk.LIVEKIT_CLIENT_VERSION,
+                sdk.LIVEKIT_CLIENT_LICENSE_ID,
+                sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
+                sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
+            ),
+            (
+                package_preflight._LIVEKIT_CLIENT_VERSION,
+                package_preflight._LIVEKIT_CLIENT_LICENSE_ID,
+                package_preflight._LIVEKIT_CLIENT_SOURCE,
+                package_preflight._LIVEKIT_CLIENT_INTEGRITY,
+            ),
+        )
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
