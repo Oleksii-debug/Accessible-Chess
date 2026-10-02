@@ -234,6 +234,23 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         self.assertEqual(authorization.calls, [])
         self.assertEqual(issuer.calls, [])
 
+    def test_clock_provider_failure_is_sanitized_before_authority_or_provider(self):
+        def broken_clock():
+            raise RuntimeError("private clock backend detail")
+
+        service, authorization, issuer = self.make_service(now=broken_clock)
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join credential clock failed$",
+        ) as caught:
+            self.run_issue(service)
+
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("private clock backend detail", rendered)
+        self.assertEqual(authorization.calls, [])
+        self.assertEqual(issuer.calls, [])
+
     def test_provider_failure_and_invalid_token_are_sanitized(self):
         service, _authorization, issuer = self.make_service()
         issuer.error = RuntimeError("provider api_secret leaked internally")
