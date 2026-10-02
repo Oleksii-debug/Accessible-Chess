@@ -33,6 +33,13 @@ MAX_RPC_ERROR_MESSAGE_BYTES = 256
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _REGISTRATION_LOCK = threading.Lock()
 _REGISTRATIONS: WeakKeyDictionary[object, set[str]] = WeakKeyDictionary()
+_SAFE_CLIENT_SERVICE_MESSAGES = frozenset(
+    {
+        "moderation actor does not match trusted caller",
+        "moderation RPC room identity mismatch",
+        "moderation request is not authorized",
+    }
+)
 
 
 class LiveKitModerationRpcTransportError(RuntimeError):
@@ -256,6 +263,8 @@ def _identifier(value: object, label: str) -> str:
 
 def _safe_service_message(error: ClassroomModerationRpcError) -> str:
     message = str(error)
+    if message not in _SAFE_CLIENT_SERVICE_MESSAGES:
+        return "moderation request failed"
     try:
         encoded = message.encode("utf-8")
     except UnicodeEncodeError:
