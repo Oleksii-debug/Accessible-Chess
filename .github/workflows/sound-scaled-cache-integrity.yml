@@ -63,7 +63,13 @@ jobs:
             git merge-base --is-ancestor "$BASE_SHA" HEAD
             test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
             git diff --check "$BASE_SHA" HEAD
-            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/sound_windows\.py|tests/test_sound_runtime\.py|tests/test_sound_scaled_cache_integrity_workflow\.py|\.github/workflows/sound-scaled-cache-integrity\.yml)
+            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/sound_windows\.py|tests/test_sound_runtime\.py|tests/test_sound_scaled_cache_integrity_workflow\.py|\.github/workflows/sound-scaled-cache-integrity\.yml)$' || true)"
+            if [ -n "$unexpected" ]; then
+              printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
+              exit 1
+            fi
+          fi
+
       - name: Compile sound authority
         run: python -m py_compile acs/sound_events.py acs/sound_runtime.py acs/sound_windows.py tests/test_sound_runtime.py tests/test_sound_events.py tests/test_dev3_sound_failure_isolation.py tests/test_sound_scaled_cache_integrity_workflow.py
 
@@ -74,19 +80,3 @@ jobs:
           tests.test_sound_events
           tests.test_dev3_sound_failure_isolation
           tests.test_sound_scaled_cache_integrity_workflow
- || true)"
-            if [ -n "$unexpected" ]; then
-              printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
-              exit 1
-            fi
-          fi
-
-      - name: Compile sound authority
-        run: python -m py_compile acs/sound_events.py acs/sound_runtime.py acs/sound_windows.py tests/test_sound_runtime.py tests/test_sound_events.py tests/test_dev3_sound_failure_isolation.py
-
-      - name: Run sound regressions
-        run: >-
-          python -m unittest -v
-          tests.test_sound_runtime
-          tests.test_sound_events
-          tests.test_dev3_sound_failure_isolation
