@@ -156,13 +156,14 @@ class FakeFiles:
 class FakeFileStore:
     def __init__(self):
         self.read_calls = []
+        self.token = "short-lived-read-token"
 
     def put(self, *, object_key, content, expected_sha256):
         raise AssertionError("controller must not push opaque bytes through download-token path")
 
     def issue_read_token(self, *, object_key, participant_id, ttl_seconds):
         self.read_calls.append((object_key, participant_id, ttl_seconds))
-        return "short-lived-read-token"
+        return self.token
 
     def delete(self, *, object_key):
         pass
@@ -825,6 +826,42 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             self.file_store.read_calls,
             [("rooms/room-1/a1", "student-1", 120)],
         )
+
+    def test_download_token_rejects_control_whitespace_and_oversize_without_echo(self):
+        controller = self.controller()
+        prepared = controller.prepare_file(
+            attachment_id="token-a1",
+            local_path=self.make_file(content=b"token payload"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        stored = replace(
+            prepared.metadata,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.store.register_attachment(stored)
+
+        invalid_tokens = (
+            "",
+            "token with space",
+            "token\nnewline",
+            "token\x00nul",
+            "token\x1fcontrol",
+            "token\x7fdelete",
+            "x" * 8193,
+        )
+        for token in invalid_tokens:
+            with self.subTest(token=repr(token)[:40]):
+                self.file_store.token = token
+                with self.assertRaisesRegex(
+                    CollaborationError,
+                    "^file store returned invalid short-lived token$",
+                ) as caught:
+                    controller.issue_download_token(
+                        attachment_id=stored.attachment_id,
+                    )
+                self.assertNotIn(token[:64], str(caught.exception))
 
     def test_unsafe_object_key_is_rejected_before_transport(self):
         controller = self.controller()
