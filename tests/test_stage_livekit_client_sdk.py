@@ -167,7 +167,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 return mock.Mock(st_mode=stat.S_IFLNK, st_file_attributes=0)
             return original_lstat(path)
 
-        with mock.patch.object(Path, "lstat", side_effect=fake_lstat):
+        with mock.patch.object(Path, "lstat", autospec=True, side_effect=fake_lstat):
             with self.assertRaisesRegex(
                 sdk.LiveKitClientSdkStageError,
                 "regular file, not a link",
@@ -188,7 +188,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 )
             return original_lstat(path)
 
-        with mock.patch.object(Path, "lstat", side_effect=fake_lstat):
+        with mock.patch.object(Path, "lstat", autospec=True, side_effect=fake_lstat):
             with self.assertRaisesRegex(
                 sdk.LiveKitClientSdkStageError,
                 "reparse point",
@@ -276,7 +276,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
 
         with (
             mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists),
-            mock.patch.object(Path, "lstat", side_effect=fake_lstat),
+            mock.patch.object(Path, "lstat", autospec=True, side_effect=fake_lstat),
         ):
             with self.assertRaisesRegex(
                 sdk.LiveKitClientSdkStageError,
@@ -308,7 +308,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
 
         with (
             mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists),
-            mock.patch.object(Path, "lstat", side_effect=fake_lstat),
+            mock.patch.object(Path, "lstat", autospec=True, side_effect=fake_lstat),
         ):
             with self.assertRaisesRegex(
                 sdk.LiveKitClientSdkStageError,
