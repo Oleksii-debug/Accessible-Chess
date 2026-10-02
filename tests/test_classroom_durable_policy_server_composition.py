@@ -6,7 +6,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from acs.classroom_join_credentials import ClassroomJoinCredentialService
+from acs.classroom_join_credentials import (
+    ClassroomJoinCredentialError,
+    ClassroomJoinCredentialService,
+)
 from acs.classroom_media_policy_authority import (
     ClassroomMediaPolicyProviderAdmin,
     SqliteClassroomMediaPolicyAuthority,
@@ -72,7 +75,13 @@ class RecordingTokenIssuer:
         return "header.payload.signature"
 
 
-def moderation_wire(operation_id: str, *, source="camera", value=False) -> str:
+def moderation_wire(
+    operation_id: str,
+    *,
+    action: str = "publish_permission",
+    source: str | None = "camera",
+    value: bool = False,
+) -> str:
     return json.dumps(
         {
             "version": RPC_VERSION,
@@ -82,7 +91,7 @@ def moderation_wire(operation_id: str, *, source="camera", value=False) -> str:
                     "operation_id": operation_id,
                     "actor_id": TEACHER,
                     "target_id": STUDENT,
-                    "action": "publish_permission",
+                    "action": action,
                     "source": source,
                     "value": value,
                 }
@@ -204,6 +213,75 @@ class DurablePolicyServerCompositionTests(unittest.IsolatedAsyncioTestCase):
             reopened.policy_revision(room_id=ROOM, participant_id=STUDENT),
             1,
         )
+
+    async def test_block_survives_remove_failure_and_rejects_join_before_retry(self):
+        authority = self.authority()
+        room = FakeRoomService(participant())
+        room.remove_error = RuntimeError("private provider remove failure")
+        service = self.moderation_service(authority=authority, room=room)
+        wire = moderation_wire(
+            "op-block-student",
+            action="remove",
+            source=None,
+            value=True,
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "^moderation provider operation failed$",
+        ):
+            await self.handle(service, wire)
+
+        pending = SqliteClassroomModerationLedger(self.ledger_path).operation_state(
+            room_id=ROOM,
+            operation_id="op-block-student",
+        )
+        self.assertIsNotNone(pending)
+        self.assertFalse(pending.committed)
+
+        reopened = self.authority()
+        self.assertTrue(
+            reopened.participant_policy(
+                room_id=ROOM,
+                participant_id=STUDENT,
+            ).blocked
+        )
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join request is not authorized$",
+        ):
+            await self.join_service(
+                authority=reopened,
+                issuer=RecordingTokenIssuer(),
+            ).issue(
+                trusted_caller_identity=STUDENT,
+                payload=join_wire(),
+            )
+
+        room.remove_error = None
+        response = await self.handle(
+            self.moderation_service(authority=reopened, room=room),
+            wire,
+        )
+        self.assertEqual(json.loads(response)["status"], "ok")
+        committed = SqliteClassroomModerationLedger(self.ledger_path).operation_state(
+            room_id=ROOM,
+            operation_id="op-block-student",
+        )
+        self.assertTrue(committed.committed)
+        self.assertEqual(len(room.removals), 2)
+
+        with self.assertRaisesRegex(
+            ClassroomJoinCredentialError,
+            "^join request is not authorized$",
+        ):
+            await self.join_service(
+                authority=self.authority(),
+                issuer=RecordingTokenIssuer(),
+            ).issue(
+                trusted_caller_identity=STUDENT,
+                payload=join_wire(),
+            )
 
     async def test_provider_failure_still_closes_reconnect_then_exact_retry_commits(self):
         authority = self.authority()
