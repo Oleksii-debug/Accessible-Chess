@@ -132,6 +132,25 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
             )
         self.assertEqual(self.state_tuple(state), before)
 
+    @unittest.expectedFailure  # #1060: valid clock history targets the wrong side after undo.
+    def test_wrong_side_historical_clock_must_not_accept_takeback(self):
+        session, state = self.make_coordinator(
+            lambda: ClockSnapshot(10_000, 10_000, "b", ClockState.RUNNING)
+        )
+        before_board = self.state_tuple(state)
+        before_lifecycle = session._lifecycle.snapshot()
+        before_clock = session._clock.snapshot()
+        with self.assertRaises(EngineContractError):
+            session.handle_handoff(
+                EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+            )
+        # The provider supplied a structurally valid clock, but it belongs
+        # to the wrong post-undo side. The attempted command must not silently
+        # publish Board, lifecycle or clock mutations before rejecting it.
+        self.assertEqual(self.state_tuple(state), before_board)
+        self.assertEqual(session._lifecycle.snapshot(), before_lifecycle)
+        self.assertEqual(session._clock.snapshot(), before_clock)
+
     def make_stage1(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
