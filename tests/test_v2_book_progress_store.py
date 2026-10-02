@@ -283,17 +283,17 @@ class BookProgressStoreTests(unittest.TestCase):
         real_require = self.store._require_no_orphan_backup_unlocked
         checks = 0
 
-        def backup_appears_after_first_check() -> None:
+        def backup_appears_after_write_stage_check() -> None:
             nonlocal checks
             checks += 1
             real_require()
-            if checks == 1:
+            if checks == 2:
                 self.store.backup_path.write_bytes(backup_bytes)
 
         with mock.patch.object(
             self.store,
             "_require_no_orphan_backup_unlocked",
-            side_effect=backup_appears_after_first_check,
+            side_effect=backup_appears_after_write_stage_check,
         ):
             with self.assertRaises(BookProgressStoreError) as caught:
                 self.store.save(
@@ -301,7 +301,7 @@ class BookProgressStoreTests(unittest.TestCase):
                     BookReader(self.original_document()),
                 )
 
-        self.assertEqual(checks, 2)
+        self.assertEqual(checks, 3)
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
