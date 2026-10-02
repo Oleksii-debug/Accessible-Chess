@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.sound_profile_composition import (
     _local_pack_resolver,
@@ -183,7 +184,13 @@ class LocalSoundCompositionTests(unittest.TestCase):
                         "pack_id": "missing.pack",
                         "master_enabled": True,
                         "master_volume_percent": 80,
-                        "events": {},
+                        "events": {
+                            "move": {
+                                "enabled": False,
+                                "volume_percent": 43,
+                                "sound_id": "custom.move",
+                            }
+                        },
                     },
                     separators=(",", ":"),
                     sort_keys=True,
@@ -197,8 +204,61 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 asset_playback=_Playback(),
             )
             self.assertEqual("classic", composition.profile_manager.current.pack_id)
+            pref = composition.profile_manager.current.preference_for("move")
+            self.assertFalse(pref.enabled)
+            self.assertEqual(43, pref.volume_percent)
+            self.assertIsNone(pref.sound_id)
             persisted = json.loads((data / "sound-profile.json").read_text(encoding="utf-8"))
             self.assertEqual("classic", persisted["pack_id"])
+            self.assertIsNone(persisted["events"]["move"]["sound_id"])
+
+    def test_restart_normalizes_stale_sound_id_against_installed_custom_manifest(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-choice-reconcile-") as raw:
+            root = Path(raw)
+            data = root / "data"
+            data.mkdir(parents=True)
+            path = data / "sound-profile.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "pack_id": "local.wood",
+                        "master_enabled": True,
+                        "master_volume_percent": 72,
+                        "events": {
+                            "move": {
+                                "enabled": False,
+                                "volume_percent": 31,
+                                "sound_id": "removed.sound",
+                            }
+                        },
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest = _pack_manifest("local.wood")
+
+            with mock.patch.object(
+                FilesystemSoundPackStore,
+                "installed",
+                return_value={"local.wood": manifest},
+            ):
+                composition = create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=data,
+                    asset_playback=_Playback(),
+                )
+
+            self.assertEqual("local.wood", composition.profile_manager.current.pack_id)
+            pref = composition.profile_manager.current.preference_for("move")
+            self.assertFalse(pref.enabled)
+            self.assertEqual(31, pref.volume_percent)
+            self.assertIsNone(pref.sound_id)
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIsNone(persisted["events"]["move"]["sound_id"])
 
     def test_future_profile_schema_is_preserved_and_ui_writes_blocked(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-future-") as raw:
