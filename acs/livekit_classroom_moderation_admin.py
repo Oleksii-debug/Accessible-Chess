@@ -120,7 +120,10 @@ class LiveKitClassroomModerationAdmin:
             )
         allowed = _explicit_publish_sources(self._api, permission)
         source = _provider_source(self._api, command.source)
-        if command.value:
+        desired = bool(command.value)
+        if (source in allowed) is desired:
+            return
+        if desired:
             allowed.add(source)
         else:
             allowed.discard(source)
@@ -137,13 +140,28 @@ class LiveKitClassroomModerationAdmin:
                 identity=command.target_id,
                 permission=next_permission,
             )
-            await self._room.update_participant(request)
+            updated = await self._room.update_participant(request)
         except LiveKitClassroomModerationAdminError:
             raise
         except Exception:
             raise LiveKitClassroomModerationAdminError(
                 "LiveKit publish permission update failed"
             ) from None
+
+        if getattr(updated, "identity", None) != command.target_id:
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit permission update identity is not canonical"
+            )
+        updated_permission = getattr(updated, "permission", None)
+        if updated_permission is None:
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit permission update returned no permission state"
+            )
+        updated_allowed = _explicit_publish_sources(self._api, updated_permission)
+        if (source in updated_allowed) is not desired:
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit permission update did not reach requested state"
+            )
 
     async def _set_soft_mute(
         self,
@@ -189,11 +207,20 @@ class LiveKitClassroomModerationAdmin:
                     track_sid=sid,
                     muted=True,
                 )
-                await self._room.mute_published_track(request)
+                response = await self._room.mute_published_track(request)
             except Exception:
                 raise LiveKitClassroomModerationAdminError(
                     "LiveKit microphone mute failed"
                 ) from None
+            updated_track = getattr(response, "track", None)
+            if (
+                updated_track is None
+                or getattr(updated_track, "sid", None) != sid
+                or getattr(updated_track, "muted", None) is not True
+            ):
+                raise LiveKitClassroomModerationAdminError(
+                    "LiveKit microphone mute did not reach requested state"
+                )
 
     async def _remove(
         self,

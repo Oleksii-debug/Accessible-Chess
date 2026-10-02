@@ -112,13 +112,22 @@ class FakeRoomService:
         self.updates.append(request)
         if self.update_error is not None:
             raise self.update_error
+        self.participant = SimpleNamespace(
+            identity=request.identity,
+            permission=request.permission,
+            tracks=list(getattr(self.participant, "tracks", ()) or ()),
+        )
         return self.participant
 
     async def mute_published_track(self, request):
         self.mutes.append(request)
         if self.mute_error is not None:
             raise self.mute_error
-        return SimpleNamespace()
+        for value in list(getattr(self.participant, "tracks", ()) or ()):
+            if getattr(value, "sid", None) == request.track_sid:
+                value.muted = request.muted
+                return SimpleNamespace(track=value)
+        raise AssertionError("unknown track")
 
     async def remove_participant(self, request):
         self.removals.append(request)
@@ -198,6 +207,68 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
         self.assertTrue(request.permission.can_publish)
         self.assertTrue(request.permission.can_subscribe)
         self.assertFalse(request.permission.can_publish_data)
+
+    def test_already_achieved_publish_permission_is_provider_noop(self):
+        admin, room = self.admin()
+        self.apply(
+            admin,
+            command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.MICROPHONE,
+                value=True,
+            ),
+        )
+        self.assertEqual(len(room.lookups), 1)
+        self.assertEqual(room.updates, [])
+
+    def test_publish_update_response_must_confirm_exact_target_and_state(self):
+        admin, room = self.admin()
+
+        async def stale_update(request):
+            room.updates.append(request)
+            return participant(
+                identity=request.identity,
+                sources=(FakeTrackSource.MICROPHONE, FakeTrackSource.CAMERA),
+                can_publish=True,
+            )
+
+        room.update_participant = stale_update
+        with self.assertRaisesRegex(
+            LiveKitClassroomModerationAdminError,
+            "did not reach requested state",
+        ):
+            self.apply(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.CAMERA,
+                    value=False,
+                ),
+            )
+
+        async def wrong_identity(request):
+            room.updates.append(request)
+            return participant(
+                identity="other",
+                sources=(FakeTrackSource.MICROPHONE,),
+                can_publish=True,
+            )
+
+        room.updates.clear()
+        room.update_participant = wrong_identity
+        with self.assertRaisesRegex(
+            LiveKitClassroomModerationAdminError,
+            "update identity is not canonical",
+        ):
+            self.apply(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.CAMERA,
+                    value=False,
+                    operation="op-2",
+                ),
+            )
 
     def test_disabling_last_source_turns_off_publish_capability(self):
         room = FakeRoomService(
@@ -335,6 +406,37 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
         self.assertEqual(request.track_sid, "mic-open")
         self.assertTrue(request.muted)
         self.assertEqual(request.identity, "student-1")
+
+    def test_soft_mute_response_must_confirm_exact_track_state(self):
+        tracks = (
+            SimpleNamespace(
+                sid="mic-open",
+                source=FakeTrackSource.MICROPHONE,
+                muted=False,
+            ),
+        )
+        room = FakeRoomService(participant(tracks=tracks))
+        admin, room = self.admin(room)
+
+        async def stale_mute(request):
+            room.mutes.append(request)
+            return SimpleNamespace(
+                track=SimpleNamespace(sid=request.track_sid, muted=False)
+            )
+
+        room.mute_published_track = stale_mute
+        with self.assertRaisesRegex(
+            LiveKitClassroomModerationAdminError,
+            "did not reach requested state",
+        ):
+            self.apply(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
 
     def test_soft_mute_release_never_forces_remote_unmute(self):
         room = FakeRoomService(participant())
