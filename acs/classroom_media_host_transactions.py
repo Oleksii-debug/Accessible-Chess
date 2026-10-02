@@ -19,7 +19,7 @@ secret and requires a dedicated one-shot handoff.
 """
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 import re
 import secrets
@@ -351,6 +351,7 @@ class _PendingTransaction:
     effect: MediaProviderEffect
     base_revision: int
     replay: Callable[[], Any]
+    next_chunk_index: int = 0
 
 
 TransactionIdFactory = Callable[[], str]
@@ -393,6 +394,20 @@ class ClassroomMediaHostTransactions:
     def recovery_effect(self) -> MediaProviderEffect | None:
         with self._lock:
             return None if self._recovery is None else self._recovery.effect
+
+    @property
+    def pending_browser_payload(self) -> Mapping[str, object] | None:
+        """Return only the next provider call allowed for the pending transaction."""
+
+        with self._lock:
+            if self._pending is None:
+                return None
+            payloads = self._pending.effect.browser_payloads()
+            if self._pending.next_chunk_index >= len(payloads):
+                raise MediaHostTransactionError(
+                    "media transaction provider plan is internally inconsistent"
+                )
+            return payloads[self._pending.next_chunk_index]
 
     def _assert_owner_thread(self) -> None:
         if get_ident() != self._owner_thread_id:
@@ -535,7 +550,13 @@ class ClassroomMediaHostTransactions:
 
         self._assert_owner_thread()
         with self._lock:
-            self._require_pending(transaction_id)
+            pending = self._require_pending(transaction_id)
+            if pending.next_chunk_index != 0:
+                self._pending = None
+                self._recovery = pending
+                raise MediaHostRecoveryRequired(
+                    "media provider transaction is already partially applied"
+                )
             self._pending = None
 
     def provider_failed(self, transaction_id: str) -> None:
@@ -552,12 +573,38 @@ class ClassroomMediaHostTransactions:
             self._pending = None
             self._recovery = pending
 
-    def commit_provider_success(self, transaction_id: str) -> Any:
-        """Commit canonical state only after exact provider success."""
+    def acknowledge_provider_chunk_success(
+        self,
+        transaction_id: str,
+        chunk_index: int,
+    ) -> Any | None:
+        """Advance one exact provider chunk and commit only after the final chunk."""
 
         self._assert_owner_thread()
+        if type(chunk_index) is not int or chunk_index < 0:
+            raise MediaHostTransactionError("media provider chunk index is invalid")
         with self._lock:
             pending = self._require_pending(transaction_id)
+            payloads = pending.effect.browser_payloads()
+            if chunk_index != pending.next_chunk_index:
+                if chunk_index < pending.next_chunk_index:
+                    raise MediaHostTransactionError(
+                        "media provider chunk acknowledgement is duplicate or stale"
+                    )
+                self._pending = None
+                self._recovery = pending
+                raise MediaHostRecoveryRequired(
+                    "media provider chunks completed out of order"
+                )
+
+            next_chunk = chunk_index + 1
+            if next_chunk < len(payloads):
+                self._pending = replace(
+                    pending,
+                    next_chunk_index=next_chunk,
+                )
+                return None
+
             if self._controller.state.revision != pending.base_revision:
                 self._pending = None
                 self._recovery = pending
@@ -574,6 +621,18 @@ class ClassroomMediaHostTransactions:
                 ) from exc
             self._pending = None
             return result
+
+    def commit_provider_success(self, transaction_id: str) -> Any:
+        """Compatibility helper for effects that require exactly one provider call."""
+
+        self._assert_owner_thread()
+        with self._lock:
+            pending = self._require_pending(transaction_id)
+            if len(pending.effect.browser_payloads()) != 1:
+                raise MediaHostTransactionError(
+                    "multi-chunk media effect requires per-chunk provider acknowledgement"
+                )
+        return self.acknowledge_provider_chunk_success(transaction_id, 0)
 
     def resolve_recovery(self, transaction_id: str) -> None:
         """Clear recovery only after the host has reconciled provider state."""
