@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .classroom_sound import ClassroomSoundRuntime
 from .sound_events import SoundEvent
 from .sound_pack_store import FilesystemSoundPackStore
 from .sound_profile_file_store import JsonSoundProfileStorage
@@ -38,6 +39,7 @@ class LocalSoundComposition:
     pack_store: FilesystemSoundPackStore
     profiled_runtime: ProfiledSoundRuntime
     game_runtime: GameSoundRuntime
+    classroom_runtime: ClassroomSoundRuntime
     settings: SoundSettingsApplication
 
 
@@ -186,6 +188,7 @@ def create_local_sound_composition(
     )
     profiled = ProfiledSoundRuntime(playback, profile_manager.profile_provider)
     game = GameSoundRuntime(profiled)
+    classroom = ClassroomSoundRuntime(playback, profile_manager.profile_provider)
     settings = SoundSettingsApplication(
         profile_manager,
         profiled,
@@ -196,6 +199,7 @@ def create_local_sound_composition(
         pack_store=pack_store,
         profiled_runtime=profiled,
         game_runtime=game,
+        classroom_runtime=classroom,
         settings=settings,
     )
 
