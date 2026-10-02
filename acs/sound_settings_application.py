@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from .sound_pack_catalog import SoundPackCatalogEntry, SoundPackState
 from .sound_pack_profile import SoundPackProfileCoordinator
 from .sound_profile_store import SoundProfileManager
-from .sound_profiles import CORE_SOUND_EVENTS, SoundEventPreference, SoundPackManifest
+from .sound_profiles import (
+    CORE_SOUND_EVENTS,
+    OPTIONAL_CLASSROOM_SOUND_EVENTS,
+    SoundEventPreference,
+    SoundPackManifest,
+)
 from .sound_runtime import ProfiledSoundRuntime
 
 
@@ -28,6 +33,11 @@ _EVENT_LABELS = {
     "end": ("Кінець партії", "Game end"),
     "tick": ("Тік годинника", "Clock tick"),
     "low_time": ("Мало часу", "Low time"),
+    "classroom.join": ("Приєднання до класу", "Classroom join"),
+    "classroom.leave": ("Вихід із класу", "Classroom leave"),
+    "classroom.hand_raise": ("Піднята рука", "Hand raised"),
+    "classroom.permission": ("Дозвіл у класі", "Classroom permission"),
+    "lesson.position_deployed": ("Позицію уроку надіслано", "Lesson position deployed"),
 }
 
 
@@ -97,11 +107,39 @@ class SoundSettingsApplication:
             result[pack_id] = manifest
         return result
 
+    @staticmethod
+    def _visible_event_ids(
+        profile,
+        active_manifest: SoundPackManifest | None,
+    ) -> tuple[str, ...]:
+        event_ids = list(CORE_SOUND_EVENTS)
+        if profile.pack_id != "classic" and active_manifest is not None:
+            event_ids.extend(
+                event_id
+                for event_id in OPTIONAL_CLASSROOM_SOUND_EVENTS
+                if event_id in active_manifest.files
+            )
+        return tuple(event_ids)
+
+    @staticmethod
+    def _sound_choices(
+        profile,
+        event_id: str,
+        active_manifest: SoundPackManifest | None,
+    ) -> tuple[str, ...]:
+        if profile.pack_id == "classic":
+            return (event_id,)
+        if active_manifest is None:
+            return (profile.selected_sound_id(event_id),)
+        return tuple(sorted(active_manifest.files))
+
     def snapshot(self, *, language: str = "uk") -> dict[str, object]:
         lang = self._language(language)
         profile = self._profiles.current
+        installed_local = self._installed_local_packs()
+        active_manifest = installed_local.get(profile.pack_id)
         events: list[dict[str, object]] = []
-        for event_id in CORE_SOUND_EVENTS:
+        for event_id in self._visible_event_ids(profile, active_manifest):
             pref = profile.preference_for(event_id)
             labels = _EVENT_LABELS[event_id]
             events.append(
@@ -111,6 +149,11 @@ class SoundSettingsApplication:
                     "enabled": pref.enabled,
                     "volume_percent": pref.volume_percent,
                     "sound_id": profile.selected_sound_id(event_id),
+                    "sound_choices": self._sound_choices(
+                        profile,
+                        event_id,
+                        active_manifest,
+                    ),
                     "effective_volume": profile.effective_volume(event_id),
                 }
             )
@@ -141,7 +184,7 @@ class SoundSettingsApplication:
                     }
                 )
 
-        for pack_id, manifest in sorted(self._installed_local_packs().items()):
+        for pack_id, manifest in sorted(installed_local.items()):
             if pack_id == "classic" or pack_id in represented:
                 continue
             packs.append(
@@ -197,13 +240,24 @@ class SoundSettingsApplication:
         sound_id: str | None = None,
         language: str = "uk",
     ) -> SoundSettingsResult:
-        if event_id not in CORE_SOUND_EVENTS:
+        profile = self._profiles.current
+        installed_local = self._installed_local_packs()
+        active_manifest = installed_local.get(profile.pack_id)
+        if event_id not in self._visible_event_ids(profile, active_manifest):
             raise ValueError("unknown sound event")
-        current = self._profiles.current.preference_for(event_id)
+        current = profile.preference_for(event_id)
         if enabled is not None and type(enabled) is not bool:
             raise TypeError("enabled must be boolean or null")
         if volume_percent is not None and type(volume_percent) is not int:
             raise TypeError("volume_percent must be an integer or null")
+        if sound_id is not None and type(sound_id) is not str:
+            raise TypeError("sound_id must be text or null")
+        if (
+            sound_id is not None
+            and self._installed_pack_provider is not None
+            and sound_id not in self._sound_choices(profile, event_id, active_manifest)
+        ):
+            raise ValueError("sound_id is not available in the active sound pack")
         preference = SoundEventPreference(
             enabled=current.enabled if enabled is None else enabled,
             volume_percent=current.volume_percent if volume_percent is None else volume_percent,
@@ -214,7 +268,9 @@ class SoundSettingsApplication:
         return self._result(message, language=language)
 
     def preview(self, event_id: str, *, language: str = "uk") -> SoundSettingsResult:
-        if event_id not in CORE_SOUND_EVENTS:
+        profile = self._profiles.current
+        active_manifest = self._installed_local_packs().get(profile.pack_id)
+        if event_id not in self._visible_event_ids(profile, active_manifest):
             raise ValueError("unknown sound event")
         preview = self._runtime.preview(event_id)
         if preview.error_type is not None:
