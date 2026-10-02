@@ -1083,6 +1083,103 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room"), (occupied,))
 
+    def test_attachment_sync_adopts_authority_over_uncertain_local_transfer(self) -> None:
+        for local_state in ("uploading", "failed"):
+            with self.subTest(local_state=local_state):
+                db_path = Path(self.temp.name) / f"uncertain-{local_state}.sqlite3"
+                store = ClassroomCollaborationSQLiteStore(str(db_path))
+                provisional = AttachmentMetadata(
+                    "uncertain-a",
+                    "room",
+                    "teacher",
+                    73,
+                    "file.bin",
+                    None,
+                    1,
+                    "f" * 64,
+                    "rooms/room/uncertain-a",
+                    "pending",
+                    "persistent",
+                    "pending",
+                )
+                store.register_attachment(provisional)
+                store.update_attachment_state(
+                    provisional.attachment_id,
+                    transfer_state="uploading",
+                )
+                if local_state == "failed":
+                    store.update_attachment_state(
+                        provisional.attachment_id,
+                        transfer_state="failed",
+                    )
+                authoritative = AttachmentMetadata(
+                    provisional.attachment_id,
+                    provisional.room_id,
+                    provisional.sender_id,
+                    0,
+                    provisional.display_name,
+                    provisional.mime_type,
+                    provisional.size_bytes,
+                    provisional.sha256,
+                    provisional.object_key,
+                    "stored",
+                    provisional.retention,
+                    "clean",
+                )
+
+                persisted = store.reconcile_attachment_sync_atomic(
+                    room_id="room",
+                    attachments=(authoritative,),
+                    updates=(),
+                )
+
+                self.assertEqual(persisted, (authoritative,))
+                self.assertEqual(store.room_attachments("room"), (authoritative,))
+
+    def test_attachment_sync_rejects_authority_over_mismatched_uncertain_identity(self) -> None:
+        provisional = AttachmentMetadata(
+            "uncertain-a",
+            "room",
+            "teacher",
+            73,
+            "file.bin",
+            None,
+            1,
+            "f" * 64,
+            "rooms/room/uncertain-a",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        forged = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            "different.bin",
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(forged,),
+                updates=(),
+            )
+
+        self.assertEqual(self.store.room_attachments("room"), (uploading,))
+
     def test_attachment_sync_commits_history_and_state_in_one_transaction(self) -> None:
         incoming = AttachmentMetadata(
             "remote-sync",
