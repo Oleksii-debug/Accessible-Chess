@@ -94,11 +94,13 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                 "student-2",
                 1,
                 "Remote answer",
+                sent_at_unix_ms=1700000001000,
             )
         )
         event = view.dispatch("collaboration.chat.sync", {})
         self.assertEqual("collaboration.chat.synced", event.kind)
         self.assertEqual("Student two: Remote answer", event.payload["announcement"])
+        self.assertNotIn("UTC", event.payload["announcement"])
         self.assertNotIn("focus_target", event.payload)
         self.assertEqual(1, event.payload["collaboration"]["chat"]["unread_count"])
 
@@ -109,16 +111,40 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view = self.webview()
         view.dispatch("collaboration.chat.send", {"body": "One"})
         self.chat.ordered.append(
-            ChatMessageMetadata("remote-message-2", "room-1", "teacher-1", 1, "Two")
+            ChatMessageMetadata(
+                "remote-message-2",
+                "room-1",
+                "teacher-1",
+                1,
+                "Two",
+                sent_at_unix_ms=1700000001000,
+            )
         )
         view.dispatch("collaboration.chat.sync", {})
         snapshot = view.snapshot()
         messages = snapshot["chat"]["messages"]
         self.assertEqual(["One", "Two"], [item["body"] for item in messages])
         self.assertEqual(["Oleksii", "Teacher"], [item["sender"] for item in messages])
+        self.assertEqual(
+            ["2023-11-14 22:13:20 UTC", "2023-11-14 22:13:21 UTC"],
+            [item["timestamp_text"] for item in messages],
+        )
+        self.assertEqual(
+            ["2023-11-14T22:13:20Z", "2023-11-14T22:13:21Z"],
+            [item["timestamp_datetime"] for item in messages],
+        )
+        self.assertEqual("Message time", snapshot["chat"]["timestamp_label"])
         exposed = repr(snapshot)
         for internal in ("student-1", "teacher-1", "message-ui-1", "remote-message-2"):
             self.assertNotIn(internal, exposed)
+
+    def test_legacy_persisted_message_does_not_invent_timestamp(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata("legacy-message", "room-1", "teacher-1", 0, "Legacy")
+        )
+        message = self.webview().snapshot()["chat"]["messages"][0]
+        self.assertNotIn("timestamp_text", message)
+        self.assertNotIn("timestamp_datetime", message)
 
     def test_file_upload_and_save_keep_local_path_object_key_hash_and_token_out_of_browser(self) -> None:
         self.selected_file = self.root / "lesson notes.txt"
@@ -184,6 +210,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                 "student-2",
                 0,
                 "Please moderate this",
+                sent_at_unix_ms=1700000000000,
             )
         )
         view = ClassroomCollaborationWebView(
@@ -303,8 +330,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
     def test_language_switch_changes_presentation_without_rebuilding_core(self) -> None:
         view = self.webview(language=UILanguage.EN)
         self.assertEqual("Chat", view.snapshot()["chat"]["heading"])
+        self.assertEqual("Message time", view.snapshot()["chat"]["timestamp_label"])
         view.set_language(UILanguage.UA)
         self.assertEqual("Чат", view.snapshot()["chat"]["heading"])
+        self.assertEqual("Час повідомлення", view.snapshot()["chat"]["timestamp_label"])
 
 
 if __name__ == "__main__":
