@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
+from acs import version2_education_mutation_release as education_release
 from acs import version2_upgrade_status_release as shipping_release
 
 
@@ -68,10 +71,72 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertIn("global.announce = function", runtime_source)
 
 
+    def test_packaged_livekit_sdk_precedes_adapter_without_becoming_source_requirement(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            web = root / "web"
+            resource_paths = (
+                "stage1_release_bootstrap.js",
+                "stage1_board_actions.js",
+                "full_product_pgn.js",
+                "full_product_library.js",
+                "full_product_books_training.js",
+                "full_product_teacher.js",
+                "full_product_education.js",
+                "livekit_classroom_media.js",
+                "full_product_classroom_media.js",
+                "version2_final_product_bootstrap.js",
+                "p0_accessibility_runtime.js",
+            )
+            for relative in resource_paths:
+                path = web / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"// {relative}\n", encoding="utf-8")
+
+            with patch.object(
+                education_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                source_sources = shipping_release.final_product_resource_sources()
+            source_labels = [label for label, _source in source_sources]
+            self.assertNotIn("V2 Classroom LiveKit SDK", source_labels)
+            self.assertIn("V2 Classroom LiveKit adapter", source_labels)
+
+            sdk_path = web / "vendor" / "livekit" / "livekit-client.umd.js"
+            sdk_path.parent.mkdir(parents=True, exist_ok=True)
+            sdk_source = "globalThis.LivekitClient = { Room: function Room() {} };\n"
+            sdk_path.write_text(sdk_source, encoding="utf-8")
+
+            with patch.object(
+                education_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                packaged_sources = shipping_release.final_product_resource_sources()
+            packaged_labels = [label for label, _source in packaged_sources]
+            sdk_index = packaged_labels.index("V2 Classroom LiveKit SDK")
+            self.assertEqual(
+                packaged_labels[sdk_index : sdk_index + 4],
+                [
+                    "V2 Classroom LiveKit SDK",
+                    "V2 Classroom LiveKit adapter",
+                    "V2 Classroom media surface",
+                    "V2 final-product bootstrap",
+                ],
+            )
+            self.assertEqual(
+                dict(packaged_sources)["V2 Classroom LiveKit SDK"],
+                sdk_source,
+            )
+
+
     def test_retained_gate_accepts_exact_classroom_media_successor_identities(self) -> None:
         workflow = P0G_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("EDUCATION_RELEASE_MEDIA_BLOB:", workflow)
+        self.assertIn("EDUCATION_RELEASE_MEDIA_SDK_BLOB:", workflow)
         self.assertIn("REACHABILITY_MEDIA_TEST_BLOB:", workflow)
+        self.assertIn("REACHABILITY_MEDIA_SDK_TEST_BLOB:", workflow)
         self.assertIn('education_blob="$(git rev-parse HEAD:acs/version2_education_mutation_release.py)"', workflow)
         self.assertIn('reachability_test_blob="$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)"', workflow)
         self.assertIn('"$EDUCATION_RELEASE_BLOB"|"$EDUCATION_RELEASE_MEDIA_BLOB"', workflow)
