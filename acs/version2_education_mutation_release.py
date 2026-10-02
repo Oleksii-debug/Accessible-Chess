@@ -12,6 +12,7 @@ this child is composing/running, then restore the exact previous objects.
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator
 
+from . import version2_final_release as _final_release
 from . import version2_release_app as _release_app
 from . import version2_release_ui as _release_ui
 from .full_product_ui_shell import UILanguage
@@ -23,27 +24,18 @@ from .version2_packaged_starter_application import Version2PackagedStarterApplic
 
 
 def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
-    """Return the exact #645 Teacher/Education-capable packaged WebView sources."""
+    """Return the canonical final-product resources under the #645 label contract."""
 
-    root = _release_ui._asset_root() / "web"
-    resources = (
-        ("Stage 1 WebView bootstrap", root / "stage1_release_bootstrap.js"),
-        ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
-        ("V2 PGN surface", root / "full_product_pgn.js"),
-        ("V2 Library surface", root / "full_product_library.js"),
-        ("V2 Books surface", root / "full_product_books_training.js"),
-        ("V2 Teacher surface", root / "full_product_teacher.js"),
-        ("V2 Education surface", root / "full_product_education.js"),
-        ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
-        ("P0 accessibility runtime", root / "p0_accessibility_runtime.js"),
+    sources = _final_release.final_product_resource_sources()
+    return tuple(
+        (
+            "P0 accessibility runtime"
+            if label == "P0 event-aware accessibility runtime"
+            else label,
+            source,
+        )
+        for label, source in sources
     )
-    output: list[tuple[str, str]] = []
-    for label, path in resources:
-        if not path.exists():
-            raise RuntimeError(f"{label} not found in packaged resources.")
-        output.append((label, path.read_text(encoding="utf-8")))
-    return tuple(output)
-
 
 def _composed_language_sync(
     base_sync: Callable[[Any, UILanguage], None],
