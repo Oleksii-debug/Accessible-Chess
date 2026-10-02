@@ -596,21 +596,22 @@ class ClassroomCollaborationController:
         )
         if type(incoming) is not tuple or len(incoming) > MAX_SYNC_ATTACHMENTS:
             raise CollaborationError("file history response is invalid or too large")
-        previous = after
-        persisted: list[AttachmentMetadata] = []
+
+        expected_sequence = 0 if after is None else after + 1
         for attachment in incoming:
             self._validate_remote_attachment(attachment)
-            if previous is not None and attachment.sequence_no <= previous:
-                raise CollaborationError("file history is not strictly ordered")
-            try:
-                saved = self._store.register_attachment(attachment)
-            except CollaborationStorageError as error:
+            if attachment.sequence_no != expected_sequence:
                 raise CollaborationError(
-                    "remote attachment could not be reconciled"
-                ) from error
-            persisted.append(saved)
-            previous = attachment.sequence_no
-        return tuple(persisted)
+                    "file history has an unresolved sequence gap"
+                )
+            expected_sequence += 1
+
+        try:
+            return self._store.register_attachments_atomic(incoming)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "remote attachment batch could not be reconciled"
+            ) from error
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
