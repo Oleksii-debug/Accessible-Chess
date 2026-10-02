@@ -19,14 +19,19 @@
   }
 
   function focusTarget(root, targetId) {
-    if (!targetId) return;
+    if (!targetId) return false;
     const candidates = root.querySelectorAll("[id]");
     for (let index = 0; index < candidates.length; index += 1) {
-      if (candidates[index].id === targetId && typeof candidates[index].focus === "function") {
+      if (
+        candidates[index].id === targetId &&
+        !candidates[index].disabled &&
+        typeof candidates[index].focus === "function"
+      ) {
         candidates[index].focus({ preventScroll: true });
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   function renderDetail(detail) {
@@ -79,7 +84,14 @@
     }
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
-    focusTarget(root, payload.focus_target || previousFocus || "");
+    const requestedFocus = payload.focus_target || previousFocus || "";
+    if (
+      !focusTarget(root, requestedFocus) &&
+      payload.collaboration &&
+      requestedFocus
+    ) {
+      focusTarget(root, "classroom-collaboration-heading");
+    }
   }
 
   function invokeSection(invoke, command, payload, root, announce, fallbackMessage) {
@@ -212,6 +224,7 @@
     wrapper.setAttribute("aria-labelledby", "classroom-collaboration-heading");
     const heading = node("h2", snapshot.heading || "");
     heading.id = "classroom-collaboration-heading";
+    heading.tabIndex = -1;
     wrapper.appendChild(heading);
     if (snapshot.available === false) {
       const status = node("p", snapshot.status_message || "");
@@ -238,6 +251,7 @@
     const sync = node("button", chat.sync_label || "Refresh chat");
     sync.id = "collaboration-chat-sync";
     sync.type = "button";
+    sync.id = "collaboration-chat-sync";
     sync.setAttribute("data-command", "collaboration.chat.sync");
     sync.addEventListener("click", function () {
       invokeCollaboration(invoke, "collaboration.chat.sync", {}, wrapper, announce, fallbackMessage);
@@ -246,6 +260,7 @@
     const markRead = node("button", chat.mark_read_label || "Mark read");
     markRead.id = "collaboration-chat-mark-read";
     markRead.type = "button";
+    markRead.id = "collaboration-chat-mark-read";
     markRead.disabled = !(Number(chat.unread_count || 0) > 0);
     markRead.setAttribute("data-command", "collaboration.chat.mark_read");
     markRead.addEventListener("click", function () {
@@ -256,6 +271,7 @@
       const muteAll = node("button", chat.mute_all_label || "Mute all students");
       muteAll.id = "collaboration-chat-mute-all";
       muteAll.type = "button";
+      muteAll.id = "collaboration-chat-mute-all-students";
       muteAll.setAttribute("data-command", "collaboration.chat.mute_all_students");
       muteAll.addEventListener("click", function () {
         invokeCollaboration(
@@ -271,6 +287,7 @@
       const allowAll = node("button", chat.allow_all_label || "Allow all students");
       allowAll.id = "collaboration-chat-allow-all";
       allowAll.type = "button";
+      allowAll.id = "collaboration-chat-allow-all-students";
       allowAll.setAttribute("data-command", "collaboration.chat.allow_all_students");
       allowAll.addEventListener("click", function () {
         invokeCollaboration(
@@ -300,6 +317,7 @@
     const send = node("button", chat.send_label || "Send");
     send.id = "collaboration-chat-send";
     send.type = "submit";
+    send.id = "collaboration-chat-send";
     send.setAttribute("data-command", "collaboration.chat.send");
     form.appendChild(send);
     form.addEventListener("submit", function (event) {
@@ -326,6 +344,7 @@
       messages.forEach(function (message) {
         const item = node("li");
         item.id = String(message.dom_id || "");
+        item.tabIndex = -1;
         if (message.unread) item.setAttribute("data-unread", "true");
         item.appendChild(node("strong", message.sender || ""));
         item.appendChild(document.createTextNode(": "));
@@ -350,6 +369,7 @@
           const hide = node("button", chat.hide_label || "Hide message");
           hide.id = item.id + "-hide";
           hide.type = "button";
+          hide.id = String(message.dom_id || "") + "-hide";
           hide.setAttribute("data-command", "collaboration.chat.hide");
           hide.addEventListener("click", function () {
             invokeCollaboration(
@@ -367,6 +387,7 @@
           const mute = node("button", chat.mute_sender_label || "Mute sender");
           mute.id = item.id + "-mute";
           mute.type = "button";
+          mute.id = String(message.dom_id || "") + "-mute-sender";
           mute.setAttribute("data-command", "collaboration.chat.mute_sender");
           mute.addEventListener("click", function () {
             invokeCollaboration(
@@ -382,6 +403,7 @@
           const allow = node("button", chat.allow_sender_label || "Allow sender");
           allow.id = item.id + "-allow";
           allow.type = "button";
+          allow.id = String(message.dom_id || "") + "-allow-sender";
           allow.setAttribute("data-command", "collaboration.chat.allow_sender");
           allow.addEventListener("click", function () {
             invokeCollaboration(
@@ -399,6 +421,7 @@
           const remove = node("button", chat.remove_sender_label || "Remove participant");
           remove.id = item.id + "-remove";
           remove.type = "button";
+          remove.id = String(message.dom_id || "") + "-remove-sender";
           remove.setAttribute("data-command", "collaboration.participant.remove_sender");
           remove.addEventListener("click", function () {
             invokeCollaboration(
@@ -414,6 +437,7 @@
           const block = node("button", chat.block_sender_label || "Remove and block participant");
           block.id = item.id + "-block";
           block.type = "button";
+          block.id = String(message.dom_id || "") + "-block-sender";
           block.setAttribute("data-command", "collaboration.participant.block_sender");
           block.addEventListener("click", function () {
             invokeCollaboration(
@@ -442,6 +466,7 @@
     const choose = node("button", files.choose_upload_label || "Choose and send file");
     choose.id = "collaboration-file-choose";
     choose.type = "button";
+    choose.id = "collaboration-file-choose-upload";
     choose.disabled = !files.can_choose_upload;
     choose.setAttribute("data-command", "collaboration.file.choose_upload");
     choose.addEventListener("click", function () {
@@ -458,6 +483,7 @@
       fileItems.forEach(function (file) {
         const item = node("li");
         item.id = String(file.dom_id || "");
+        item.tabIndex = -1;
         item.appendChild(node("strong", file.name || ""));
         if (file.sender) {
           item.appendChild(document.createTextNode(" — "));
@@ -472,6 +498,7 @@
           const save = node("button", files.save_label || "Save");
           save.id = item.id + "-save";
           save.type = "button";
+          save.id = String(file.dom_id || "") + "-save";
           save.setAttribute("data-command", "collaboration.file.save");
           save.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.save", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
@@ -482,6 +509,7 @@
           const open = node("button", files.open_label || "Open");
           open.id = item.id + "-open";
           open.type = "button";
+          open.id = String(file.dom_id || "") + "-open";
           open.setAttribute("data-command", "collaboration.file.open");
           open.addEventListener("click", function () {
             invokeCollaboration(
@@ -499,6 +527,7 @@
           const retry = node("button", files.retry_label || "Retry");
           retry.id = item.id + "-retry";
           retry.type = "button";
+          retry.id = String(file.dom_id || "") + "-retry";
           retry.setAttribute("data-command", "collaboration.file.retry");
           retry.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.retry", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
@@ -509,6 +538,7 @@
           const cancel = node("button", files.cancel_label || "Cancel");
           cancel.id = item.id + "-cancel";
           cancel.type = "button";
+          cancel.id = String(file.dom_id || "") + "-cancel";
           cancel.setAttribute("data-command", "collaboration.file.cancel");
           cancel.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.cancel", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
