@@ -322,11 +322,16 @@ class ChessClock:
         # while charging the previous mover.
         now = self._read_now(not_before=self._last_tick) if at is None else at
         elapsed_ms = int((now - self._last_tick) * 1000)
-        if elapsed_ms <= 0:
-            return
-        self._last_tick += elapsed_ms / 1000
+        # A running side with zero time has already exhausted its clock,
+        # even when the monotonic source has not advanced a whole millisecond.
+        # In particular, administrative set_remaining(0) and restoration of
+        # a running zero-time snapshot must never permit a free increment.
         side = self._active
-        remaining = self._remaining[side] - elapsed_ms
+        if elapsed_ms <= 0 and self._remaining[side] > 0:
+            return
+        if elapsed_ms > 0:
+            self._last_tick += elapsed_ms / 1000
+        remaining = self._remaining[side] - max(elapsed_ms, 0)
         if remaining <= 0:
             self._remaining[side] = 0
             self._flagged = side
