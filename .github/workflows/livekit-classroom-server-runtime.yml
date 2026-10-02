@@ -138,7 +138,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq 'api.LiveKitAPI' tests/test_livekit_classroom_server_runtime.py
+          grep -Fq 'client = api.LiveKitAPI' acs/livekit_classroom_server_runtime.py
           grep -Fq 'api_key=key' acs/livekit_classroom_server_runtime.py
           grep -Fq 'api_secret=secret' acs/livekit_classroom_server_runtime.py
           grep -Fq 'await close()' acs/livekit_classroom_server_runtime.py
