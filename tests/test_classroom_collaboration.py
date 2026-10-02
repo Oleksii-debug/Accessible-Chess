@@ -358,6 +358,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(controller.sync_chat(), ())
         self.assertEqual(self.store.room_messages("room-1"), (one, two))
 
+    def test_new_chat_history_rolls_back_when_state_stream_has_gap(self):
+        controller = self.controller()
+        incoming = self.chat.send_message(
+            ChatDraft("atomic-message", "room-1", "teacher-1", "Atomic")
+        )
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                "room-1",
+                incoming.message_id,
+                1,
+            ),
+        ]
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "chat moderation state has an unresolved revision gap",
+        ):
+            controller.sync_chat()
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room-1"))
+
     def test_sync_defers_state_for_message_on_next_history_page(self):
         controller = self.controller()
         first = self.chat.send_message(
