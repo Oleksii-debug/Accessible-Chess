@@ -718,6 +718,74 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room"), (occupied,))
 
+    def test_attachment_sync_commits_history_and_state_in_one_transaction(self) -> None:
+        incoming = AttachmentMetadata(
+            "remote-sync",
+            "room",
+            "teacher",
+            0,
+            "sync.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/remote-sync",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        deleted = AttachmentStateUpdate(
+            room_id="room",
+            attachment_id=incoming.attachment_id,
+            revision=0,
+            transfer_state="deleted",
+            scan_state="clean",
+        )
+
+        persisted = self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(incoming,),
+            updates=(deleted,),
+        )
+
+        self.assertEqual(persisted, (incoming,))
+        current = self.store.room_attachments("room")
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0].transfer_state, "deleted")
+        self.assertEqual(self.store.attachment_state_revision("room"), 0)
+
+    def test_attachment_sync_rolls_back_history_when_state_reconciliation_fails(self) -> None:
+        incoming = AttachmentMetadata(
+            "remote-sync",
+            "room",
+            "teacher",
+            0,
+            "sync.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/remote-sync",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        unknown = AttachmentStateUpdate(
+            room_id="room",
+            attachment_id="missing-attachment",
+            revision=0,
+            transfer_state="deleted",
+            scan_state="clean",
+        )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(incoming,),
+                updates=(unknown,),
+            )
+
+        self.assertEqual(self.store.room_attachments("room"), ())
+        self.assertIsNone(self.store.attachment_state_revision("room"))
+
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(
             "a1", "room", "teacher", 0, "file.bin", None, 1,
