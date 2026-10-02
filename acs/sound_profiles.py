@@ -211,6 +211,8 @@ class SoundProfile:
         normalized: dict[str, SoundEventPreference] = {}
         for event_id, preference in self.events.items():
             key = _stable_id(event_id, allow_dot=True)
+            if key in normalized:
+                raise ValueError(f"duplicate sound profile event id: {key}")
             if not isinstance(preference, SoundEventPreference):
                 raise TypeError("events must contain SoundEventPreference values")
             normalized[key] = preference
