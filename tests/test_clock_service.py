@@ -120,6 +120,46 @@ class ChessClockTests(unittest.TestCase):
         # The mover was accepted and earned its increment. Higher layers must
         # not roll back that move because the *opponent* then flagged.
 
+    def test_switch_final_sample_failure_rolls_back_increment_and_active_side(self):
+        class SequenceTime:
+            def __init__(self, *values):
+                self.values = list(values)
+                self.last = float(values[0])
+
+            def __call__(self):
+                if not self.values:
+                    return self.last
+                sample = self.values.pop(0)
+                if isinstance(sample, Exception):
+                    raise sample
+                self.last = sample
+                return sample
+
+        for invalid in (float("nan"), 99.0, RuntimeError("clock source unavailable")):
+            with self.subTest(invalid=invalid):
+                # start + its returned snapshot, pre-switch accounting,
+                # exact switch instant, then the final opponent snapshot.
+                now = SequenceTime(100.0, 100.0, 100.5, 101.0, invalid)
+                clock = ChessClock(TimeControl(3_000, 1_000), now=now)
+                clock.start("w")
+
+                with self.assertRaises((ClockError, RuntimeError)) as caught:
+                    clock.switch_after_move("w")
+                if isinstance(caught.exception, ClockError):
+                    self.assertEqual(
+                        caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE
+                    )
+
+                # The mover's real elapsed second remains charged, but no
+                # rejected-move increment, side switch, or flag survives.
+                now.last = 101.0
+                recovered = clock.snapshot()
+                self.assertEqual(recovered.white_ms, 2_000)
+                self.assertEqual(recovered.black_ms, 3_000)
+                self.assertEqual(recovered.active, "w")
+                self.assertEqual(recovered.state, ClockState.RUNNING)
+                self.assertIsNone(recovered.flagged)
+
     def test_switch_invalid_second_sample_does_not_change_side_or_award_increment(self):
         class SequenceTime:
             def __init__(self, values):
