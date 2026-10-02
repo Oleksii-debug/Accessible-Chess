@@ -235,6 +235,91 @@ class PreparedPositionDeploymentTests(unittest.TestCase):
                 position_by_student={"outsider": "pos-a"},
             )
 
+
+    def test_uniform_all_target_deploys_one_position_without_manual_mapping(self) -> None:
+        batch = dp.plan_uniform_prepared_position_deployment(
+            _lesson(),
+            _workspace(),
+            batch_id="batch-uniform-all",
+            position_id="pos-a",
+        )
+
+        self.assertEqual(batch.target.kind, dp.DeploymentTargetKind.ALL)
+        self.assertEqual(
+            tuple(item.student_id for item in batch.assignments),
+            ("s1", "s2", "s3"),
+        )
+        self.assertEqual(
+            {item.position_id for item in batch.assignments},
+            {"pos-a"},
+        )
+        self.assertEqual(
+            {item.position_revision for item in batch.assignments},
+            {0},
+        )
+
+    def test_uniform_group_and_one_student_targets_reuse_same_batch_contract(self) -> None:
+        lesson = _lesson()
+        workspace = _workspace()
+
+        group = dp.plan_uniform_prepared_position_deployment(
+            lesson,
+            workspace,
+            batch_id="batch-uniform-group",
+            position_id="pos-b",
+            target=dp.DeploymentTarget(
+                dp.DeploymentTargetKind.GROUP,
+                group_id="group-1",
+            ),
+        )
+        self.assertEqual(
+            tuple(item.student_id for item in group.assignments),
+            ("s1", "s2"),
+        )
+        self.assertEqual(
+            {item.position_id for item in group.assignments},
+            {"pos-b"},
+        )
+
+        one = dp.plan_uniform_prepared_position_deployment(
+            lesson,
+            workspace,
+            batch_id="batch-uniform-one",
+            position_id="pos-a",
+            target=dp.DeploymentTarget(
+                dp.DeploymentTargetKind.SELECTED,
+                student_ids=("s3",),
+            ),
+        )
+        self.assertEqual(len(one.assignments), 1)
+        self.assertEqual(one.assignments[0].student_id, "s3")
+        self.assertEqual(one.assignments[0].position_id, "pos-a")
+
+        retry = dp.plan_uniform_prepared_position_deployment(
+            lesson,
+            workspace,
+            batch_id="batch-uniform-one",
+            position_id="pos-a",
+            target=dp.DeploymentTarget(
+                dp.DeploymentTargetKind.SELECTED,
+                student_ids=("s3",),
+            ),
+        )
+        dp.assert_prepared_position_deployment_retry(one, retry)
+
+    def test_uniform_deployment_unknown_position_fails_closed(self) -> None:
+        with self.assertRaisesRegex(
+            dp.PreparedPositionDeploymentError,
+            "unknown prepared position",
+        ):
+            dp.plan_uniform_prepared_position_deployment(
+                _lesson(),
+                _workspace(),
+                batch_id="batch-uniform-missing",
+                position_id="missing",
+            )
+
+
     def test_unknown_prepared_position_fails_before_batch_publication(self) -> None:
         mapping = _all_mapping()
         mapping["s2"] = "missing"

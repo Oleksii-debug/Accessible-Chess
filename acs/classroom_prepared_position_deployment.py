@@ -263,6 +263,40 @@ def plan_prepared_position_deployment(
     )
 
 
+def plan_uniform_prepared_position_deployment(
+    lesson_session: LessonSession,
+    workspace: EducationWorkspace,
+    *,
+    batch_id: str,
+    position_id: str,
+    target: DeploymentTarget | None = None,
+) -> PreparedPositionDeploymentBatch:
+    """Deploy one existing PreparedPosition to all students in one target.
+
+    This is the one-position convenience contract for ALL, GROUP, or one/more
+    SELECTED students.  It deliberately builds the same canonical per-student
+    mapping consumed by plan_prepared_position_deployment, so retry identity,
+    revisions, reconnect validation, and wire format remain one authority.
+    """
+
+    lesson_session, workspace = _authorities(lesson_session, workspace)
+    target = DeploymentTarget(DeploymentTargetKind.ALL) if target is None else target
+    if type(target) is not DeploymentTarget:
+        raise PreparedPositionDeploymentError("target must be canonical DeploymentTarget")
+    position_id = _id(position_id, "prepared position id")
+    students = _resolve_target_students(lesson_session, workspace, target)
+    return plan_prepared_position_deployment(
+        lesson_session,
+        workspace,
+        batch_id=batch_id,
+        target=target,
+        position_by_student={
+            student_id: position_id
+            for student_id in students
+        },
+    )
+
+
 def assert_prepared_position_deployment_retry(
     existing: PreparedPositionDeploymentBatch,
     candidate: PreparedPositionDeploymentBatch,
@@ -541,5 +575,6 @@ __all__ = [
     "assert_prepared_position_deployment_retry",
     "assert_prepared_position_deployment_scope",
     "plan_prepared_position_deployment",
+    "plan_uniform_prepared_position_deployment",
     "resolve_prepared_position_source",
 ]
