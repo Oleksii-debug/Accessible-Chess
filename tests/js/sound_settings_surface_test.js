@@ -95,6 +95,7 @@ const initial = {
       enabled: true,
       volume_percent: 75,
       sound_id: "move",
+      sound_choices: ["move"],
       effective_volume: 49
     }
   ],
@@ -140,6 +141,10 @@ const api = {
     const snapshot = JSON.parse(JSON.stringify(serverSnapshot));
     if (command === "set_master" && Object.prototype.hasOwnProperty.call(payload, "enabled")) {
       snapshot.master_enabled = payload.enabled;
+    }
+    if (command === "set_event" && Object.prototype.hasOwnProperty.call(payload, "sound_id")) {
+      const event = snapshot.events.find(item => item.event_id === payload.event_id);
+      if (event) event.sound_id = payload.sound_id;
     }
     if (command === "install_pack") {
       snapshot.active_pack_id = payload.pack_id;
@@ -282,6 +287,22 @@ async function run() {
     ...initial,
     active_pack_id: "classic",
     can_select_classic: false,
+    events: [
+      {
+        ...initial.events[0],
+        sound_id: "move",
+        sound_choices: ["move", "quiet.move"]
+      },
+      {
+        event_id: "classroom.join",
+        label: "Classroom join",
+        enabled: true,
+        volume_percent: 100,
+        sound_id: "classroom.join",
+        sound_choices: ["classroom.join", "quiet.move"],
+        effective_volume: 65
+      }
+    ],
     packs: [
       {
         pack_id: "local.wood",
@@ -310,6 +331,24 @@ async function run() {
   await Promise.resolve();
   assert.deepStrictEqual(calls[4], ["select_pack", {pack_id: "local.wood"}]);
   assert.strictEqual(document.activeElement.id, "sound-pack-local-wood");
+  const moveChoice = elements.get("sound-event-move-choice");
+  const classroomVolume = elements.get("sound-event-classroom-join-volume");
+  assert.ok(moveChoice, "custom pack with alternate ids must expose a native sound selector");
+  assert.ok(classroomVolume,
+    "manifest-declared classroom event must expose the same per-event controls");
+  moveChoice.value = "quiet.move";
+  moveChoice.focus();
+  moveChoice.dispatch("change");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepStrictEqual(calls[5], ["set_event", {event_id: "move", sound_id: "quiet.move"}]);
+  assert.strictEqual(document.activeElement.id, "sound-event-move-choice");
+  assert.strictEqual(
+    elements.get("sound-event-move-sound").textContent,
+    "Sound: quiet.move",
+    "selected sound id must remain visible/selectable text"
+  );
 
   partialFailureSnapshot = {
     ...serverSnapshot,
@@ -336,7 +375,7 @@ async function run() {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
-  assert.deepStrictEqual(calls[5], ["uninstall_pack", {pack_id: "local.wood"}]);
+  assert.deepStrictEqual(calls[6], ["uninstall_pack", {pack_id: "local.wood"}]);
   assert.strictEqual(elements.get("sound-pack-classic-select").hidden, true,
     "partial failure snapshot must replace stale active-pack state");
   assert.strictEqual(
