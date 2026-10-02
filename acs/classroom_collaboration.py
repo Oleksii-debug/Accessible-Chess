@@ -278,14 +278,14 @@ class ClassroomCollaborationController:
         ))
         commands = tuple(
             ChatModerationCommand(
-                operation_id=_child_operation_id(operation_id, index),
+                operation_id=_child_operation_id(operation_id, target),
                 room_id=self.room_id,
                 actor_id=actor,
                 target_id=target,
                 action=ChatModerationAction.SET_SEND_PERMISSION,
                 allowed=allowed,
             )
-            for index, target in enumerate(targets, 1)
+            for target in targets
         )
         if commands:
             self._chat.apply_moderation(commands)
@@ -633,12 +633,13 @@ def _sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _child_operation_id(root: str, index: int) -> str:
+def _child_operation_id(root: str, target_id: str) -> str:
     root = _id(root, "operation id")
-    suffix = f":{index}"
-    if len(root) + len(suffix) > 128:
-        raise CollaborationError("operation id is too long for batch")
-    return _id(root + suffix, "operation id")
+    target = _id(target_id, "target id")
+    digest = hashlib.sha256(
+        root.encode("utf-8") + b"\x00" + target.encode("utf-8")
+    ).hexdigest()
+    return _id(f"batch:{digest}", "operation id")
 
 
 __all__ = [
