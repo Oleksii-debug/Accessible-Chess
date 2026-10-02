@@ -47,8 +47,11 @@
       Promise.resolve().then(function () {
         return invoke(command, action.payload || {});
       }).then(function (result) {
+        if (!result || typeof result !== "object") {
+          throw new TypeError("classroom media result must be an object");
+        }
         applyEvent(root, result, invoke, announce, language);
-      }, function () {
+      }).catch(function () {
         announce(uiText(
           language,
           "Не вдалося змінити стан медіа.",
