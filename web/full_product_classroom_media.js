@@ -44,7 +44,9 @@
     if (id) button.id = id;
     button.addEventListener("click", function () {
       button.disabled = true;
-      Promise.resolve(invoke(command, action.payload || {})).then(function (result) {
+      Promise.resolve().then(function () {
+        return invoke(command, action.payload || {});
+      }).then(function (result) {
         applyEvent(root, result, invoke, announce, language);
       }, function () {
         announce(uiText(
