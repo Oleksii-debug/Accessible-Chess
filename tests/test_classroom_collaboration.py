@@ -15,6 +15,7 @@ from acs.classroom_collaboration import (
 )
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
@@ -132,6 +133,8 @@ class FakeFiles:
         self.attachments = {}
         self.ordered = []
         self.history_override = None
+        self.state_updates = []
+        self.state_override = None
 
     def _next_sequence(self, room_id):
         room_sequences = [
@@ -192,11 +195,47 @@ class FakeFiles:
             )
         )
 
+    def set_authoritative_state(
+        self,
+        attachment_id,
+        *,
+        transfer_state=None,
+        scan_state=None,
+    ):
+        current = self.attachments[attachment_id]
+        updated = replace(
+            current,
+            transfer_state=(
+                current.transfer_state
+                if transfer_state is None
+                else transfer_state
+            ),
+            scan_state=current.scan_state if scan_state is None else scan_state,
+        )
+        self._remember(updated)
+        room_revisions = [
+            item.revision
+            for item in self.state_updates
+            if item.room_id == updated.room_id
+        ]
+        state = AttachmentStateUpdate(
+            room_id=updated.room_id,
+            attachment_id=updated.attachment_id,
+            revision=max(room_revisions, default=-1) + 1,
+            transfer_state=updated.transfer_state,
+            scan_state=updated.scan_state,
+        )
+        self.state_updates.append(state)
+        return state
+
     def cancel(self, *, attachment_id):
         self.cancel_calls.append(attachment_id)
         current = self.attachments.get(attachment_id)
         if current is not None:
-            self._remember(replace(current, transfer_state="deleted"))
+            self.set_authoritative_state(
+                attachment_id,
+                transfer_state="deleted",
+            )
 
     def history_after(self, *, room_id, after_sequence, limit):
         if self.history_override is not None:
@@ -205,8 +244,19 @@ class FakeFiles:
             item
             for item in self.ordered
             if item.room_id == room_id
-            and item.transfer_state == "stored"
+            and item.transfer_state in {"stored", "deleted"}
             and (after_sequence is None or item.sequence_no > after_sequence)
+        )
+        return rows[:limit]
+
+    def state_updates_after(self, *, room_id, after_revision, limit):
+        if self.state_override is not None:
+            return self.state_override
+        rows = tuple(
+            item
+            for item in self.state_updates
+            if item.room_id == room_id
+            and (after_revision is None or item.revision > after_revision)
         )
         return rows[:limit]
 
@@ -1115,6 +1165,145 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.receive_file(later)
 
         self.assertEqual(self.store.room_attachments("room-1"), ())
+
+    def test_file_state_sync_promotes_pending_scan_without_duplicate_discovery(self):
+        teacher = self.controller("teacher-1")
+        prepared = teacher.prepare_file(
+            attachment_id="scan-a1",
+            local_path=self.make_file("scan-a1.bin", b"scan me"),
+            sequence_no=17,
+            retention="persistent",
+        )
+        uploaded = teacher.upload_file(prepared)
+        self.assertEqual(uploaded.scan_state, "pending")
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "state-client.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "not cleared for download",
+        ):
+            student.issue_download_token(attachment_id=uploaded.attachment_id)
+
+        state = self.files.set_authoritative_state(
+            uploaded.attachment_id,
+            scan_state="clean",
+        )
+        self.assertEqual(state.revision, 0)
+
+        self.assertEqual(student.sync_files(), ())
+        current = second_store.room_attachments("room-1")
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0].scan_state, "clean")
+        self.assertEqual(second_store.attachment_state_revision("room-1"), 0)
+        self.assertEqual(
+            student.issue_download_token(
+                attachment_id=uploaded.attachment_id,
+                ttl_seconds=60,
+            ),
+            "short-lived-read-token",
+        )
+
+    def test_tombstone_history_preserves_sequence_for_fresh_client(self):
+        teacher = self.controller("teacher-1")
+        self.files.scan_state = "clean"
+        first = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="deleted-a0",
+                local_path=self.make_file("deleted-a0.bin", b"old"),
+                sequence_no=50,
+                retention="persistent",
+            )
+        )
+        second = teacher.upload_file(
+            teacher.prepare_file(
+                attachment_id="live-a1",
+                local_path=self.make_file("live-a1.bin", b"live"),
+                sequence_no=51,
+                retention="persistent",
+            )
+        )
+        self.assertEqual((first.sequence_no, second.sequence_no), (0, 1))
+        self.files.set_authoritative_state(
+            first.attachment_id,
+            transfer_state="deleted",
+        )
+
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "fresh-after-delete.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        discovered = fresh.sync_files()
+
+        self.assertEqual(discovered, (second,))
+        persisted = fresh_store.room_attachments("room-1")
+        self.assertEqual(
+            tuple((item.sequence_no, item.transfer_state) for item in persisted),
+            ((0, "deleted"), (1, "stored")),
+        )
+
+    def test_attachment_state_revision_gap_fails_before_mutating_local_state(self):
+        teacher = self.controller("teacher-1")
+        prepared = teacher.prepare_file(
+            attachment_id="state-gap-a1",
+            local_path=self.make_file("state-gap-a1.bin", b"state"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        uploaded = teacher.upload_file(prepared)
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "state-gap.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+        self.assertEqual(student.sync_files(), (uploaded,))
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                room_id="room-1",
+                attachment_id=uploaded.attachment_id,
+                revision=1,
+                transfer_state="stored",
+                scan_state="clean",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment state has an unresolved revision gap",
+        ):
+            student.sync_files()
+
+        current = second_store.room_attachments("room-1")[0]
+        self.assertEqual(current.scan_state, "pending")
+        self.assertIsNone(second_store.attachment_state_revision("room-1"))
 
     def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
         controller = self.controller("teacher-1")
