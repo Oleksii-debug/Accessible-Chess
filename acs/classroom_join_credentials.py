@@ -179,7 +179,20 @@ class ClassroomJoinCredentialService:
             trusted_caller_identity=trusted_caller_identity,
         )
 
-        issued_at = _utc(self._now(), "join credential clock")
+        try:
+            clock_value = self._now()
+        except Exception:
+            raise ClassroomJoinCredentialError(
+                "join credential clock failed"
+            ) from None
+        try:
+            issued_at = _utc(clock_value, "join credential clock")
+        except ClassroomJoinCredentialError:
+            raise
+        except Exception:
+            raise ClassroomJoinCredentialError(
+                "join credential clock failed"
+            ) from None
         expires_at = issued_at + timedelta(seconds=self._ttl_seconds)
 
         try:
