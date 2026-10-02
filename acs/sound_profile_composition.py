@@ -19,7 +19,7 @@ from .sound_events import SoundEvent
 from .sound_pack_store import FilesystemSoundPackStore
 from .sound_profile_file_store import JsonSoundProfileStorage
 from .sound_profile_store import SoundProfileManager
-from .sound_profiles import SoundProfile
+from .sound_profiles import SoundPackManifest, SoundProfile
 from .sound_profile_windows import ProfiledWindowsSoundPlaybackAdapter
 from .sound_runtime import (
     GameSoundRuntime,
@@ -91,15 +91,30 @@ def _asset_playback(
         return playback
     return _InjectedClassicPlaybackBridge(playback)
 
+
+def _windows_pack_is_playable(manifest: object) -> bool:
+    """Whether every declared custom asset is playable by the shipping adapter."""
+
+    if not isinstance(manifest, SoundPackManifest):
+        return False
+    return all(
+        Path(relative).suffix.casefold() == ".wav"
+        for relative in manifest.files.values()
+    )
+
+
 def _local_pack_resolver(store: FilesystemSoundPackStore):
     def resolve(pack_id: str) -> str:
         if pack_id == "classic":
             return "classic"
         try:
-            installed = store.installed()
+            manifest = store.installed().get(pack_id)
         except Exception:
             return "classic"
-        return pack_id if pack_id in installed else "classic"
+        # The current Windows playback adapter intentionally accepts WAV only.
+        # Reconcile an incompatible persisted selection before runtime dispatch
+        # instead of accepting a pack that can fail every semantic event later.
+        return pack_id if _windows_pack_is_playable(manifest) else "classic"
 
     return resolve
 
