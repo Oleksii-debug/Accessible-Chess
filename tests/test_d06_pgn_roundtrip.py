@@ -233,6 +233,19 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 b'[Result "*"]',
             )
 
+    def test_game_preflight_preserves_multiline_nested_comment_frame_state(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 {outer\n'
+            '{inner\n'
+            '} inner close\n'
+            '[Event "comment text, not a boundary"]\n'
+            '} *\n'
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1):
+            games = parse_pgn_text(source, strict=False)
+        self.assertEqual(len(games), 1)
+
     def test_tag_field_limit_runs_before_game_framer_allocation(self):
         source = '[Event "abcdef"]\n[Result "*"]\n\n1. e4 *'
         with (
