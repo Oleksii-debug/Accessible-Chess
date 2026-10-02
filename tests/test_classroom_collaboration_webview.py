@@ -9,6 +9,7 @@ from unittest import mock
 from acs.classroom_collaboration import ClassroomCollaborationController
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
 )
@@ -264,6 +265,41 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("Scan: clean", item["scan_label"])
         self.assertTrue(item["can_save"])
         self.assertTrue(item["can_open"])
+
+    def test_file_sync_bad_state_revision_fails_closed_without_partial_projection(self) -> None:
+        self.store.register_attachment(
+            AttachmentMetadata(
+                "remote-state-gap",
+                "room-1",
+                "student-2",
+                0,
+                "gap.pgn",
+                "application/x-chess-pgn",
+                4,
+                "0" * 64,
+                "rooms/room-1/remote-state-gap",
+                "stored",
+                scan_state="pending",
+            )
+        )
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                "room-1",
+                "remote-state-gap",
+                1,
+                "stored",
+                "clean",
+            ),
+        )
+        event = self.webview().dispatch("collaboration.file.sync", {})
+
+        self.assertEqual("error", event.kind)
+        self.assertNotIn("announcement", event.payload)
+        item = event.payload["collaboration"]["files"]["items"][0]
+        self.assertEqual("Scan: pending", item["scan_label"])
+        self.assertFalse(item["can_save"])
+        self.assertFalse(item["can_open"])
+        self.assertNotIn("file_key", item)
 
     def test_file_sync_rejects_browser_fields_without_transport_call(self) -> None:
         view = self.webview()
