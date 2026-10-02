@@ -241,11 +241,6 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
                 sources=(FakeTrackSource.MICROPHONE, FakeTrackSource.SCREEN_SHARE_AUDIO),
                 can_publish=True,
             ),
-            participant(
-                sources=(FakeTrackSource.MICROPHONE,),
-                can_publish=True,
-                can_publish_data=True,
-            ),
         )
         for current in cases:
             with self.subTest(permission=current.permission.__dict__):
@@ -261,6 +256,33 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
                         ),
                     )
                 self.assertEqual(room.updates, [])
+
+    def test_publish_permission_preserves_rpc_data_permission(self):
+        room = FakeRoomService(
+            participant(
+                sources=(FakeTrackSource.MICROPHONE, FakeTrackSource.CAMERA),
+                can_publish=True,
+                can_publish_data=True,
+            )
+        )
+        admin, room = self.admin(room)
+
+        self.apply(
+            admin,
+            command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.CAMERA,
+                value=False,
+            ),
+        )
+
+        permission = room.updates[0].permission
+        self.assertEqual(
+            permission.can_publish_sources,
+            [FakeTrackSource.MICROPHONE],
+        )
+        self.assertTrue(permission.can_publish)
+        self.assertTrue(permission.can_publish_data)
 
     def test_provider_identity_must_match_canonical_target(self):
         room = FakeRoomService(participant(identity="other"))
