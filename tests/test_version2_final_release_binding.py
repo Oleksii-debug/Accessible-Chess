@@ -344,7 +344,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
 
             with (
                 mock.patch.object(final_release._release_ui, "_asset_root", return_value=root),
-                mock.patch.object(Path, "is_symlink", side_effect=fake_is_symlink),
+                mock.patch.object(Path, "is_symlink", autospec=True, side_effect=fake_is_symlink),
             ):
                 with self.assertRaisesRegex(
                     RuntimeError,
@@ -392,7 +392,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
 
             with (
                 mock.patch.object(final_release._release_ui, "_asset_root", return_value=root),
-                mock.patch.object(Path, "is_symlink", side_effect=fake_is_symlink),
+                mock.patch.object(Path, "is_symlink", autospec=True, side_effect=fake_is_symlink),
             ):
                 with self.assertRaisesRegex(
                     RuntimeError,
