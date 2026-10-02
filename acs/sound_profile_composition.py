@@ -103,6 +103,16 @@ def _windows_pack_is_playable(manifest: object) -> bool:
     )
 
 
+def _playable_installed_packs(
+    store: FilesystemSoundPackStore,
+) -> dict[str, SoundPackManifest]:
+    return {
+        pack_id: manifest
+        for pack_id, manifest in store.installed().items()
+        if _windows_pack_is_playable(manifest)
+    }
+
+
 def _local_pack_resolver(store: FilesystemSoundPackStore):
     def resolve(pack_id: str) -> str:
         if pack_id == "classic":
@@ -176,7 +186,11 @@ def create_local_sound_composition(
     )
     profiled = ProfiledSoundRuntime(playback, profile_manager.profile_provider)
     game = GameSoundRuntime(profiled)
-    settings = SoundSettingsApplication(profile_manager, profiled)
+    settings = SoundSettingsApplication(
+        profile_manager,
+        profiled,
+        installed_pack_provider=lambda: _playable_installed_packs(pack_store),
+    )
     return LocalSoundComposition(
         profile_manager=profile_manager,
         pack_store=pack_store,
