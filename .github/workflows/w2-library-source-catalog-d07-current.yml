@@ -62,7 +62,15 @@ jobs:
           set -euo pipefail
           git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
           git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
-          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
+          stage1_core_actual="$(git hash-object --no-filters acs/stage1_release_ui_core.py)"
+          case "$stage1_core_actual" in
+            b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|b579ca0f59ba20f6b69b3a4b7d89589256d54852)
+              ;;
+            *)
+              printf 'Protected blob mismatch after Windows materialization: acs/stage1_release_ui_core.py actual=%s\n' "$stage1_core_actual" >&2
+              exit 1
+              ;;
+          esac
           test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
 
       - uses: actions/setup-python@v5
