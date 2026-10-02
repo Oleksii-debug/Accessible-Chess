@@ -60,7 +60,7 @@ jobs:
             exit 1
           }
           test "$(git rev-parse HEAD:acs/clock_service.py)" = fb412f3ba2b72824656f7d81ebcbcf486ac53e98
-          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = e83668cddd40e2df788c921b7231d6f61382d7e3
+          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = c5f32f1227cebab5eb5d53edc289d7f0b3f90e01
           git diff --quiet "$scope_base" HEAD -- acs/stage1_release_ui_core.py acs/chesscore.py acs/gametree.py
 
       - uses: actions/setup-python@v5
