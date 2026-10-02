@@ -489,7 +489,6 @@
     const choose = node("button", files.choose_upload_label || "Choose and send file");
     choose.id = "collaboration-file-choose";
     choose.type = "button";
-    choose.id = "collaboration-file-choose-upload";
     choose.disabled = !files.can_choose_upload;
     choose.setAttribute("data-command", "collaboration.file.choose_upload");
     choose.addEventListener("click", function () {
