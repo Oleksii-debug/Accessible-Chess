@@ -131,6 +131,16 @@ class PreparedPositionDeploymentTests(unittest.TestCase):
         self.assertEqual(len({item.assignment_id for item in first.assignments}), 3)
         dp.assert_prepared_position_deployment_retry(first, retry)
 
+    def test_assignment_identity_framing_is_unambiguous_for_colon_ids(self) -> None:
+        self.assertNotEqual(
+            dp._assignment_id("a:b", "c"),
+            dp._assignment_id("a", "b:c"),
+        )
+        self.assertEqual(
+            dp._assignment_id("a:b", "c"),
+            dp._assignment_id("a:b", "c"),
+        )
+
     def test_resolve_assignment_returns_canonical_prepared_source_only(self) -> None:
         lesson = _lesson()
         workspace = _workspace()
