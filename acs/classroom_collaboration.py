@@ -19,6 +19,7 @@ from .classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
+    CollaborationQuotaError,
     FileStorePort,
     safe_display_filename,
 )
@@ -359,7 +360,13 @@ class ClassroomCollaborationController:
 
     def upload_file(self, prepared: PreparedFile) -> AttachmentMetadata:
         self._validate_prepared(prepared)
-        pending = self._store.register_attachment(prepared.metadata)
+        try:
+            pending = self._store.register_attachment(
+                prepared.metadata,
+                max_room_bytes=self._quota.max_room_bytes,
+            )
+        except CollaborationQuotaError as error:
+            raise CollaborationError("room file quota would be exceeded") from error
         uploading = self._store.update_attachment_state(
             pending.attachment_id,
             transfer_state="uploading",

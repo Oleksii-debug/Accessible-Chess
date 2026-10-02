@@ -11,6 +11,7 @@ from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
     CollaborationConflictError,
+    CollaborationQuotaError,
     content_sha256,
     safe_display_filename,
 )
@@ -111,6 +112,16 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertTrue(hidden.hidden)
         self.assertEqual(self.store.room_messages("room"), ())
         self.assertEqual(self.store.room_messages("room", include_hidden=True), (hidden,))
+
+    def test_hidden_state_requires_strict_boolean(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        )
+        with self.assertRaises(ValueError):
+            self.store.set_message_hidden("m1", 1)
+        self.assertFalse(
+            self.store.room_messages("room", include_hidden=True)[0].hidden
+        )
 
     def test_replay_preserves_hide_and_backfills_legacy_timestamp_once(self) -> None:
         original = ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
@@ -225,6 +236,22 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_safe_filename_normalization_is_display_only(self) -> None:
         self.assertEqual(safe_display_filename("notes:lesson?.txt"), "notes_lesson_.txt")
         self.assertEqual(safe_display_filename("folder/lesson.txt"), "lesson.txt")
+        self.assertEqual(
+            safe_display_filename("Домашнє завдання — партія №1.pgn"),
+            "Домашнє завдання — партія №1.pgn",
+        )
+        self.assertEqual(
+            safe_display_filename("e\u0301tude.pgn"),
+            "étude.pgn",
+        )
+        self.assertEqual(
+            safe_display_filename("safe\u202Egnp.exe"),
+            "safe_gnp.exe",
+        )
+
+    def test_safe_filename_requires_text(self) -> None:
+        with self.assertRaises(ValueError):
+            safe_display_filename(Path("lesson.pgn"))
 
     def test_safe_filename_rejects_reserved_windows_device_names(self) -> None:
         for value in ("CON", "con.txt", "PRN.pgn", "AUX ", "NUL.bin", "COM1.zip", "LPT9"):
@@ -266,6 +293,48 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "rooms/room/a2", "stored"
                 )
             )
+
+    def test_attachment_registration_enforces_room_quota_transactionally(self) -> None:
+        first = AttachmentMetadata(
+            "a1",
+            "room",
+            "student",
+            0,
+            "one.bin",
+            None,
+            4,
+            "0" * 64,
+            "rooms/room/a1",
+            "pending",
+        )
+        second = AttachmentMetadata(
+            "a2",
+            "room",
+            "student",
+            1,
+            "two.bin",
+            None,
+            3,
+            "1" * 64,
+            "rooms/room/a2",
+            "pending",
+        )
+        self.assertEqual(
+            self.store.register_attachment(first, max_room_bytes=6),
+            first,
+        )
+        self.assertEqual(
+            self.store.register_attachment(first, max_room_bytes=6),
+            first,
+        )
+        with self.assertRaises(CollaborationQuotaError):
+            self.store.register_attachment(second, max_room_bytes=6)
+        self.assertEqual(self.store.room_attachments("room"), (first,))
+
+    def test_windows_filename_limit_counts_utf16_units(self) -> None:
+        safe = safe_display_filename("😀" * 200)
+        self.assertLessEqual(len(safe.encode("utf-16-le")) // 2, 255)
+        self.assertEqual(safe, "😀" * 127)
 
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(

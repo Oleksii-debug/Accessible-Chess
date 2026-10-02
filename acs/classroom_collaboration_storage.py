@@ -4,6 +4,7 @@ import hashlib
 from contextlib import closing
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Protocol, runtime_checkable
@@ -14,7 +15,8 @@ MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
 MAX_OBJECT_KEY_CHARS = 1024
 MAX_MIME_CHARS = 255
-_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._()\- ]+")
+MAX_WINDOWS_FILENAME_UTF16_UNITS = 255
+_WINDOWS_INVALID_FILENAME_CHARS = frozenset('<>:"/\\|?*')
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _OBJECT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _WINDOWS_RESERVED_BASENAMES = frozenset(
@@ -34,6 +36,10 @@ class CollaborationStorageError(RuntimeError):
 
 
 class CollaborationConflictError(CollaborationStorageError):
+    pass
+
+
+class CollaborationQuotaError(CollaborationStorageError):
     pass
 
 
@@ -169,17 +175,39 @@ def _validate_scan_transition(current: str, target: str) -> None:
         )
 
 
+def _truncate_windows_filename(value: str) -> str:
+    units = 0
+    kept: list[str] = []
+    for char in value:
+        width = 2 if ord(char) > 0xFFFF else 1
+        if units + width > MAX_WINDOWS_FILENAME_UTF16_UNITS:
+            break
+        kept.append(char)
+        units += width
+    return "".join(kept)
+
+
 def safe_display_filename(value: str) -> str:
-    raw = str(value).replace("\\", "/")
+    if type(value) is not str:
+        raise ValueError("filename must be text")
+    raw = value.replace("\\", "/")
     if raw.startswith("/") or ".." in PurePath(raw).parts:
         raise ValueError("unsafe file path")
-    name = PurePath(raw).name.strip()
+    name = unicodedata.normalize("NFC", PurePath(raw).name).strip()
     if not name or name in {".", ".."}:
         raise ValueError("filename must not be empty")
-    clean = _SAFE_NAME_RE.sub("_", name).strip(" .")
+    clean = "".join(
+        "_"
+        if ch in _WINDOWS_INVALID_FILENAME_CHARS
+        or unicodedata.category(ch).startswith("C")
+        else ch
+        for ch in name
+    ).strip(" .")
     if not clean:
         raise ValueError("filename has no safe display characters")
-    bounded = clean[:255]
+    bounded = _truncate_windows_filename(clean).rstrip(" .")
+    if not bounded:
+        raise ValueError("filename has no safe display characters")
     windows_stem = bounded.split(".", 1)[0].rstrip(" .").upper()
     if windows_stem in _WINDOWS_RESERVED_BASENAMES:
         raise ValueError("filename uses a reserved Windows device name")
@@ -265,6 +293,7 @@ class ClassroomCollaborationSQLiteStore:
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
                 "SELECT * FROM collaboration_messages WHERE message_id=?", (message.message_id,)
             ).fetchone()
@@ -342,7 +371,10 @@ class ClassroomCollaborationSQLiteStore:
             return tuple(self._message_from_row(row) for row in db.execute(query, args))
 
     def set_message_hidden(self, message_id: str, hidden: bool) -> ChatMessageMetadata:
+        if type(hidden) is not bool:
+            raise ValueError("hidden flag must be boolean")
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
             if row is None:
                 raise CollaborationStorageError(f"unknown message: {message_id}")
@@ -350,38 +382,79 @@ class ClassroomCollaborationSQLiteStore:
             updated = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
         return self._message_from_row(updated)
 
-    def register_attachment(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
+    def register_attachment(
+        self,
+        attachment: AttachmentMetadata,
+        *,
+        max_room_bytes: int | None = None,
+    ) -> AttachmentMetadata:
         safe_name = safe_display_filename(attachment.display_name)
         if safe_name != attachment.display_name:
             raise ValueError("display_name must already be sanitized")
         _safe_object_key(attachment.object_key)
+        if max_room_bytes is not None and (
+            type(max_room_bytes) is not int or max_room_bytes <= 0
+        ):
+            raise ValueError("max_room_bytes must be a positive integer")
         with closing(self._connect()) as db, db:
+            # Serialize quota accounting with registration so two concurrent
+            # uploads cannot both reserve the same remaining room capacity.
+            db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
-                "SELECT * FROM collaboration_attachments WHERE attachment_id=?", (attachment.attachment_id,)
+                "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                (attachment.attachment_id,),
             ).fetchone()
             if existing is not None:
                 loaded = self._attachment_from_row(existing)
                 if loaded != attachment:
-                    raise CollaborationConflictError("attachment identity reused with different payload")
+                    raise CollaborationConflictError(
+                        "attachment identity reused with different payload"
+                    )
                 return loaded
+            if max_room_bytes is not None:
+                used = int(
+                    db.execute(
+                        """
+                        SELECT COALESCE(SUM(size_bytes), 0)
+                        FROM collaboration_attachments
+                        WHERE room_id=? AND transfer_state!='deleted'
+                        """,
+                        (attachment.room_id,),
+                    ).fetchone()[0]
+                )
+                if used + attachment.size_bytes > max_room_bytes:
+                    raise CollaborationQuotaError(
+                        "room file quota would be exceeded"
+                    )
             try:
                 db.execute(
                     "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        attachment.attachment_id, attachment.room_id, attachment.sender_id,
-                        attachment.sequence_no, attachment.display_name, attachment.mime_type,
-                        attachment.size_bytes, attachment.sha256, attachment.object_key,
-                        attachment.transfer_state, attachment.retention, attachment.scan_state,
+                        attachment.attachment_id,
+                        attachment.room_id,
+                        attachment.sender_id,
+                        attachment.sequence_no,
+                        attachment.display_name,
+                        attachment.mime_type,
+                        attachment.size_bytes,
+                        attachment.sha256,
+                        attachment.object_key,
+                        attachment.transfer_state,
+                        attachment.retention,
+                        attachment.scan_state,
                     ),
                 )
             except sqlite3.IntegrityError as exc:
-                raise CollaborationConflictError("attachment conflicts with ordering or storage identity") from exc
+                raise CollaborationConflictError(
+                    "attachment conflicts with ordering or storage identity"
+                ) from exc
         return attachment
 
     def update_attachment_state(
         self, attachment_id: str, *, transfer_state: str, scan_state: str | None = None
     ) -> AttachmentMetadata:
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM collaboration_attachments WHERE attachment_id=?", (attachment_id,)).fetchone()
             if row is None:
                 raise CollaborationStorageError(f"unknown attachment: {attachment_id}")
