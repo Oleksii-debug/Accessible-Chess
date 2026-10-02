@@ -26,11 +26,13 @@ from .classroom_collaboration_storage import (
     FileStorePort,
     safe_display_filename,
 )
+from .classroom_domain import MAX_WIRE_INTEGER
 from .classroom_realtime_media import ClassroomRole, ClassroomRosterPort
 
 
 MAX_CHAT_BODY_CHARS = 4000
 MAX_SYNC_MESSAGES = 10000
+MAX_DOWNLOAD_TOKEN_CHARS = 8192
 MAX_FILE_BYTES_DEFAULT = 100 * 1024 * 1024
 MAX_ROOM_BYTES_DEFAULT = 1024 * 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -100,8 +102,13 @@ class FileQuotaPolicy:
             (self.max_file_bytes, "max file bytes"),
             (self.max_room_bytes, "max room bytes"),
         ):
-            if type(value) is not int or value <= 0:
-                raise CollaborationError(f"{label} must be a positive integer")
+            if (
+                type(value) is not int
+                or not 1 <= value <= MAX_WIRE_INTEGER
+            ):
+                raise CollaborationError(
+                    f"{label} must be a positive bounded JSON-safe integer"
+                )
         if self.max_file_bytes > self.max_room_bytes:
             raise CollaborationError("max file bytes cannot exceed max room bytes")
 
@@ -123,8 +130,10 @@ class ChatTransportPort(Protocol):
 
     send_message must be idempotent for the same message_id and returns the
     server-assigned room sequence plus a stable UTC Unix-millisecond send timestamp.
-    history_after is bounded by the caller and returns that same authoritative
-    timestamp for every message.
+    The transport is also the authoritative send-permission enforcement boundary:
+    a participant locked by moderation must be rejected here independently of any
+    client/controller lifetime or reconnect. history_after is bounded by the caller
+    and returns that same authoritative timestamp for every message.
     """
 
     def send_message(self, draft: ChatDraft) -> ChatMessageMetadata:
@@ -188,7 +197,6 @@ class ClassroomCollaborationController:
         self._store = store
         self._file_store = file_store
         self._quota = quota
-        self._chat_locked: set[str] = set()
         self._require_member(self.local_participant_id)
 
     def send_chat(
@@ -199,8 +207,6 @@ class ClassroomCollaborationController:
         retention: str = "session",
     ) -> ChatMessageMetadata:
         self._require_member(self.local_participant_id)
-        if self.local_participant_id in self._chat_locked:
-            raise CollaborationError("chat sending is locked for participant")
         draft = ChatDraft(
             message_id=message_id,
             room_id=self.room_id,
@@ -328,10 +334,6 @@ class ClassroomCollaborationController:
             allowed=allowed,
         )
         self._chat.apply_moderation((command,))
-        if allowed:
-            self._chat_locked.discard(target)
-        else:
-            self._chat_locked.add(target)
 
     def set_all_students_chat_send_permission(
         self,
@@ -362,10 +364,6 @@ class ClassroomCollaborationController:
         )
         if commands:
             self._chat.apply_moderation(commands)
-            if allowed:
-                self._chat_locked.difference_update(targets)
-            else:
-                self._chat_locked.update(targets)
         return targets
 
     def hide_message(
@@ -377,16 +375,17 @@ class ClassroomCollaborationController:
     ) -> ChatMessageMetadata:
         actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
+        message = self._message(_id(message_id, "message id"))
         command = ChatModerationCommand(
             operation_id=operation_id,
             room_id=self.room_id,
             actor_id=actor,
             target_id=None,
             action=ChatModerationAction.HIDE_MESSAGE,
-            message_id=message_id,
+            message_id=message.message_id,
         )
         self._chat.apply_moderation((command,))
-        return self._store.set_message_hidden(_id(message_id, "message id"), True)
+        return self._store.set_message_hidden(message.message_id, True)
 
     def prepare_file(
         self,
@@ -413,7 +412,15 @@ class ClassroomCollaborationController:
         display_name = safe_display_filename(path.name)
         digest = _sha256_path(path)
         mime_type, _encoding = mimetypes.guess_type(display_name)
-        key = object_key or f"rooms/{self.room_id}/{attachment}"
+        canonical_key = (
+            f"rooms/{_storage_key_segment(self.room_id)}/"
+            f"{_storage_key_segment(attachment)}"
+        )
+        if object_key is not None and object_key != canonical_key:
+            raise CollaborationError(
+                "custom object key does not match canonical attachment namespace"
+            )
+        key = canonical_key
         metadata = AttachmentMetadata(
             attachment_id=attachment,
             room_id=self.room_id,
@@ -488,9 +495,17 @@ class ClassroomCollaborationController:
             or current.object_key != prepared.metadata.object_key
         ):
             raise CollaborationError("retry source no longer matches stored attachment identity")
+        if current.scan_state == "blocked":
+            raise CollaborationError("blocked attachment cannot be retried")
+        retry_scan_state = (
+            "pending"
+            if current.scan_state == "failed"
+            else current.scan_state
+        )
         uploading = self._store.update_attachment_state(
             current.attachment_id,
             transfer_state="uploading",
+            scan_state=retry_scan_state,
         )
         candidate = PreparedFile(prepared.local_path, uploading)
         try:
@@ -511,6 +526,10 @@ class ClassroomCollaborationController:
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
         attachment = self._attachment(_id(attachment_id, "attachment id"))
+        if attachment.sender_id != self.local_participant_id:
+            raise CollaborationError(
+                "participant cannot cancel another participant's attachment"
+            )
         if attachment.transfer_state not in {"pending", "uploading", "failed"}:
             raise CollaborationError("attachment cannot be cancelled from current state")
         self._files.cancel(attachment_id=attachment.attachment_id)
@@ -540,9 +559,30 @@ class ClassroomCollaborationController:
             participant_id=self.local_participant_id,
             ttl_seconds=ttl_seconds,
         )
-        if type(token) is not str or not token or any(ch.isspace() for ch in token):
+        if (
+            type(token) is not str
+            or not token
+            or len(token) > MAX_DOWNLOAD_TOKEN_CHARS
+            or any(
+                ch.isspace() or ord(ch) < 32 or ord(ch) == 127
+                for ch in token
+            )
+        ):
             raise CollaborationError("file store returned invalid short-lived token")
         return token
+
+    def _message(self, message_id: str) -> ChatMessageMetadata:
+        matches = tuple(
+            item
+            for item in self._store.room_messages(
+                self.room_id,
+                include_hidden=True,
+            )
+            if item.message_id == message_id
+        )
+        if len(matches) != 1:
+            raise CollaborationError("unknown message in current room")
+        return matches[0]
 
     def _attachment(self, attachment_id: str) -> AttachmentMetadata:
         matches = tuple(
@@ -694,8 +734,13 @@ def _enum(value: object, enum_type: type[Enum], label: str):
 
 
 def _nonnegative_int(value: object, label: str) -> int:
-    if type(value) is not int or value < 0:
-        raise CollaborationError(f"{label} must be a non-negative integer")
+    if (
+        type(value) is not int
+        or not 0 <= value <= MAX_WIRE_INTEGER
+    ):
+        raise CollaborationError(
+            f"{label} must be a bounded non-negative JSON-safe integer"
+        )
     return value
 
 
@@ -723,6 +768,14 @@ def _sha256_path(path: Path) -> str:
     except OSError as exc:
         raise CollaborationError("selected file could not be read") from exc
     return digest.hexdigest()
+
+
+def _storage_key_segment(identifier: str) -> str:
+    identifier = _id(identifier, "storage identity")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", identifier):
+        return identifier
+    digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()
+    return f"id-{digest}"
 
 
 def _child_operation_id(root: str, target_id: str) -> str:

@@ -19,6 +19,7 @@ from acs.classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
     content_sha256,
 )
+from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_realtime_media import ClassroomRole
 
 
@@ -48,10 +49,13 @@ class FakeChat:
         self.ordered = []
         self.moderation_calls = []
         self.state_updates = []
+        self.send_allowed = {}
         self.mutate_delivery = False
         self.omit_timestamp = False
 
     def send_message(self, draft):
+        if not self.send_allowed.get((draft.room_id, draft.sender_id), True):
+            raise CollaborationError("server rejected locked chat sender")
         current = self.messages.get(draft.message_id)
         if current is not None:
             return current
@@ -93,6 +97,9 @@ class FakeChat:
     def apply_moderation(self, commands):
         self.moderation_calls.append(commands)
         for command in commands:
+            if command.action.value == "set_send_permission":
+                self.send_allowed[(command.room_id, command.target_id)] = command.allowed
+                continue
             if command.action.value != "hide_message":
                 continue
             for index, message in enumerate(self.ordered):
@@ -149,13 +156,14 @@ class FakeFiles:
 class FakeFileStore:
     def __init__(self):
         self.read_calls = []
+        self.token = "short-lived-read-token"
 
     def put(self, *, object_key, content, expected_sha256):
         raise AssertionError("controller must not push opaque bytes through download-token path")
 
     def issue_read_token(self, *, object_key, participant_id, ttl_seconds):
         self.read_calls.append((object_key, participant_id, ttl_seconds))
-        return "short-lived-read-token"
+        return self.token
 
     def delete(self, *, object_key):
         pass
@@ -282,23 +290,34 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 ChatMessageMetadata("m1", "room-1", "student-2", 0, "orphan", sent_at_unix_ms=1700000000000)
             )
 
-    def test_teacher_chat_lock_prevents_local_send_until_restored(self):
-        controller = self.controller("student-1")
-        controller.set_chat_send_permission(
+    def test_teacher_chat_lock_is_server_authoritative_across_controller_recreation(self):
+        teacher = self.controller("teacher-1")
+        teacher.set_chat_send_permission(
             actor_id="teacher-1",
             target_id="student-1",
             allowed=False,
             operation_id="lock-student-chat",
         )
-        with self.assertRaises(CollaborationError):
-            controller.send_chat(message_id="m1", body="blocked")
-        controller.set_chat_send_permission(
+
+        student = self.controller("student-1")
+        with self.assertRaisesRegex(CollaborationError, "server rejected locked chat sender"):
+            student.send_chat(message_id="m1", body="blocked")
+
+        # A fresh controller/reconnect must not reset the server-side permission.
+        student = self.controller("student-1")
+        with self.assertRaisesRegex(CollaborationError, "server rejected locked chat sender"):
+            student.send_chat(message_id="m1b", body="still blocked")
+
+        teacher.set_chat_send_permission(
             actor_id="teacher-1",
             target_id="student-1",
             allowed=True,
             operation_id="unlock-student-chat",
         )
-        self.assertEqual(controller.send_chat(message_id="m2", body="allowed").body, "allowed")
+        self.assertEqual(
+            student.send_chat(message_id="m2", body="allowed").body,
+            "allowed",
+        )
 
     def test_all_students_lock_is_bounded_to_student_roles(self):
         controller = self.controller("teacher-1")
@@ -312,6 +331,32 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual({item.target_id for item in commands}, {"student-1", "student-2"})
         self.assertNotIn("co-1", {item.target_id for item in commands})
         self.assertNotIn("observer-1", {item.target_id for item in commands})
+
+    def test_all_students_lock_is_enforced_by_server_transport_across_fresh_clients(self):
+        teacher = self.controller("teacher-1")
+        teacher.set_all_students_chat_send_permission(
+            actor_id="teacher-1",
+            allowed=False,
+            operation_id="lock-all-students",
+        )
+
+        for participant in ("student-1", "student-2"):
+            with self.subTest(participant=participant):
+                student = self.controller(participant)
+                with self.assertRaisesRegex(
+                    CollaborationError,
+                    "server rejected locked chat sender",
+                ):
+                    student.send_chat(
+                        message_id=f"blocked-{participant}",
+                        body="blocked",
+                    )
+
+        observer = self.controller("observer-1")
+        self.assertEqual(
+            observer.send_chat(message_id="observer-ok", body="observer").body,
+            "observer",
+        )
 
     def test_student_batch_operation_ids_are_stable_across_roster_order(self):
         controller = self.controller("teacher-1")
@@ -407,6 +452,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 allowed=False,
                 operation_id="co-moderates-teacher",
             )
+
+    def test_hide_message_cannot_cross_room_boundary_before_transport(self):
+        controller = self.controller("teacher-1")
+        foreign = ChatMessageMetadata(
+            "foreign-message",
+            "room-2",
+            "student-2",
+            0,
+            "foreign room message",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(foreign)
+
+        before_moderation = list(self.chat.moderation_calls)
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "unknown message in current room",
+        ):
+            controller.hide_message(
+                actor_id="teacher-1",
+                message_id=foreign.message_id,
+                operation_id="hide-foreign-message",
+            )
+
+        self.assertEqual(self.chat.moderation_calls, before_moderation)
+        self.assertEqual(
+            self.store.room_messages("room-2", include_hidden=True),
+            (foreign,),
+        )
+        self.assertFalse(
+            self.store.room_messages("room-2", include_hidden=True)[0].hidden
+        )
 
     def test_teacher_can_hide_message_without_deleting_durable_history(self):
         controller = self.controller("teacher-1")
@@ -508,6 +585,52 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(prepared.metadata.transfer_state, "pending")
         self.assertEqual(prepared.metadata.scan_state, "pending")
 
+    def test_default_storage_key_supports_canonical_ids_with_colons(self):
+        controller = ClassroomCollaborationController(
+            room_id="room:42",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=self.store,
+            file_store=self.file_store,
+        )
+        path = self.make_file("lesson.pgn", b"1. e4 e5")
+        first = controller.prepare_file(
+            attachment_id="attachment:1",
+            local_path=path,
+            sequence_no=0,
+        )
+        again = controller.prepare_file(
+            attachment_id="attachment:1",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.assertEqual(first.metadata.object_key, again.metadata.object_key)
+        self.assertTrue(first.metadata.object_key.startswith("rooms/id-"))
+        self.assertNotIn(":", first.metadata.object_key)
+
+    def test_file_quota_and_sequence_use_canonical_json_safe_integer_bound(self):
+        FileQuotaPolicy(
+            max_file_bytes=1,
+            max_room_bytes=MAX_WIRE_INTEGER,
+        )
+        with self.assertRaises(CollaborationError):
+            FileQuotaPolicy(
+                max_file_bytes=MAX_WIRE_INTEGER + 1,
+                max_room_bytes=MAX_WIRE_INTEGER + 1,
+            )
+
+        controller = self.controller()
+        with self.assertRaises(CollaborationError):
+            controller.prepare_file(
+                attachment_id="a-sequence-overflow",
+                local_path=self.make_file(content=b"x"),
+                sequence_no=MAX_WIRE_INTEGER + 1,
+            )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.assertEqual(self.files.upload_calls, [])
+
     def test_prepare_file_enforces_per_file_and_room_quota(self):
         path = self.make_file(content=b"12345")
         controller = self.controller(
@@ -578,6 +701,65 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(stored.sha256, prepared.metadata.sha256)
         self.assertEqual(len(self.files.retry_calls), 1)
 
+    def test_retry_resets_failed_scan_to_pending_before_clean_rescan(self):
+        controller = self.controller()
+        path = self.make_file(content=b"retry after scanner outage")
+        prepared = controller.prepare_file(
+            attachment_id="a-scan-failed",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        self.files.scan_state = "clean"
+        stored = controller.retry_file(prepared)
+
+        self.assertEqual(len(self.files.retry_calls), 1)
+        retry_candidate = self.files.retry_calls[0].metadata
+        self.assertEqual(retry_candidate.transfer_state, "uploading")
+        self.assertEqual(retry_candidate.scan_state, "pending")
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(stored.scan_state, "clean")
+
+    def test_retry_never_resends_blocked_attachment(self):
+        controller = self.controller()
+        path = self.make_file(content=b"blocked payload")
+        prepared = controller.prepare_file(
+            attachment_id="a-blocked",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "blocked attachment cannot be retried",
+        ):
+            controller.retry_file(prepared)
+
+        self.assertEqual(self.files.retry_calls, [])
+        current = self.store.room_attachments("room-1")[0]
+        self.assertEqual(current.transfer_state, "failed")
+        self.assertEqual(current.scan_state, "blocked")
+
     def test_retry_rejects_changed_source_identity(self):
         controller = self.controller()
         path = self.make_file(content=b"retry me")
@@ -599,6 +781,29 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(cancelled.transfer_state, "deleted")
         self.assertEqual(self.files.cancel_calls, ["a1"])
         self.assertTrue(path.exists())
+
+    def test_cancel_cannot_delete_another_participant_attachment(self):
+        controller = self.controller("student-1")
+        path = self.make_file(content=b"foreign attachment")
+        prepared = controller.prepare_file(
+            attachment_id="foreign-a1",
+            local_path=path,
+            sequence_no=0,
+        )
+        foreign = replace(prepared.metadata, sender_id="student-2")
+        self.store.register_attachment(foreign)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "cannot cancel another participant",
+        ):
+            controller.cancel_file(foreign.attachment_id)
+
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (foreign,),
+        )
 
     def test_download_token_requires_durable_stored_and_clean_scan(self):
         controller = self.controller()
@@ -622,6 +827,43 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             [("rooms/room-1/a1", "student-1", 120)],
         )
 
+    def test_download_token_rejects_control_whitespace_and_oversize_without_echo(self):
+        controller = self.controller()
+        prepared = controller.prepare_file(
+            attachment_id="token-a1",
+            local_path=self.make_file(content=b"token payload"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        stored = replace(
+            prepared.metadata,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        self.store.register_attachment(stored)
+
+        invalid_tokens = (
+            "",
+            "token with space",
+            "token\nnewline",
+            "token\x00nul",
+            "token\x1fcontrol",
+            "token\x7fdelete",
+            "x" * 8193,
+        )
+        for token in invalid_tokens:
+            with self.subTest(token=repr(token)[:40]):
+                self.file_store.token = token
+                with self.assertRaisesRegex(
+                    CollaborationError,
+                    "^file store returned invalid short-lived token$",
+                ) as caught:
+                    controller.issue_download_token(
+                        attachment_id=stored.attachment_id,
+                    )
+                if token:
+                    self.assertNotIn(token[:64], str(caught.exception))
+
     def test_unsafe_object_key_is_rejected_before_transport(self):
         controller = self.controller()
         path = self.make_file(content=b"x")
@@ -633,6 +875,32 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 object_key="../outside/a1",
             )
         self.assertEqual(self.files.upload_calls, [])
+
+    def test_safe_object_key_override_must_match_canonical_room_attachment_namespace(self):
+        controller = self.controller()
+        path = self.make_file(content=b"namespace-bound")
+
+        canonical = controller.prepare_file(
+            attachment_id="a1",
+            local_path=path,
+            sequence_no=0,
+            object_key="rooms/room-1/a1",
+        )
+        self.assertEqual(canonical.metadata.object_key, "rooms/room-1/a1")
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "canonical attachment namespace",
+        ):
+            controller.prepare_file(
+                attachment_id="a2",
+                local_path=path,
+                sequence_no=1,
+                object_key="rooms/other-room/a2",
+            )
+
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.store.room_attachments("room-1"), ())
 
     def test_removed_local_participant_loses_chat_and_file_access(self):
         controller = self.controller("student-1")
