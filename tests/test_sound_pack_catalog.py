@@ -123,6 +123,20 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertEqual(downloader.calls, [])
         self.assertEqual(storage.install_calls, [])
 
+    def test_catalog_rejects_duplicate_paths_after_separator_normalization(self):
+        manifest = make_manifest()
+        assets = dict(make_entry(manifest).assets)
+        move_path = manifest.files["move"]
+        move_digest = assets[move_path]
+        assets[move_path.replace("/", "\\")] = move_digest
+
+        with self.assertRaisesRegex(ValueError, "duplicate normalized"):
+            SoundPackCatalogEntry(
+                manifest=manifest,
+                assets=assets,
+                total_bytes=sum(item.size_bytes for item in assets.values()),
+            )
+
     def test_checksum_mismatch_never_reaches_storage(self):
         entry = make_entry()
         assets = dict(entry.assets)
