@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import hmac
 from pathlib import Path
@@ -52,6 +53,7 @@ _LABELS = {
         "send": "Надіслати",
         "sync": "Оновити чат",
         "mark_read": "Позначити прочитаним",
+        "timestamp": "Час повідомлення",
         "hide": "Приховати повідомлення",
         "mute_sender": "Заборонити надсилання автору",
         "allow_sender": "Дозволити надсилання автору",
@@ -96,6 +98,7 @@ _LABELS = {
         "send": "Send",
         "sync": "Refresh chat",
         "mark_read": "Mark read",
+        "timestamp": "Message time",
         "hide": "Hide message",
         "mute_sender": "Mute sender",
         "allow_sender": "Allow sender",
@@ -286,6 +289,16 @@ class ClassroomCollaborationWebView:
             return f"{size_bytes / 1024:.1f} KB"
         return f"{size_bytes / (1024 * 1024):.1f} MB"
 
+    @staticmethod
+    def _message_timestamp(sent_at_unix_ms: int) -> tuple[str, str]:
+        instant = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
+            milliseconds=sent_at_unix_ms
+        )
+        return (
+            instant.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            instant.isoformat(timespec="seconds").replace("+00:00", "Z"),
+        )
+
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
         moderator = self._moderator()
         sender_active = item.sender_id not in self._removed_participant_ids
@@ -307,6 +320,10 @@ class ClassroomCollaborationWebView:
                 and item.sender_id != self._controller.local_participant_id
             ),
         }
+        if item.sent_at_unix_ms is not None:
+            timestamp_text, timestamp_datetime = self._message_timestamp(item.sent_at_unix_ms)
+            view["timestamp_text"] = timestamp_text
+            view["timestamp_datetime"] = timestamp_datetime
         if moderator:
             view["message_key"] = self._message_key(item.message_id)
         return view
@@ -379,6 +396,7 @@ class ClassroomCollaborationWebView:
                 "send_label": labels["send"],
                 "sync_label": labels["sync"],
                 "mark_read_label": labels["mark_read"],
+                "timestamp_label": labels["timestamp"],
                 "hide_label": labels["hide"],
                 "mute_sender_label": labels["mute_sender"],
                 "allow_sender_label": labels["allow_sender"],
