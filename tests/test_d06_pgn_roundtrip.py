@@ -508,6 +508,18 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 (game,),
             )
 
+    def test_recovery_warning_state_cannot_be_silently_serialized(self):
+        damaged = parse_pgn_text(
+            '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
+            strict=False,
+        )
+        self.assertTrue(damaged[0].warnings)
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            damaged,
+        )
+
     def test_empty_model_cannot_serialize_to_strictly_invalid_empty_pgn(self):
         self.assert_code(
             PgnRoundTripErrorCode.EMPTY_PGN,
