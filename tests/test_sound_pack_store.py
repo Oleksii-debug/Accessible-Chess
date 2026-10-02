@@ -155,7 +155,7 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             downloaded, _ = _staged_download(root, manifest)
             assets = dict(downloaded.assets)
             move_path = manifest.files["move"]
-            assets[move_path.replace("/", "\\")] = assets[move_path]
+            assets[move_path.replace("/", chr(92))] = assets[move_path]
             ambiguous = DownloadedSoundPack(
                 manifest=manifest,
                 assets=assets,
