@@ -1,6 +1,6 @@
 import unittest
 
-from acs.move_entry import parse_piece_coordinate_position
+from acs.move_entry import parse_move_entry, parse_piece_coordinate_position
 from acs.position_editor import PositionValidationError
 from acs.position_text import parse_position_text
 from acs.webapp import AccessibleChessAPI
@@ -89,6 +89,20 @@ class PositionTextAuthorityTests(unittest.TestCase):
             result["announcement"],
             "Текст позиції має бути текстовим значенням",
         )
+
+    def test_move_entry_rejects_non_text_without_invoking_string_conversion(self):
+        class CoercibleEntry:
+            def __init__(self):
+                self.string_calls = 0
+
+            def __str__(self):
+                self.string_calls += 1
+                return "W: K e1 B: K e8"
+
+        payload = CoercibleEntry()
+        with self.assertRaisesRegex(ValueError, "move entry text must be text"):
+            parse_move_entry(payload)  # type: ignore[arg-type]
+        self.assertEqual(payload.string_calls, 0)
 
     def test_legacy_direct_adapter_defaults_to_ukrainian_errors(self):
         with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):

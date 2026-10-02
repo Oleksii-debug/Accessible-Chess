@@ -41,7 +41,9 @@ def parse_move_entry(
     for the chess rules service to validate/execute.
     """
 
-    raw = str(text)
+    if type(text) is not str:
+        raise ValueError("move entry text must be text")
+    raw = text
     stripped = raw.strip()
     if not stripped:
         return MoveEntryIntent(MoveEntryKind.EMPTY, raw)
