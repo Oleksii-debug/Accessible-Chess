@@ -67,8 +67,9 @@
 
   const status = documentRef.createElement("p");
   status.id = "sound-profile-settings-status";
-  status.setAttribute("role", "status");
-  status.setAttribute("aria-live", "polite");
+  // This paragraph is the visible/selectable state record. Explicit mutations
+  // are announced through the one canonical P0 announcement channel below;
+  // making this a second live region would duplicate screen-reader output.
   root.appendChild(status);
 
   const masterEnabled = documentRef.createElement("input");
