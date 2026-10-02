@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from acs.sound_pack_store import FilesystemSoundPackStore
 from acs.sound_profile_composition import (
     _local_pack_resolver,
     _playable_installed_packs,
