@@ -12,6 +12,7 @@ from acs.classroom_collaboration import (
     ChatDraft,
     ChatModerationAction,
     ChatModerationCommand,
+    ClassroomCollaborationController,
 )
 from acs.classroom_collaboration_chat_server import (
     ClassroomChatServerError,
@@ -20,7 +21,9 @@ from acs.classroom_collaboration_chat_server import (
     MAX_SERVER_HISTORY_MESSAGES,
     MAX_SERVER_MODERATION_COMMANDS,
 )
+from acs.classroom_collaboration_storage import ClassroomCollaborationSQLiteStore
 from acs.classroom_domain import MAX_WIRE_INTEGER
+from acs.classroom_realtime_media import ClassroomRole
 
 
 ROOM = "room-1"
@@ -51,6 +54,56 @@ class FakeAuthorization:
         self.moderation_calls.append((room_id, caller_identity, commands))
         if self.reject_moderation:
             raise RuntimeError("sensitive role detail")
+
+
+class BoundChatTransport:
+    """Bind one trusted transport identity to the provider-neutral server service."""
+
+    def __init__(self, service, participant_id):
+        self.service = service
+        self.participant_id = participant_id
+
+    def send_message(self, draft):
+        return self.service.send_message(
+            trusted_caller_identity=self.participant_id,
+            draft=draft,
+        )
+
+    def history_after(self, *, room_id, after_sequence, limit):
+        return self.service.history_after(
+            trusted_caller_identity=self.participant_id,
+            room_id=room_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+
+    def state_updates_after(self, *, room_id, after_revision, limit):
+        return self.service.state_updates_after(
+            trusted_caller_identity=self.participant_id,
+            room_id=room_id,
+            after_revision=after_revision,
+            limit=limit,
+        )
+
+    def apply_moderation(self, commands):
+        return self.service.apply_moderation(
+            trusted_caller_identity=self.participant_id,
+            commands=commands,
+        )
+
+
+class SharedRoster:
+    def __init__(self):
+        self.roles = {
+            TEACHER: ClassroomRole.TEACHER,
+            STUDENT: ClassroomRole.STUDENT,
+        }
+
+    def participant_ids(self):
+        return tuple(self.roles)
+
+    def role_for(self, participant_id):
+        return self.roles[participant_id]
 
 
 class Clock:
@@ -142,6 +195,64 @@ class ClassroomChatServerTests(unittest.TestCase):
                 "classroom_chat_server_state_updates",
             }.issubset(tables)
         )
+
+    def test_two_client_controller_composition_reconnects_and_reconciles_hide(self) -> None:
+        roster = SharedRoster()
+        teacher_store = ClassroomCollaborationSQLiteStore(
+            str(Path(self.tmp.name) / "teacher-client.sqlite3")
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(Path(self.tmp.name) / "student-client.sqlite3")
+        )
+        teacher = ClassroomCollaborationController(
+            room_id=ROOM,
+            local_participant_id=TEACHER,
+            roster=roster,
+            chat=BoundChatTransport(self.service, TEACHER),
+            files=object(),
+            store=teacher_store,
+        )
+        student = ClassroomCollaborationController(
+            room_id=ROOM,
+            local_participant_id=STUDENT,
+            roster=roster,
+            chat=BoundChatTransport(self.service, STUDENT),
+            files=object(),
+            store=student_store,
+        )
+
+        sent = student.send_chat(
+            message_id="two-client-message",
+            body="Shared room message",
+        )
+        self.assertEqual((sent,), teacher.sync_chat())
+        self.assertEqual(
+            (sent,),
+            teacher_store.room_messages(ROOM),
+        )
+
+        hidden = teacher.hide_message(
+            actor_id=TEACHER,
+            message_id=sent.message_id,
+            operation_id="two-client-hide",
+        )
+        self.assertTrue(hidden.hidden)
+        self.assertEqual((), teacher_store.room_messages(ROOM))
+
+        # The sender already has the message locally, so reconnect receives only
+        # the server moderation-state stream and must hide it without reannounce.
+        self.assertEqual((), student.sync_chat())
+        self.assertEqual((), student_store.room_messages(ROOM))
+        durable = student_store.room_messages(ROOM, include_hidden=True)
+        self.assertEqual(1, len(durable))
+        self.assertTrue(durable[0].hidden)
+        self.assertEqual(0, student_store.chat_state_revision(ROOM))
+
+        reopened = ClassroomCollaborationSQLiteStore(
+            str(Path(self.tmp.name) / "student-client.sqlite3")
+        )
+        self.assertTrue(reopened.room_messages(ROOM, include_hidden=True)[0].hidden)
+        self.assertEqual(0, reopened.chat_state_revision(ROOM))
 
     def test_send_assigns_server_sequence_and_time_and_retry_is_stable(self) -> None:
         draft = self.draft("m1")
