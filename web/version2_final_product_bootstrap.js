@@ -460,12 +460,19 @@
       // no media binding exists.
       if (global.AccessibleChessClassroomMediaSurface &&
           typeof global.AccessibleChessClassroomMediaSurface.mount === "function") {
+        const mediaStatus = snapshot.product_status && typeof snapshot.product_status === "object"
+          ? snapshot.product_status
+          : {};
         global.AccessibleChessClassroomMediaSurface.mount(
           workspace,
           snapshot.media || null,
           areaInvoke("media"),
           announce,
-          currentLanguage
+          currentLanguage,
+          {
+            binding_active: mediaStatus.media_binding_active === true,
+            recovery_required: mediaStatus.media_recovery_required === true
+          }
         );
       }
     }
