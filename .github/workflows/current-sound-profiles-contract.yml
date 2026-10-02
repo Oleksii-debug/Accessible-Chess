@@ -105,8 +105,8 @@ jobs:
             echo 'SOUND_SCOPE_MODE=OWNER_EXACT'
           else
             test "$head_ref" = 'reconverge/sound-profiles-current-product-20260926'
-            base='${{ github.event.pull_request.base.sha }}'
-            test "$base" = "$CURRENT_PRODUCT_BASE"
+            test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+            base="$CURRENT_PRODUCT_BASE"
             expected="$(printf '%s\n' \
               '.github/workflows/current-sound-profiles-contract.yml' \
               '.github/workflows/profiled-windows-sound-playback.yml' \
