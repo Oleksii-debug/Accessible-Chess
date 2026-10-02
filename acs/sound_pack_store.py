@@ -329,6 +329,8 @@ class FilesystemSoundPackStore:
             safe_path = _safe_audio_path(path)
             if safe_path != digest.path:
                 raise ValueError("downloaded asset key must match digest path")
+            if safe_path in digests:
+                raise ValueError("duplicate normalized downloaded asset path")
             digests[safe_path] = digest
 
         expected = set(downloaded.manifest.files.values())
