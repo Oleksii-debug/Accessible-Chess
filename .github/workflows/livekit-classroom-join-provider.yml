@@ -1,0 +1,148 @@
+name: LiveKit Classroom Join Provider
+
+on:
+  push:
+    branches:
+      - feature/livekit-classroom-join-provider-20261002
+  pull_request:
+    branches:
+      - feature/classroom-join-credential-rpc-core-20261002
+    paths:
+      - 'acs/livekit_classroom_token_issuer.py'
+      - 'tests/test_livekit_classroom_token_issuer.py'
+      - '.github/workflows/livekit-classroom-join-provider.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livekit-classroom-join-provider-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove bounded stacked provider scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$PR_BASE_REF" = "feature/classroom-join-credential-rpc-core-20261002"
+          test -n "$PR_BASE_SHA"
+          git cat-file -e "$PR_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$PR_BASE_SHA" HEAD
+          test "$(git merge-base "$PR_BASE_SHA" HEAD)" = "$PR_BASE_SHA"
+          git diff --check "$PR_BASE_SHA...HEAD"
+          actual="$(git diff --name-only "$PR_BASE_SHA...HEAD" | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/livekit-classroom-join-provider.yml' \
+            'acs/livekit_classroom_token_issuer.py' \
+            'tests/test_livekit_classroom_token_issuer.py' | sort)"
+          test "$actual" = "$expected" || {
+            printf 'Unexpected LiveKit join-provider scope:\n%s\n' "$actual" >&2
+            exit 1
+          }
+          git diff --quiet "$PR_BASE_SHA...HEAD" -- \
+            acs/chesscore.py \
+            acs/classroom_domain.py \
+            acs/classroom_realtime_media.py \
+            acs/classroom_join_credentials.py \
+            web/livekit_classroom_media.js
+          echo "LIVEKIT_JOIN_PROVIDER_BASE=$PR_BASE_SHA"
+          echo 'LIVEKIT_JOIN_PROVIDER_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile provider and canonical join boundary
+        run: >-
+          python -m compileall -q
+          acs/livekit_classroom_token_issuer.py
+          acs/classroom_join_credentials.py
+          tests/test_livekit_classroom_token_issuer.py
+          tests/test_classroom_join_credentials.py
+
+      - name: Run provider, join and media authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_classroom_token_issuer
+          tests.test_classroom_join_credentials
+          tests.test_classroom_realtime_media
+
+      - name: Install exact reviewed LiveKit server SDK
+        run: python -m pip install --disable-pip-version-check --no-input livekit-api==1.2.1
+
+      - name: Prove real SDK grant and signature compatibility
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio
+          from datetime import datetime, timedelta, timezone
+
+          from livekit import api
+
+          from acs.classroom_join_credentials import ClassroomJoinGrant
+          from acs.classroom_realtime_media import MediaSource
+          from acs.livekit_classroom_token_issuer import (
+              LIVEKIT_API_VERSION,
+              LiveKitClassroomJoinTokenIssuer,
+          )
+
+          now = datetime.now(timezone.utc)
+          issuer = LiveKitClassroomJoinTokenIssuer(
+              api_key="contract-api-key",
+              api_secret="contract-api-secret",
+              now=lambda: now,
+          )
+          token = asyncio.run(
+              issuer.issue_join_token(
+                  grant=ClassroomJoinGrant(
+                      room_id="contract-room",
+                      participant_id="contract-participant",
+                      publish_sources=(
+                          MediaSource.MICROPHONE,
+                          MediaSource.CAMERA,
+                      ),
+                  ),
+                  issued_at=now,
+                  expires_at=now + timedelta(seconds=90),
+              )
+          )
+          claims = api.TokenVerifier(
+              api_key="contract-api-key",
+              api_secret="contract-api-secret",
+          ).verify(token)
+          assert LIVEKIT_API_VERSION == "1.2.1"
+          assert claims.identity == "contract-participant"
+          assert claims.video is not None
+          assert claims.video.room_join is True
+          assert claims.video.room == "contract-room"
+          assert claims.video.room_admin is False
+          assert claims.video.can_publish is True
+          assert claims.video.can_subscribe is True
+          assert claims.video.can_publish_data is False
+          assert claims.video.can_publish_sources == ["microphone", "camera"]
+          assert claims.video.can_update_own_metadata is False
+          assert claims.video.hidden is False
+          print("LIVEKIT_REAL_SDK_CONTRACT=PASS")
+          PY
+
+      - name: Core selftest
+        run: python -m acs.selftest
