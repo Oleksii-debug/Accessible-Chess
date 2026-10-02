@@ -104,6 +104,22 @@ if "--diagnostic" in sys.argv:
                     cleanup_order.append("runtime")
 
     resource_names = tuple(name for name, _source in resources)
+    livekit_sdk_label = "LiveKit browser SDK"
+    livekit_adapter_label = "Classroom LiveKit media adapter"
+    livekit_staged = (
+        livekit_sdk_label in resource_names
+        or livekit_adapter_label in resource_names
+    )
+    livekit_runtime_ready = (
+        not livekit_staged
+        or (
+            resource_names.count(livekit_sdk_label) == 1
+            and resource_names.count(livekit_adapter_label) == 1
+            and resource_names.index(livekit_sdk_label)
+            < resource_names.index(livekit_adapter_label)
+            < resource_names.index("V2 Teacher surface")
+        )
+    )
     navigation = (
         tuple(item.get("route_id", "") for item in v2_state.get("navigation", ()))
         if isinstance(v2_state, dict)
@@ -160,6 +176,7 @@ if "--diagnostic" in sys.argv:
         or "V2 PGN surface" not in resource_names
         or "V2 Library surface" not in resource_names
         or "V2 Books surface" not in resource_names
+        or not livekit_runtime_ready
     ):
         raise SystemExit(
             "ACCESSIBLE CHESS V2 FINAL-PRODUCT DIAGNOSTIC FAILED: "
@@ -173,6 +190,8 @@ if "--diagnostic" in sys.argv:
                     "packagedW2Library": library_state,
                     "cleanupOrder": cleanup_order,
                     "runtimeClosed": runtime.closed,
+                    "livekitStaged": livekit_staged,
+                    "livekitRuntimeReady": livekit_runtime_ready,
                     "resources": resource_names,
                 },
                 ensure_ascii=False,
@@ -180,6 +199,8 @@ if "--diagnostic" in sys.argv:
         )
     if packaged_w2_required:
         print("P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS")
+    if livekit_staged:
+        print("CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS")
     print("P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS")
     print("PRODUCTION COMPOSITION DIAGNOSTIC PASS")
     print("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS")
