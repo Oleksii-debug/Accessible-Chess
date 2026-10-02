@@ -283,6 +283,45 @@ async function run() {
   assert.equal(documentRef.activeElement, malformedButton);
   assert.deepEqual(malformedAnnouncements, ["Media controls are temporarily unavailable."]);
 
+  const recoveryButtonId = rowId + "-mic-permission";
+  const recoverySnapshot = mediaSnapshot([
+    {
+      id: recoveryButtonId,
+      command: "media.publish_permission",
+      label: "Lock microphone publishing",
+      payload: { participant_key: key, source: "microphone", allowed: false }
+    }
+  ]);
+  const recoveryAnnouncements = [];
+  surface.mount(
+    root,
+    recoverySnapshot,
+    () => Promise.resolve({
+      kind: "media-updated",
+      payload: {
+        snapshot: null,
+        recovery_required: true,
+        announcement: "Media state updated.",
+        focus_target: "classroom-media-heading"
+      }
+    }),
+    (message) => recoveryAnnouncements.push(String(message)),
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+
+  const recoveryButton = root.querySelector("#" + recoveryButtonId);
+  assert.ok(recoveryButton);
+  recoveryButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(root.querySelector("#" + recoveryButtonId), null);
+  assert.match(root.textContent, /Media controls are temporarily unavailable/);
+  const recoveryHeading = root.querySelector("#classroom-media-heading");
+  assert.ok(recoveryHeading);
+  assert.equal(recoveryHeading.tabIndex, -1);
+  assert.equal(documentRef.activeElement, recoveryHeading);
+  assert.deepEqual(recoveryAnnouncements, ["Media state updated."]);
+
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
 
