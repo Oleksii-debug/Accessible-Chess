@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -154,6 +155,91 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                     "LiveKit browser SDK resource root is invalid",
                 ):
                     shipping_release.final_product_resource_sources()
+
+
+    def test_empty_packaged_livekit_sdk_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            web = root / "web"
+            resource_paths = (
+                "stage1_release_bootstrap.js",
+                "stage1_board_actions.js",
+                "full_product_pgn.js",
+                "full_product_library.js",
+                "full_product_books_training.js",
+                "full_product_teacher.js",
+                "full_product_education.js",
+                "livekit_classroom_media.js",
+                "full_product_classroom_media.js",
+                "version2_final_product_bootstrap.js",
+                "p0_accessibility_runtime.js",
+            )
+            for relative in resource_paths:
+                path = web / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"// {relative}\n", encoding="utf-8")
+            sdk_path = web / "vendor" / "livekit" / "livekit-client.umd.js"
+            sdk_path.parent.mkdir(parents=True, exist_ok=True)
+            sdk_path.write_text("", encoding="utf-8")
+
+            with patch.object(
+                education_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK is empty",
+                ):
+                    shipping_release.final_product_resource_sources()
+
+    def test_packaged_resource_read_failure_redacts_filesystem_detail(self) -> None:
+        secret_path = r"C:\Users\private-user\build\stage1_release_bootstrap.js"
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            web = root / "web"
+            resource_paths = (
+                "stage1_release_bootstrap.js",
+                "stage1_board_actions.js",
+                "full_product_pgn.js",
+                "full_product_library.js",
+                "full_product_books_training.js",
+                "full_product_teacher.js",
+                "full_product_education.js",
+                "livekit_classroom_media.js",
+                "full_product_classroom_media.js",
+                "version2_final_product_bootstrap.js",
+                "p0_accessibility_runtime.js",
+            )
+            for relative in resource_paths:
+                path = web / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"// {relative}\n", encoding="utf-8")
+
+            original_read_text = Path.read_text
+
+            def fail_selected(path: Path, *args, **kwargs):
+                if path.name == "stage1_release_bootstrap.js":
+                    raise OSError(secret_path)
+                return original_read_text(path, *args, **kwargs)
+
+            with (
+                patch.object(
+                    education_release._release_ui,
+                    "_asset_root",
+                    return_value=root,
+                ),
+                patch.object(Path, "read_text", fail_selected),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Stage 1 WebView bootstrap could not be read",
+                ) as caught:
+                    shipping_release.final_product_resource_sources()
+
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(secret_path, rendered)
+        self.assertIsNone(caught.exception.__cause__)
 
 
     def test_retained_gate_accepts_exact_classroom_media_successor_identities(self) -> None:
