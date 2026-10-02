@@ -121,7 +121,10 @@ def parse_join_request(
     caller = _identifier(trusted_caller_identity, "trusted caller identity")
     if type(payload) is not str:
         raise ClassroomJoinCredentialError("join request payload must be text")
-    encoded = payload.encode("utf-8")
+    try:
+        encoded = payload.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ClassroomJoinCredentialError("join request payload is not valid UTF-8 text") from None
     if not encoded or len(encoded) > MAX_JOIN_REQUEST_BYTES:
         raise ClassroomJoinCredentialError("join request payload size is invalid")
     try:
