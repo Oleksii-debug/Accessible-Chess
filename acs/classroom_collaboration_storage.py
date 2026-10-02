@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -446,6 +446,25 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=5 WHERE key='schema_version'"
                 )
                 version = 5
+            if version < 6:
+                # Deleted attachments are authoritative room-history tombstones.
+                # They must keep reserving their server sequence just like stored
+                # attachments, while provisional local states remain free to use
+                # a placeholder sequence before server reconciliation.
+                db.execute(
+                    "DROP INDEX IF EXISTS uq_collaboration_attachments_stored_sequence"
+                )
+                db.execute(
+                    """
+                    CREATE UNIQUE INDEX uq_collaboration_attachments_authoritative_sequence
+                    ON collaboration_attachments(room_id, sequence_no)
+                    WHERE transfer_state IN ('stored', 'deleted')
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=6 WHERE key='schema_version'"
+                )
+                version = 6
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
