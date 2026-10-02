@@ -18,6 +18,17 @@ class FakeAssetPlayback:
             raise FileNotFoundError(request.sound_id)
 
 
+class PathLeakingPlayback:
+    def __init__(self) -> None:
+        self.requests: list[SoundAssetRequest] = []
+
+    def play_sound(self, request: SoundAssetRequest) -> None:
+        self.requests.append(request)
+        raise FileNotFoundError(
+            "C:/Users/private/AppData/AccessibleChess/classroom.wav"
+        )
+
+
 class ClassroomSoundRuntimeTests(unittest.TestCase):
     def test_dispatch_uses_namespaced_profile_selection_and_volume(self) -> None:
         assets = FakeAssetPlayback()
@@ -92,17 +103,27 @@ class ClassroomSoundRuntimeTests(unittest.TestCase):
         for event_id in ("join", "ui.click", "classroom../join", "classroom.join!"):
             with self.subTest(event_id=event_id), self.assertRaises(ValueError):
                 runtime.dispatch(event_id)
+        for event_id in (1, None, object()):
+            with self.subTest(event_id=event_id), self.assertRaises(TypeError):
+                runtime.dispatch(event_id)  # type: ignore[arg-type]
 
-    def test_adapter_failure_is_explicit_and_has_no_fallback(self) -> None:
-        assets = FakeAssetPlayback(fail_sound_id="room.fail")
-        profile = SoundProfile(
-            events={"classroom.permission": SoundEventPreference(sound_id="room.fail")}
+    def test_adapter_failure_is_explicit_path_free_and_has_no_fallback(self) -> None:
+        assets = PathLeakingPlayback()
+        result = ClassroomSoundRuntime(assets, SoundProfile()).dispatch(
+            "classroom.permission"
         )
-        result = ClassroomSoundRuntime(assets, profile).dispatch("classroom.permission")
         self.assertFalse(result.ok)
         self.assertFalse(result.delivered)
         self.assertEqual(result.error_type, "FileNotFoundError")
+        self.assertEqual(result.message, "classroom sound adapter failed")
+        self.assertNotIn("C:/Users/private", result.message)
         self.assertEqual(len(assets.requests), 1)
+
+        preview = ClassroomSoundRuntime(PathLeakingPlayback(), SoundProfile()).preview(
+            "classroom.permission"
+        )
+        self.assertFalse(preview.ok)
+        self.assertEqual(preview.message, "classroom sound adapter failed")
 
     def test_dynamic_profile_provider_is_resolved_once_per_dispatch(self) -> None:
         assets = FakeAssetPlayback()
