@@ -94,6 +94,8 @@
       "collaboration-chat-sync",
       "collaboration-chat-older",
       "collaboration-chat-newer",
+      "collaboration-file-older",
+      "collaboration-file-newer",
       "collaboration-file-choose"
     ].indexOf(value) >= 0 ? value : "";
   }
@@ -711,6 +713,28 @@
       invokeCollaboration(invoke, "collaboration.file.choose_upload", {}, wrapper, announce, fallbackMessage);
     });
     fileSection.appendChild(choose);
+    const olderFiles = node("button", files.older_label || "Older files");
+    olderFiles.id = "collaboration-file-older";
+    olderFiles.type = "button";
+    olderFiles.disabled = !files.can_older;
+    olderFiles.setAttribute("data-command", "collaboration.file.older");
+    olderFiles.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.file.older", {}, wrapper, announce, fallbackMessage);
+    });
+    fileSection.appendChild(olderFiles);
+    const filePageStatus = node("span", files.page_label || "");
+    filePageStatus.id = "collaboration-file-page-status";
+    filePageStatus.setAttribute("aria-live", "off");
+    fileSection.appendChild(filePageStatus);
+    const newerFiles = node("button", files.newer_label || "Newer files");
+    newerFiles.id = "collaboration-file-newer";
+    newerFiles.type = "button";
+    newerFiles.disabled = !files.can_newer;
+    newerFiles.setAttribute("data-command", "collaboration.file.newer");
+    newerFiles.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.file.newer", {}, wrapper, announce, fallbackMessage);
+    });
+    fileSection.appendChild(newerFiles);
 
     const fileItems = Array.isArray(files.items) ? files.items : [];
     if (!fileItems.length) {
