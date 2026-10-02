@@ -44,7 +44,7 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          LEDGER_OWNER_SHA: f716219966b30ad8c1c844e033a47ad63ec18e9d
+          LEDGER_OWNER_SHA: 12b53da8a4fe34a8c867a3fd8aa871969243ddc3
           ADMIN_OWNER_SHA: f6da2f689533fc95209ea0a656880cda8d877dc7
         run: |
           set -euo pipefail
