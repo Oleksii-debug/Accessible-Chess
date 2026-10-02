@@ -40,6 +40,14 @@ _MAX_MEMBER_BYTES = 16 * 1024 * 1024
 _MIN_BUNDLE_BYTES = 100_000
 _MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 _MIN_LICENSE_BYTES = 5_000
+_WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
 
 # client-sdk-js@v2.22.3 upstream NOTICE. npm may omit NOTICE because its package
 # whitelist is narrower than the source tree, so preserve the reviewed notice
@@ -191,6 +199,17 @@ def _safe_member_name(name: str) -> str:
         raise LiveKitClientSdkStageError("LiveKit npm archive contains an unsafe member name")
     if raw_parts[-1] in {".", ".."}:
         raise LiveKitClientSdkStageError("LiveKit npm archive contains an unsafe member name")
+    path_parts = raw_parts[:-1] if raw_parts[-1] == "" else raw_parts
+    for part in path_parts:
+        if (
+            ":" in part
+            or part.rstrip(" .") != part
+            or any(ord(character) < 32 or ord(character) == 127 for character in part)
+            or part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES
+        ):
+            raise LiveKitClientSdkStageError(
+                "LiveKit npm archive contains a Windows-unsafe member name"
+            )
     path = PurePosixPath(name)
     canonical = path.as_posix()
     if path.is_absolute() or canonical not in {name, name.rstrip("/")}:
