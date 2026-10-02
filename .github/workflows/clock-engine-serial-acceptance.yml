@@ -64,7 +64,7 @@ jobs:
           }
           test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
           test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 2b0029b6da4dc88494c0e3cd4e891b886df45eda
-          test "$(git rev-parse HEAD:.github/workflows/chess-clock-switch-boundary.yml)" = 1a859e0eb47326810e11a8dd1bde92521b3a4f68
+          test "$(git rev-parse HEAD:.github/workflows/chess-clock-switch-boundary.yml)" = 104bd00f7d5a648356f8b657152fb11e62c94044
           test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 37d6c11a782c02850efdc646b034abaafee81dc4
           test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
           test "$(git rev-parse HEAD:tests/test_engine_game_session.py)" = be34d22d50d7154dc5cfde3786ff8047f235e8cc
