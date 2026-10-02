@@ -1319,6 +1319,73 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(current.scan_state, "pending")
         self.assertIsNone(second_store.attachment_state_revision("room-1"))
 
+    def test_file_state_defers_update_for_attachment_on_next_history_page(self):
+        producer_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-file-producer.sqlite3")
+        )
+        producer = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=producer_store,
+            file_store=self.file_store,
+        )
+        uploaded = tuple(
+            producer.upload_file(
+                producer.prepare_file(
+                    attachment_id=f"paged-file-{index}",
+                    local_path=self.make_file(
+                        f"paged-file-{index}.bin",
+                        bytes([index + 1]),
+                    ),
+                    sequence_no=index,
+                    retention="persistent",
+                )
+            )
+            for index in range(3)
+        )
+        self.files.set_authoritative_state(
+            uploaded[2].attachment_id,
+            scan_state="clean",
+        )
+        consumer_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "paged-file-consumer.sqlite3")
+        )
+        consumer = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=consumer_store,
+            file_store=self.file_store,
+        )
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_ATTACHMENTS", 2):
+            first_page = consumer.sync_files()
+            self.assertEqual(
+                tuple(item.sequence_no for item in first_page),
+                (0, 1),
+            )
+            self.assertIsNone(
+                consumer_store.attachment_state_revision("room-1")
+            )
+            second_page = consumer.sync_files()
+            self.assertEqual(
+                tuple(item.sequence_no for item in second_page),
+                (2,),
+            )
+
+        current = consumer_store.room_attachments("room-1")
+        self.assertEqual(tuple(item.sequence_no for item in current), (0, 1, 2))
+        self.assertEqual(current[-1].scan_state, "clean")
+        self.assertEqual(
+            consumer_store.attachment_state_revision("room-1"),
+            0,
+        )
+
     def test_new_file_history_is_not_exposed_when_state_stream_has_a_gap(self):
         controller = self.controller("teacher-1")
         incoming = AttachmentMetadata(

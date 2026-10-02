@@ -722,7 +722,14 @@ class ClassroomCollaborationController:
             raise CollaborationError(
                 "attachment state response is invalid or too large"
             )
+        history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
+        known_attachment_ids = {
+            item.attachment_id
+            for item in self._store.room_attachments(self.room_id)
+        }
+        known_attachment_ids.update(item.attachment_id for item in incoming)
         state_previous = state_after
+        applicable_updates: list[AttachmentStateUpdate] = []
         for update in updates:
             if type(update) is not AttachmentStateUpdate:
                 raise CollaborationError(
@@ -739,13 +746,20 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "attachment state has an unresolved revision gap"
                 )
+            if update.attachment_id not in known_attachment_ids:
+                if history_complete:
+                    raise CollaborationError(
+                        "attachment state references unknown room attachment"
+                    )
+                break
+            applicable_updates.append(update)
             state_previous = update.revision
 
         try:
             persisted = self._store.reconcile_attachment_sync_atomic(
                 room_id=self.room_id,
                 attachments=incoming,
-                updates=updates,
+                updates=tuple(applicable_updates),
             )
         except CollaborationStorageError as error:
             raise CollaborationError(

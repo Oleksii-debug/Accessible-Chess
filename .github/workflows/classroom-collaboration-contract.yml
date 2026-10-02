@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - feature/classroom-collaboration-contract-20260926
     paths:
       - 'acs/classroom_collaboration.py'
       - 'acs/classroom_collaboration_storage.py'
@@ -42,20 +43,34 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+          case "$BASE_REF" in
+            work/full-product-teacher-education-reachability-20260911)
+              expected=(
+                '.github/workflows/classroom-collaboration-contract.yml'
+                'acs/classroom_collaboration.py'
+                'acs/classroom_collaboration_storage.py'
+                'tests/test_classroom_collaboration.py'
+                'tests/test_classroom_collaboration_storage.py'
+              )
+              ;;
+            feature/classroom-collaboration-contract-20260926)
+              expected=(
+                '.github/workflows/classroom-collaboration-contract.yml'
+                'acs/classroom_collaboration.py'
+                'tests/test_classroom_collaboration.py'
+              )
+              ;;
+            *)
+              printf 'Unexpected collaboration base: %s\n' "$BASE_REF"
+              exit 1
+              ;;
+          esac
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
           git merge-base --is-ancestor "$BASE_SHA" HEAD
           test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
           git diff --check "$BASE_SHA" HEAD
           mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
-          expected=(
-            '.github/workflows/classroom-collaboration-contract.yml'
-            'acs/classroom_collaboration.py'
-            'acs/classroom_collaboration_storage.py'
-            'tests/test_classroom_collaboration.py'
-            'tests/test_classroom_collaboration_storage.py'
-          )
           if [[ "${actual[*]}" != "${expected[*]}" ]]; then
             printf 'Unexpected collaboration PR scope.\nExpected:\n'
             printf '  %s\n' "${expected[@]}"
