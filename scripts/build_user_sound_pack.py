@@ -20,7 +20,7 @@ DEFAULT_EVENT_FILES = {
     "capture": "library/Board/CAPTURE.WAV",
     "check": "library/Russian/Notation/Check.wav",
     "castle": "library/Board/castle.wav",
-    "promotion": "library/Board/failhigh.wav",
+    "promotion": "library/Board/MOVEHIT1.WAV",
     "illegal": "library/Board/illegal.wav",
     "start": "library/Board/NEWGAME.WAV",
     "end": "library/Server/Gong.WAV",
@@ -57,8 +57,9 @@ EVENT_VARIANTS = {
         ("1", "library/Board/castle.wav", "Рокірування", "Castling"),
     ),
     "promotion": (
-        ("1", "library/Board/failhigh.wav", "Сигнал перетворення 1", "Promotion cue 1"),
-        ("2", "library/Board/coach.wav", "Сигнал перетворення 2", "Promotion cue 2"),
+        ("1", "library/Board/MOVEHIT1.WAV", "Перетворення 1", "Promotion 1"),
+        ("2", "library/Board/MOVEHIT2.WAV", "Перетворення 2", "Promotion 2"),
+        ("3", "library/Board/MOVEHIT3.WAV", "Перетворення 3", "Promotion 3"),
     ),
     "illegal": (
         ("1", "library/Board/illegal.wav", "Нелегальний хід", "Illegal move"),
