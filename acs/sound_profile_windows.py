@@ -16,6 +16,7 @@ from pathlib import Path
 import struct
 import sys
 import tempfile
+import threading
 import wave
 
 from .sound_events import SoundEvent
@@ -77,6 +78,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
         self._cache_dir = Path(cache_dir)
         self._classic = classic_pack_id.strip()
         self._logger = logger or logging.getLogger(__name__)
+        self._play_lock = threading.RLock()
 
     def _classic_event(self, request: SoundAssetRequest) -> SoundEvent:
         if request.pack_id != self._classic:
@@ -118,18 +120,26 @@ class ProfiledWindowsSoundPlaybackAdapter:
         if request.volume == 0:
             return
         try:
-            source, cache_key = self._resolve(request)
-            playable = (
-                source
-                if request.volume == 100
-                else self._scaled_copy(source, cache_key, request.volume)
-            )
-            import winsound
+            # Synchronous playback plus cache pruning must be one adapter-level
+            # critical section. Otherwise a concurrent pack update/play can prune
+            # a content-addressed file after another call resolves it but before
+            # winsound opens it.
+            with self._play_lock:
+                source, cache_key = self._resolve(request)
+                if request.pack_id == self._classic and request.volume == 100:
+                    # Packaged classic assets are immutable release resources.
+                    playable = source
+                else:
+                    # Custom packs are mutable across install/update/uninstall.
+                    # Snapshot even 100% playback into the content-addressed cache
+                    # so storage mutation cannot invalidate the resolved pathname.
+                    playable = self._scaled_copy(source, cache_key, request.volume)
+                import winsound
 
-            winsound.PlaySound(
-                str(playable),
-                winsound.SND_FILENAME | winsound.SND_NODEFAULT,
-            )
+                winsound.PlaySound(
+                    str(playable),
+                    winsound.SND_FILENAME | winsound.SND_NODEFAULT,
+                )
         except Exception as exc:
             self._logger.error(
                 "profiled sound playback failed pack=%s event=%s error_type=%s",
