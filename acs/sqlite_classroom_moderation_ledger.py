@@ -64,7 +64,8 @@ class SqliteClassroomModerationLedger:
         self._timeout_seconds = float(timeout_seconds)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with self._connect() as connection:
+            with closing(self._connect()) as connection:
+                connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute(_SCHEMA)
         except (OSError, sqlite3.Error):
             raise ClassroomModerationLedgerError(
@@ -83,7 +84,7 @@ class SqliteClassroomModerationLedger:
         room = _identifier(room_id, "room id")
         operation = _identifier(operation_id, "operation id")
         try:
-            with self._connect() as connection:
+            with closing(self._connect()) as connection:
                 row = connection.execute(
                     """
                     SELECT fingerprint, committed
