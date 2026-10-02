@@ -371,6 +371,32 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
                 .publish_allowed
             )
 
+    def test_partial_large_batch_failure_latches_recovery_without_policy_commit(self):
+        controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_soft_mute(
+            actor_id="teacher-1",
+            muted=True,
+            operation_id="large-mute",
+        )
+        self.assertGreater(len(effect.browser_payloads()), 1)
+
+        # A later browser chunk may fail after earlier chunks reached the provider.
+        # That outcome is never treated as a clean rollback.
+        host.provider_failed(effect.transaction_id)
+
+        self.assertEqual(host.recovery_effect, effect)
+        for index in range(1, 61):
+            self.assertFalse(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.MICROPHONE)
+                .soft_muted
+            )
+        with self.assertRaises(MediaHostRecoveryRequired):
+            host.prepare_local_source(MediaSource.CAMERA, True)
+
     def test_moderation_chunk_size_fits_current_livekit_rpc_envelope(self):
         commands = tuple(
             ModerationCommand(
