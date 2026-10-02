@@ -87,6 +87,97 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(1, len(self.store.room_messages("room-1")))
         self.assertNotIn("browser-owned", repr(rejected.payload))
 
+    def test_failed_chat_send_reuses_host_identity_for_same_draft(self) -> None:
+        view = self.webview()
+        calls: list[tuple[str, str]] = []
+
+        def flaky_send_chat(*, message_id: str, body: str, retention: str = "session"):
+            calls.append((message_id, body))
+            if len(calls) == 1:
+                raise RuntimeError("ambiguous chat transport")
+            return None
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=flaky_send_chat,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Retry exactly once"},
+            )
+            retried = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Retry exactly once"},
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("collaboration.chat.sent", retried.kind)
+        self.assertEqual(
+            calls,
+            [
+                ("message-ui-1", "Retry exactly once"),
+                ("message-ui-1", "Retry exactly once"),
+            ],
+        )
+        self.assertEqual(1, self.ids["message"])
+        self.assertNotIn("message-ui-1", repr(failed.payload))
+        self.assertNotIn("message-ui-1", repr(retried.payload))
+
+    def test_chat_sync_clears_recovered_pending_identity(self) -> None:
+        view = self.webview()
+        calls: list[str] = []
+
+        def failed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=failed_send,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Recovered later"},
+            )
+        self.assertEqual("error", failed.kind)
+        pending_id = calls[0]
+
+        accepted = ChatMessageMetadata(
+            pending_id,
+            "room-1",
+            "student-1",
+            0,
+            "Recovered later",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.messages[pending_id] = accepted
+        self.chat.ordered = [accepted]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertNotIn(pending_id, repr(synced.payload))
+
+        next_calls: list[str] = []
+
+        def next_send(*, message_id: str, body: str, retention: str = "session"):
+            next_calls.append(message_id)
+            return None
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=next_send,
+        ):
+            sent_again = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Recovered later"},
+            )
+        self.assertEqual("collaboration.chat.sent", sent_again.kind)
+        self.assertEqual(next_calls, ["message-ui-2"])
+
     def test_chat_history_is_bounded_pageable_and_keeps_semantic_order(self) -> None:
         for sequence in range(105):
             self.store.append_message(
