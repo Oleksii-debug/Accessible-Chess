@@ -290,6 +290,44 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("[int]$focused.Current.ProcessId -ne [int]$Process.Id", self.text)
         self.assertNotIn("try {$document.SetFocus()} catch {}", self.text)
 
+    def test_final_static_copy_stays_on_exact_connected_document_focus(self) -> None:
+        self.assertIn(
+            "$staticDispatchFocus=AssertProviderFocus $roots 'static document copy dispatch'",
+            self.text,
+        )
+        self.assertIn(
+            "(RuntimeId $staticDispatchFocus) -cne $navigationRuntime",
+            self.text,
+        )
+        self.assertIn(
+            "Static document copy dispatch focus is not the connected document",
+            self.text,
+        )
+        self.assertIn(
+            "$staticPostCopyFocus=AssertProviderFocus $roots 'static document copy post-dispatch'",
+            self.text,
+        )
+        self.assertIn(
+            "(RuntimeId $staticPostCopyFocus) -cne $navigationRuntime",
+            self.text,
+        )
+        self.assertIn(
+            "Static document copy focus changed during native Ctrl+C",
+            self.text,
+        )
+        dispatch = self.text.index(
+            "$staticDispatchFocus=AssertProviderFocus $roots 'static document copy dispatch'"
+        )
+        copy = self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)", dispatch)
+        post = self.text.index(
+            "$staticPostCopyFocus=AssertProviderFocus $roots 'static document copy post-dispatch'",
+            copy,
+        )
+        verify = self.text.index("WaitClipboard $selected", post)
+        self.assertLess(dispatch, copy)
+        self.assertLess(copy, post)
+        self.assertLess(post, verify)
+
     def test_native_copy_is_bound_to_foreground_packaged_process(self) -> None:
         self.assertIn("GetForegroundWindow", self.text)
         self.assertIn("GetWindowThreadProcessId", self.text)
