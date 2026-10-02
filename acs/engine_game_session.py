@@ -649,17 +649,33 @@ class EngineGameSessionCoordinator:
             transaction.commit()
             return accepted
         except Exception:
-            # If clock.restore() rejected its final time sample, ChessClock
-            # itself rolls back. Never manufacture a historical snapshot.
+            # Never let one compensation failure skip the remaining canonical
+            # recovery components. A failed Board rollback cannot be reported
+            # as an ordinary rejected takeback or a recovered state.
+            compensation_error = None
             try:
                 transaction.rollback()
-            finally:
+            except Exception as exc:
+                compensation_error = exc
+            try:
                 if clock_replaced:
                     self._clock.restore(
                         original_clock,
                         resume_running=original_clock.state is ClockState.RUNNING,
                     )
+            except Exception as exc:
+                if compensation_error is None:
+                    compensation_error = exc
+            try:
                 self._lifecycle.restore_checkpoint(original_lifecycle)
+            except Exception as exc:
+                if compensation_error is None:
+                    compensation_error = exc
+            if compensation_error is not None:
+                raise EngineContractError(
+                    "takeback compensation failed; session requires recovery",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                ) from compensation_error
             raise
 
     def _resolve_clock_restore_after_takeback(self) -> ClockSnapshot | None:
