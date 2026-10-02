@@ -114,6 +114,7 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
 
     def test_engine_final_sample_failure_keeps_only_accepted_human_move(self):
         api, engine, sounds, session, clock = self.make_api()
+        initial_white = clock.snapshot().white_ms
         actual_switch = clock.switch_after_move
         clock.switch_after_move = self.inject_switch_samples(
             clock, actual_switch, "b", lambda _anchor: float("nan")
@@ -136,7 +137,9 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
         self.assertEqual(after.clock.state, ClockState.PAUSED)
         self.assertGreaterEqual(after.clock.black_ms, 59_949)
         self.assertLess(after.clock.black_ms, 60_000)
-        self.assertEqual(after.clock.white_ms, 62_000)
+        # Start-up can legitimately consume one millisecond before the QA
+        # source is frozen; only the precise accepted increment is invariant.
+        self.assertEqual(after.clock.white_ms, initial_white + 2_000)
 
         clock.switch_after_move = actual_switch
         retried = api.retry_engine_move()
