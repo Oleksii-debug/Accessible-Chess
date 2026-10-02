@@ -120,6 +120,38 @@ class PackagedDocumentCopyProbeContractTests(unittest.TestCase):
         self.assertNotIn("$document=$documents[0]", self.text)
         self.assertNotIn("$document=$candidate", self.text)
 
+    def test_native_document_home_navigation_precedes_static_range_discovery(self) -> None:
+        # Startup brings Move Input onscreen. Only a real document-key gesture
+        # may restore the upper static headings before choosing a copy target.
+        self.assertIn("$navigationDocument=$documents[0]", self.text)
+        self.assertIn("$navigationRuntime=RuntimeId $navigationDocument", self.text)
+        self.assertIn("$navigationDocument.SetFocus()", self.text)
+        self.assertIn("AssertProviderFocus $roots 'native document Ctrl+Home'", self.text)
+        self.assertIn("Native document Ctrl+Home focus landed in an edit control", self.text)
+        self.assertIn("AssertProductForeground $process 'native document Ctrl+Home'", self.text)
+        self.assertIn("[AccessibleChessCopyKeys]::Ctrl([byte]0x24)", self.text)
+        self.assertIn("$navigationWatch.ElapsedMilliseconds -lt 3500", self.text)
+        self.assertIn("Connected document identity changed during native Ctrl+Home navigation", self.text)
+        self.assertIn("$navigationPhrases -ccontains $name", self.text)
+        self.assertIn("P0_NATIVE_DOCUMENT_HOME_NAVIGATION=NO_VISIBLE_EXACT_STATIC_TARGET", self.text)
+        self.assertIn("$documents=$currentDocuments", self.text)
+        self.assertLess(
+            self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x24)"),
+            self.text.index("$usableDocuments=@()"),
+        )
+        self.assertLess(
+            self.text.index("$documents=$currentDocuments"),
+            self.text.index("$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])"),
+        )
+        self.assertLess(
+            self.text.index("$isOnscreen=-not [bool]$_.Current.IsOffscreen"),
+            self.text.index("$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])"),
+        )
+        self.assertLess(
+            self.text.index("$target.Select()"),
+            self.text.index("[AccessibleChessCopyKeys]::Ctrl([byte]0x43)"),
+        )
+
     def test_static_target_discovery_rejects_offscreen_before_range_selection(self) -> None:
         # An off-route heading can retain nonzero bounds but never become visible
         # through ScrollIntoView; prefer a currently onscreen exact static target.

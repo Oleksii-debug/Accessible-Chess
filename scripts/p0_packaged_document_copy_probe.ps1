@@ -349,6 +349,62 @@ try {
   })
   if($documents.Count -lt 1){throw 'Accessible Chess Document missing from connected provider-root ControlView'}
 
+  # Readiness intentionally scrolls to Move Input. Return to the document's
+  # actual start by native keyboard navigation, not a scripted DOM scroll or
+  # clipboard fallback. Reacquire the same connected UIA Document afterwards.
+  if($documents.Count -ne 1){
+    throw "Native document navigation requires exactly one connected Accessible Chess Document; found=$($documents.Count)"
+  }
+  $navigationDocument=$documents[0]
+  $navigationRuntime=RuntimeId $navigationDocument
+  if(-not $navigationRuntime){throw 'Connected document has no stable UIA identity before native navigation'}
+  $shell=New-Object -ComObject WScript.Shell
+  ActivateProduct $shell $process 'native document Ctrl+Home'
+  try {$navigationDocument.SetFocus()}
+  catch {throw "Connected document cannot receive focus for native Ctrl+Home: $($_.Exception.Message)"}
+  Start-Sleep -Milliseconds 100
+  $navigationFocus=AssertProviderFocus $roots 'native document Ctrl+Home'
+  if([string]$navigationFocus.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit'){
+    throw 'Native document Ctrl+Home focus landed in an edit control'
+  }
+  AssertProductForeground $process 'native document Ctrl+Home'
+  [AccessibleChessCopyKeys]::Ctrl([byte]0x24)
+  $navigationWatch=[System.Diagnostics.Stopwatch]::StartNew()
+  $visibleStatic=@()
+  $navigationPhrases=@('Розділи','Sections','Accessible Chess','Інформація про гру','Game information','Список ходів')
+  do {
+    Start-Sleep -Milliseconds 100
+    $elements=ControlElements $roots
+    $currentDocuments=@($elements | Where-Object {
+      try {
+        [string]$_.Current.ControlType.ProgrammaticName -eq 'ControlType.Document' -and
+        [string]$_.Current.Name -eq 'Accessible Chess'
+      } catch {$false}
+    })
+    if($currentDocuments.Count -ne 1 -or (RuntimeId $currentDocuments[0]) -cne $navigationRuntime){
+      throw 'Connected document identity changed during native Ctrl+Home navigation'
+    }
+    $navigationElements=ControlElements @($currentDocuments[0])
+    $visibleStatic=@($navigationElements | Where-Object {
+      try {
+        $type=[string]$_.Current.ControlType.ProgrammaticName
+        $name=[string]$_.Current.Name
+        $bounds=$_.Current.BoundingRectangle
+        ($type -eq 'ControlType.Header' -or $type -eq 'ControlType.Text') -and
+        ($navigationPhrases -ccontains $name) -and
+        (-not [bool]$_.Current.IsOffscreen) -and
+        [double]$bounds.Width -gt 0 -and
+        [double]$bounds.Height -gt 0
+      } catch {$false}
+    })
+  } while($visibleStatic.Count -eq 0 -and $navigationWatch.ElapsedMilliseconds -lt 3500)
+  if($visibleStatic.Count -eq 0){
+    Write-Host "P0_NATIVE_DOCUMENT_HOME_NAVIGATION=NO_VISIBLE_EXACT_STATIC_TARGET elapsed_ms=$($navigationWatch.ElapsedMilliseconds)"
+  } else {
+    Write-Host "P0_NATIVE_DOCUMENT_HOME_NAVIGATION=PASS visible_exact_targets=$($visibleStatic.Count)"
+  }
+  $documents=$currentDocuments
+
   $usableDocuments=@()
   $staticTargetDiagnostics=New-Object 'System.Collections.Generic.List[string]'
   foreach($candidate in $documents){
