@@ -4,6 +4,7 @@ from acs.clock_service import ChessClock, ClockSnapshot, ClockState, TimeControl
 from acs.engine_game_session import (
     EngineGameSessionCoordinator,
     EngineGameSessionSnapshot,
+    TakebackTransaction,
     EngineNoMoveHandoff,
     EngineNoMoveResolution,
     EngineTurnState,
@@ -82,6 +83,21 @@ class EngineGameSessionTests(unittest.TestCase):
             state['side'] = 'w' if state['side'] == 'b' else 'b'
 
         kwargs = {}
+        if clock_restore_provider is not None:
+            def prepare_takeback():
+                prior = {
+                    "fen": state["fen"], "side": state["side"],
+                    "history": state["history"], "moves": list(state["moves"]),
+                    "undos": state["undos"],
+                }
+                def rollback():
+                    state["fen"] = prior["fen"]
+                    state["side"] = prior["side"]
+                    state["history"] = prior["history"]
+                    state["moves"][:] = prior["moves"]
+                    state["undos"] = prior["undos"]
+                return TakebackTransaction(undo, rollback, lambda: None)
+            kwargs["takeback_transaction"] = prepare_takeback
         if now is not None:
             kwargs['clock_factory'] = lambda control: ChessClock(control, now=now)
 
