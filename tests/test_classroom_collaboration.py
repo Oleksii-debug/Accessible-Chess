@@ -678,6 +678,65 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(stored.sha256, prepared.metadata.sha256)
         self.assertEqual(len(self.files.retry_calls), 1)
 
+    def test_retry_resets_failed_scan_to_pending_before_clean_rescan(self):
+        controller = self.controller()
+        path = self.make_file(content=b"retry after scanner outage")
+        prepared = controller.prepare_file(
+            attachment_id="a-scan-failed",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        self.files.scan_state = "clean"
+        stored = controller.retry_file(prepared)
+
+        self.assertEqual(len(self.files.retry_calls), 1)
+        retry_candidate = self.files.retry_calls[0].metadata
+        self.assertEqual(retry_candidate.transfer_state, "uploading")
+        self.assertEqual(retry_candidate.scan_state, "pending")
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(stored.scan_state, "clean")
+
+    def test_retry_never_resends_blocked_attachment(self):
+        controller = self.controller()
+        path = self.make_file(content=b"blocked payload")
+        prepared = controller.prepare_file(
+            attachment_id="a-blocked",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "blocked attachment cannot be retried",
+        ):
+            controller.retry_file(prepared)
+
+        self.assertEqual(self.files.retry_calls, [])
+        current = self.store.room_attachments("room-1")[0]
+        self.assertEqual(current.transfer_state, "failed")
+        self.assertEqual(current.scan_state, "blocked")
+
     def test_retry_rejects_changed_source_identity(self):
         controller = self.controller()
         path = self.make_file(content=b"retry me")
