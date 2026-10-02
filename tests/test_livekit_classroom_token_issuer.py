@@ -152,7 +152,7 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
 
     def test_rejects_expired_future_and_overlong_grants_before_sdk(self):
         cases = (
-            (NOW - timedelta(seconds=60), NOW, "expired"),
+            (NOW - timedelta(seconds=60), NOW, "remaining lifetime"),\n            (NOW - timedelta(seconds=10), NOW + timedelta(seconds=1, microseconds=900000), "remaining lifetime"),
             (
                 NOW + timedelta(seconds=1),
                 NOW + timedelta(seconds=61),
