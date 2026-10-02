@@ -100,7 +100,8 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
         after = session.snapshot()
         self.assertEqual(after.lifecycle.draw_offered_by, "w")
         self.assertEqual(after.clock.active, "w")
-        self.assertEqual(after.clock.state, ClockState.RUNNING)
+        # Stage1 deliberately pauses a recoverable clock in the error phase.
+        self.assertEqual(after.clock.state, ClockState.PAUSED)
         self.assertGreaterEqual(after.clock.white_ms, 59_949)
         self.assertLess(after.clock.white_ms, 60_000)
         self.assertEqual(after.clock.black_ms, 60_000)
@@ -131,7 +132,8 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
         self.assertEqual(sounds.end_events, 0)
         after = session.snapshot()
         self.assertEqual(after.clock.active, "b")
-        self.assertEqual(after.clock.state, ClockState.RUNNING)
+        # Stage1 deliberately pauses a recoverable clock in the error phase.
+        self.assertEqual(after.clock.state, ClockState.PAUSED)
         self.assertGreaterEqual(after.clock.black_ms, 59_949)
         self.assertLess(after.clock.black_ms, 60_000)
         self.assertEqual(after.clock.white_ms, 62_000)
