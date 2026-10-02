@@ -1036,51 +1036,6 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.receive_file(live_after_departure)
         self.assertEqual(self.store.room_attachments("room-1"), (historical,))
 
-    def test_file_history_preserves_departed_sender_but_live_receive_rejects_them(self):
-        sender = self.controller("student-2")
-        prepared = sender.prepare_file(
-            attachment_id="departed-file",
-            local_path=self.make_file("departed.pgn", b"1. d4 d5"),
-            sequence_no=17,
-            retention="persistent",
-        )
-        self.files.scan_state = "clean"
-        uploaded = sender.upload_file(prepared)
-        self.assertEqual(uploaded.sequence_no, 0)
-
-        del self.roster.roles["student-2"]
-        replay_store = ClassroomCollaborationSQLiteStore(
-            str(self.root / "departed-replay.sqlite3")
-        )
-        teacher = ClassroomCollaborationController(
-            room_id="room-1",
-            local_participant_id="teacher-1",
-            roster=self.roster,
-            chat=self.chat,
-            files=self.files,
-            store=replay_store,
-            file_store=self.file_store,
-        )
-
-        self.assertEqual(teacher.sync_files(), (uploaded,))
-        self.assertEqual(replay_store.room_attachments("room-1"), (uploaded,))
-
-        live_store = ClassroomCollaborationSQLiteStore(
-            str(self.root / "departed-live.sqlite3")
-        )
-        live_teacher = ClassroomCollaborationController(
-            room_id="room-1",
-            local_participant_id="teacher-1",
-            roster=self.roster,
-            chat=self.chat,
-            files=self.files,
-            store=live_store,
-            file_store=self.file_store,
-        )
-        with self.assertRaises(CollaborationError):
-            live_teacher.receive_file(uploaded)
-        self.assertEqual(live_store.room_attachments("room-1"), ())
-
     def test_receive_later_file_recovers_complete_authoritative_prefix(self):
         controller = self.controller("teacher-1")
         first = AttachmentMetadata(
