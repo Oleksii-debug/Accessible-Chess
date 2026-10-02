@@ -215,6 +215,12 @@ async function run() {
   const root = elements.get("sound-profile-settings");
   assert.ok(root, "sound settings fieldset must be installed");
   assert.strictEqual(root.attributes["aria-busy"], "false");
+  const visibleStatus = elements.get("sound-profile-settings-status");
+  assert.ok(visibleStatus, "visible sound status text must remain in the document");
+  assert.strictEqual(visibleStatus.attributes.role, undefined,
+    "visible status text must not become a second live-result channel");
+  assert.strictEqual(visibleStatus.attributes["aria-live"], undefined,
+    "explicit sound actions must announce only through the canonical P0 channel");
 
   const master = elements.get("sound-master-enabled");
   const masterVolume = elements.get("sound-master-volume");
