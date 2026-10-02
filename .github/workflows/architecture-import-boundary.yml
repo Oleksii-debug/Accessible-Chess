@@ -1,0 +1,81 @@
+name: Architecture Import Boundary
+
+on:
+  push:
+    branches:
+      - test/current-architecture-import-boundary-20260926
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'tests/test_architecture.py'
+      - '.github/workflows/architecture-import-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: architecture-import-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CLAIMED_PRODUCT_SHA: e61b570761207ecd1db0322bfc80c3e302b63e2f
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact current ancestry and test-only ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            upstream="$PR_BASE_SHA"
+          else
+            upstream="$CLAIMED_PRODUCT_SHA"
+          fi
+          test -n "$upstream"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/architecture-import-boundary.yml' \
+            'tests/test_architecture.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Compile architecture gate
+        run: python -m py_compile tests/test_architecture.py
+
+      - name: Architecture boundary regression
+        run: python -m unittest -v tests.test_architecture
+
+      - name: Core contract regression
+        run: >-
+          python -m unittest -v
+          tests.test_core_release_contracts
+          tests.test_ui_review_adapter
+          tests.test_bookdocument
+          tests.test_gametree
+
+      - name: Full repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Core selftest
+        run: python -m acs.selftest
