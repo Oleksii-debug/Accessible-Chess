@@ -246,6 +246,32 @@ async function run() {
   assert.deepEqual(failureAnnouncements, ["Could not change media state."]);
   assert.doesNotMatch(root.textContent, /provider detail must not escape/);
 
+  const malformedButtonId = rowId + "-camera-permission";
+  const malformedSnapshot = mediaSnapshot([
+    {
+      id: malformedButtonId,
+      command: "media.publish_permission",
+      label: "Lock camera publishing",
+      payload: { participant_key: key, source: "camera", allowed: false }
+    }
+  ]);
+  const malformedAnnouncements = [];
+  surface.mount(
+    root,
+    malformedSnapshot,
+    () => Promise.resolve(null),
+    (message) => malformedAnnouncements.push(String(message)),
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+
+  const malformedButton = root.querySelector("#" + malformedButtonId);
+  assert.ok(malformedButton);
+  malformedButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(malformedButton.disabled, false);
+  assert.deepEqual(malformedAnnouncements, ["Could not change media state."]);
+
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
 
