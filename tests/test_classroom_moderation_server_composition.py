@@ -75,6 +75,18 @@ class SlowRoomService(FakeRoomService):
         return await super().update_participant(request)
 
 
+class BlockingRoomService(FakeRoomService):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.update_started = asyncio.Event()
+        self.update_continue = asyncio.Event()
+
+    async def update_participant(self, request):
+        self.update_started.set()
+        await self.update_continue.wait()
+        return await super().update_participant(request)
+
+
 class ClassroomModerationServerCompositionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -104,6 +116,34 @@ class ClassroomModerationServerCompositionTests(unittest.IsolatedAsyncioTestCase
             trusted_caller_identity=CALLER,
             payload=payload,
         )
+
+    def test_workflow_binds_live_parent_and_current_source_owner_heads(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-moderation-server-composition.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            "LEDGER_OWNER_SHA: e7366ce87e56f4c2580f5212972f4b42dc4465f9",
+            workflow,
+        )
+        self.assertIn(
+            "ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+        self.assertNotIn('git diff --name-only "$EXPECTED_BASE_SHA" HEAD', workflow)
 
     async def test_publish_lock_flows_from_rpc_through_durable_commit_and_exact_replay(self):
         room = FakeRoomService(
@@ -275,6 +315,67 @@ class ClassroomModerationServerCompositionTests(unittest.IsolatedAsyncioTestCase
         self.assertTrue(
             ledger.operation_state(room_id=ROOM, operation_id="op-remove").committed
         )
+
+    async def test_two_service_instances_exact_duplicate_has_one_reservation_owner(self):
+        first_room = BlockingRoomService(participant())
+        second_room = FakeRoomService(participant())
+        first_auth = RecordingAuthorization()
+        second_auth = RecordingAuthorization()
+        first, _, first_ledger = self.service(
+            room=first_room,
+            authorization=first_auth,
+        )
+        second, _, second_ledger = self.service(
+            room=second_room,
+            authorization=second_auth,
+        )
+        payload = wire("op-exact-race", source="camera", value=False)
+
+        first_task = asyncio.create_task(self.handle(first, payload))
+        await first_room.update_started.wait()
+
+        pending = first_ledger.operation_state(
+            room_id=ROOM,
+            operation_id="op-exact-race",
+        )
+        self.assertIsNotNone(pending)
+        self.assertFalse(pending.committed)
+        self.assertIsNotNone(pending.reservation_owner)
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "pending in another service participant",
+        ):
+            await self.handle(second, payload)
+
+        self.assertEqual(second_auth.calls, [])
+        self.assertEqual(second_room.lookups, [])
+        self.assertEqual(second_room.updates, [])
+        self.assertEqual(
+            second_ledger.operation_state(
+                room_id=ROOM,
+                operation_id="op-exact-race",
+            ),
+            pending,
+        )
+
+        first_room.update_continue.set()
+        response = await first_task
+
+        self.assertEqual(
+            json.loads(response)["accepted_operation_ids"],
+            ["op-exact-race"],
+        )
+        self.assertEqual(len(first_auth.calls), 1)
+        self.assertEqual(len(first_room.updates), 1)
+        self.assertEqual(second_room.updates, [])
+        committed = first_ledger.operation_state(
+            room_id=ROOM,
+            operation_id="op-exact-race",
+        )
+        self.assertIsNotNone(committed)
+        self.assertTrue(committed.committed)
+        self.assertIsNone(committed.reservation_owner)
 
     async def test_two_service_instances_conflicting_race_has_exactly_one_provider_effect(self):
         slow_room = SlowRoomService(participant())

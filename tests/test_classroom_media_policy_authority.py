@@ -144,6 +144,30 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             ),
         )
 
+    def test_distinct_moderation_workflow_binds_live_parent_fail_closed(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-distinct-moderation-serialization.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+        self.assertNotIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+
     def test_shared_default_source_policy_is_exact_for_every_role(self):
         expected = {
             ClassroomRole.TEACHER: (True, True, True),
