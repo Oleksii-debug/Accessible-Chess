@@ -217,6 +217,35 @@ async function run() {
   assert.match(row.textContent, /blocked from room/);
   assert.deepEqual(announcements, ["Media state updated."]);
 
+  const failureButtonId = rowId + "-soft-mute";
+  const failingSnapshot = mediaSnapshot([
+    {
+      id: failureButtonId,
+      command: "media.soft_mute",
+      label: "Soft mute microphone",
+      payload: { participant_key: key, muted: true }
+    }
+  ]);
+  const failureAnnouncements = [];
+  surface.mount(
+    root,
+    failingSnapshot,
+    () => {
+      throw new Error("provider detail must not escape");
+    },
+    (message) => failureAnnouncements.push(String(message)),
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+
+  const failureButton = root.querySelector("#" + failureButtonId);
+  assert.ok(failureButton);
+  failureButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(failureButton.disabled, false);
+  assert.deepEqual(failureAnnouncements, ["Could not change media state."]);
+  assert.doesNotMatch(root.textContent, /provider detail must not escape/);
+
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
 
