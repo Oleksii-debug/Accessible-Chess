@@ -169,7 +169,7 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(type(options), FakeRoomOptions)
         self.assertFalse(options.auto_subscribe)
         self.assertIn(MODERATION_RPC_METHOD, participant.handlers)
-        self.assertIs(runtime.moderation_transport.method, MODERATION_RPC_METHOD)
+        self.assertEqual(runtime.moderation_transport.method, MODERATION_RPC_METHOD)
 
         handler = participant.handlers[MODERATION_RPC_METHOD]
         response = await handler(
