@@ -92,6 +92,8 @@
       "classroom-collaboration-heading",
       "collaboration-chat-input",
       "collaboration-chat-sync",
+      "collaboration-chat-older",
+      "collaboration-chat-newer",
       "collaboration-file-choose"
     ].indexOf(value) >= 0 ? value : "";
   }
@@ -448,6 +450,29 @@
       invokeCollaboration(invoke, "collaboration.chat.mark_read", {}, wrapper, announce, fallbackMessage);
     });
     chatActions.appendChild(markRead);
+
+    const olderMessages = node("button", chat.older_label || "Older messages");
+    olderMessages.id = "collaboration-chat-older";
+    olderMessages.type = "button";
+    olderMessages.disabled = !chat.can_older;
+    olderMessages.setAttribute("data-command", "collaboration.chat.older");
+    olderMessages.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.chat.older", {}, wrapper, announce, fallbackMessage);
+    });
+    chatActions.appendChild(olderMessages);
+    const pageStatus = node("span", chat.page_label || "");
+    pageStatus.id = "collaboration-chat-page-status";
+    pageStatus.setAttribute("aria-live", "off");
+    chatActions.appendChild(pageStatus);
+    const newerMessages = node("button", chat.newer_label || "Newer messages");
+    newerMessages.id = "collaboration-chat-newer";
+    newerMessages.type = "button";
+    newerMessages.disabled = !chat.can_newer;
+    newerMessages.setAttribute("data-command", "collaboration.chat.newer");
+    newerMessages.addEventListener("click", function () {
+      invokeCollaboration(invoke, "collaboration.chat.newer", {}, wrapper, announce, fallbackMessage);
+    });
+    chatActions.appendChild(newerMessages);
     if (chat.moderation_available) {
       const muteAll = node("button", chat.mute_all_label || "Mute all students");
       muteAll.id = "collaboration-chat-mute-all";
