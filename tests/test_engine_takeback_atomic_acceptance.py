@@ -244,5 +244,113 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
 
 
 
+    def test_retry_after_failed_history_provider_preserves_original_request(self):
+        calls = 0
+
+        def provider():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("temporary historical clock read failure")
+            return self.valid_restore()
+
+        session, state = self.make_coordinator(provider)
+        before = self.state_tuple(state)
+        before_clock = session._clock.snapshot()
+        before_lifecycle = session._lifecycle.snapshot()
+        accept = EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+        with self.assertRaisesRegex(RuntimeError, "temporary historical clock"):
+            session.handle_handoff(accept)
+        self.assertEqual(self.state_tuple(state), before)
+        self.assertEqual(session._clock.snapshot(), before_clock)
+        self.assertEqual(session._lifecycle.snapshot(), before_lifecycle)
+        self.assertEqual(session._lifecycle.snapshot().takeback_requested_by, "b")
+        restored = session.handle_handoff(accept)
+        self.assertEqual(calls, 2)
+        self.assertEqual(self.state_tuple(state), ((), "fen-w", "w", "node-0"))
+        self.assertIsNone(restored.lifecycle.takeback_requested_by)
+        self.assertEqual(restored.clock.active, "w")
+
+    def test_historical_provider_without_compensation_fails_before_undo(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        previous_factory = session._takeback_transaction
+        session._takeback_transaction = None
+        before = self.state_tuple(state)
+        lifecycle_before = session._lifecycle.snapshot()
+        with self.assertRaises(EngineContractError):
+            session.handle_handoff(
+                EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+            )
+        self.assertEqual(self.state_tuple(state), before)
+        self.assertEqual(session._lifecycle.snapshot(), lifecycle_before)
+        session._takeback_transaction = previous_factory
+        accepted = session.handle_handoff(
+            EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+        )
+        self.assertIsNone(accepted.lifecycle.takeback_requested_by)
+
+    def test_failure_after_clock_and_lifecycle_publication_compensates(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        before = self.state_tuple(state)
+        clock_before = session._clock.snapshot()
+        lifecycle_before = session._lifecycle.snapshot()
+        original_snapshot = session.snapshot
+        calls = 0
+
+        def fail_once():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("injected final snapshot failure")
+            return original_snapshot()
+
+        session.snapshot = fail_once
+        accept = EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+        with self.assertRaisesRegex(RuntimeError, "final snapshot failure"):
+            session.handle_handoff(accept)
+        self.assertEqual(self.state_tuple(state), before)
+        self.assertEqual(session._clock.snapshot(), clock_before)
+        self.assertEqual(session._lifecycle.snapshot(), lifecycle_before)
+        accepted = session.handle_handoff(accept)
+        self.assertEqual(accepted.side_to_move, "w")
+
+    def test_successful_takeback_rejects_duplicate_acceptance(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        accept = EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+        session.handle_handoff(accept)
+        final_state = self.state_tuple(state)
+        with self.assertRaises(Exception):
+            session.handle_handoff(accept)
+        self.assertEqual(self.state_tuple(state), final_state)
+
+    def test_stage1_failed_lookup_then_retry_preserves_san_and_clock_history(self):
+        api = self.make_stage1()
+        before = self.stage1_state(api)
+        session = api._engine_session
+        self.assertIsNotNone(session)
+        original_provider = session._clock_restore_provider
+        calls = 0
+
+        def once():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("temporary Stage1 history failure")
+            return original_provider()
+
+        session._clock_restore_provider = once
+        failed = api.engine_takeback()
+        self.assertFalse(failed["ok"], failed)
+        self.assertEqual(self.stage1_state(api), before)
+        self.assertEqual(session._lifecycle.snapshot().takeback_requested_by, "b")
+        retried = api.engine_takeback()
+        self.assertTrue(retried["ok"], retried)
+        self.assertEqual(calls, 2)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.board.fen(), api.board.START)
+        self.assertEqual(len(api._engine_clock_history), 1)
+        self.assertIsNone(session._lifecycle.snapshot().takeback_requested_by)
+
+
 if __name__ == "__main__":
     unittest.main()
