@@ -27,6 +27,44 @@ def _write_wav(path: Path, samples: tuple[int, ...] = (1000, -1000, 500, -500)) 
         writer.writeframes(struct.pack("<" + "h" * len(samples), *samples))
 
 
+def _write_pcm_wav(
+    path: Path,
+    sample_width: int,
+    samples: tuple[int, ...],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if sample_width == 1:
+        frames = bytes(samples)
+    else:
+        frames = b"".join(
+            int(sample).to_bytes(sample_width, "little", signed=True)
+            for sample in samples
+        )
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(sample_width)
+        writer.setframerate(8000)
+        writer.writeframes(frames)
+
+
+def _read_pcm_samples(path: Path) -> tuple[int, tuple[int, ...]]:
+    with wave.open(str(path), "rb") as reader:
+        sample_width = reader.getsampwidth()
+        frames = reader.readframes(reader.getnframes())
+    if sample_width == 1:
+        samples = tuple(frames)
+    else:
+        samples = tuple(
+            int.from_bytes(
+                frames[offset : offset + sample_width],
+                "little",
+                signed=True,
+            )
+            for offset in range(0, len(frames), sample_width)
+        )
+    return sample_width, samples
+
+
 def _packaged_root(root: Path) -> PackagedSoundAssetResolver:
     sound_root = root / "assets" / "sounds"
     files = {}
@@ -221,6 +259,35 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             self.assertEqual(first.calls[0][0], second.calls[0][0])
             self.assertTrue(Path(first.calls[0][0]).is_file())
             self.assertIn("classic-check-v25-s1-", first.calls[0][0])
+
+    def test_partial_volume_supports_common_pcm_sample_widths(self) -> None:
+        cases = (
+            (1, (128, 255, 0), (128, 191, 64)),
+            (2, (1000, -1000, 500), (500, -500, 250)),
+            (3, (1_000_000, -1_000_000, 123_456), (500_000, -500_000, 61_728)),
+            (4, (100_000_000, -100_000_000, 1_234_568), (50_000_000, -50_000_000, 617_284)),
+        )
+        with tempfile.TemporaryDirectory(prefix="profiled-win-pcm-widths-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="move",
+                sound_id="soft.move",
+                volume=50,
+                preview=True,
+            )
+
+            for sample_width, samples, expected in cases:
+                with self.subTest(sample_width=sample_width):
+                    source = root / f"custom-{sample_width}.wav"
+                    _write_pcm_wav(source, sample_width, samples)
+                    with mock.patch.object(store, "resolve_asset", return_value=source):
+                        fake = self._play(adapter, request)
+                    played = Path(fake.calls[0][0])
+                    actual_width, actual_samples = _read_pcm_samples(played)
+                    self.assertEqual(sample_width, actual_width)
+                    self.assertEqual(expected, actual_samples)
 
     def test_scaled_cache_identity_follows_source_bytes_not_mtime(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-cache-bytes-") as raw:
