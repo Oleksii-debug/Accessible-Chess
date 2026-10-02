@@ -54,6 +54,10 @@ _LABELS = {
         "send": "Надіслати",
         "sync": "Оновити чат",
         "mark_read": "Позначити прочитаним",
+        "older_messages": "Старіші повідомлення",
+        "newer_messages": "Новіші повідомлення",
+        "history_page": "Історія повідомлень: сторінка {current} з {total}",
+        "history_empty": "Історія повідомлень порожня",
         "timestamp": "Час повідомлення",
         "hide": "Приховати повідомлення",
         "mute_sender": "Заборонити надсилання автору",
@@ -104,6 +108,10 @@ _LABELS = {
         "send": "Send",
         "sync": "Refresh chat",
         "mark_read": "Mark read",
+        "older_messages": "Older messages",
+        "newer_messages": "Newer messages",
+        "history_page": "Message history page {current} of {total}",
+        "history_empty": "Message history is empty",
         "timestamp": "Message time",
         "hide": "Hide message",
         "mute_sender": "Mute sender",
@@ -182,6 +190,9 @@ _SCAN_LABELS = {
 }
 
 
+_CHAT_HISTORY_BUCKET_SIZE = 50
+
+
 def _default_id(prefix: str) -> str:
     return f"{prefix}-{secrets.token_hex(16)}"
 
@@ -237,6 +248,7 @@ class ClassroomCollaborationWebView:
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
+        self._chat_page_bucket: int | None = None
         self._removed_participant_ids: set[str] = set()
         self._prepared: dict[str, PreparedFile] = {}
 
@@ -428,9 +440,77 @@ class ClassroomCollaborationWebView:
         except Exception:
             return self.unavailable_snapshot()
 
+    def _chat_page_projection(
+        self,
+        messages: tuple[ChatMessageMetadata, ...],
+    ) -> tuple[tuple[ChatMessageMetadata, ...], int, int, bool, bool]:
+        if not messages:
+            self._chat_page_bucket = None
+            return (), 0, 0, False, False
+        buckets = tuple(
+            sorted({item.sequence_no // _CHAT_HISTORY_BUCKET_SIZE for item in messages})
+        )
+        bucket = self._chat_page_bucket
+        if bucket is None:
+            bucket = buckets[-1]
+        elif bucket not in buckets:
+            lower = tuple(item for item in buckets if item < bucket)
+            bucket = lower[-1] if lower else buckets[0]
+            self._chat_page_bucket = None if bucket == buckets[-1] else bucket
+        index = buckets.index(bucket)
+        page = tuple(
+            item
+            for item in messages
+            if item.sequence_no // _CHAT_HISTORY_BUCKET_SIZE == bucket
+        )
+        return page, index, len(buckets), index > 0, index < len(buckets) - 1
+
+    def _move_chat_page(self, direction: int) -> ClassroomCollaborationWebViewEvent:
+        if direction not in {-1, 1}:
+            raise ValueError("chat history direction is invalid")
+        messages = self._store.room_messages(self._controller.room_id)
+        _, index, page_count, can_older, can_newer = self._chat_page_projection(messages)
+        if not page_count:
+            raise ValueError("chat history is empty")
+        if direction < 0 and not can_older:
+            raise ValueError("older chat history is unavailable")
+        if direction > 0 and not can_newer:
+            raise ValueError("newer chat history is unavailable")
+        buckets = tuple(
+            sorted({item.sequence_no // _CHAT_HISTORY_BUCKET_SIZE for item in messages})
+        )
+        target_index = index + direction
+        target_bucket = buckets[target_index]
+        self._chat_page_bucket = None if target_index == len(buckets) - 1 else target_bucket
+        target_can_older = target_index > 0
+        target_can_newer = target_index < len(buckets) - 1
+        if direction < 0:
+            focus_target = (
+                "collaboration-chat-older"
+                if target_can_older
+                else "collaboration-chat-newer"
+            )
+        else:
+            focus_target = (
+                "collaboration-chat-newer"
+                if target_can_newer
+                else "collaboration-chat-older"
+            )
+        return self._event(
+            "collaboration.chat.page",
+            focus_target=focus_target,
+        )
+
     def snapshot(self) -> dict[str, object]:
         labels = _LABELS[self._language]
         messages = self._store.room_messages(self._controller.room_id)
+        (
+            message_page,
+            message_page_index,
+            message_page_count,
+            can_older_messages,
+            can_newer_messages,
+        ) = self._chat_page_projection(messages)
         attachments = tuple(
             item
             for item in self._store.room_attachments(self._controller.room_id)
@@ -448,6 +528,18 @@ class ClassroomCollaborationWebView:
                 "send_label": labels["send"],
                 "sync_label": labels["sync"],
                 "mark_read_label": labels["mark_read"],
+                "older_label": labels["older_messages"],
+                "newer_label": labels["newer_messages"],
+                "page_label": (
+                    labels["history_page"].format(
+                        current=message_page_index + 1,
+                        total=message_page_count,
+                    )
+                    if message_page_count
+                    else labels["history_empty"]
+                ),
+                "can_older": can_older_messages,
+                "can_newer": can_newer_messages,
                 "timestamp_label": labels["timestamp"],
                 "hide_label": labels["hide"],
                 "mute_sender_label": labels["mute_sender"],
@@ -461,7 +553,7 @@ class ClassroomCollaborationWebView:
                 "unread_label": labels["unread"].format(count=unread_count),
                 "unread_count": unread_count,
                 "max_body_chars": MAX_CHAT_BODY_CHARS,
-                "messages": tuple(self._message_view(item) for item in messages),
+                "messages": tuple(self._message_view(item) for item in message_page),
             },
             "files": {
                 "heading": labels["files"],
@@ -503,6 +595,7 @@ class ClassroomCollaborationWebView:
             message_id=self._id_factory("message"),
             body=body,
         )
+        self._chat_page_bucket = None
         return self._event(
             "collaboration.chat.sent",
             announcement=_LABELS[self._language]["sent"],
@@ -777,6 +870,10 @@ class ClassroomCollaborationWebView:
                 if data:
                     raise ValueError("chat sync accepts no fields")
                 return self._sync_chat()
+            if command in {"collaboration.chat.older", "collaboration.chat.newer"}:
+                if data:
+                    raise ValueError("chat history paging accepts no fields")
+                return self._move_chat_page(-1 if command.endswith("older") else 1)
             if command == "collaboration.chat.mark_read":
                 if data:
                     raise ValueError("mark read accepts no fields")
