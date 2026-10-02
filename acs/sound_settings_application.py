@@ -18,6 +18,7 @@ from .sound_profiles import (
     OPTIONAL_CLASSROOM_SOUND_EVENTS,
     SoundEventPreference,
     SoundPackManifest,
+    SoundProfile,
 )
 from .sound_runtime import ProfiledSoundRuntime
 
@@ -154,6 +155,56 @@ class SoundSettingsApplication:
         if active_manifest is None:
             return (profile.selected_sound_id(event_id),)
         return tuple(sorted(active_manifest.files))
+
+    def _normalized_profile_for_pack(
+        self,
+        pack_id: str,
+        manifest: SoundPackManifest | None,
+    ) -> SoundProfile:
+        current = self._profiles.current
+        events: dict[str, SoundEventPreference] = {}
+        allowed = None if manifest is None else set(manifest.files)
+        for event_id, preference in current.events.items():
+            sound_id = preference.sound_id
+            if sound_id is not None:
+                if pack_id == "classic" or allowed is None or sound_id not in allowed:
+                    sound_id = None
+            events[event_id] = SoundEventPreference(
+                enabled=preference.enabled,
+                volume_percent=preference.volume_percent,
+                sound_id=sound_id,
+            )
+        return SoundProfile(
+            pack_id=pack_id,
+            master_enabled=current.master_enabled,
+            master_volume_percent=current.master_volume_percent,
+            events=events,
+        )
+
+    def _save_pack_profile(
+        self,
+        pack_id: str,
+        manifest: SoundPackManifest | None,
+    ) -> SoundProfile:
+        target = self._normalized_profile_for_pack(pack_id, manifest)
+        if target == self._profiles.current:
+            return target
+        saved = self._profiles.save(target)
+        if saved.pack_id != pack_id:
+            raise RuntimeError("selected sound pack could not be retained")
+        return saved
+
+    def reconcile_active_profile(self) -> SoundProfile:
+        """Normalize persisted sound IDs against the exact active pack authority."""
+
+        current = self._profiles.current
+        if self._profiles.writes_blocked:
+            return current
+        installed_local = self._installed_local_packs()
+        manifest = self._active_manifest(current, installed_local)
+        if current.pack_id != "classic" and manifest is None:
+            return current
+        return self._save_pack_profile(current.pack_id, manifest)
 
     def snapshot(self, *, language: str = "uk") -> dict[str, object]:
         lang = self._language(language)
@@ -312,24 +363,23 @@ class SoundSettingsApplication:
         return self._result(message, language=language)
 
     def select_pack(self, pack_id: str, *, language: str = "uk") -> SoundSettingsResult:
+        manifest: SoundPackManifest | None = None
         if pack_id == "classic":
-            selected = self._profiles.set_pack(pack_id)
-            if selected.pack_id != "classic":
-                raise RuntimeError("classic sound pack fallback is unavailable")
-        elif self._packs is not None and pack_id in self._catalog:
-            resolved = self._packs.resolve_usable_pack(pack_id)
-            if resolved != pack_id:
-                raise ValueError("sound pack is not installed")
-            selected = self._profiles.set_pack(pack_id)
-            if selected.pack_id != pack_id:
-                raise RuntimeError("selected sound pack could not be retained")
+            pass
         else:
             installed = self._installed_local_packs()
-            if pack_id not in installed:
+            manifest = installed.get(pack_id)
+            if manifest is None and self._packs is not None and pack_id in self._catalog:
+                entry = self._catalog[pack_id]
+                status = self._packs.status(entry)
+                if status.state is not SoundPackState.CURRENT:
+                    raise ValueError("sound pack catalog version is not the installed version")
+                if self._packs.resolve_usable_pack(pack_id) != pack_id:
+                    raise ValueError("sound pack is not installed")
+                manifest = entry.manifest
+            if manifest is None:
                 raise ValueError("unknown sound pack")
-            selected = self._profiles.set_pack(pack_id)
-            if selected.pack_id != pack_id:
-                raise RuntimeError("selected local sound pack is unavailable")
+        self._save_pack_profile(pack_id, manifest)
         message = "Sound pack selected." if language == "en" else "Набір звуків вибрано."
         return self._result(message, language=language)
 
@@ -348,7 +398,9 @@ class SoundSettingsApplication:
             entry = self._catalog[pack_id]
         except KeyError as exc:
             raise ValueError("unknown sound pack") from exc
-        self._packs.install(entry, activate=activate)
+        installed = self._packs.install(entry, activate=False)
+        if activate:
+            self._save_pack_profile(installed.manifest.pack_id, installed.manifest)
         message = "Sound pack installed." if language == "en" else "Набір звуків установлено."
         return self._result(message, language=language)
 
@@ -357,6 +409,11 @@ class SoundSettingsApplication:
             raise RuntimeError("sound pack management is unavailable")
         if pack_id not in self._catalog:
             raise ValueError("unknown sound pack")
+        if self._profiles.current.pack_id == pack_id:
+            fallback = self._packs.fallback_pack_id
+            if fallback != "classic":
+                raise RuntimeError("unsupported sound pack fallback authority")
+            self._save_pack_profile("classic", None)
         self._packs.uninstall(pack_id)
         message = "Sound pack removed." if language == "en" else "Набір звуків видалено."
         return self._result(message, language=language)
