@@ -39,6 +39,15 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
+            index_row = db.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='index' AND name='uq_collaboration_attachments_terminal_sequence'"
+            ).fetchone()
+            self.assertIsNotNone(index_row)
+            self.assertIn(
+                "WHERE transfer_state IN ('stored','deleted')",
+                " ".join(index_row[0].split()),
+            )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
 
     def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
@@ -79,6 +88,12 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     ON collaboration_attachments(room_id, sequence_no);
                 INSERT INTO collaboration_messages
                     VALUES('legacy-m1','room','teacher',0,'Legacy','session',0);
+                INSERT INTO collaboration_attachments
+                    VALUES(
+                        'legacy-pending','room','teacher',0,'pending.bin',NULL,1,
+                        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                        'rooms/room/legacy-pending','pending','persistent','pending'
+                    );
                 """
             )
         migrated = ClassroomCollaborationSQLiteStore(str(self.db_path))
@@ -100,6 +115,28 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             }
             self.assertIn("collaboration_chat_state_cursors", cursor_tables)
             self.assertIn("collaboration_attachment_state_cursors", cursor_tables)
+
+        legacy_pending = migrated.room_attachments("room")[0]
+        self.assertEqual(legacy_pending.attachment_id, "legacy-pending")
+        authoritative = AttachmentMetadata(
+            "remote-stored",
+            "room",
+            "student",
+            0,
+            "stored.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/remote-stored",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.assertEqual(migrated.register_attachment(authoritative), authoritative)
+        self.assertEqual(
+            {item.attachment_id for item in migrated.room_attachments("room")},
+            {"legacy-pending", "remote-stored"},
+        )
 
     def test_v3_schema_upgrades_attachment_state_cursor_without_rebuilding_data(self) -> None:
         message = ChatMessageMetadata(
@@ -576,6 +613,41 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 AttachmentMetadata(
                     "a2", "room", "student", 0, "two.bin", None, 1, "1" * 64,
                     "rooms/room/a2", "stored"
+                )
+            )
+
+    def test_provisional_sequence_does_not_reserve_authoritative_room_sequence(self) -> None:
+        pending = AttachmentMetadata(
+            "pending-a", "room", "teacher", 0, "pending.bin", None, 1,
+            "1" * 64, "rooms/room/pending-a", "pending", "persistent", "pending"
+        )
+        failed = AttachmentMetadata(
+            "failed-a", "room", "teacher", 0, "failed.bin", None, 1,
+            "2" * 64, "rooms/room/failed-a", "failed", "persistent", "pending"
+        )
+        authoritative = AttachmentMetadata(
+            "stored-a", "room", "student", 0, "stored.bin", None, 1,
+            "3" * 64, "rooms/room/stored-a", "stored", "persistent", "clean"
+        )
+
+        self.store.register_attachment(pending)
+        self.store.register_attachment(failed)
+        self.store.register_attachment(authoritative)
+        self.assertEqual(
+            tuple(item.attachment_id for item in self.store.room_attachments("room")),
+            ("failed-a", "pending-a", "stored-a"),
+        )
+
+        deleted = self.store.update_attachment_state(
+            authoritative.attachment_id,
+            transfer_state="deleted",
+        )
+        self.assertEqual(deleted.sequence_no, 0)
+        with self.assertRaises(CollaborationConflictError):
+            self.store.register_attachment(
+                AttachmentMetadata(
+                    "stored-b", "room", "student", 0, "other.bin", None, 1,
+                    "4" * 64, "rooms/room/stored-b", "stored", "persistent", "clean"
                 )
             )
 
