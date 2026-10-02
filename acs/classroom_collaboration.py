@@ -592,7 +592,7 @@ class ClassroomCollaborationController:
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
-            if item.transfer_state == "stored"
+            if item.transfer_state in {"stored", "deleted"}
         )
         after: int | None = None
         for current in authoritative:
@@ -606,7 +606,7 @@ class ClassroomCollaborationController:
             authoritative = tuple(
                 item
                 for item in self._store.room_attachments(self.room_id)
-                if item.transfer_state == "stored"
+                if item.transfer_state in {"stored", "deleted"}
             )
             after = None
             for current in authoritative:
