@@ -27,6 +27,11 @@ _REQUIRED_WEB_FILES = (
     "full_product_books_training.js",
     "full_product_teacher.js",
     "full_product_education.js",
+    "livekit_classroom_media.js",
+    "vendor/livekit/livekit-client.umd.js",
+    "vendor/livekit/LICENSE",
+    "vendor/livekit/NOTICE",
+    "vendor/livekit/provenance.json",
     "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
 )
@@ -55,8 +60,12 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         for name in _REQUIRED_WEB_FILES:
-            (self.standalone / "web" / name).write_text(
-                f"/* {name} */\n" if name.endswith(".js") else "<main>Accessible Chess</main>\n",
+            resource = self.standalone / "web" / name
+            resource.parent.mkdir(parents=True, exist_ok=True)
+            resource.write_text(
+                f"/* {name} */ LivekitClient Room\n"
+                if name.endswith(".js")
+                else "<main>Accessible Chess</main>\n",
                 encoding="utf-8",
             )
 
