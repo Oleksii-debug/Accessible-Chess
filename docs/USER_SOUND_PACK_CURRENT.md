@@ -20,7 +20,7 @@ Variant 1 is the default for every semantic sound event.
 - capture: Board/CAPTURE.WAV
 - check: Russian/Notation/Check.wav
 - castle: Board/castle.wav
-- promotion cue: Board/failhigh.wav
+- promotion: Board/MOVEHIT1.WAV
 - illegal move: Board/illegal.wav
 - game start: Board/NEWGAME.WAV
 - game end: Server/Gong.WAV
