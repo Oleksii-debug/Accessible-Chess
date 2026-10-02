@@ -262,7 +262,10 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "chat history has an unresolved sequence gap"
                 )
-            self._require_member(message.sender_id)
+            # Historical room messages remain durable after a participant leaves.
+            # Current membership is enforced for the local reader and live receive,
+            # while replay trusts the room-scoped transport's historical sender ID.
+            _id(message.sender_id, "sender id")
             _chat_body(message.body)
             self._require_transport_timestamp(message)
             saved = self._store.append_message(message)
