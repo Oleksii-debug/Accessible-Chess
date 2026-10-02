@@ -46,6 +46,11 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         self.assertNotIn("fen", lowered)
         self.assertNotIn("make_move", lowered)
 
+    def test_media_section_stays_inside_existing_classes_main_landmark(self) -> None:
+        source = self.source
+        self.assertIn('const main = root.querySelector("main")', source)
+        self.assertIn("(main || root).appendChild(section)", source)
+
     def test_action_updates_replace_only_media_section_and_restore_explicit_focus(self) -> None:
         source = self.source
         self.assertIn('root.querySelector("#classroom-media-section")', source)
