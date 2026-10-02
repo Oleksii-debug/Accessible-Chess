@@ -295,16 +295,20 @@ def _preflight_text(
     game_framer = CanonicalPgnGameFramer()
     preflight_games = 0
 
-    for line in normalized.split("\n"):
+    def claim_framed_line(line: str) -> None:
+        nonlocal preflight_games
         completed_frame = game_framer.feed_line(line)
-        if completed_frame is not None:
-            preflight_games += 1
-            if preflight_games > MAX_PGN_GAMES:
-                _raise_limit(
-                    "PGN contains too many games",
-                    PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
-                )
-            source_budget.claim_games(1)
+        if completed_frame is None:
+            return
+        preflight_games += 1
+        if preflight_games > MAX_PGN_GAMES:
+            _raise_limit(
+                "PGN contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+        source_budget.claim_games(1)
+
+    for line in normalized.split("\n"):
         line_end = line_start + len(line)
         starts_inside_comment = comment_until > line_start
 
@@ -338,6 +342,7 @@ def _preflight_text(
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
             _claim_token(token_count, source_budget)
+            claim_framed_line(line)
             line_start = line_end + 1
             continue
 
@@ -414,6 +419,7 @@ def _preflight_text(
             index += 1
 
         flush_token()
+        claim_framed_line(line)
         line_start = line_end + 1
 
     completed_frame = game_framer.finish()
