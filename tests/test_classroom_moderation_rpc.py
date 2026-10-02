@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 import unittest
 
 from acs.classroom_moderation_rpc import (
@@ -118,6 +119,11 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
             payload=wire_payload,
         )
 
+    def assert_sanitized_exception(self, error: BaseException, secret: str) -> None:
+        self.assertIsNone(error.__cause__)
+        rendered = "".join(traceback.format_exception(error))
+        self.assertNotIn(secret, rendered)
+
     def test_parser_matches_livekit_client_wire_contract(self) -> None:
         parsed = parse_moderation_rpc(
             payload(
@@ -229,6 +235,10 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(str(raised.exception), "moderation request is not authorized")
         self.assertNotIn("sensitive", str(raised.exception).lower())
+        self.assert_sanitized_exception(
+            raised.exception,
+            "sensitive roster authorization detail",
+        )
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.ledger.values, {})
 
@@ -249,8 +259,12 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(
             ClassroomModerationRpcError,
             "provider operation failed",
-        ):
+        ) as provider_error:
             await self.handle(wire)
+        self.assert_sanitized_exception(
+            provider_error.exception,
+            "sensitive provider implementation detail",
+        )
 
         self.assertIn((ROOM, "op-prefix"), self.ledger.values)
         self.assertNotIn((ROOM, "op-fails-once"), self.ledger.values)
@@ -301,6 +315,10 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
             str(read_error.exception),
             "moderation replay ledger read failed",
         )
+        self.assert_sanitized_exception(
+            read_error.exception,
+            "sensitive ledger read detail",
+        )
         self.assertEqual(self.authorization.calls, [])
         self.assertEqual(self.provider.calls, [])
 
@@ -311,6 +329,10 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             str(commit_error.exception),
             "moderation replay ledger commit failed",
+        )
+        self.assert_sanitized_exception(
+            commit_error.exception,
+            "sensitive ledger commit detail",
         )
         self.assertEqual(len(self.provider.calls), 1)
         self.assertNotIn((ROOM, "op-commit"), self.ledger.values)
