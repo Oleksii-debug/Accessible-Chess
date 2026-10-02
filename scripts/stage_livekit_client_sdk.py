@@ -319,6 +319,14 @@ def _validated_payload(
     return bundle, license_bytes, notice_bytes
 
 
+def _reject_linked_output_ancestors(output: Path) -> None:
+    for ancestor in (output.parent, *output.parent.parents):
+        if os.path.lexists(ancestor) and ancestor.is_symlink():
+            raise LiveKitClientSdkStageError(
+                "LiveKit SDK output path must not traverse a symlink"
+            )
+
+
 def stage_livekit_client_sdk(
     archive_path: str | Path,
     output_dir: str | Path,
@@ -329,14 +337,14 @@ def stage_livekit_client_sdk(
     output = Path(output_dir)
     if os.path.lexists(output):
         raise LiveKitClientSdkStageError("LiveKit SDK output directory already exists")
-    if os.path.lexists(output.parent) and output.parent.is_symlink():
-        raise LiveKitClientSdkStageError("LiveKit SDK output parent must not be a symlink")
+    _reject_linked_output_ancestors(output)
 
     bundle, license_bytes, notice_bytes = _validated_payload(
         archive,
         expected_integrity=expected_integrity,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
+    _reject_linked_output_ancestors(output)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=output.parent))
     try:
         (staging / "livekit-client.umd.js").write_bytes(bundle)
