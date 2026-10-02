@@ -66,15 +66,18 @@ class SoundEventPreference:
     def from_mapping(cls, raw: Mapping[str, object]) -> "SoundEventPreference":
         if not isinstance(raw, Mapping):
             raise TypeError("sound event preference must be an object")
-        enabled = raw.get("enabled", True)
-        if not isinstance(enabled, bool):
+        expected = {"enabled", "volume_percent", "sound_id"}
+        if set(raw) != expected:
+            raise ValueError("sound event preference fields are invalid")
+        enabled = raw["enabled"]
+        if type(enabled) is not bool:
             raise TypeError("sound event enabled must be boolean")
-        sound_id = raw.get("sound_id")
-        if sound_id is not None and not isinstance(sound_id, str):
+        sound_id = raw["sound_id"]
+        if sound_id is not None and type(sound_id) is not str:
             raise TypeError("sound_id must be a string or null")
         return cls(
             enabled=enabled,
-            volume_percent=raw.get("volume_percent", 100),
+            volume_percent=raw["volume_percent"],
             sound_id=sound_id,
         )
 
@@ -260,12 +263,14 @@ class SoundProfile:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, object]) -> "SoundProfile":
-        if not isinstance(raw, Mapping):
-            raise TypeError("sound profile must be an object")
+        if not isinstance(raw, Mapping) or any(type(key) is not str for key in raw):
+            raise TypeError("sound profile must be an object with text keys")
         schema_version = raw.get("schema_version")
         if schema_version is None:
+            if not raw or not set(raw) <= {"sounds", "volume"}:
+                raise ValueError("legacy sound profile fields are invalid")
             enabled = raw.get("sounds", True)
-            if not isinstance(enabled, bool):
+            if type(enabled) is not bool:
                 raise TypeError("legacy sounds setting must be boolean")
             return cls(
                 pack_id="classic",
@@ -274,21 +279,30 @@ class SoundProfile:
             )
         if type(schema_version) is not int or schema_version != SOUND_PROFILE_SCHEMA_VERSION:
             raise ValueError(f"unsupported sound profile schema: {schema_version}")
-        enabled = raw.get("master_enabled", True)
-        if not isinstance(enabled, bool):
+        expected = {
+            "schema_version",
+            "pack_id",
+            "master_enabled",
+            "master_volume_percent",
+            "events",
+        }
+        if set(raw) != expected:
+            raise ValueError("sound profile fields are invalid")
+        enabled = raw["master_enabled"]
+        if type(enabled) is not bool:
             raise TypeError("master_enabled must be boolean")
-        events_raw = raw.get("events", {})
+        events_raw = raw["events"]
         if not isinstance(events_raw, Mapping):
             raise TypeError("sound profile events must be an object")
         events: dict[str, SoundEventPreference] = {}
         for event_id, preference in events_raw.items():
-            if not isinstance(event_id, str):
+            if type(event_id) is not str:
                 raise TypeError("sound profile event ids must be text")
             events[event_id] = SoundEventPreference.from_mapping(preference)
         return cls(
-            pack_id=raw.get("pack_id", "classic"),
+            pack_id=raw["pack_id"],
             master_enabled=enabled,
-            master_volume_percent=raw.get("master_volume_percent", 80),
+            master_volume_percent=raw["master_volume_percent"],
             events=events,
         )
 
