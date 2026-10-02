@@ -683,6 +683,39 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.upload_file(prepared)
         self.assertEqual(self.files.upload_calls, [])
 
+    def test_upload_rejects_forged_prepared_metadata_before_transport(self):
+        controller = self.controller()
+        path = self.make_file(content=b"opaque prepared payload")
+        prepared = controller.prepare_file(
+            attachment_id="a-forged",
+            local_path=path,
+            sequence_no=0,
+        )
+
+        forged_metadata = (
+            replace(
+                prepared.metadata,
+                display_name="misleading.txt",
+                mime_type="text/plain",
+            ),
+            replace(prepared.metadata, mime_type="text/plain"),
+            replace(
+                prepared.metadata,
+                object_key="rooms/room-1/not-the-attachment",
+            ),
+            replace(prepared.metadata, transfer_state="uploading"),
+            replace(prepared.metadata, scan_state="clean"),
+        )
+        for metadata in forged_metadata:
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(CollaborationError):
+                    controller.upload_file(
+                        PreparedFile(prepared.local_path, metadata)
+                    )
+
+        self.assertEqual(self.files.upload_calls, [])
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
     def test_upload_failure_is_persisted_failed_and_retry_preserves_identity(self):
         controller = self.controller()
         path = self.make_file(content=b"retry me")
