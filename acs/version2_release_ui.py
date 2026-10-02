@@ -236,13 +236,26 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 self._sound_message("Некоректні параметри звуку.", "Invalid sound settings.")
             )
         try:
+            keys = set(data)
+            if any(type(key) is not str for key in keys):
+                raise ValueError("payload keys")
             if command == "set_master":
+                allowed = {"enabled", "volume_percent"}
+                if not keys or not keys <= allowed:
+                    raise ValueError("set_master payload")
                 result = sound.set_master(
                     enabled=data.get("enabled"),
                     volume_percent=data.get("volume_percent"),
                     language=self.lang,
                 )
             elif command == "set_event":
+                allowed = {"event_id", "enabled", "volume_percent"}
+                if (
+                    not keys <= allowed
+                    or "event_id" not in keys
+                    or not keys.intersection({"enabled", "volume_percent"})
+                ):
+                    raise ValueError("set_event payload")
                 event_id = data.get("event_id")
                 if type(event_id) is not str:
                     raise ValueError("event_id")
@@ -253,6 +266,8 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     language=self.lang,
                 )
             elif command == "preview":
+                if keys != {"event_id"}:
+                    raise ValueError("preview payload")
                 event_id = data.get("event_id")
                 if type(event_id) is not str:
                     raise ValueError("event_id")
