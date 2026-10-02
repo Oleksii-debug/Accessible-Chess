@@ -723,6 +723,78 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             (occupied, uploading),
         )
 
+    def test_deleted_authoritative_sequence_remains_reserved_from_reuse(self) -> None:
+        original = AttachmentMetadata(
+            "deleted-authority",
+            "room",
+            "teacher",
+            0,
+            "old.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room/deleted-authority",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(original)
+        deleted = self.store.apply_attachment_state_updates(
+            room_id="room",
+            updates=(
+                AttachmentStateUpdate(
+                    "room",
+                    original.attachment_id,
+                    0,
+                    "deleted",
+                    "clean",
+                ),
+            ),
+        )[0]
+        self.assertEqual(deleted.transfer_state, "deleted")
+
+        provisional = AttachmentMetadata(
+            "replacement",
+            "room",
+            "teacher",
+            0,
+            "new.bin",
+            None,
+            1,
+            "e" * 64,
+            "rooms/room/replacement",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.assertEqual(self.store.register_attachment(provisional), provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            0,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.adopt_authoritative_attachment(authoritative)
+
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (deleted, uploading),
+        )
+
     def test_remote_attachment_batch_rolls_back_on_late_sequence_conflict(self) -> None:
         occupied = AttachmentMetadata(
             "occupied",
