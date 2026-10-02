@@ -164,10 +164,16 @@ class SoundSettingsApplication:
         current = self._profiles.current
         events: dict[str, SoundEventPreference] = {}
         allowed = None if manifest is None else set(manifest.files)
+        pack_changed = current.pack_id != pack_id
         for event_id, preference in current.events.items():
             sound_id = preference.sound_id
             if sound_id is not None:
-                if pack_id == "classic" or allowed is None or sound_id not in allowed:
+                if (
+                    pack_changed
+                    or pack_id == "classic"
+                    or allowed is None
+                    or sound_id not in allowed
+                ):
                     sound_id = None
             events[event_id] = SoundEventPreference(
                 enabled=preference.enabled,
