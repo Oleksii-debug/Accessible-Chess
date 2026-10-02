@@ -1077,6 +1077,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return result
 
     def set_fen(self, fen: str) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         result = super().set_fen(fen)
         if result.get("ok"):
             message = str(result.get("announcement") or "")
@@ -1085,6 +1087,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return self._concise_error("Некоректний FEN.", "Invalid FEN.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         result = super().set_position_text(text, turn)
         if result.get("ok"):
             message = str(result.get("announcement") or "")
@@ -1093,6 +1097,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return self._concise_error("Некоректна позиція.", "Invalid position.")
 
     def set_turn(self, color: str) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         result = super().set_turn(color)
         if result.get("ok"):
             message = str(result.get("announcement") or "")
