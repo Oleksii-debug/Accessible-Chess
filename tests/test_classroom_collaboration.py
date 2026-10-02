@@ -974,6 +974,36 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "short-lived-read-token",
         )
 
+    def test_file_sync_repairs_missing_local_authoritative_prefix(self):
+        history = tuple(
+            AttachmentMetadata(
+                f"remote-prefix-{sequence}",
+                "room-1",
+                "teacher-1" if sequence != 1 else "student-1",
+                sequence,
+                f"prefix-{sequence}.bin",
+                None,
+                1,
+                f"{sequence + 1:x}" * 64,
+                f"rooms/room-1/remote-prefix-{sequence}",
+                "stored",
+                "persistent",
+                "clean",
+            )
+            for sequence in range(3)
+        )
+        self.files.ordered = list(history)
+        # Simulate a recoverable local database that retained only a later
+        # authoritative row. Reconnect must not use that row as a skip cursor.
+        self.store.register_attachment(history[2])
+        controller = self.controller("teacher-1")
+
+        repaired = controller.sync_files()
+
+        self.assertEqual(repaired, history)
+        self.assertEqual(self.store.room_attachments("room-1"), history)
+        self.assertEqual(controller.sync_files(), ())
+
     def test_file_history_preserves_departed_sender_but_live_receive_requires_membership(self):
         historical = AttachmentMetadata(
             "departed-file",
