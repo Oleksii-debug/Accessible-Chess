@@ -12,11 +12,26 @@
     return element;
   }
 
-  function safeInvoke(invoke, command, payload, onResult, announce, fallbackMessage) {
+  function safeInvoke(
+    invoke,
+    command,
+    payload,
+    onResult,
+    announce,
+    fallbackMessage,
+    onFailure
+  ) {
     Promise.resolve()
       .then(function () { return invoke(command, payload || {}); })
       .then(onResult)
       .catch(function () {
+        if (typeof onFailure === "function") {
+          try {
+            onFailure();
+          } catch (_error) {
+            // Recovery cleanup must not hide the bounded user-facing failure.
+          }
+        }
         if (fallbackMessage) announce(String(fallbackMessage));
       });
   }
@@ -275,11 +290,19 @@
     return wrapper;
   }
 
-  function invokeCollaboration(invoke, command, payload, wrapper, announce, fallbackMessage) {
+  function invokeCollaboration(
+    invoke,
+    command,
+    payload,
+    wrapper,
+    announce,
+    fallbackMessage,
+    onFailure
+  ) {
     const root = wrapper.parentNode;
     safeInvoke(invoke, command, payload, function (result) {
       applyEducationEvent(root, result, invoke, announce, fallbackMessage);
-    }, announce, fallbackMessage);
+    }, announce, fallbackMessage, onFailure);
   }
 
   function renderCollaboration(snapshot, invoke, announce, fallbackMessage) {
@@ -381,14 +404,22 @@
     form.appendChild(send);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      if (!String(input.value || "").trim()) return;
+      if (send.disabled || !String(input.value || "").trim()) return;
+      input.readOnly = true;
+      send.disabled = true;
+      form.setAttribute("aria-busy", "true");
       invokeCollaboration(
         invoke,
         "collaboration.chat.send",
         { body: String(input.value) },
         wrapper,
         announce,
-        fallbackMessage
+        fallbackMessage,
+        function () {
+          input.readOnly = false;
+          send.disabled = false;
+          form.setAttribute("aria-busy", "false");
+        }
       );
     });
     chatSection.appendChild(form);
