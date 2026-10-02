@@ -26,6 +26,27 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_workflow_binds_scope_to_live_moderation_parent_fail_closed(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-moderation-sqlite-ledger.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+        self.assertNotIn('git diff --name-only "$EXPECTED_BASE_SHA" HEAD', workflow)
+
     def test_constructor_and_read_path_have_complete_connection_lifecycle_imports(self):
         second_path = Path(self.temp.name) / "constructor-read.sqlite3"
         second = SqliteClassroomModerationLedger(second_path)
