@@ -48,6 +48,51 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(snap.black_ms, 59_000)
         self.assertEqual(snap.active, "w")
 
+    def test_switch_charges_mover_through_exact_switch_instant(self):
+        class SteppedTime:
+            def __init__(self):
+                self.value = 100.0
+                self.step = 0.0
+
+            def __call__(self):
+                self.value += self.step
+                return self.value
+
+        now = SteppedTime()
+        clock = ChessClock(TimeControl(10_000, 2_000), now=now)
+        clock.start("w")
+        now.step = 1.0
+        switched = clock.switch_after_move("w")
+
+        # Charge two seconds to White before the 2-second increment.
+        # The returned snapshot may also charge Black after switching.
+        self.assertEqual(switched.white_ms, 10_000)
+        self.assertEqual(switched.black_ms, 9_000)
+        self.assertEqual(switched.active, "b")
+        self.assertEqual(switched.state, ClockState.RUNNING)
+
+    def test_switch_flags_mover_before_increment_at_second_time_read(self):
+        class SteppedTime:
+            def __init__(self):
+                self.value = 100.0
+                self.step = 0.0
+
+            def __call__(self):
+                self.value += self.step
+                return self.value
+
+        now = SteppedTime()
+        clock = ChessClock(TimeControl(1_500, 2_000), now=now)
+        clock.start("w")
+        now.step = 1.0
+        rejected = clock.switch_after_move("w")
+
+        self.assertEqual(rejected.white_ms, 0)
+        self.assertEqual(rejected.black_ms, 1_500)
+        self.assertEqual(rejected.flagged, "w")
+        self.assertEqual(rejected.state, ClockState.FLAGGED)
+        self.assertIsNone(rejected.active)
+
     def test_pause_resume_does_not_charge_paused_time(self):
         clock = ChessClock(TimeControl(10_000), now=self.now)
         clock.start("b")
