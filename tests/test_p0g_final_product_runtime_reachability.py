@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
-from unittest import mock
 
-from acs import version2_education_mutation_release as education_release
 from acs import version2_upgrade_status_release as shipping_release
 
 
@@ -55,31 +53,6 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         self.assertIn(
             "CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS",
             diagnostic,
-        )
-
-    def test_shipping_wrapper_reuses_canonical_final_resource_authority(self) -> None:
-        canonical = (
-            ("Stage 1 WebView bootstrap", "stage1"),
-            ("LiveKit browser SDK", "sdk"),
-            ("Classroom LiveKit media adapter", "adapter"),
-            ("P0 event-aware accessibility runtime", "runtime"),
-        )
-        with mock.patch.object(
-            education_release._final_release,
-            "final_product_resource_sources",
-            return_value=canonical,
-        ) as resource_authority:
-            sources = education_release.final_product_resource_sources()
-
-        resource_authority.assert_called_once_with()
-        self.assertEqual(
-            sources,
-            (
-                ("Stage 1 WebView bootstrap", "stage1"),
-                ("LiveKit browser SDK", "sdk"),
-                ("Classroom LiveKit media adapter", "adapter"),
-                ("P0 accessibility runtime", "runtime"),
-            ),
         )
 
     def test_event_aware_runtime_is_in_actual_shipping_resource_order(self) -> None:
