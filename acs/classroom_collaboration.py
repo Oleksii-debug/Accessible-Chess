@@ -257,8 +257,11 @@ class ClassroomCollaborationController:
                 raise CollaborationError("chat history contains invalid message type")
             if message.room_id != self.room_id:
                 raise CollaborationError("chat history crossed room boundary")
-            if previous is not None and message.sequence_no <= previous:
-                raise CollaborationError("chat history is not strictly ordered")
+            expected_sequence = 0 if previous is None else previous + 1
+            if message.sequence_no != expected_sequence:
+                raise CollaborationError(
+                    "chat history has an unresolved sequence gap"
+                )
             self._require_member(message.sender_id)
             _chat_body(message.body)
             self._require_transport_timestamp(message)
