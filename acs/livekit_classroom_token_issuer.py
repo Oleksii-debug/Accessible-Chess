@@ -143,7 +143,7 @@ class LiveKitClassroomJoinTokenIssuer:
         remaining_seconds = int((expires - current).total_seconds()) - 1
         if remaining_seconds <= 0:
             raise LiveKitClassroomTokenIssuerError(
-                "join grant has expired before token issuance"
+                "join grant has no safe remaining lifetime"
             )
 
         api = self._api()
