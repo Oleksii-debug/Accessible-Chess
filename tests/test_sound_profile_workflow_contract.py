@@ -40,19 +40,29 @@ class SoundProfileWorkflowContractTests(unittest.TestCase):
                 )
                 self.assertIn(PRODUCT_REF, text)
 
-    def test_each_candidate_proves_pinned_product_ancestry(self) -> None:
+    def test_each_candidate_proves_its_pinned_product_ancestry(self) -> None:
         for name, text in self.texts.items():
             with self.subTest(workflow=name):
-                self.assertIn('git cat-file -e "$CURRENT_PRODUCT_BASE^{commit}"', text)
-                self.assertIn(
-                    'git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD',
-                    text,
-                )
-                self.assertIn(
-                    'test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"',
-                    text,
-                )
-                self.assertIn('git diff --check "$CURRENT_PRODUCT_BASE" HEAD', text)
+                if name == "current-sound-profiles-contract.yml":
+                    self.assertIn('base="$OWNER_PRODUCT_BASE"', text)
+                    self.assertIn('base="$CURRENT_PRODUCT_BASE"', text)
+                    self.assertIn('git cat-file -e "${base}^{commit}"', text)
+                    self.assertIn(
+                        'test "$(git merge-base "$base" HEAD)" = "$base"',
+                        text,
+                    )
+                    self.assertIn('git diff --check "$base" HEAD', text)
+                else:
+                    self.assertIn('git cat-file -e "$CURRENT_PRODUCT_BASE^{commit}"', text)
+                    self.assertIn(
+                        'git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD',
+                        text,
+                    )
+                    self.assertIn(
+                        'test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"',
+                        text,
+                    )
+                    self.assertIn('git diff --check "$CURRENT_PRODUCT_BASE" HEAD', text)
 
 
 if __name__ == "__main__":
