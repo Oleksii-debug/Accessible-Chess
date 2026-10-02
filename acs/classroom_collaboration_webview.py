@@ -349,7 +349,11 @@ class ClassroomCollaborationWebView:
                 and item.scan_state == "clean"
                 and self._file_opener is not None
             ),
-            "can_retry": item.transfer_state == "failed" and item.attachment_id in self._prepared,
+            "can_retry": (
+                item.transfer_state == "failed"
+                and item.scan_state != "blocked"
+                and item.attachment_id in self._prepared
+            ),
             "can_cancel": item.transfer_state in {"pending", "uploading", "failed"},
         }
 
