@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from acs.classroom_media_webview_bridge import ClassroomMediaWebViewBridge
 from acs.classroom_media_webview_projection import ClassroomMediaWebViewProjection
@@ -11,6 +12,7 @@ from acs.classroom_realtime_media import (
     MediaSource,
 )
 from acs.full_product_ui_shell import UILanguage
+from acs.version2_final_product_application import Version2FinalProductApplication
 
 
 NOW = datetime(2026, 10, 2, 20, 0, tzinfo=timezone.utc)
@@ -308,3 +310,63 @@ def test_removed_participant_state_stays_textual_and_no_chess_state_enters_proje
     assert "fen" not in lowered
     assert "make_move" not in lowered
     assert "pgn" not in lowered
+
+
+def minimal_application(language=UILanguage.EN):
+    application = object.__new__(Version2FinalProductApplication)
+    application.shell = SimpleNamespace(language=language)
+    application.media = None
+    application.teacher = None
+    application._teacher_state_provider = None
+    application._teacher_dispatch = None
+    application._assert_thread = lambda: None
+    application._rebuild_education_bridge = lambda selected: None
+    return application
+
+
+def test_application_publishes_media_binding_only_after_safe_initial_projection():
+    controller, _roster, _media, labels, _projection, _bridge = composition("student-1")
+    application = minimal_application()
+
+    application.bind_classroom_media(controller, lambda: dict(labels))
+    assert application.media is not None
+    event = application.browser_command("media", "media.snapshot", {})
+    assert event["kind"] == "render"
+    assert event["payload"]["snapshot"]["own"]["label"] == "Student One"
+
+    try:
+        application.bind_classroom_media(controller, lambda: dict(labels))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("duplicate media binding was accepted")
+
+    application.unbind_classroom_media()
+    assert application.media is None
+
+
+def test_application_rejects_invalid_initial_media_projection_without_publishing_bridge():
+    controller, _roster, _media, labels, _projection, _bridge = composition("student-1")
+    application = minimal_application()
+    labels.pop("student-1")
+
+    try:
+        application.bind_classroom_media(controller, lambda: dict(labels))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid initial media projection was accepted")
+    assert application.media is None
+
+
+def test_media_provider_failure_does_not_abort_product_language_synchronization():
+    controller, _roster, _media, labels, _projection, _bridge = composition("student-1")
+    application = minimal_application(language=UILanguage.EN)
+    application.bind_classroom_media(controller, lambda: dict(labels))
+    assert application.media is not None
+
+    labels["student-1"] = "broken\nlabel"
+    application.sync_composed_surfaces_language(UILanguage.UA)
+
+    assert application.media is not None
+    assert application.media.projection.language is UILanguage.UA
