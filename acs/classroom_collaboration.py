@@ -108,7 +108,7 @@ class PreparedFile:
     metadata: AttachmentMetadata
 
     def __post_init__(self) -> None:
-        if type(self.local_path) is not Path:
+        if not isinstance(self.local_path, Path):
             raise CollaborationError("prepared file path must be pathlib.Path")
         if type(self.metadata) is not AttachmentMetadata:
             raise CollaborationError("prepared file metadata is invalid")
@@ -271,11 +271,11 @@ class ClassroomCollaborationController:
             raise CollaborationError("chat send permission must be boolean")
         actor = _id(actor_id, "actor id")
         self._require_moderator(actor)
-        targets = tuple(
+        targets = tuple(sorted(
             participant
             for participant in self._participant_ids()
             if self._role(participant) is ClassroomRole.STUDENT
-        )
+        ))
         commands = tuple(
             ChatModerationCommand(
                 operation_id=_child_operation_id(operation_id, index),
