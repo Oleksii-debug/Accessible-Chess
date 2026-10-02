@@ -93,19 +93,34 @@ class SoundPackProfileCoordinator:
     ) -> SoundPackProfileInstallResult:
         """Install/update a verified pack and optionally select it.
 
-        Storage installation happens first. If profile persistence then fails, the
-        extra installed pack is harmless and the previously persisted active pack
-        remains valid; this is intentionally safer than selecting missing assets.
+        A new inactive pack is committed before profile selection, so a later
+        profile-write failure merely leaves an extra safe installed pack. Updating
+        the *active* pack is different: removed asset IDs must be cleared before
+        the storage active-version pointer can switch. If that atomic storage
+        install raises, its contract says no new active version was committed, so
+        restore the exact pre-update profile instead of losing user choices.
         """
 
-        profile = self._profiles.current
+        original_profile = self._profiles.current
+        profile = original_profile
+        prepared_before_install = False
         if entry.compatible and profile.pack_id == entry.manifest.pack_id:
             prepared = _profile_for_manifest(profile, entry.manifest)
             if prepared != profile:
                 # Persist a default-safe mapping before the active version changes.
                 profile = self._profiles.save(prepared)
+                prepared_before_install = True
 
-        manifest = self._packs.install(entry)
+        try:
+            manifest = self._packs.install(entry)
+        except Exception:
+            if prepared_before_install:
+                # SoundPackStoragePort.install_atomically() must not commit on
+                # exception. Restore the exact prior profile while the old active
+                # pack is still authoritative.
+                self._profiles.save(original_profile)
+            raise
+
         profile = self._profiles.current
         if activate and profile.pack_id != manifest.pack_id:
             profile = self._profiles.save(_profile_for_manifest(profile, manifest))
