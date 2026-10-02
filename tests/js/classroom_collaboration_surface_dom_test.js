@@ -126,6 +126,11 @@ function collaboration(messages, unreadCount, moderation) {
       heading: "Files",
       sync_label: "Refresh files",
       choose_upload_label: "Choose and send file",
+      older_label: "Older files",
+      newer_label: "Newer files",
+      page_label: "File history page 1 of 1",
+      can_older: false,
+      can_newer: false,
       empty_message: "No files.",
       save_label: "Save",
       open_label: "Open",
@@ -304,6 +309,49 @@ check(
   buttons[1].getAttribute("aria-label") === "Open: lesson.pgn",
   "repeated file actions must expose the target filename in their accessible names"
 );
+const filePageStatus = root.querySelector("#collaboration-file-page-status");
+check(
+  filePageStatus !== null &&
+  filePageStatus.textContent === "File history page 1 of 1" &&
+  filePageStatus.getAttribute("aria-live") === "off",
+  "file history page status must remain selectable without becoming a live-region loop"
+);
+check(
+  root.querySelector("#collaboration-file-older").disabled &&
+  root.querySelector("#collaboration-file-newer").disabled,
+  "single-page file history must expose native disabled paging boundaries"
+);
+const filePagedSnapshot = collaboration([
+  {
+    dom_id: "collaboration-message-one",
+    sender: "Teacher",
+    body: "e4 is the target.",
+    timestamp_text: "2023-11-14 22:13:20 UTC",
+    timestamp_datetime: "2023-11-14T22:13:20Z",
+    unread: false
+  }
+], 0, false);
+filePagedSnapshot.files.can_newer = true;
+filePagedSnapshot.files.page_label = "File history page 1 of 2";
+root.querySelector("#collaboration-file-sync").focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.page",
+    payload: {
+      collaboration: filePagedSnapshot,
+      focus_target: "collaboration-file-newer"
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-file-newer"),
+  "file history paging must honor its bounded stable focus target"
+);
+
 const fileSync = root.querySelector("#collaboration-file-sync");
 check(
   fileSync !== null &&
@@ -336,6 +384,8 @@ check(
   root.querySelector("#collaboration-chat-send") !== null &&
   root.querySelector("#collaboration-file-sync") !== null &&
   root.querySelector("#collaboration-file-choose") !== null &&
+  root.querySelector("#collaboration-file-older") !== null &&
+  root.querySelector("#collaboration-file-newer") !== null &&
   root.querySelector("#collaboration-file-a-save") !== null &&
   root.querySelector("#collaboration-file-a-open") !== null,
   "collaboration actions must expose stable focus anchors"
