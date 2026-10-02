@@ -485,6 +485,48 @@ class PreparedPositionDeploymentTests(unittest.TestCase):
         with self.assertRaises(dp.PreparedPositionDeploymentError):
             dp.PreparedPositionDeploymentBatch.from_json(nonfinite)
 
+    def test_record_bounds_fail_before_digest_materialization(self) -> None:
+        batch = dp.plan_prepared_position_deployment(
+            _lesson(),
+            _workspace(),
+            batch_id="batch-record-bounds",
+            position_by_student=_all_mapping(),
+        )
+
+        oversized_assignments = batch.to_record()
+        oversized_assignments["assignments"] = [
+            oversized_assignments["assignments"][0]
+        ] * (dp.MAX_DEPLOYMENT_ASSIGNMENTS + 1)
+        with patch.object(
+            dp,
+            "_digest",
+            side_effect=AssertionError("digest must not run before assignment bound"),
+        ) as digest:
+            with self.assertRaisesRegex(
+                dp.PreparedPositionDeploymentError,
+                "bounded non-empty JSON array",
+            ):
+                dp.PreparedPositionDeploymentBatch.from_record(
+                    oversized_assignments
+                )
+            digest.assert_not_called()
+
+        oversized_target = batch.to_record()
+        oversized_target["target"]["student_ids"] = ["s1"] * (
+            dp.MAX_DEPLOYMENT_ASSIGNMENTS + 1
+        )
+        with patch.object(
+            dp,
+            "_digest",
+            side_effect=AssertionError("digest must not run before target bound"),
+        ) as digest:
+            with self.assertRaisesRegex(
+                dp.PreparedPositionDeploymentError,
+                "bounded JSON array",
+            ):
+                dp.PreparedPositionDeploymentBatch.from_record(oversized_target)
+            digest.assert_not_called()
+
     def test_resource_bounds_apply_to_wire_payload(self) -> None:
         batch = dp.plan_prepared_position_deployment(
             _lesson(),
