@@ -3,7 +3,7 @@ name: Classroom Collaboration Contract
 on:
   pull_request:
     branches:
-      - feature/classroom-realtime-media-contract-20260926
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/classroom_collaboration.py'
       - 'acs/classroom_collaboration_storage.py'
@@ -33,13 +33,22 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact collaboration scope
+      - name: Prove exact current-Product collaboration scope
         if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
-          mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+          test "$BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-collaboration-contract.yml'
             'acs/classroom_collaboration.py'
@@ -68,9 +77,12 @@ jobs:
           tests/test_classroom_collaboration.py
           tests/test_classroom_collaboration_storage.py
 
-      - name: Run collaboration and upstream media contracts
+      - name: Run collaboration and current media contracts
         run: >-
           python -m unittest -v
           tests.test_classroom_collaboration
           tests.test_classroom_collaboration_storage
           tests.test_classroom_realtime_media
+
+      - name: Core selftest
+        run: python -m acs.selftest
