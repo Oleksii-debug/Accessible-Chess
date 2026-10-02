@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import json
+from pathlib import Path
+import tarfile
+import tempfile
+import unittest
+
+from scripts import stage_livekit_client_sdk as sdk
+
+
+class LiveKitClientSdkStageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.archive = self.root / "livekit.tgz"
+        self.output = self.root / "out"
+        self.bundle = b"/* UMD */ LivekitClient Room " + (b"x" * 120_000)
+        self.license = b"Apache License\nVersion 2.0\n" + (b"license\n" * 900)
+        self.package = {
+            "name": "livekit-client",
+            "version": sdk.LIVEKIT_CLIENT_VERSION,
+            "license": "Apache-2.0",
+            "main": "./dist/livekit-client.umd.js",
+            "unpkg": "./dist/livekit-client.umd.js",
+        }
+        self._write_archive()
+
+    def _write_archive(
+        self,
+        *,
+        members: list[tuple[str, bytes]] | None = None,
+    ) -> None:
+        entries = members or [
+            ("package/package.json", json.dumps(self.package).encode("utf-8")),
+            ("package/dist/livekit-client.umd.js", self.bundle),
+            ("package/LICENSE", self.license),
+        ]
+        with tarfile.open(self.archive, "w:gz") as archive:
+            for name, data in entries:
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+
+    def _integrity(self) -> str:
+        digest = hashlib.sha512(self.archive.read_bytes()).digest()
+        return "sha512-" + base64.b64encode(digest).decode("ascii")
+
+    def _stage(self) -> Path:
+        return sdk.stage_livekit_client_sdk(
+            self.archive,
+            self.output,
+            expected_integrity=self._integrity(),
+        )
+
+    def test_stages_exact_bundle_license_notice_and_provenance(self) -> None:
+        result = self._stage()
+        self.assertEqual(result, self.output)
+        self.assertEqual((result / "livekit-client.umd.js").read_bytes(), self.bundle)
+        self.assertEqual((result / "LICENSE").read_bytes(), self.license)
+        self.assertIn("LiveKit, Inc.", (result / "NOTICE").read_text(encoding="utf-8"))
+
+        provenance = json.loads(
+            (result / "provenance.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(provenance["version"], sdk.LIVEKIT_CLIENT_VERSION)
+        self.assertEqual(provenance["npm_integrity"], self._integrity())
+        self.assertEqual(
+            provenance["bundle_sha256"],
+            hashlib.sha256(self.bundle).hexdigest(),
+        )
+
+    def test_integrity_mismatch_is_fail_closed(self) -> None:
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "integrity mismatch",
+        ):
+            sdk.stage_livekit_client_sdk(
+                self.archive,
+                self.output,
+                expected_integrity="sha512-bad",
+            )
+        self.assertFalse(self.output.exists())
+
+    def test_traversal_member_is_rejected(self) -> None:
+        self._write_archive(members=[("../escape", b"x")])
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "unsafe member|package root",
+        ):
+            self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_symlink_is_rejected(self) -> None:
+        with tarfile.open(self.archive, "w:gz") as archive:
+            info = tarfile.TarInfo("package/package.json")
+            info.type = tarfile.SYMTYPE
+            info.linkname = "target"
+            archive.addfile(info)
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "link or special",
+        ):
+            self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_casefold_duplicate_is_rejected(self) -> None:
+        self._write_archive(
+            members=[
+                ("package/package.json", json.dumps(self.package).encode("utf-8")),
+                ("package/PACKAGE.JSON", b"{}"),
+                ("package/dist/livekit-client.umd.js", self.bundle),
+                ("package/LICENSE", self.license),
+            ]
+        )
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "duplicate member",
+        ):
+            self._stage()
+
+    def test_noncanonical_metadata_is_rejected(self) -> None:
+        self.package["version"] = "9.9.9"
+        self._write_archive()
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "version is not canonical",
+        ):
+            self._stage()
+
+    def test_bundle_marker_contract_is_required(self) -> None:
+        self.bundle = b"x" * 120_000
+        self._write_archive()
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "browser API markers",
+        ):
+            self._stage()
+
+    def test_existing_output_is_not_overwritten(self) -> None:
+        self.output.mkdir()
+        sentinel = self.output / "keep"
+        sentinel.write_text("x", encoding="utf-8")
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "already exists",
+        ):
+            self._stage()
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "x")
+
+    def test_archive_notice_is_preserved_when_present(self) -> None:
+        notice = b"Copyright LiveKit\nApache License\nupstream notice\n"
+        self._write_archive(
+            members=[
+                ("package/package.json", json.dumps(self.package).encode("utf-8")),
+                ("package/dist/livekit-client.umd.js", self.bundle),
+                ("package/LICENSE", self.license),
+                ("package/NOTICE", notice),
+            ]
+        )
+        self._stage()
+        self.assertEqual((self.output / "NOTICE").read_bytes(), notice)
+
+
+if __name__ == "__main__":
+    unittest.main()
