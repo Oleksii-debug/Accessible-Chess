@@ -336,6 +336,19 @@ class ClassroomCollaborationController:
             ]
         return tuple(persisted)
 
+    def can_moderate_chat_participant(self, participant_id: str) -> bool:
+        """Return whether the local participant may moderate this chat target.
+
+        This is a side-effect-free projection of the same canonical authorization
+        used by set_chat_send_permission. Presentation layers may use it to avoid
+        exposing controls that the core will deterministically reject.
+        """
+        try:
+            self._moderation_pair(self.local_participant_id, participant_id)
+        except CollaborationError:
+            return False
+        return True
+
     def set_chat_send_permission(
         self,
         *,
