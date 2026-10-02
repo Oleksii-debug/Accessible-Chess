@@ -381,10 +381,11 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not the installed version"):
             app.select_pack("soft", language="en")
 
-    def test_switch_between_local_packs_clears_only_invalid_sound_ids(self) -> None:
+    def test_switch_between_local_packs_clears_all_pack_relative_sound_ids(self) -> None:
         pack_a_base = _manifest("pack.a")
         pack_a_files = dict(pack_a_base.files)
         pack_a_files["a.soft"] = "audio/a-soft.wav"
+        pack_a_files["shared.soft"] = "audio/shared-a.wav"
         pack_a = SoundPackManifest(
             pack_id=pack_a_base.pack_id,
             version=pack_a_base.version,
@@ -397,6 +398,7 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         pack_b_base = _manifest("pack.b")
         pack_b_files = dict(pack_b_base.files)
         pack_b_files["b.soft"] = "audio/b-soft.wav"
+        pack_b_files["shared.soft"] = "audio/shared-b.wav"
         pack_b = SoundPackManifest(
             pack_id=pack_b_base.pack_id,
             version=pack_b_base.version,
@@ -417,7 +419,7 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             installed_pack_provider=lambda: {"pack.a": pack_a, "pack.b": pack_b},
         )
         app.select_pack("pack.a", language="en")
-        app.set_event("move", enabled=False, volume_percent=37, sound_id="a.soft")
+        app.set_event("move", enabled=False, volume_percent=37, sound_id="shared.soft")
         before = len(storage.writes)
 
         result = app.select_pack("pack.b", language="en")
