@@ -167,6 +167,7 @@ jobs:
           tests.test_version2_shutdown
           tests.test_version2_pgn_commands
           tests.test_version2_import_terminal_ui
+          tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_library_import_observer
           tests.test_w3_windows_file_action_ui_thread_affinity
 
