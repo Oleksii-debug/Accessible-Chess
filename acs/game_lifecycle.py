@@ -173,6 +173,31 @@ class GameLifecycle:
             self._takeback_requested_by,
         )
 
+    def restore_checkpoint(self, checkpoint: LifecycleSnapshot) -> LifecycleSnapshot:
+        """Restore a previously captured lifecycle after an aborted transaction.
+
+        This internal recovery operation is intentionally separate from normal
+        user actions (reset, draw, resign and takeback). Validate the complete
+        immutable snapshot before changing any live field; a failed restore
+        must not partially mutate a recoverable lifecycle.
+        """
+        if not isinstance(checkpoint, LifecycleSnapshot):
+            raise LifecycleError(
+                "lifecycle recovery requires a LifecycleSnapshot",
+                code=LifecycleErrorCode.INVALID_STATE,
+            )
+        validated = LifecycleSnapshot(
+            checkpoint.status,
+            checkpoint.outcome,
+            checkpoint.draw_offered_by,
+            checkpoint.takeback_requested_by,
+        )
+        self._status = validated.status
+        self._outcome = validated.outcome
+        self._draw_offered_by = validated.draw_offered_by
+        self._takeback_requested_by = validated.takeback_requested_by
+        return self.snapshot()
+
     def offer_draw(self, side: str) -> LifecycleSnapshot:
         self._require_active()
         self._validate_side(side)
