@@ -465,6 +465,31 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.provider.calls), 1)
         self.assertNotIn((ROOM, "op-commit"), self.ledger.values)
 
+    def test_duplicate_json_object_fields_fail_closed(self) -> None:
+        base = payload(operation("op-duplicate"))
+        duplicate_envelope = base.replace(
+            '"version":1,',
+            '"version":1,"version":1,',
+            1,
+        )
+        duplicate_operation = base.replace(
+            '"operation_id":"op-duplicate",',
+            '"operation_id":"op-duplicate","operation_id":"op-duplicate",',
+            1,
+        )
+
+        for name, wire in (
+            ("duplicate envelope field", duplicate_envelope),
+            ("duplicate operation field", duplicate_operation),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(ClassroomModerationRpcError):
+                    parse_moderation_rpc(
+                        wire,
+                        trusted_room_id=ROOM,
+                        trusted_caller_identity=CALLER,
+                    )
+
     def test_spoofed_or_malformed_payloads_fail_closed(self) -> None:
         valid = operation("op-good")
         malformed: tuple[tuple[str, object, str, str], ...] = (
