@@ -368,16 +368,17 @@ class ClassroomCollaborationController:
     ) -> ChatMessageMetadata:
         actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
+        message = self._message(_id(message_id, "message id"))
         command = ChatModerationCommand(
             operation_id=operation_id,
             room_id=self.room_id,
             actor_id=actor,
             target_id=None,
             action=ChatModerationAction.HIDE_MESSAGE,
-            message_id=message_id,
+            message_id=message.message_id,
         )
         self._chat.apply_moderation((command,))
-        return self._store.set_message_hidden(_id(message_id, "message id"), True)
+        return self._store.set_message_hidden(message.message_id, True)
 
     def prepare_file(
         self,
@@ -537,6 +538,19 @@ class ClassroomCollaborationController:
         if type(token) is not str or not token or any(ch.isspace() for ch in token):
             raise CollaborationError("file store returned invalid short-lived token")
         return token
+
+    def _message(self, message_id: str) -> ChatMessageMetadata:
+        matches = tuple(
+            item
+            for item in self._store.room_messages(
+                self.room_id,
+                include_hidden=True,
+            )
+            if item.message_id == message_id
+        )
+        if len(matches) != 1:
+            raise CollaborationError("unknown message in current room")
+        return matches[0]
 
     def _attachment(self, attachment_id: str) -> AttachmentMetadata:
         matches = tuple(
