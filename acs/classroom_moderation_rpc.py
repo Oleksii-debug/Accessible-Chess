@@ -163,7 +163,7 @@ def _parse_command(value: object) -> ModerationCommand:
             value=command_value,
         )
     except (TypeError, ValueError) as error:
-        raise ClassroomModerationRpcError("moderation operation is invalid") from error
+        raise ClassroomModerationRpcError("moderation operation is invalid") from None
 
 
 def parse_moderation_rpc(
@@ -264,7 +264,7 @@ class ClassroomModerationRpcService:
                 except Exception as error:
                     raise ClassroomModerationRpcError(
                         "moderation replay ledger read failed"
-                    ) from error
+                    ) from None
                 if committed is None:
                     new_commands.append((command, fingerprint))
                     continue
@@ -286,7 +286,7 @@ class ClassroomModerationRpcService:
                 except Exception as error:
                     raise ClassroomModerationRpcError(
                         "moderation request is not authorized"
-                    ) from error
+                    ) from None
                 for command, fingerprint in new_commands:
                     try:
                         await self._provider_admin.apply_moderation_command(
@@ -296,7 +296,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation provider operation failed"
-                        ) from error
+                        ) from None
                     try:
                         self._ledger.commit(
                             room_id=parsed.room_id,
@@ -306,7 +306,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation replay ledger commit failed"
-                        ) from error
+                        ) from None
 
             response = json.dumps(
                 {
