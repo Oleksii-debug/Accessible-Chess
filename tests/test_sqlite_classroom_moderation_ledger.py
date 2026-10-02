@@ -26,6 +26,17 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_constructor_and_read_path_have_complete_connection_lifecycle_imports(self):
+        second_path = Path(self.temp.name) / "constructor-read.sqlite3"
+        second = SqliteClassroomModerationLedger(second_path)
+        self.assertIsNone(
+            second.operation_state(
+                room_id="room-constructor",
+                operation_id="op-constructor",
+            )
+        )
+        self.assertTrue(second_path.exists())
+
     def test_reservation_is_pending_and_exact_retry_returns_same_state(self):
         first = self.ledger.reserve(
             room_id="room-1",
