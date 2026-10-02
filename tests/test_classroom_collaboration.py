@@ -1305,6 +1305,42 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(current.scan_state, "pending")
         self.assertIsNone(second_store.attachment_state_revision("room-1"))
 
+    def test_new_file_history_is_not_exposed_when_state_stream_has_a_gap(self):
+        controller = self.controller("teacher-1")
+        incoming = AttachmentMetadata(
+            "remote-clean-before-gap",
+            "room-1",
+            "student-1",
+            0,
+            "clean-before-gap.pgn",
+            "application/x-chess-pgn",
+            8,
+            "d" * 64,
+            "rooms/room-1/remote-clean-before-gap",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (incoming,)
+        self.files.state_override = (
+            AttachmentStateUpdate(
+                room_id="room-1",
+                attachment_id=incoming.attachment_id,
+                revision=1,
+                transfer_state="deleted",
+                scan_state="clean",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment state has an unresolved revision gap",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
     def test_receive_later_file_rejects_partial_catch_up_that_still_has_a_gap(self):
         controller = self.controller("teacher-1")
         first = AttachmentMetadata(
