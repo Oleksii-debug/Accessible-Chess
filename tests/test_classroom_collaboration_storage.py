@@ -28,13 +28,71 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 1
+                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 2
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
+            self.assertIn("sent_at_unix_ms", columns)
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
 
+    def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
+        self.db_path.unlink()
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.executescript(
+                """
+                CREATE TABLE collaboration_schema_meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+                INSERT INTO collaboration_schema_meta(key,value) VALUES('schema_version',1);
+                CREATE TABLE collaboration_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(room_id, sequence_no)
+                );
+                CREATE INDEX idx_collaboration_messages_room
+                    ON collaboration_messages(room_id, sequence_no);
+                CREATE TABLE collaboration_attachments(
+                    attachment_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    display_name TEXT NOT NULL,
+                    mime_type TEXT,
+                    size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+                    sha256 TEXT NOT NULL,
+                    object_key TEXT NOT NULL UNIQUE,
+                    transfer_state TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    scan_state TEXT NOT NULL,
+                    UNIQUE(room_id, sequence_no)
+                );
+                CREATE INDEX idx_collaboration_attachments_room
+                    ON collaboration_attachments(room_id, sequence_no);
+                INSERT INTO collaboration_messages
+                    VALUES('legacy-m1','room','teacher',0,'Legacy','session',0);
+                """
+            )
+        migrated = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        message = migrated.room_messages("room")[0]
+        self.assertEqual("Legacy", message.body)
+        self.assertIsNone(message.sent_at_unix_ms)
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertEqual(
+                2,
+                db.execute(
+                    "SELECT value FROM collaboration_schema_meta WHERE key='schema_version'"
+                ).fetchone()[0],
+            )
+
     def test_messages_are_ordered_and_reconnect_is_idempotent(self) -> None:
-        first = ChatMessageMetadata("m1", "room", "teacher", 0, "Hello")
-        second = ChatMessageMetadata("m2", "room", "student", 1, "Hi")
+        first = ChatMessageMetadata(
+            "m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=1700000000000
+        )
+        second = ChatMessageMetadata(
+            "m2", "room", "student", 1, "Hi", sent_at_unix_ms=1700000001000
+        )
         self.assertEqual(self.store.append_message(first), first)
         self.assertEqual(self.store.append_message(first), first)
         self.store.append_message(second)
@@ -61,6 +119,15 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             ChatMessageMetadata("bad id", "room", "teacher", 0, "Hello")
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "x" * 4001)
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=True)
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=-1)
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata(
+                "m1", "room", "teacher", 0, "Hello",
+                sent_at_unix_ms=253402300800000,
+            )
         with self.assertRaises(ValueError):
             AttachmentMetadata(
                 "a1", "room", "teacher", 0, "safe.bin", None, True, "0" * 64,
