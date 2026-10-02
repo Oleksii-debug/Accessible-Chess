@@ -324,6 +324,52 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not available"):
             app.set_event("move", sound_id="missing.sound", language="en")
 
+    def test_catalog_version_drift_never_projects_uninstalled_future_sound_ids(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        future_base = _manifest("soft", "2.0.0")
+        future_files = dict(future_base.files)
+        future_files["future.alt"] = "audio/future-alt.wav"
+        future = SoundPackManifest(
+            pack_id=future_base.pack_id,
+            version=future_base.version,
+            title=future_base.title,
+            license_id=future_base.license_id,
+            files=future_files,
+            author=future_base.author,
+            provenance=future_base.provenance,
+        )
+        pack_storage = _PackStorage([classic, installed])
+        pack_manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, pack_manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(pack_manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={"soft": _entry(future)},
+        )
+
+        snapshot = app.snapshot(language="en")
+        pack = snapshot["packs"][0]
+        self.assertEqual("different_version", pack["state"])
+        move = next(item for item in snapshot["events"] if item["event_id"] == "move")
+        self.assertEqual(("move",), move["sound_choices"])
+        self.assertNotIn("future.alt", repr(snapshot))
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="future.alt", language="en")
+
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
         storage = _PackStorage([classic])
