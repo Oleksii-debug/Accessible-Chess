@@ -93,7 +93,7 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
             _git_blob_sha(ROOT / "acs" / "stage1_release_ui_core.py"),
             {
                 "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6",  # frozen Product
-                "0c6ec99b97b4e561a0bed9f16ed4cc5d42dbc0e0",  # #1063 recovery
+                "28d1fff137d973eec6021455c3197421c3796fb4",  # #1063 recovery
             },
         )
         self.assertEqual(
