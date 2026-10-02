@@ -57,11 +57,11 @@ class UserSoundPackBuilderTests(unittest.TestCase):
 
             self.assertEqual(
                 [item["id"] for item in variants["events"]["move"]],
-                ["1", "2", "3", "4", "5", "6"],
+                ["1", "2", "3", "4", "5", "6", "3d-1", "3d-2", "3d-3"],
             )
             self.assertEqual(
                 [item["id"] for item in variants["events"]["capture"]],
-                ["1", "2", "3", "4", "5"],
+                ["1", "2", "3", "4", "5", "3d-1", "3d-2", "3d-3", "3d-4"],
             )
 
 
