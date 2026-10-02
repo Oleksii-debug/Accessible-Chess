@@ -267,7 +267,10 @@ class ClassroomCollaborationWebView:
         if self._moderation_allowed is None:
             return False
         try:
-            return self._moderation_allowed() is True
+            return (
+                self._moderation_allowed() is True
+                and self._controller.can_moderate_chat()
+            )
         except Exception:
             return False
 
