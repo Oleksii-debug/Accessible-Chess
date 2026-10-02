@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
+import uuid
 from typing import Protocol
 
 from .classroom_realtime_media import ModerationAction, ModerationCommand, MediaSource
@@ -66,10 +67,11 @@ class ClassroomModerationProviderAdminPort(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ModerationOperationState:
-    """One ledger record, including pre-effect reservation state."""
+    """One ledger record, including pre-effect reservation ownership."""
 
     fingerprint: str
     committed: bool
+    reservation_owner: str | None = None
 
 
 class ClassroomModerationOperationLedgerPort(Protocol):
@@ -94,8 +96,13 @@ class ClassroomModerationOperationLedgerPort(Protocol):
         room_id: str,
         operation_id: str,
         fingerprint: str,
+        reservation_owner: str,
     ) -> ModerationOperationState:
-        """Atomically create a pending reservation or return the existing record."""
+        """Atomically create a pending reservation or return the existing record.
+
+        A newly-created pending reservation must retain reservation_owner.
+        An existing pending reservation must retain its original owner.
+        """
 
     def commit(
         self,
@@ -103,8 +110,9 @@ class ClassroomModerationOperationLedgerPort(Protocol):
         room_id: str,
         operation_id: str,
         fingerprint: str,
+        reservation_owner: str,
     ) -> None:
-        """Mark the exact reserved operation committed or raise on conflict."""
+        """Commit only the exact reservation owned by reservation_owner."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +273,17 @@ def _validated_ledger_state(
         or len(value.fingerprint) != 64
         or re.fullmatch(r"[0-9a-f]{64}", value.fingerprint) is None
         or type(value.committed) is not bool
+        or (
+            value.committed
+            and value.reservation_owner is not None
+        )
+        or (
+            not value.committed
+            and (
+                type(value.reservation_owner) is not str
+                or _IDENTIFIER_RE.fullmatch(value.reservation_owner) is None
+            )
+        )
     ):
         raise ClassroomModerationRpcError(
             "moderation replay ledger returned invalid state"
@@ -281,9 +300,9 @@ class ClassroomModerationRpcService:
 
     Calls are serialized within one service participant. Across service
     participants, the shared ledger must atomically reserve an operation
-    fingerprint before the first provider effect. Exact pending retries remain
-    safe because provider operations are required to be idempotent state
-    assignments; conflicting semantics fail before provider mutation.
+    fingerprint and preserve reservation ownership before the first provider
+    effect. Exact pending retries are accepted only by the same live service
+    participant; another participant fails closed until explicit reconciliation.
     """
 
     def __init__(
@@ -298,6 +317,7 @@ class ClassroomModerationRpcService:
         self._authorization = authorization
         self._provider_admin = provider_admin
         self._ledger = ledger
+        self._reservation_owner = uuid.uuid4().hex
         self._lock = asyncio.Lock()
 
     async def handle_rpc(
@@ -337,6 +357,10 @@ class ClassroomModerationRpcService:
                     expected_fingerprint=fingerprint,
                 )
                 if not state.committed:
+                    if state.reservation_owner != self._reservation_owner:
+                        raise ClassroomModerationRpcError(
+                            "moderation operation is pending in another service participant"
+                        )
                     pending_commands.append((command, fingerprint))
 
             if pending_commands:
@@ -365,6 +389,7 @@ class ClassroomModerationRpcService:
                             room_id=parsed.room_id,
                             operation_id=command.operation_id,
                             fingerprint=fingerprint,
+                            reservation_owner=self._reservation_owner,
                         )
                     except Exception as error:
                         raise ClassroomModerationRpcError(
@@ -375,6 +400,10 @@ class ClassroomModerationRpcService:
                         expected_fingerprint=fingerprint,
                     )
                     if not state.committed:
+                        if state.reservation_owner != self._reservation_owner:
+                            raise ClassroomModerationRpcError(
+                                "moderation operation is pending in another service participant"
+                            )
                         effects.append((command, fingerprint))
 
                 for command, fingerprint in effects:
@@ -392,6 +421,7 @@ class ClassroomModerationRpcService:
                             room_id=parsed.room_id,
                             operation_id=command.operation_id,
                             fingerprint=fingerprint,
+                            reservation_owner=self._reservation_owner,
                         )
                     except Exception as error:
                         raise ClassroomModerationRpcError(
