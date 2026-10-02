@@ -347,6 +347,43 @@ async function run() {
   }
   check(rejectedCredentialsInUrl, "server URL embedded credentials were accepted");
 
+  // Canonical opaque identifiers are exact: surrounding whitespace is invalid,
+  // not silently normalized into a different room or participant identity.
+  reset();
+  const invalidIdentityClient = adapter();
+  await expectError(
+    () => invalidIdentityClient.connect(credential({ room_id: " room-1" }), []),
+    "room id is invalid"
+  );
+  check(FakeRoom.instances.length === 0,
+        "invalid room identity reached the provider Room constructor");
+
+  // Join credentials match the Python authority: no whitespace is accepted in
+  // the short-lived secret token, so malformed secrets never reach LiveKit.
+  reset();
+  const invalidTokenClient = adapter();
+  await expectError(
+    () => invalidTokenClient.connect(credential({ token: "token with space" }), []),
+    "join token is invalid"
+  );
+  check(FakeRoom.instances.length === 0,
+        "whitespace-bearing join token reached the provider Room constructor");
+
+  // The designated moderation participant is a remote trusted service boundary,
+  // never the same classroom client that is making the request.
+  reset();
+  const selfModerationClient = adapter({ moderationParticipantIdentity: "student-1" });
+  await expectError(
+    () => selfModerationClient.connect(credential(), []),
+    "moderation participant identity must be remote"
+  );
+  check(FakeRoom.instances.length === 1 &&
+        FakeRoom.instances[0].disconnectCalls.length === 1,
+        "self-moderation identity rejection did not tear down the provider Room");
+  check(selfModerationClient.connected === false &&
+        selfModerationClient.snapshot().cleanup_required === false,
+        "self-moderation identity rejection published or retained stale state");
+
   // LiveKit RPC method names are bounded to 64 UTF-8 bytes.
   const maxLengthMethod = adapter({ moderationRpcMethod: "m".repeat(64) });
   check(maxLengthMethod.connected === false, "64-byte RPC method was rejected");
