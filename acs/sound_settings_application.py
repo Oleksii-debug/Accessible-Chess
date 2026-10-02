@@ -120,6 +120,9 @@ class SoundSettingsApplication:
         entry = self._catalog.get(profile.pack_id)
         if entry is None or self._packs is None or not entry.compatible:
             return None
+        status = self._packs.status(entry)
+        if status.state is not SoundPackState.CURRENT:
+            return None
         if self._packs.resolve_usable_pack(profile.pack_id) != profile.pack_id:
             return None
         return entry.manifest
@@ -273,7 +276,7 @@ class SoundSettingsApplication:
             sound_id is not None
             and (
                 self._installed_pack_provider is not None
-                or active_manifest is not None
+                or profile.pack_id in self._catalog
             )
             and sound_id not in self._sound_choices(profile, event_id, active_manifest)
         ):
