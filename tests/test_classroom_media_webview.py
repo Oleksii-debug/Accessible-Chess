@@ -383,12 +383,16 @@ def test_disconnected_or_removed_room_state_exposes_no_live_moderation_controls(
     assert participant(disconnected, "Student One")["actions"] == ()
     assert disconnected["all_student_actions"] == ()
 
-    controller._state = controller.state.__class__(
+    reconnect_credential = JoinCredential(
         room_id="room-1",
         participant_id="teacher-1",
-        connected=True,
-        desired_sources=frozenset(),
-        revision=controller.state.revision + 1,
+        token="fresh-reconnect-token",
+        issued_at=NOW + timedelta(seconds=2),
+        expires_at=NOW + timedelta(seconds=62),
+    )
+    controller.reconnect(
+        reconnect_credential,
+        now=NOW + timedelta(seconds=3),
     )
     controller.remove_participant(
         actor_id="teacher-1",
