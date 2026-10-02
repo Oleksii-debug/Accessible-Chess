@@ -54,6 +54,18 @@ _STOCKFISH_PROVENANCE = "STOCKFISH_PROVENANCE.json"
 _SOUND_PROVENANCE_SOURCE = "provenance.json"
 _SOUND_PROVENANCE_NOTICE = "SOUND_PROVENANCE.json"
 _SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_LIVEKIT_CLIENT_VERSION = "2.22.3"
+_LIVEKIT_CLIENT_LICENSE_ID = "Apache-2.0"
+_LIVEKIT_CLIENT_NPM_TARBALL_URL = (
+    "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz"
+)
+_LIVEKIT_CLIENT_NPM_INTEGRITY = (
+    "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMgZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+)
+_LIVEKIT_VENDOR_ROOT = Path("web") / "vendor" / "livekit"
+_LIVEKIT_LICENSE_NOTICE = "LiveKit-client-LICENSE.txt"
+_LIVEKIT_TEXT_NOTICE = "LiveKit-client-NOTICE.txt"
+_LIVEKIT_PROVENANCE_NOTICE = "LIVEKIT_CLIENT_PROVENANCE.json"
 _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _MAX_STOCKFISH_ARCHIVE_FILES = 8192
 _MAX_STOCKFISH_ARCHIVE_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
@@ -382,6 +394,92 @@ def _json_no_duplicates(text: str, *, label: str = "sound manifest") -> object:
         raise Version2ReleasePayloadError(f"{label} is invalid JSON") from exc
 
 
+def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> None:
+    root = product_dir / _LIVEKIT_VENDOR_ROOT
+    bundle = root / "livekit-client.umd.js"
+    license_path = root / "LICENSE"
+    notice_path = root / "NOTICE"
+    provenance_path = root / "provenance.json"
+    try:
+        raw = _json_no_duplicates(
+            provenance_path.read_text(encoding="utf-8"),
+            label="LiveKit client provenance",
+        )
+    except OSError as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit client provenance is missing or unreadable"
+        ) from exc
+    if type(raw) is not dict:
+        raise Version2ReleasePayloadError("LiveKit client provenance root must be an object")
+    required_keys = {
+        "schema_version",
+        "component",
+        "version",
+        "license_id",
+        "source",
+        "upstream_tag",
+        "npm_integrity",
+        "bundle_sha256",
+        "license_sha256",
+        "notice_sha256",
+    }
+    if set(raw) != required_keys:
+        raise Version2ReleasePayloadError("LiveKit client provenance schema is invalid")
+    expected_identity = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": _LIVEKIT_CLIENT_VERSION,
+        "license_id": _LIVEKIT_CLIENT_LICENSE_ID,
+        "source": _LIVEKIT_CLIENT_NPM_TARBALL_URL,
+        "upstream_tag": f"v{_LIVEKIT_CLIENT_VERSION}",
+        "npm_integrity": _LIVEKIT_CLIENT_NPM_INTEGRITY,
+    }
+    for key, expected in expected_identity.items():
+        if raw.get(key) != expected:
+            raise Version2ReleasePayloadError(
+                f"LiveKit client provenance {key} does not match the pinned release"
+            )
+    for path, key in (
+        (bundle, "bundle_sha256"),
+        (license_path, "license_sha256"),
+        (notice_path, "notice_sha256"),
+    ):
+        expected_digest = raw.get(key)
+        if (
+            type(expected_digest) is not str
+            or len(expected_digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in expected_digest)
+        ):
+            raise Version2ReleasePayloadError(
+                f"LiveKit client provenance {key} is invalid"
+            )
+        try:
+            actual_digest = _sha256(path)
+        except OSError as exc:
+            raise Version2ReleasePayloadError(
+                "LiveKit client packaged resource is missing or unreadable"
+            ) from exc
+        if actual_digest != expected_digest:
+            raise Version2ReleasePayloadError(
+                f"LiveKit client packaged resource digest mismatch: {path.name}"
+            )
+    try:
+        license_bytes = license_path.read_bytes()
+        notice_bytes = notice_path.read_bytes()
+    except OSError as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit client redistribution notices are unreadable"
+        ) from exc
+    if b"Apache License" not in license_bytes or b"Version 2.0" not in license_bytes:
+        raise Version2ReleasePayloadError("LiveKit client license payload is invalid")
+    if b"LiveKit" not in notice_bytes or b"Apache License" not in notice_bytes:
+        raise Version2ReleasePayloadError("LiveKit client NOTICE payload is invalid")
+
+    shutil.copyfile(license_path, notices_dir / _LIVEKIT_LICENSE_NOTICE)
+    shutil.copyfile(notice_path, notices_dir / _LIVEKIT_TEXT_NOTICE)
+    shutil.copyfile(provenance_path, notices_dir / _LIVEKIT_PROVENANCE_NOTICE)
+
+
 def _validate_sound_pack(product_dir: Path) -> None:
     manifest_path = product_dir / DEFAULT_SOUND_RELATIVE_DIR / DEFAULT_SOUND_MANIFEST
     try:
@@ -650,6 +748,7 @@ def prepare_version2_release_payload(
         notices = staging / _PREPARED_NOTICES_DIR
         _copy_tree_without_links(standalone, product)
         notices.mkdir()
+        _publish_livekit_client_notices(product, notices)
 
         sound_destination = product / DEFAULT_SOUND_RELATIVE_DIR
         sound_destination.parent.mkdir(parents=True, exist_ok=True)
