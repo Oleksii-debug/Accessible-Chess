@@ -691,6 +691,21 @@ class ClassroomCollaborationController:
             if attachment.sequence_no != expected:
                 break
             after = attachment.sequence_no
+        # Capture revisions before the current history snapshot. Every update
+        # returned here causally precedes the snapshots fetched below, so an
+        # older revision for a newly discovered attachment must never replay
+        # backward over that later current snapshot.
+        state_after = self._store.attachment_state_revision(self.room_id)
+        updates = self._files.state_updates_after(
+            room_id=self.room_id,
+            after_revision=state_after,
+            limit=MAX_SYNC_ATTACHMENTS,
+        )
+        if type(updates) is not tuple or len(updates) > MAX_SYNC_ATTACHMENTS:
+            raise CollaborationError(
+                "attachment state response is invalid or too large"
+            )
+
         incoming = self._files.history_after(
             room_id=self.room_id,
             after_sequence=after,
@@ -711,17 +726,6 @@ class ClassroomCollaborationController:
                     "file history has an unresolved sequence gap"
                 )
             expected_sequence += 1
-
-        state_after = self._store.attachment_state_revision(self.room_id)
-        updates = self._files.state_updates_after(
-            room_id=self.room_id,
-            after_revision=state_after,
-            limit=MAX_SYNC_ATTACHMENTS,
-        )
-        if type(updates) is not tuple or len(updates) > MAX_SYNC_ATTACHMENTS:
-            raise CollaborationError(
-                "attachment state response is invalid or too large"
-            )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
         known_attachment_ids = {
             item.attachment_id

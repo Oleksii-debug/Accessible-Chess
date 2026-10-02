@@ -1229,6 +1229,72 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "short-lived-read-token",
         )
 
+    def test_fresh_current_snapshot_consumes_older_state_revisions_without_rollback(self):
+        current = AttachmentMetadata(
+            "causal-current", "room-1", "teacher-1", 0, "causal.pgn",
+            "application/x-chess-pgn", 8, "a" * 64,
+            "rooms/room-1/causal-current", "stored", "persistent", "clean",
+        )
+        self.files.ordered = [current]
+        self.files.attachments = {current.attachment_id: current}
+        self.files.state_updates = [
+            AttachmentStateUpdate(
+                "room-1", current.attachment_id, 0, "stored", "pending"
+            ),
+            AttachmentStateUpdate(
+                "room-1", current.attachment_id, 1, "stored", "clean"
+            ),
+        ]
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "causal-current.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        self.assertEqual(fresh.sync_files(), (current,))
+        self.assertEqual(fresh_store.room_attachments("room-1"), (current,))
+        self.assertEqual(fresh_store.attachment_state_revision("room-1"), 1)
+
+    def test_fresh_tombstone_snapshot_is_not_resurrected_by_older_revision(self):
+        tombstone = AttachmentMetadata(
+            "causal-deleted", "room-1", "teacher-1", 0, "deleted.pgn",
+            "application/x-chess-pgn", 8, "b" * 64,
+            "rooms/room-1/causal-deleted", "deleted", "persistent", "clean",
+        )
+        self.files.ordered = [tombstone]
+        self.files.attachments = {tombstone.attachment_id: tombstone}
+        self.files.state_updates = [
+            AttachmentStateUpdate(
+                "room-1", tombstone.attachment_id, 0, "stored", "clean"
+            ),
+            AttachmentStateUpdate(
+                "room-1", tombstone.attachment_id, 1, "deleted", "clean"
+            ),
+        ]
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "causal-deleted.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        self.assertEqual(fresh.sync_files(), ())
+        self.assertEqual(fresh_store.room_attachments("room-1"), (tombstone,))
+        self.assertEqual(fresh_store.attachment_state_revision("room-1"), 1)
+
     def test_tombstone_history_preserves_sequence_for_fresh_client(self):
         teacher = self.controller("teacher-1")
         self.files.scan_state = "clean"

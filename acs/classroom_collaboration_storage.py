@@ -849,6 +849,10 @@ class ClassroomCollaborationSQLiteStore:
         if not attachments and not updates:
             return ()
 
+        # Updates were fetched before these current snapshots. Revisions for
+        # attachment ids in this batch are already reflected by the later
+        # snapshot: consume their revisions without replaying older state.
+        snapshot_ids = {attachment.attachment_id for attachment in attachments}
         persisted: list[AttachmentMetadata] = []
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -966,27 +970,28 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "attachment state update references unknown room attachment"
                         )
-                    current = self._attachment_from_row(row)
-                    _validate_transfer_transition(
-                        current.transfer_state,
-                        update.transfer_state,
-                    )
-                    _validate_scan_transition(
-                        current.scan_state,
-                        update.scan_state,
-                    )
-                    db.execute(
-                        """
-                        UPDATE collaboration_attachments
-                        SET transfer_state=?, scan_state=?
-                        WHERE attachment_id=?
-                        """,
-                        (
+                    if update.attachment_id not in snapshot_ids:
+                        current = self._attachment_from_row(row)
+                        _validate_transfer_transition(
+                            current.transfer_state,
                             update.transfer_state,
+                        )
+                        _validate_scan_transition(
+                            current.scan_state,
                             update.scan_state,
-                            update.attachment_id,
-                        ),
-                    )
+                        )
+                        db.execute(
+                            """
+                            UPDATE collaboration_attachments
+                            SET transfer_state=?, scan_state=?
+                            WHERE attachment_id=?
+                            """,
+                            (
+                                update.transfer_state,
+                                update.scan_state,
+                                update.attachment_id,
+                            ),
+                        )
                     db.execute(
                         """
                         INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
