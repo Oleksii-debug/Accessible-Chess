@@ -87,6 +87,8 @@ _LABELS = {
         "file_retried": "Повторне передавання завершено.",
         "new_file": "Новий файл: {name}.",
         "new_many_files": "Нових файлів: {count}.",
+        "file_state_updated": "Стан файла оновлено: {name}.",
+        "file_states_updated": "Оновлено стан файлів: {count}.",
         "new_many": "Нових повідомлень: {count}.",
         "unread": "Непрочитаних: {count}",
         "type": "Тип",
@@ -135,6 +137,8 @@ _LABELS = {
         "file_retried": "File retry completed.",
         "new_file": "New file: {name}.",
         "new_many_files": "New files: {count}.",
+        "file_state_updated": "File status updated: {name}.",
+        "file_states_updated": "File statuses updated: {count}.",
         "new_many": "New messages: {count}.",
         "unread": "Unread: {count}",
         "type": "Type",
@@ -529,11 +533,22 @@ class ClassroomCollaborationWebView:
         return self._event("collaboration.chat.synced", announcement=announcement)
 
     def _sync_files(self) -> ClassroomCollaborationWebViewEvent:
+        before = {
+            item.attachment_id: (item.transfer_state, item.scan_state)
+            for item in self._store.room_attachments(self._controller.room_id)
+        }
         incoming = self._controller.sync_files()
+        after_items = self._store.room_attachments(self._controller.room_id)
         new_remote = tuple(
             item
             for item in incoming
             if item.sender_id != self._controller.local_participant_id
+        )
+        changed = tuple(
+            item
+            for item in after_items
+            if item.attachment_id in before
+            and before[item.attachment_id] != (item.transfer_state, item.scan_state)
         )
         announcement = ""
         if len(new_remote) == 1:
@@ -543,6 +558,14 @@ class ClassroomCollaborationWebView:
         elif len(new_remote) > 1:
             announcement = _LABELS[self._language]["new_many_files"].format(
                 count=len(new_remote)
+            )
+        elif len(changed) == 1:
+            announcement = _LABELS[self._language]["file_state_updated"].format(
+                name=changed[0].display_name
+            )
+        elif len(changed) > 1:
+            announcement = _LABELS[self._language]["file_states_updated"].format(
+                count=len(changed)
             )
         return self._event("collaboration.files.synced", announcement=announcement)
 
