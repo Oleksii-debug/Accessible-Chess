@@ -209,6 +209,31 @@ class ClassroomChatServerSQLiteStore:
             and message.retention == draft.retention
         )
 
+    def existing_for_draft(
+        self,
+        draft: ChatDraft,
+    ) -> ChatMessageMetadata | None:
+        if type(draft) is not ChatDraft:
+            raise ClassroomChatServerError("chat draft type is invalid")
+        try:
+            with closing(self._connect()) as db:
+                row = db.execute(
+                    "SELECT * FROM classroom_chat_server_messages WHERE message_id=?",
+                    (draft.message_id,),
+                ).fetchone()
+        except sqlite3.Error:
+            raise ClassroomChatServerError(
+                "classroom chat server message read failed"
+            ) from None
+        if row is None:
+            return None
+        message = self._row_message(row)
+        if not self._same_draft(message, draft):
+            raise ClassroomChatServerError(
+                "message id was reused with different immutable content"
+            )
+        return message
+
     def append_authoritative(
         self,
         draft: ChatDraft,
@@ -455,6 +480,9 @@ class ClassroomChatServerService:
             )
         except Exception:
             raise ClassroomChatServerError("chat send is not authorized") from None
+        existing = self._store.existing_for_draft(draft)
+        if existing is not None:
+            return existing
         try:
             timestamp = _clock_value(self._clock_unix_ms())
         except ClassroomChatServerError:
