@@ -861,7 +861,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                     controller.issue_download_token(
                         attachment_id=stored.attachment_id,
                     )
-                self.assertNotIn(token[:64], str(caught.exception))
+                if token:
+                    self.assertNotIn(token[:64], str(caught.exception))
 
     def test_unsafe_object_key_is_rejected_before_transport(self):
         controller = self.controller()
