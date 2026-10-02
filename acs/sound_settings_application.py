@@ -107,6 +107,23 @@ class SoundSettingsApplication:
             result[pack_id] = manifest
         return result
 
+    def _active_manifest(
+        self,
+        profile,
+        installed_local: Mapping[str, SoundPackManifest],
+    ) -> SoundPackManifest | None:
+        if profile.pack_id == "classic":
+            return None
+        local = installed_local.get(profile.pack_id)
+        if local is not None:
+            return local
+        entry = self._catalog.get(profile.pack_id)
+        if entry is None or self._packs is None or not entry.compatible:
+            return None
+        if self._packs.resolve_usable_pack(profile.pack_id) != profile.pack_id:
+            return None
+        return entry.manifest
+
     @staticmethod
     def _visible_event_ids(
         profile,
@@ -137,7 +154,7 @@ class SoundSettingsApplication:
         lang = self._language(language)
         profile = self._profiles.current
         installed_local = self._installed_local_packs()
-        active_manifest = installed_local.get(profile.pack_id)
+        active_manifest = self._active_manifest(profile, installed_local)
         events: list[dict[str, object]] = []
         for event_id in self._visible_event_ids(profile, active_manifest):
             pref = profile.preference_for(event_id)
@@ -242,7 +259,7 @@ class SoundSettingsApplication:
     ) -> SoundSettingsResult:
         profile = self._profiles.current
         installed_local = self._installed_local_packs()
-        active_manifest = installed_local.get(profile.pack_id)
+        active_manifest = self._active_manifest(profile, installed_local)
         if event_id not in self._visible_event_ids(profile, active_manifest):
             raise ValueError("unknown sound event")
         current = profile.preference_for(event_id)
@@ -254,7 +271,10 @@ class SoundSettingsApplication:
             raise TypeError("sound_id must be text or null")
         if (
             sound_id is not None
-            and self._installed_pack_provider is not None
+            and (
+                self._installed_pack_provider is not None
+                or active_manifest is not None
+            )
             and sound_id not in self._sound_choices(profile, event_id, active_manifest)
         ):
             raise ValueError("sound_id is not available in the active sound pack")
@@ -269,7 +289,8 @@ class SoundSettingsApplication:
 
     def preview(self, event_id: str, *, language: str = "uk") -> SoundSettingsResult:
         profile = self._profiles.current
-        active_manifest = self._installed_local_packs().get(profile.pack_id)
+        installed_local = self._installed_local_packs()
+        active_manifest = self._active_manifest(profile, installed_local)
         if event_id not in self._visible_event_ids(profile, active_manifest):
             raise ValueError("unknown sound event")
         preview = self._runtime.preview(event_id)
