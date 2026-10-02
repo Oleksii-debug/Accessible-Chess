@@ -248,6 +248,18 @@ class GameLifecycleTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, LifecycleErrorCode.INVALID_STATE)
         self.assertEqual(game.snapshot(), before)
 
+    def test_restore_checkpoint_revalidates_nested_outcome_atomically(self):
+        game = GameLifecycle()
+        game.request_takeback("w")
+        before = game.snapshot()
+        outcome = GameOutcome("1-0", EndReason.RESIGNATION, "w")
+        checkpoint = LifecycleSnapshot(GameStatus.FINISHED, outcome, None, None)
+        object.__setattr__(outcome, "reason", EndReason.STALEMATE)
+        with self.assertRaises(LifecycleError) as caught:
+            game.restore_checkpoint(checkpoint)
+        self.assertEqual(caught.exception.code, LifecycleErrorCode.INVALID_OUTCOME)
+        self.assertEqual(game.snapshot(), before)
+
     def test_finished_state_error_code_is_stable(self):
         game = GameLifecycle()
         game.resign("w")
