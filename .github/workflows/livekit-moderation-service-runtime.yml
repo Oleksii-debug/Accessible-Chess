@@ -151,7 +151,7 @@ jobs:
           )
           assert runtime.closed is False
           assert runtime.ready is False
-          assert "token=<not-stored>" in repr(runtime)
+          assert "token=<redacted>" in repr(runtime)
           print("LIVEKIT_REALTIME_ROOM_SCHEMA=PASS")
           PY
 
@@ -163,7 +163,7 @@ jobs:
           grep -Fq 'actual_room != self._room_id' acs/livekit_moderation_service_runtime.py
           grep -Fq 'actual_identity != self._identity' acs/livekit_moderation_service_runtime.py
           grep -Fq 'LiveKitModerationRpcTransport.bind' acs/livekit_moderation_service_runtime.py
-          grep -Fq 'token=<not-stored>' acs/livekit_moderation_service_runtime.py
+          grep -Fq 'token=<redacted>' acs/livekit_moderation_service_runtime.py
           ! grep -Eq 'LIVEKIT_API_SECRET|LIVEKIT_API_KEY|AccessToken|TokenVerifier|os\.(environ|getenv)'             acs/livekit_moderation_service_runtime.py
           ! grep -Eq 'classroom_domain|chesscore|classroom_media_policy_authority'             acs/livekit_moderation_service_runtime.py
 
