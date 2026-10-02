@@ -117,6 +117,34 @@ class ClassroomModerationServerCompositionTests(unittest.IsolatedAsyncioTestCase
             payload=payload,
         )
 
+    def test_workflow_binds_live_parent_and_current_source_owner_heads(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-moderation-server-composition.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            "LEDGER_OWNER_SHA: e7366ce87e56f4c2580f5212972f4b42dc4465f9",
+            workflow,
+        )
+        self.assertIn(
+            "ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+        self.assertNotIn('git diff --name-only "$EXPECTED_BASE_SHA" HEAD', workflow)
+
     async def test_publish_lock_flows_from_rpc_through_durable_commit_and_exact_replay(self):
         room = FakeRoomService(
             participant(
