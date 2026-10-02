@@ -238,6 +238,10 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
             "",
             "token with whitespace",
             "x\nsecret",
+            "header.payload",
+            "header.payload.signature.extra",
+            "header.páyload.signature",
+            "\ud800.payload.signature",
             "x" * 8193,
         ):
             with self.subTest(token=repr(token)[:40]):
