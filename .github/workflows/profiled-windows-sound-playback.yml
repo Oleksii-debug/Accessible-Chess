@@ -7,6 +7,8 @@ on:
     paths:
       - 'acs/sound_profile_windows.py'
       - 'tests/test_sound_profile_windows.py'
+      - 'tests/test_sound_profile_windows_compatibility.py'
+      - 'acs/sound_profile_composition.py'
       - 'acs/sound_pack_store.py'
       - 'acs/sound_windows.py'
       - '.github/workflows/profiled-windows-sound-playback.yml'
@@ -54,9 +56,12 @@ jobs:
           python -m py_compile
           acs/sound_profile_windows.py
           tests/test_sound_profile_windows.py
+          tests/test_sound_profile_windows_compatibility.py
+          acs/sound_profile_composition.py
       - name: Run profile-aware Windows playback contract
         run: >-
           python -m unittest -v
           tests.test_sound_profile_windows
+          tests.test_sound_profile_windows_compatibility
           tests.test_sound_profile_runtime
           tests.test_sound_pack_store
