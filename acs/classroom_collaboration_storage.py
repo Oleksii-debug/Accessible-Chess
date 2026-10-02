@@ -591,6 +591,62 @@ class ClassroomCollaborationSQLiteStore:
                 ) from exc
         return attachment
 
+    def register_attachments_atomic(
+        self,
+        attachments: tuple[AttachmentMetadata, ...],
+    ) -> tuple[AttachmentMetadata, ...]:
+        if type(attachments) is not tuple:
+            raise ValueError("attachment batch must be a tuple")
+        for attachment in attachments:
+            if type(attachment) is not AttachmentMetadata:
+                raise ValueError("attachment batch contains invalid metadata")
+            if safe_display_filename(attachment.display_name) != attachment.display_name:
+                raise ValueError("display_name must already be sanitized")
+            _safe_object_key(attachment.object_key)
+        if not attachments:
+            return ()
+
+        persisted: list[AttachmentMetadata] = []
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            for attachment in attachments:
+                existing = db.execute(
+                    "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment.attachment_id,),
+                ).fetchone()
+                if existing is not None:
+                    loaded = self._attachment_from_row(existing)
+                    if loaded != attachment:
+                        raise CollaborationConflictError(
+                            "attachment identity reused with different payload"
+                        )
+                    persisted.append(loaded)
+                    continue
+                try:
+                    db.execute(
+                        "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            attachment.attachment_id,
+                            attachment.room_id,
+                            attachment.sender_id,
+                            attachment.sequence_no,
+                            attachment.display_name,
+                            attachment.mime_type,
+                            attachment.size_bytes,
+                            attachment.sha256,
+                            attachment.object_key,
+                            attachment.transfer_state,
+                            attachment.retention,
+                            attachment.scan_state,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise CollaborationConflictError(
+                        "attachment batch conflicts with ordering or storage identity"
+                    ) from exc
+                persisted.append(attachment)
+        return tuple(persisted)
+
     def adopt_authoritative_attachment(
         self,
         attachment: AttachmentMetadata,
