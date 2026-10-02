@@ -10,6 +10,9 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         cls.source = (
             Path(__file__).parents[1] / "web" / "full_product_classroom_media.js"
         ).read_text(encoding="utf-8")
+        cls.bootstrap = (
+            Path(__file__).parents[1] / "web" / "version2_final_product_bootstrap.js"
+        ).read_text(encoding="utf-8")
 
     def test_important_media_state_is_real_selectable_dom_text(self) -> None:
         source = self.source
@@ -57,6 +60,16 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         self.assertIn("current.replaceWith(renderSection", source)
         self.assertIn('focusById(root, payload.focus_target || "")', source)
         self.assertNotIn("root.replaceChildren", source)
+
+    def test_classes_media_remains_reachable_when_education_is_unavailable(self) -> None:
+        source = self.bootstrap
+        start = source.index('} else if (routeId === "classes") {')
+        end = source.index("if (restoreFocus)", start)
+        block = source[start:end]
+        unavailable = block.index("renderEmptyProduct(routeId, heading);")
+        media_mount = block.index("AccessibleChessClassroomMediaSurface.mount")
+        self.assertLess(unavailable, media_mount)
+        self.assertIn("snapshot.media || null", block)
 
     def test_connection_text_is_not_a_competing_live_region(self) -> None:
         source = self.source
