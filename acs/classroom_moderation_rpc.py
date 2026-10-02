@@ -12,7 +12,6 @@ desktop/browser model.
 
 import asyncio
 from dataclasses import dataclass
-from enum import Enum
 import hashlib
 import json
 import re
@@ -34,11 +33,6 @@ _ENVELOPE_FIELDS = frozenset({"version", "room_id", "operations"})
 
 class ClassroomModerationRpcError(ValueError):
     """Fail-closed moderation RPC error safe for transport-level handling."""
-
-
-class OperationReplayState(str, Enum):
-    NEW = "new"
-    COMMITTED = "committed"
 
 
 class ClassroomModerationAuthorizationPort(Protocol):
@@ -262,10 +256,15 @@ class ClassroomModerationRpcService:
                 parsed.fingerprints,
                 strict=True,
             ):
-                committed = self._ledger.committed_fingerprint(
-                    room_id=parsed.room_id,
-                    operation_id=command.operation_id,
-                )
+                try:
+                    committed = self._ledger.committed_fingerprint(
+                        room_id=parsed.room_id,
+                        operation_id=command.operation_id,
+                    )
+                except Exception as error:
+                    raise ClassroomModerationRpcError(
+                        "moderation replay ledger read failed"
+                    ) from error
                 if committed is None:
                     new_commands.append((command, fingerprint))
                     continue
@@ -278,21 +277,36 @@ class ClassroomModerationRpcService:
                 # Authorize the complete set of new effects before the first
                 # provider mutation so a later unauthorized command cannot leave
                 # an earlier command partially applied.
-                self._authorization.authorize_moderation_batch(
-                    room_id=parsed.room_id,
-                    caller_identity=trusted_caller_identity,
-                    commands=tuple(command for command, _ in new_commands),
-                )
+                try:
+                    self._authorization.authorize_moderation_batch(
+                        room_id=parsed.room_id,
+                        caller_identity=trusted_caller_identity,
+                        commands=tuple(command for command, _ in new_commands),
+                    )
+                except Exception as error:
+                    raise ClassroomModerationRpcError(
+                        "moderation request is not authorized"
+                    ) from error
                 for command, fingerprint in new_commands:
-                    await self._provider_admin.apply_moderation_command(
-                        room_id=parsed.room_id,
-                        command=command,
-                    )
-                    self._ledger.commit(
-                        room_id=parsed.room_id,
-                        operation_id=command.operation_id,
-                        fingerprint=fingerprint,
-                    )
+                    try:
+                        await self._provider_admin.apply_moderation_command(
+                            room_id=parsed.room_id,
+                            command=command,
+                        )
+                    except Exception as error:
+                        raise ClassroomModerationRpcError(
+                            "moderation provider operation failed"
+                        ) from error
+                    try:
+                        self._ledger.commit(
+                            room_id=parsed.room_id,
+                            operation_id=command.operation_id,
+                            fingerprint=fingerprint,
+                        )
+                    except Exception as error:
+                        raise ClassroomModerationRpcError(
+                            "moderation replay ledger commit failed"
+                        ) from error
 
             response = json.dumps(
                 {
@@ -320,7 +334,6 @@ __all__ = [
     "ClassroomModerationRpcService",
     "MAX_RPC_OPERATIONS",
     "MAX_RPC_PAYLOAD_BYTES",
-    "OperationReplayState",
     "ParsedModerationRpc",
     "RPC_VERSION",
     "parse_moderation_rpc",
