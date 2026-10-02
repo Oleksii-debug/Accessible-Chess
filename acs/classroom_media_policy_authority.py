@@ -493,7 +493,14 @@ class SqliteClassroomMediaPolicyAuthority:
 
 
 class ClassroomMediaPolicyProviderAdmin:
-    """Persist hard policy before delegating the provider assignment."""
+    """Compose durable hard policy with the current provider assignment.
+
+    Restrictive changes are persisted before the provider effect so reconnect
+    cannot reopen a source or blocked participant after a provider failure.
+    Permission restoration is deliberately the inverse: authorization happens
+    first, the provider must accept the grant, and only then may a fresh join
+    credential observe that durable grant.
+    """
 
     __slots__ = ("_authority", "_provider_admin")
 
@@ -521,10 +528,32 @@ class ClassroomMediaPolicyProviderAdmin:
         room_id: str,
         command: ModerationCommand,
     ) -> None:
-        self._authority.record_authorized_command(
-            room_id=room_id,
-            command=command,
+        restore_after_provider = (
+            type(command) is ModerationCommand
+            and command.action is ModerationAction.PUBLISH_PERMISSION
+            and command.value is True
         )
+
+        if restore_after_provider:
+            if command.source is None:
+                raise ClassroomMediaPolicyError(
+                    "publish-permission command is invalid"
+                )
+            self._authority.authorize_moderation_batch(
+                room_id=room_id,
+                caller_identity=command.actor_id,
+                commands=(command,),
+            )
+        else:
+            # Revocations and durable blocks must win reconnect even when the
+            # current provider assignment fails. Session-only operations still
+            # pass through this call for canonical authorization but do not
+            # mutate durable media policy.
+            self._authority.record_authorized_command(
+                room_id=room_id,
+                command=command,
+            )
+
         try:
             await self._provider_admin.apply_moderation_command(
                 room_id=room_id,
@@ -534,6 +563,17 @@ class ClassroomMediaPolicyProviderAdmin:
             raise ClassroomMediaPolicyError(
                 "media policy provider operation failed"
             ) from None
+
+        if restore_after_provider:
+            # A failed provider grant must never become a reconnect grant.
+            # Persist only after the provider reached the authorized state.
+            # If durable publication now fails, the RPC remains uncommitted;
+            # an exact retry is safe because provider assignments are
+            # idempotent and the durable state still fails closed.
+            self._authority.record_authorized_command(
+                room_id=room_id,
+                command=command,
+            )
 
 
 def _role(roster: ClassroomRosterPort, participant_id: str) -> ClassroomRole:
