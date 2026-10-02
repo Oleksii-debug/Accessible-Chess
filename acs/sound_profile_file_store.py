@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import contextmanager
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import tempfile
 import threading
 from typing import Iterator
 
+from .sound_profile_store import SoundProfileConflictError
 from .sound_profiles import SoundProfile
 
 
@@ -20,6 +22,7 @@ _MALFORMED_SCHEMA_MARKER = "__malformed_sound_profile_storage__"
 
 _PROCESS_LOCKS_GUARD = threading.Lock()
 _PROCESS_LOCKS: dict[str, threading.RLock] = {}
+_UNOBSERVED = object()
 
 
 class SoundProfileFileError(ValueError):
@@ -97,6 +100,7 @@ class JsonSoundProfileStorage:
         self.path = Path(path)
         self.max_bytes = max_bytes
         self._process_lock = _process_lock_for(self.path)
+        self._observed_token: object = _UNOBSERVED
 
     @property
     def _lock_path(self) -> Path:
@@ -194,11 +198,29 @@ class JsonSoundProfileStorage:
                     self._unlock_descriptor(descriptor)
                 os.close(descriptor)
 
-    def _read_raw(self) -> bytes | None:
+    @staticmethod
+    def _metadata_token(
+        metadata: os.stat_result,
+        *,
+        content_digest: str | None,
+        overflow: bool,
+    ) -> tuple[object, ...]:
+        return (
+            int(getattr(metadata, "st_dev", 0)),
+            int(getattr(metadata, "st_ino", 0)),
+            int(metadata.st_size),
+            int(getattr(metadata, "st_mtime_ns", 0)),
+            bool(overflow),
+            content_digest,
+        )
+
+    def _read_raw_with_token(
+        self,
+    ) -> tuple[bytes | None, tuple[object, ...] | None]:
         try:
             metadata = os.lstat(self.path)
         except FileNotFoundError:
-            return None
+            return None, None
         except OSError as exc:
             raise SoundProfileFileError(
                 "sound profile storage is unavailable"
@@ -208,7 +230,11 @@ class JsonSoundProfileStorage:
             message="sound profile storage is not a regular file",
         )
         if metadata.st_size > self.max_bytes:
-            return b""
+            return b"", self._metadata_token(
+                metadata,
+                content_digest=None,
+                overflow=True,
+            )
 
         flags = os.O_RDONLY
         flags |= getattr(os, "O_BINARY", 0)
@@ -228,12 +254,24 @@ class JsonSoundProfileStorage:
                 message="sound profile storage is not a regular file",
             )
             if opened.st_size > self.max_bytes:
-                return b""
+                return b"", self._metadata_token(
+                    opened,
+                    content_digest=None,
+                    overflow=True,
+                )
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
                 raw = stream.read(self.max_bytes + 1)
             if len(raw) > self.max_bytes:
-                return b""
-            return raw
+                return b"", self._metadata_token(
+                    opened,
+                    content_digest=hashlib.sha256(raw).hexdigest(),
+                    overflow=True,
+                )
+            return raw, self._metadata_token(
+                opened,
+                content_digest=hashlib.sha256(raw).hexdigest(),
+                overflow=False,
+            )
         except SoundProfileFileError:
             raise
         except OSError as exc:
@@ -244,7 +282,8 @@ class JsonSoundProfileStorage:
             os.close(descriptor)
 
     def read_profile(self) -> Mapping[str, object] | None:
-        raw = self._read_raw()
+        raw, token = self._read_raw_with_token()
+        self._observed_token = token
         if raw is None:
             return None
         if not raw:
@@ -316,18 +355,18 @@ class JsonSoundProfileStorage:
     ) -> None:
         encoded = self._canonical_bytes(payload)
         with self._exclusive_access():
-            try:
-                existing = os.lstat(self.path)
-            except FileNotFoundError:
-                existing = None
-            except OSError as exc:
-                raise SoundProfileFileError(
-                    "sound profile storage is unavailable"
-                ) from exc
-            if existing is not None:
-                _require_regular_metadata(
-                    existing,
-                    message="sound profile storage is not a regular file",
+            current_raw, current_token = self._read_raw_with_token()
+            if (
+                self._observed_token is not _UNOBSERVED
+                and current_token != self._observed_token
+            ):
+                if current_raw == encoded:
+                    # Another process already committed the exact same canonical
+                    # state. Treat that as idempotent convergence, not conflict.
+                    self._observed_token = current_token
+                    return
+                raise SoundProfileConflictError(
+                    "sound profile changed in another process"
                 )
 
             temp_path: Path | None = None
@@ -344,6 +383,11 @@ class JsonSoundProfileStorage:
                     os.fsync(stream.fileno())
                 os.replace(temp_path, self.path)
                 temp_path = None
+                _written, self._observed_token = self._read_raw_with_token()
+                if _written != encoded:
+                    raise SoundProfileFileError(
+                        "sound profile storage readback did not match committed bytes"
+                    )
             except OSError as exc:
                 raise SoundProfileFileError(
                     "sound profile storage could not be updated"
