@@ -249,6 +249,20 @@ class BookLibraryGameLookupTests(unittest.TestCase):
         self.assertIn('upstream="$live_product"', workflow)
         self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
 
+    def test_windows_blob_readback_tracks_current_head_instead_of_stale_stage1_digests(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "v2-book-library-game-lookup.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('expected="$(git rev-parse "HEAD:$path")"', workflow)
+        self.assertIn('git cat-file blob "HEAD:$path" > "$path"', workflow)
+        self.assertIn('git hash-object --no-filters "$path"', workflow)
+        self.assertNotIn("b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6", workflow)
+        self.assertNotIn("FROZEN_STAGE1", workflow)
+
     def test_constructor_rejects_noncanonical_database_adapter(self) -> None:
         with self.assertRaises(TypeError):
             AcsdbBookGameLookup(object())  # type: ignore[arg-type]
