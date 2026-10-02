@@ -78,6 +78,34 @@ class FakeProviderAdmin:
             raise self.error
 
 
+class LostUpdateProviderAdmin:
+    """Deliberately stale read/modify/write provider used to prove serialization."""
+
+    def __init__(self):
+        self.sources = {MediaSource.MICROPHONE, MediaSource.CAMERA}
+        self.commands = []
+        self.active = 0
+        self.max_active = 0
+
+    async def apply_moderation_command(self, *, room_id, command):
+        snapshot = set(self.sources)
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        self.commands.append((room_id, command))
+        try:
+            # Without cross-instance serialization, two callers both snapshot
+            # the original state and the later write loses the earlier revoke.
+            await asyncio.sleep(0.05)
+            if command.action is ModerationAction.PUBLISH_PERMISSION:
+                if command.value:
+                    snapshot.add(command.source)
+                else:
+                    snapshot.discard(command.source)
+            self.sources = snapshot
+        finally:
+            self.active -= 1
+
+
 def command(
     action,
     *,
@@ -516,6 +544,178 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
                     ),
                 ),
             )
+
+    def test_distinct_cross_instance_revokes_are_serialized_before_provider_rmw(self):
+        first_authority = self.authority()
+        second_authority = self.authority()
+        provider = LostUpdateProviderAdmin()
+        first = ClassroomMediaPolicyProviderAdmin(
+            authority=first_authority,
+            provider_admin=provider,
+        )
+        second = ClassroomMediaPolicyProviderAdmin(
+            authority=second_authority,
+            provider_admin=provider,
+        )
+
+        async def race():
+            await asyncio.gather(
+                first.apply_moderation_command(
+                    room_id="room-1",
+                    command=command(
+                        ModerationAction.PUBLISH_PERMISSION,
+                        source=MediaSource.CAMERA,
+                        value=False,
+                        operation="op-lock-camera-distinct",
+                    ),
+                ),
+                second.apply_moderation_command(
+                    room_id="room-1",
+                    command=command(
+                        ModerationAction.PUBLISH_PERMISSION,
+                        source=MediaSource.MICROPHONE,
+                        value=False,
+                        operation="op-lock-microphone-distinct",
+                    ),
+                ),
+            )
+
+        asyncio.run(race())
+
+        self.assertEqual(provider.max_active, 1)
+        self.assertEqual(provider.sources, set())
+        self.assertEqual(len(provider.commands), 2)
+        restarted = self.authority()
+        policy = restarted.participant_policy(
+            room_id="room-1",
+            participant_id="student-1",
+        )
+        self.assertFalse(policy.source(MediaSource.MICROPHONE).publish_allowed)
+        self.assertFalse(policy.source(MediaSource.CAMERA).publish_allowed)
+
+    def test_restore_and_revoke_share_one_total_order_across_instances(self):
+        authority = self.authority()
+        authority.record_authorized_command(
+            room_id="room-1",
+            command=command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.MICROPHONE,
+                value=False,
+                operation="op-initial-mic-lock",
+            ),
+        )
+        provider = LostUpdateProviderAdmin()
+        provider.sources.discard(MediaSource.MICROPHONE)
+        first = ClassroomMediaPolicyProviderAdmin(
+            authority=self.authority(),
+            provider_admin=provider,
+        )
+        second = ClassroomMediaPolicyProviderAdmin(
+            authority=self.authority(),
+            provider_admin=provider,
+        )
+
+        async def race():
+            await asyncio.gather(
+                first.apply_moderation_command(
+                    room_id="room-1",
+                    command=command(
+                        ModerationAction.PUBLISH_PERMISSION,
+                        source=MediaSource.MICROPHONE,
+                        value=True,
+                        operation="op-restore-mic-distinct",
+                    ),
+                ),
+                second.apply_moderation_command(
+                    room_id="room-1",
+                    command=command(
+                        ModerationAction.PUBLISH_PERMISSION,
+                        source=MediaSource.MICROPHONE,
+                        value=False,
+                        operation="op-revoke-mic-distinct",
+                    ),
+                ),
+            )
+
+        asyncio.run(race())
+
+        grant = self.authority().authorize_join(
+            room_id="room-1",
+            trusted_caller_identity="student-1",
+            requested_participant_id="student-1",
+        )
+        durable_allows = MediaSource.MICROPHONE in grant.publish_sources
+        provider_allows = MediaSource.MICROPHONE in provider.sources
+        self.assertEqual(provider.max_active, 1)
+        self.assertEqual(provider_allows, durable_allows)
+
+    def test_cancelled_effect_lock_waiter_cannot_strand_future_moderation(self):
+        first = self.authority()
+        second = self.authority()
+        third = self.authority()
+
+        async def exercise():
+            first_scope = first.provider_effect_scope(
+                room_id="room-1",
+                participant_id="student-1",
+            )
+            await first_scope.__aenter__()
+            waiter_entered = False
+
+            async def wait_for_same_lock():
+                nonlocal waiter_entered
+                async with second.provider_effect_scope(
+                    room_id="room-1",
+                    participant_id="student-1",
+                ):
+                    waiter_entered = True
+
+            waiter = asyncio.create_task(wait_for_same_lock())
+            await asyncio.sleep(0.05)
+            waiter.cancel()
+            await first_scope.__aexit__(None, None, None)
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(waiter, timeout=2.0)
+            self.assertFalse(waiter_entered)
+
+            async with third.provider_effect_scope(
+                room_id="room-1",
+                participant_id="student-1",
+            ):
+                return True
+
+        self.assertTrue(asyncio.run(exercise()))
+
+    def test_effect_lock_is_companion_storage_not_policy_or_identity_authority(self):
+        authority = self.authority()
+        lock_path = self.path.with_name(
+            self.path.name + ".provider-effect-lock.sqlite3"
+        )
+        self.assertTrue(lock_path.exists())
+        with sqlite3.connect(str(lock_path)) as connection:
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(classroom_moderation_effect_lock)"
+                )
+            }
+        self.assertIn("classroom_moderation_effect_lock", tables)
+        self.assertEqual(columns, {"singleton", "generation"})
+        rendered = repr(
+            authority.provider_effect_scope(
+                room_id="room-1",
+                participant_id="student-1",
+            )
+        )
+        self.assertNotIn(str(self.path), rendered)
+        self.assertNotIn("room-1", rendered)
+        self.assertNotIn("student-1", rendered)
 
     def test_provider_wrapper_persists_revoke_before_provider_failure(self):
         authority = self.authority()
