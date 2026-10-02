@@ -194,6 +194,7 @@ def create_local_sound_composition(
         profiled,
         installed_pack_provider=lambda: _playable_installed_packs(pack_store),
     )
+    settings.reconcile_active_profile()
     return LocalSoundComposition(
         profile_manager=profile_manager,
         pack_store=pack_store,
