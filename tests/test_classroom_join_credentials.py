@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
+import traceback
 import unittest
 
 from acs.classroom_join_credentials import (
@@ -157,6 +158,9 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
             self.run_issue(service)
 
         self.assertNotIn("database", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("private roster database detail", rendered)
         self.assertEqual(issuer.calls, [])
 
     def test_authority_cannot_silently_rebind_room_or_participant(self):
@@ -239,6 +243,9 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         ) as caught:
             self.run_issue(service)
         self.assertNotIn("api_secret", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("provider api_secret leaked internally", rendered)
 
         service, _authorization, issuer = self.make_service()
         issuer.token = "token with whitespace"
@@ -248,6 +255,9 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         ) as caught:
             self.run_issue(service)
         self.assertNotIn(issuer.token, str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(issuer.token, rendered)
 
     def test_request_parser_is_strict_and_bounded_before_authorization(self):
         for payload in (
