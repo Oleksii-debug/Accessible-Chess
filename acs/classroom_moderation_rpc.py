@@ -215,7 +215,10 @@ def parse_moderation_rpc(
     caller = _identifier(trusted_caller_identity, "trusted caller identity")
     if type(payload) is not str:
         raise ClassroomModerationRpcError("moderation RPC payload must be text")
-    encoded = payload.encode("utf-8")
+    try:
+        encoded = payload.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ClassroomModerationRpcError("moderation RPC payload is not valid UTF-8 text") from None
     if not encoded or len(encoded) > MAX_RPC_PAYLOAD_BYTES:
         raise ClassroomModerationRpcError("moderation RPC payload size is invalid")
     try:
