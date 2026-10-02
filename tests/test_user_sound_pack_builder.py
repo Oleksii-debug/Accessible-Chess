@@ -16,6 +16,14 @@ from scripts.build_user_sound_pack import (
 
 
 class UserSoundPackBuilderTests(unittest.TestCase):
+    def test_legacy_procedural_sound_generator_cannot_return(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "acs" / "sound.py").read_text(encoding="utf-8")
+        self.assertNotIn("random.Random", source)
+        self.assertNotIn("def _make(", source)
+        self.assertNotIn("wave.open", source)
+        self.assertIn("PackagedSoundAssetResolver", source)
+
     @staticmethod
     def _write_wave(path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
