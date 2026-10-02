@@ -16,6 +16,7 @@ from hashlib import sha256
 import hmac
 from pathlib import Path
 import secrets
+import unicodedata
 
 from .classroom_collaboration import (
     MAX_CHAT_BODY_CHARS,
@@ -245,7 +246,10 @@ class ClassroomCollaborationWebView:
             return _GENERIC_PARTICIPANT[self._language]
         if type(raw) is not str:
             return _GENERIC_PARTICIPANT[self._language]
-        safe = "".join(ch for ch in raw if ord(ch) >= 32 and ord(ch) != 127)
+        safe = "".join(
+            ch for ch in unicodedata.normalize("NFC", raw)
+            if not unicodedata.category(ch).startswith("C")
+        )
         label = " ".join(safe.split())[:120]
         return label or _GENERIC_PARTICIPANT[self._language]
 
@@ -573,9 +577,28 @@ class ClassroomCollaborationWebView:
             local_path=selected,
             sequence_no=sequence,
         )
-        self._prepared[prepared.metadata.attachment_id] = prepared
-        uploaded = self._controller.upload_file(prepared)
-        if uploaded.transfer_state != "failed":
+        try:
+            uploaded = self._controller.upload_file(prepared)
+        except Exception:
+            # Keep the local source path only when canonical durable metadata
+            # proves there is a failed transfer that the user can retry.
+            try:
+                retriable = any(
+                    item.attachment_id == prepared.metadata.attachment_id
+                    and item.transfer_state == "failed"
+                    and item.scan_state != "blocked"
+                    for item in self._store.room_attachments(self._controller.room_id)
+                )
+            except Exception:
+                retriable = False
+            if retriable:
+                self._prepared[prepared.metadata.attachment_id] = prepared
+            else:
+                self._prepared.pop(prepared.metadata.attachment_id, None)
+            raise
+        if uploaded.transfer_state == "failed" and uploaded.scan_state != "blocked":
+            self._prepared[uploaded.attachment_id] = prepared
+        else:
             self._prepared.pop(uploaded.attachment_id, None)
         return self._event(
             "collaboration.file.sent",
