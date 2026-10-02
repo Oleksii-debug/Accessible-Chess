@@ -144,6 +144,29 @@ class SoundPackManifestTests(unittest.TestCase):
             with self.subTest(path=unsafe), self.assertRaises(ValueError):
                 self._pack(files=files)
 
+    def test_windows_reserved_devices_and_forbidden_filename_chars_are_rejected(self) -> None:
+        for unsafe in (
+            "audio/CON.wav",
+            "audio/con.mp3",
+            "audio/AUX.ogg",
+            "audio/NUL.wav",
+            "audio/COM1.wav",
+            "audio/lpt9.wav",
+            "CONIN$.wav",
+            "audio/bad:name.wav",
+            'audio/bad"name.wav',
+            "audio/bad|name.wav",
+            "audio/bad?name.wav",
+            "audio/bad*name.wav",
+            "audio/bad\x1fname.wav",
+        ):
+            files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+            files["move"] = unsafe
+            with self.subTest(path=unsafe), self.assertRaisesRegex(
+                ValueError, "Windows"
+            ):
+                self._pack(files=files)
+
     def test_windows_case_colliding_asset_paths_are_rejected(self) -> None:
         files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
         files["move"] = "Audio/shared.wav"
