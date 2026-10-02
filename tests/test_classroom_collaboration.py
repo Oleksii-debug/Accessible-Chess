@@ -268,6 +268,43 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (first, missed, sent),
         )
 
+    def test_receive_later_message_on_empty_store_recovers_complete_prefix(self):
+        controller = self.controller()
+        first = self.chat.send_message(
+            ChatDraft("m0", "room-1", "teacher-1", "First")
+        )
+        missed = self.chat.send_message(
+            ChatDraft("m1", "room-1", "student-2", "Missed")
+        )
+        later = self.chat.send_message(
+            ChatDraft("m2", "room-1", "teacher-1", "Later")
+        )
+
+        received = controller.receive_chat(later)
+
+        self.assertEqual(received, later)
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            (first, missed, later),
+        )
+
+    def test_receive_later_message_fails_closed_when_server_history_omits_prefix(self):
+        controller = self.controller()
+        later = ChatMessageMetadata(
+            "m2",
+            "room-1",
+            "teacher-1",
+            2,
+            "Incomplete history",
+            sent_at_unix_ms=1700000002000,
+        )
+        self.chat.ordered = [later]
+
+        with self.assertRaises(CollaborationError):
+            controller.receive_chat(later)
+
+        self.assertEqual(self.store.room_messages("room-1"), ())
+
     def test_sync_rejects_cross_room_or_out_of_order_transport_history(self):
         controller = self.controller()
         self.chat.ordered.append(
