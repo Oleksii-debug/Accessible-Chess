@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 env:
-  CURRENT_PRODUCT_BASE: d8f2da508f31dad0bd262afaef5f6e5a0ccaa312
+  CURRENT_PRODUCT_BASE: 171ca45b6483cce4b51354bd0c8626733f87c45c
   OWNER_HEAD: fix/p0g-match-counter-20260929
   PROBE_BLOB: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
   TEST_BLOB: c5212dfa0c58d9d7a366a18dd89be8623bac01d0
