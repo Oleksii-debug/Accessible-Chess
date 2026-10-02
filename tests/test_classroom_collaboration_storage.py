@@ -112,6 +112,66 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.room_messages("room"), ())
         self.assertEqual(self.store.room_messages("room", include_hidden=True), (hidden,))
 
+    def test_replay_preserves_hide_and_backfills_legacy_timestamp_once(self) -> None:
+        original = ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        self.store.append_message(original)
+        hidden = self.store.set_message_hidden("m1", True)
+
+        replay = ChatMessageMetadata(
+            "m1",
+            "room",
+            "teacher",
+            0,
+            "Moderated",
+            sent_at_unix_ms=1700000000000,
+        )
+        reconciled = self.store.append_message(replay)
+        self.assertTrue(reconciled.hidden)
+        self.assertEqual(reconciled.sent_at_unix_ms, 1700000000000)
+        self.assertEqual(self.store.room_messages("room"), ())
+        self.assertEqual(
+            self.store.room_messages("room", include_hidden=True),
+            (reconciled,),
+        )
+        self.assertNotEqual(hidden, reconciled)
+
+        with self.assertRaises(CollaborationConflictError):
+            self.store.append_message(
+                ChatMessageMetadata(
+                    "m1",
+                    "room",
+                    "teacher",
+                    0,
+                    "Moderated",
+                    sent_at_unix_ms=1700000000001,
+                )
+            )
+
+    def test_remote_hidden_replay_is_monotonic(self) -> None:
+        original = ChatMessageMetadata(
+            "m1",
+            "room",
+            "teacher",
+            0,
+            "Moderated",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        hidden = self.store.append_message(
+            ChatMessageMetadata(
+                "m1",
+                "room",
+                "teacher",
+                0,
+                "Moderated",
+                hidden=True,
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        self.assertTrue(hidden.hidden)
+        replay = self.store.append_message(original)
+        self.assertTrue(replay.hidden)
+
     def test_wire_metadata_rejects_bool_sequences_oversize_chat_and_noncanonical_ids(self) -> None:
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", True, "Hello")
