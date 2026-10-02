@@ -8,46 +8,52 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
-      - 'acs/sound_profiles.py'
-      - 'acs/sound_profile_store.py'
-      - 'acs/sound_profile_file_store.py'
-      - 'acs/sound_profile_composition.py'
+      - '.github/workflows/current-sound-profiles-contract.yml'
+      - '.github/workflows/profiled-windows-sound-playback.yml'
+      - '.github/workflows/sound-settings-application.yml'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - 'acs/classroom_sound.py'
       - 'acs/sound_pack_catalog.py'
       - 'acs/sound_pack_profile.py'
       - 'acs/sound_pack_store.py'
-      - 'acs/classroom_sound.py'
+      - 'acs/sound_profile_composition.py'
+      - 'acs/sound_profile_file_store.py'
+      - 'acs/sound_profile_store.py'
+      - 'acs/sound_profile_windows.py'
+      - 'acs/sound_profiles.py'
       - 'acs/sound_runtime.py'
       - 'acs/sound_settings_application.py'
-      - 'acs/sound_profile_windows.py'
-      - 'acs/version2_release_app.py'
-      - 'acs/version2_package_preflight.py'
-      - 'acs/version2_release_ui.py'
       - 'acs/version2_education_mutation_release.py'
-      - 'run_accessible_chess_v2.py'
-      - 'web/full_product_sound_settings.js'
-      - 'tests/test_sound_profiles.py'
-      - 'tests/test_sound_profile_store.py'
-      - 'tests/test_sound_profile_file_store.py'
-      - 'tests/test_sound_profile_composition.py'
-      - 'tests/test_sound_profile_manager_hardening.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_release_ui.py'
+      - 'tests/js/sound_settings_surface_test.js'
+      - 'tests/test_classroom_sound.py'
+      - 'tests/test_dev3_sound_failure_isolation.py'
       - 'tests/test_sound_pack_catalog.py'
       - 'tests/test_sound_pack_profile.py'
       - 'tests/test_sound_pack_store.py'
+      - 'tests/test_sound_profile_composition.py'
+      - 'tests/test_sound_profile_file_store.py'
+      - 'tests/test_sound_profile_manager_hardening.py'
       - 'tests/test_sound_profile_runtime.py'
-      - 'tests/test_dev3_sound_failure_isolation.py'
-      - 'tests/test_classroom_sound.py'
-      - 'tests/test_sound_settings_application.py'
+      - 'tests/test_sound_profile_store.py'
       - 'tests/test_sound_profile_windows.py'
       - 'tests/test_sound_profile_workflow_contract.py'
-      - 'tests/test_version2_sound_profile_bridge.py'
+      - 'tests/test_sound_profiles.py'
+      - 'tests/test_sound_settings_application.py'
       - 'tests/test_sound_settings_webview.py'
-      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_v2_native_dialog_language.py'
       - 'tests/test_v2_package_required_resources.py'
-      - 'tests/js/sound_settings_surface_test.js'
-      - '.github/workflows/current-sound-profiles-contract.yml'
-      - '.github/workflows/sound-settings-application.yml'
-      - '.github/workflows/profiled-windows-sound-playback.yml'
-      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+      - 'tests/test_version2_composition_startup_cleanup_current.py'
+      - 'tests/test_version2_package_assembler.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_sound_profile_bridge.py'
+      - 'tests/test_w6_v2_language_owner_current.py'
+      - 'web/full_product_sound_settings.js'
   workflow_dispatch:
 
 permissions:
@@ -99,12 +105,11 @@ jobs:
               'tests/test_sound_pack_profile.py' \
               'tests/test_sound_pack_store.py' \
               'tests/test_sound_profile_file_store.py' \
-              'tests/test_sound_profile_composition.py' \
               'tests/test_sound_profile_manager_hardening.py' \
               'tests/test_sound_profile_runtime.py' \
-              'tests/test_dev3_sound_failure_isolation.py' \
               'tests/test_sound_profile_store.py' \
-              'tests/test_sound_profiles.py' | sort)"
+              'tests/test_sound_profiles.py' \
+              | sort)"
             echo 'SOUND_SCOPE_MODE=OWNER_EXACT'
           else
             test "$head_ref" = 'reconverge/sound-profiles-current-product-20260926'
@@ -113,43 +118,51 @@ jobs:
             expected="$(printf '%s\n' \
               '.github/workflows/current-sound-profiles-contract.yml' \
               '.github/workflows/profiled-windows-sound-playback.yml' \
-              '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
               '.github/workflows/sound-settings-application.yml' \
+              '.github/workflows/w6-v2-package-assembler.yml' \
+              '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
+              '.github/workflows/w6-v2-release-payload-current-assembler.yml' \
               'acs/classroom_sound.py' \
               'acs/sound_pack_catalog.py' \
               'acs/sound_pack_profile.py' \
               'acs/sound_pack_store.py' \
-              'acs/sound_profile_file_store.py' \
               'acs/sound_profile_composition.py' \
+              'acs/sound_profile_file_store.py' \
               'acs/sound_profile_store.py' \
               'acs/sound_profile_windows.py' \
-              'acs/version2_release_app.py' \
-              'acs/version2_package_preflight.py' \
-              'acs/version2_release_ui.py' \
-              'acs/version2_education_mutation_release.py' \
-              'run_accessible_chess_v2.py' \
-              'web/full_product_sound_settings.js' \
               'acs/sound_profiles.py' \
               'acs/sound_runtime.py' \
               'acs/sound_settings_application.py' \
+              'acs/version2_education_mutation_release.py' \
+              'acs/version2_package_preflight.py' \
+              'acs/version2_release_app.py' \
+              'acs/version2_release_payload.py' \
+              'acs/version2_release_ui.py' \
+              'tests/js/sound_settings_surface_test.js' \
               'tests/test_classroom_sound.py' \
+              'tests/test_dev3_sound_failure_isolation.py' \
               'tests/test_sound_pack_catalog.py' \
               'tests/test_sound_pack_profile.py' \
               'tests/test_sound_pack_store.py' \
-              'tests/test_sound_profile_file_store.py' \
               'tests/test_sound_profile_composition.py' \
+              'tests/test_sound_profile_file_store.py' \
               'tests/test_sound_profile_manager_hardening.py' \
               'tests/test_sound_profile_runtime.py' \
               'tests/test_sound_profile_store.py' \
               'tests/test_sound_profile_windows.py' \
               'tests/test_sound_profile_workflow_contract.py' \
-              'tests/test_version2_sound_profile_bridge.py' \
-              'tests/test_sound_settings_webview.py' \
-              'tests/test_version2_package_preflight.py' \
-              'tests/test_v2_package_required_resources.py' \
-              'tests/js/sound_settings_surface_test.js' \
               'tests/test_sound_profiles.py' \
-              'tests/test_sound_settings_application.py' | sort)"
+              'tests/test_sound_settings_application.py' \
+              'tests/test_sound_settings_webview.py' \
+              'tests/test_v2_native_dialog_language.py' \
+              'tests/test_v2_package_required_resources.py' \
+              'tests/test_version2_composition_startup_cleanup_current.py' \
+              'tests/test_version2_package_assembler.py' \
+              'tests/test_version2_release_payload.py' \
+              'tests/test_version2_sound_profile_bridge.py' \
+              'tests/test_w6_v2_language_owner_current.py' \
+              'web/full_product_sound_settings.js' \
+              | sort)"
             echo 'SOUND_SCOPE_MODE=CURRENT_PRODUCT_SUCCESSOR'
           fi
           git cat-file -e "${base}^{commit}"
@@ -181,6 +194,7 @@ jobs:
           acs/sound_profile_windows.py
           acs/version2_release_app.py
           acs/version2_package_preflight.py
+          acs/version2_release_payload.py
           acs/version2_release_ui.py
           acs/version2_education_mutation_release.py
           run_accessible_chess_v2.py
@@ -201,6 +215,11 @@ jobs:
           tests/test_sound_settings_webview.py
           tests/test_version2_package_preflight.py
           tests/test_v2_package_required_resources.py
+          tests/test_v2_native_dialog_language.py
+          tests/test_version2_composition_startup_cleanup_current.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_release_payload.py
+          tests/test_w6_v2_language_owner_current.py
 
       - name: Run sound settings DOM regression
         run: |
@@ -228,6 +247,11 @@ jobs:
           tests.test_sound_settings_webview
           tests.test_version2_package_preflight
           tests.test_v2_package_required_resources
+          tests.test_v2_native_dialog_language
+          tests.test_version2_composition_startup_cleanup_current
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_w6_v2_language_owner_current
           tests.test_sound_events
           tests.test_sound_runtime
           tests.test_dev3_sound_failure_isolation
