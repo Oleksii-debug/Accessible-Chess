@@ -46,7 +46,10 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         start = html.index("async function onBoardKey(e){")
         end = html.index("\nfunction focusHistoryJump", start)
         handler = html[start:end]
-        self.assertIn("resolveBinding(eventChord(e),'board','board')", handler)
+        self.assertIn("keymapActionForEvent(e,'board')", handler)
+        self.assertIn("resolveBinding(chord,'board','board')", handler)
+        self.assertLess(handler.index("e.preventDefault()"), handler.index("await resolveBinding"))
+        self.assertIn("a&&a.actionId===candidate", handler)
         for hardcoded in (
             "key==='Escape'",
             "key==='Enter'",
@@ -67,6 +70,23 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
             "board.exit",
         ):
             self.assertIn(action_id, html)
+
+    def test_shipping_global_key_handler_cancels_known_chord_before_bridge_await(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        marker = "if(e.target.closest('#board-application'))return;"
+        start = html.index("document.addEventListener('keydown',async e=>{", html.index(marker) - 80)
+        end = html.index("\n", start)
+        handler = html[start:end]
+
+        ctrl_c = "if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return;"
+        selection = "const selection=window.getSelection&&window.getSelection();if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
+        self.assertIn(ctrl_c, handler)
+        self.assertIn(selection, handler)
+        self.assertIn("actionByRegistryChord(chord,registryContext)", handler)
+        self.assertIn("if(!selected)return;e.preventDefault();", handler)
+        self.assertLess(handler.index(selection), handler.index("e.preventDefault()"))
+        self.assertLess(handler.index("e.preventDefault()"), handler.index("await resolveBinding"))
+        self.assertIn("a.actionId!==selected.actionId", handler)
 
     def test_registry_board_information_actions_are_live_and_non_mutating(self):
         api = self.make_api()
