@@ -20,12 +20,24 @@ from acs.classroom_collaboration_storage import ChatMessageMetadata
 class FakeAuthority:
     def __init__(self) -> None:
         self.members = {"teacher-1", "student-1", "student-2"}
-        self.member_calls = []
+        self.send_calls = []
+        self.history_calls = []
         self.moderation_calls = []
         self.fail = False
+        self.send_allowed = True
 
-    def authorize_member(self, *, room_id, participant_id) -> None:
-        self.member_calls.append((room_id, participant_id))
+    def authorize_send(self, *, room_id, participant_id) -> None:
+        self.send_calls.append((room_id, participant_id))
+        if (
+            self.fail
+            or not self.send_allowed
+            or room_id != "room-1"
+            or participant_id not in self.members
+        ):
+            raise RuntimeError("authority secret detail")
+
+    def authorize_history(self, *, room_id, participant_id) -> None:
+        self.history_calls.append((room_id, participant_id))
         if self.fail or room_id != "room-1" or participant_id not in self.members:
             raise RuntimeError("authority secret detail")
 
@@ -145,7 +157,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
         self.assertEqual(1, len(self.backend.ordered))
         self.assertEqual(
             [("room-1", "student-1"), ("room-1", "student-1")],
-            self.authority.member_calls,
+            self.authority.send_calls,
         )
         self.assertNotIn("sent_at_unix_ms", self.student_call.calls[0]["message"])
 
@@ -168,6 +180,27 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 room_id="room-2", after_sequence=None, limit=1
             )
         self.assertEqual([], self.student_call.calls)
+
+    def test_server_enforces_current_send_policy_before_backend_effect(self):
+        self.authority.send_allowed = False
+        request = {
+            "v": 1,
+            "op": "send",
+            "room_id": "room-1",
+            "participant_id": "student-1",
+            "message": {
+                "message_id": "msg-muted",
+                "body": "Bypass attempt",
+                "retention": "session",
+            },
+        }
+        with self.assertRaisesRegex(ClassroomChatRpcError, "authorization"):
+            self.service.handle(
+                request,
+                authenticated_room_id="room-1",
+                authenticated_participant_id="student-1",
+            )
+        self.assertEqual([], self.backend.ordered)
 
     def test_server_binds_payload_identity_to_authenticated_transport(self):
         request = {
