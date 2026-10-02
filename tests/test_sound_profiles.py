@@ -25,6 +25,26 @@ class SoundProfileTests(unittest.TestCase):
         self.assertEqual(profile.effective_volume("check"), 0)
         self.assertEqual(profile.selected_sound_id("move"), "move")
 
+    def test_pack_change_clears_pack_relative_sound_ids_but_preserves_controls(self) -> None:
+        profile = SoundProfile(
+            pack_id="soft.wood",
+            master_enabled=False,
+            master_volume_percent=63,
+            events={
+                "move": SoundEventPreference(False, 45, "quiet.move"),
+                "check": SoundEventPreference(True, 70),
+            },
+        )
+
+        changed = profile.with_pack("classic")
+
+        self.assertEqual("classic", changed.pack_id)
+        self.assertFalse(changed.master_enabled)
+        self.assertEqual(63, changed.master_volume_percent)
+        self.assertEqual(SoundEventPreference(False, 45), changed.preference_for("move"))
+        self.assertEqual(SoundEventPreference(True, 70), changed.preference_for("check"))
+        self.assertEqual(profile, profile.with_pack("soft.wood"))
+
     def test_master_disable_silences_every_event(self) -> None:
         profile = SoundProfile(master_enabled=False)
         self.assertEqual(profile.effective_volume("move"), 0)

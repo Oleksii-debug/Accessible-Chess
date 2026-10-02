@@ -255,7 +255,7 @@ class SoundPackManager:
         if active_profile.pack_id == pack_id and self._fallback_pack_id not in installed:
             raise SoundPackInstallError("cannot remove active pack without an installed fallback")
         resulting_profile = (
-            replace(active_profile, pack_id=self._fallback_pack_id)
+            active_profile.with_pack(self._fallback_pack_id)
             if active_profile.pack_id == pack_id
             else self.resolve_profile(active_profile)
         )
@@ -289,7 +289,7 @@ class SoundPackManager:
         resolved = self.resolve_usable_pack(profile.pack_id)
         if resolved == profile.pack_id:
             return profile
-        return replace(profile, pack_id=resolved)
+        return profile.with_pack(resolved)
 
     def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
         installed = dict(self._storage.installed())

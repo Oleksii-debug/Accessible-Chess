@@ -7,7 +7,7 @@ policy. It only sequences existing neutral managers so persisted profile state
 cannot be left pointing at assets that were removed.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .sound_pack_catalog import (
     SoundPackCatalogEntry,
@@ -30,6 +30,24 @@ class SoundPackProfileUninstallResult:
     pack_id: str
     profile: SoundProfile
     removed: bool
+
+
+def _profile_for_manifest(
+    profile: SoundProfile,
+    manifest: SoundPackManifest,
+) -> SoundProfile:
+    """Keep only explicit asset ids that the target manifest still owns."""
+
+    events = {
+        event_id: (
+            replace(preference, sound_id=None)
+            if preference.sound_id is not None
+            and preference.sound_id not in manifest.files
+            else preference
+        )
+        for event_id, preference in profile.events.items()
+    }
+    return replace(profile, pack_id=manifest.pack_id, events=events)
 
 
 class SoundPackProfileCoordinator:
@@ -80,10 +98,17 @@ class SoundPackProfileCoordinator:
         remains valid; this is intentionally safer than selecting missing assets.
         """
 
+        profile = self._profiles.current
+        if entry.compatible and profile.pack_id == entry.manifest.pack_id:
+            prepared = _profile_for_manifest(profile, entry.manifest)
+            if prepared != profile:
+                # Persist a default-safe mapping before the active version changes.
+                profile = self._profiles.save(prepared)
+
         manifest = self._packs.install(entry)
         profile = self._profiles.current
-        if activate:
-            profile = self._profiles.set_pack(manifest.pack_id)
+        if activate and profile.pack_id != manifest.pack_id:
+            profile = self._profiles.save(_profile_for_manifest(profile, manifest))
         return SoundPackProfileInstallResult(manifest, profile, activate)
 
     def uninstall(self, pack_id: str) -> SoundPackProfileUninstallResult:

@@ -11,7 +11,12 @@ from acs.sound_pack_catalog import (
 )
 from acs.sound_pack_profile import SoundPackProfileCoordinator
 from acs.sound_profile_store import SoundProfileManager
-from acs.sound_profiles import CORE_SOUND_EVENTS, SoundPackManifest, SoundProfile
+from acs.sound_profiles import (
+    CORE_SOUND_EVENTS,
+    SoundEventPreference,
+    SoundPackManifest,
+    SoundProfile,
+)
 
 
 class ProfileStorage:
@@ -127,6 +132,35 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
         self.assertEqual(profile_storage.raw["pack_id"], "soft.wood")
         self.assertIn("soft.wood", pack_storage.items)
         self.assertEqual(operations[:2], [("pack.install", "soft.wood"), ("profile.write", "soft.wood")])
+
+    def test_active_pack_update_sanitizes_removed_asset_before_storage_switch(self):
+        operations = []
+        coordinator, pack_manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        current = SoundProfile(
+            pack_id="soft.wood",
+            events={"move": SoundEventPreference(False, 44, "quiet.move")},
+        )
+        coordinator._profiles._current = current
+        profile_storage.raw = current.to_mapping()
+        new_manifest = manifest("soft.wood", version="2.0.0")
+        new_entry, downloaded = entry_for(new_manifest)
+        pack_manager._downloader = Downloader(downloaded)
+
+        result = coordinator.install(new_entry)
+
+        self.assertFalse(result.activated)
+        self.assertEqual("2.0.0", pack_storage.items["soft.wood"].version)
+        self.assertEqual(
+            SoundEventPreference(False, 44),
+            result.profile.preference_for("move"),
+        )
+        self.assertEqual(
+            operations[:2],
+            [("profile.write", "soft.wood"), ("pack.install", "soft.wood")],
+        )
 
     def test_install_without_activation_does_not_rewrite_profile(self):
         operations = []

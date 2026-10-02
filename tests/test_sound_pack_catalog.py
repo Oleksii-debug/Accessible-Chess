@@ -206,7 +206,10 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertEqual(resolved.pack_id, "classic")
         self.assertEqual(resolved.master_enabled, profile.master_enabled)
         self.assertEqual(resolved.master_volume_percent, profile.master_volume_percent)
-        self.assertEqual(resolved.events, profile.events)
+        self.assertEqual(
+            resolved.preference_for("move"),
+            SoundEventPreference(False, 44),
+        )
 
     def test_fallback_pack_cannot_be_uninstalled(self):
         classic = make_manifest("classic")
@@ -228,7 +231,10 @@ class SoundPackCatalogTests(unittest.TestCase):
         resolved = manager.resolve_profile(profile)
         self.assertEqual(resolved.pack_id, "classic")
         self.assertEqual(resolved.master_volume_percent, 17)
-        self.assertEqual(resolved.events, profile.events)
+        self.assertEqual(
+            resolved.preference_for("check"),
+            SoundEventPreference(False, 55),
+        )
 
     def test_incompatible_entry_is_visible_but_cannot_install(self):
         entry = make_entry(compatible=False)

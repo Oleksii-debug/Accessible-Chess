@@ -223,6 +223,27 @@ class SoundProfile:
         event_id = _stable_id(event_id, allow_dot=True)
         return self.preference_for(event_id).sound_id or event_id
 
+    def with_pack(self, pack_id: str) -> "SoundProfile":
+        """Retarget without carrying pack-relative asset ids across packs."""
+
+        target = _stable_id(pack_id, allow_dot=True)
+        if target == self.pack_id:
+            return self
+        events = {
+            event_id: SoundEventPreference(
+                enabled=preference.enabled,
+                volume_percent=preference.volume_percent,
+                sound_id=None,
+            )
+            for event_id, preference in self.events.items()
+        }
+        return SoundProfile(
+            pack_id=target,
+            master_enabled=self.master_enabled,
+            master_volume_percent=self.master_volume_percent,
+            events=events,
+        )
+
     def to_mapping(self) -> dict[str, object]:
         return {
             "schema_version": SOUND_PROFILE_SCHEMA_VERSION,

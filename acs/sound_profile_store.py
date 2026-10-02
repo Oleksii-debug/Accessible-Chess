@@ -229,7 +229,7 @@ class SoundProfileManager:
         return self.save(updated)
 
     def set_pack(self, pack_id: str) -> SoundProfile:
-        return self.save(replace(self.current, pack_id=pack_id))
+        return self.save(self.current.with_pack(pack_id))
 
     def set_event(
         self,
@@ -292,7 +292,7 @@ class SoundProfileManager:
         reasons.append(
             SoundProfileRecoveryReason.PACK_FALLBACK
         )
-        return replace(profile, pack_id=resolved)
+        return profile.with_pack(resolved)
 
     def _persist(self, profile: SoundProfile) -> None:
         self._storage.write_profile_atomically(

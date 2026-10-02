@@ -148,7 +148,7 @@ class SoundProfileManagerTests(unittest.TestCase):
 
         self.assertEqual(store.writes, [])
 
-    def test_missing_pack_falls_back_without_losing_master_or_event_preferences(self) -> None:
+    def test_missing_pack_falls_back_without_carrying_pack_relative_sound_id(self) -> None:
         profile = SoundProfile(
             pack_id="missing",
             master_enabled=False,
@@ -165,7 +165,7 @@ class SoundProfileManagerTests(unittest.TestCase):
         self.assertEqual(result.profile.master_volume_percent, 47)
         self.assertEqual(
             result.profile.preference_for("capture"),
-            SoundEventPreference(False, 23, "quiet.capture"),
+            SoundEventPreference(False, 23),
         )
         self.assertEqual(
             result.recovery_reasons,
