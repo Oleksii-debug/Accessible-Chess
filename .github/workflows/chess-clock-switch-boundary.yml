@@ -59,8 +59,8 @@ jobs:
             printf 'Unexpected clock lane scope:\n%s\n' "$actual" >&2
             exit 1
           }
-          test "$(git rev-parse HEAD:acs/clock_service.py)" = 63c2812b6d4558fbc6925cbef247e761e0948aa4
-          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 824b1d1f6cf3aefa65ff0a4c9797f54b650b7fe6
+          test "$(git rev-parse HEAD:acs/clock_service.py)" = 76b6031548595c8c7b886336c3eea2b6314d5364
+          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 49cb87cebd80d9d6476adf4d6ef3d12cae25b402
           git diff --quiet "$scope_base" HEAD -- acs/stage1_release_ui_core.py acs/chesscore.py acs/gametree.py
 
       - uses: actions/setup-python@v5
