@@ -166,6 +166,12 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(safe_display_filename("notes:lesson?.txt"), "notes_lesson_.txt")
         self.assertEqual(safe_display_filename("folder/lesson.txt"), "lesson.txt")
 
+    def test_safe_filename_rejects_reserved_windows_device_names(self) -> None:
+        for value in ("CON", "con.txt", "PRN.pgn", "AUX ", "NUL.bin", "COM1.zip", "LPT9"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    safe_display_filename(value)
+
     def test_attachment_metadata_round_trip_has_hash_scan_and_no_blob_table(self) -> None:
         content = b"opaque arbitrary bytes\x00\xff"
         record = AttachmentMetadata(
