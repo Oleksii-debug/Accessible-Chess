@@ -316,7 +316,10 @@ class ClassroomCollaborationWebView:
 
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
         moderator = self._moderator()
-        sender_active = item.sender_id not in self._removed_participant_ids
+        sender_active = (
+            item.sender_id not in self._removed_participant_ids
+            and self._controller.is_current_participant(item.sender_id)
+        )
         view: dict[str, object] = {
             "dom_id": "collaboration-message-" + sha256(item.message_id.encode("utf-8")).hexdigest()[:16],
             "sender": self._label(item.sender_id),
