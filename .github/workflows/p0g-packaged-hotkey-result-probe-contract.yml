@@ -21,7 +21,7 @@ env:
   CURRENT_PRODUCT_BASE: 25b6da6eb8bccea95628ecfce5ba81fece1a5666
   OWNER_HEAD: fix/p0g-match-counter-20260929
   PROBE_BLOB: ef4101d5947df5639e823142d58f0ffbb063132c
-  TEST_BLOB: 09eacb78d5736b8d1e6942ecbb10ec1637bb0932
+  TEST_BLOB: 2f864334d2e4783d2ccadb0b34a27e4cf4e7bbe3
 
 jobs:
   contract:
