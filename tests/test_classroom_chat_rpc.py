@@ -275,6 +275,24 @@ class ClassroomChatRpcTests(unittest.TestCase):
                         limit=10,
                     )
 
+    def test_history_rejects_gap_after_known_local_baseline(self):
+        self.backend.history_override = (
+            ChatMessageMetadata(
+                "m2",
+                "room-1",
+                "student-2",
+                2,
+                "Gap",
+                sent_at_unix_ms=1700000002000,
+            ),
+        )
+        with self.assertRaisesRegex(ClassroomChatRpcError, "sequence gap"):
+            self.student.history_after(
+                room_id="room-1",
+                after_sequence=0,
+                limit=10,
+            )
+
     def test_moderation_round_trip_preserves_operation_identity_and_requires_authority(self):
         teacher_call = BoundCall(
             self.service,
