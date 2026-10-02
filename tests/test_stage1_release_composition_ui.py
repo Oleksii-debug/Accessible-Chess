@@ -247,12 +247,14 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         text = self.bootstrap
         for element_id in (
             "sound-settings", "sound-enabled", "sound-volume",
-            "sound-preview-event", "sound-preview", "sound-settings-status",
+            "sound-preview-event", "sound-variant", "sound-preview",
+            "sound-settings-status",
         ):
             self.assertIn(element_id, text)
         self.assertIn("a.get_sound_settings", text)
         self.assertIn("a.set_sound_enabled", text)
         self.assertIn("a.set_sound_volume", text)
+        self.assertIn("a.set_sound_variant", text)
         self.assertIn("a.preview_sound", text)
         self.assertIn("status.setAttribute('aria-live', 'off')", text)
         self.assertNotIn("role', 'status", text)

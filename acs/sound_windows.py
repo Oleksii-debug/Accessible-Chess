@@ -25,6 +25,8 @@ from .sound_events import SoundEvent
 SOUND_MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_SOUND_RELATIVE_DIR = Path("assets") / "sounds"
 DEFAULT_SOUND_MANIFEST = "manifest.json"
+DEFAULT_SOUND_VARIANTS_MANIFEST = "variants.json"
+SOUND_VARIANTS_SCHEMA_VERSION = 1
 REQUIRED_SOUND_EVENTS = tuple(SoundEvent)
 SCALED_SOUND_CACHE_FORMAT_VERSION = 1
 
@@ -33,6 +35,14 @@ SCALED_SOUND_CACHE_FORMAT_VERSION = 1
 class PackagedSoundManifest:
     root: Path
     files: dict[SoundEvent, Path]
+
+
+@dataclass(frozen=True)
+class SoundVariantOption:
+    variant_id: str
+    label_uk: str
+    label_en: str
+    path: Path
 
 
 class PackagedSoundAssetResolver:
@@ -82,8 +92,116 @@ class PackagedSoundAssetResolver:
             files[event] = path
         return PackagedSoundManifest(self.root, files)
 
-    def resolve(self, event: SoundEvent) -> Path:
-        return self.load_manifest().files[event]
+    @staticmethod
+    def _variant_id(value: object) -> str:
+        if not isinstance(value, str):
+            raise TypeError("sound variant id must be text")
+        token = value.strip()
+        if (
+            not token
+            or len(token) > 40
+            or token != value
+            or any(not (character.isalnum() or character in {"-", "_"}) for character in token)
+        ):
+            raise ValueError("sound variant id is invalid")
+        return token
+
+    def _variant_path(self, value: object, *, label: str) -> Path:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"sound variant file is invalid: {label}")
+        relative = Path(value)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"unsafe sound variant path: {label}")
+        path = (self.root / relative).resolve()
+        root = self.root.resolve()
+        if root not in path.parents and path != root:
+            raise ValueError(f"sound variant escapes packaged root: {label}")
+        if path.suffix.casefold() != ".wav":
+            raise ValueError(f"sound variant must be WAV: {label}")
+        if not path.is_file():
+            raise FileNotFoundError(f"sound variant missing: {label}: {path}")
+        return path
+
+    def load_variant_catalog(self) -> dict[SoundEvent, tuple[SoundVariantOption, ...]]:
+        manifest = self.load_manifest()
+        path = self.root / DEFAULT_SOUND_VARIANTS_MANIFEST
+        if not path.is_file():
+            return {
+                event: (
+                    SoundVariantOption(
+                        "1",
+                        "Варіант 1",
+                        "Variant 1",
+                        manifest.files[event],
+                    ),
+                )
+                for event in REQUIRED_SOUND_EVENTS
+            }
+
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(raw, dict) or raw.get("schema_version") != SOUND_VARIANTS_SCHEMA_VERSION:
+            raise ValueError("unsupported sound variants schema")
+        events = raw.get("events")
+        if not isinstance(events, dict):
+            raise ValueError("sound variants events must be an object")
+        expected = {event.value for event in REQUIRED_SOUND_EVENTS}
+        if set(events) != expected:
+            raise ValueError("sound variants must declare exactly all semantic sound events")
+
+        catalog: dict[SoundEvent, tuple[SoundVariantOption, ...]] = {}
+        for event in REQUIRED_SOUND_EVENTS:
+            raw_options = events[event.value]
+            if not isinstance(raw_options, list) or not raw_options or len(raw_options) > 32:
+                raise ValueError(f"sound variants are invalid for {event.value}")
+            options: list[SoundVariantOption] = []
+            seen: set[str] = set()
+            for item in raw_options:
+                if not isinstance(item, dict) or set(item) != {"id", "file", "label_uk", "label_en"}:
+                    raise ValueError(f"sound variant entry is invalid for {event.value}")
+                variant_id = self._variant_id(item["id"])
+                if variant_id in seen:
+                    raise ValueError(f"duplicate sound variant id for {event.value}")
+                seen.add(variant_id)
+                label_uk = item["label_uk"]
+                label_en = item["label_en"]
+                if (
+                    not isinstance(label_uk, str)
+                    or not label_uk.strip()
+                    or len(label_uk) > 120
+                    or not isinstance(label_en, str)
+                    or not label_en.strip()
+                    or len(label_en) > 120
+                ):
+                    raise ValueError(f"sound variant label is invalid for {event.value}")
+                options.append(
+                    SoundVariantOption(
+                        variant_id,
+                        label_uk.strip(),
+                        label_en.strip(),
+                        self._variant_path(item["file"], label=f"{event.value}/{variant_id}"),
+                    )
+                )
+            by_id = {option.variant_id: option for option in options}
+            if "1" not in by_id:
+                raise ValueError(f"sound variants require default id 1 for {event.value}")
+            if by_id["1"].path != manifest.files[event]:
+                raise ValueError(f"sound variant 1 must match default manifest file for {event.value}")
+            catalog[event] = tuple(options)
+        return catalog
+
+    def variants_for(self, event: SoundEvent) -> tuple[SoundVariantOption, ...]:
+        if not isinstance(event, SoundEvent):
+            raise TypeError("sound event must be SoundEvent")
+        return self.load_variant_catalog()[event]
+
+    def resolve(self, event: SoundEvent, *, variant_id: str | None = None) -> Path:
+        if not isinstance(event, SoundEvent):
+            raise TypeError("sound event must be SoundEvent")
+        token = "1" if variant_id is None else self._variant_id(variant_id)
+        for option in self.variants_for(event):
+            if option.variant_id == token:
+                return option.path
+        raise KeyError(f"unknown sound variant for {event.value}: {token}")
 
 
 class WindowsSoundPlaybackAdapter:
@@ -99,10 +217,14 @@ class WindowsSoundPlaybackAdapter:
         resolver: PackagedSoundAssetResolver,
         *,
         cache_dir: str | Path,
+        variant_provider=None,
         logger: logging.Logger | None = None,
     ) -> None:
+        if variant_provider is not None and not callable(variant_provider):
+            raise TypeError("variant_provider must be callable or None")
         self._resolver = resolver
         self._cache_dir = Path(cache_dir)
+        self._variant_provider = variant_provider
         self._logger = logger or logging.getLogger(__name__)
 
     def play(self, event: SoundEvent, *, volume: int) -> None:
@@ -114,7 +236,16 @@ class WindowsSoundPlaybackAdapter:
             return
 
         try:
-            source = self._resolver.resolve(event)
+            variant_id = None
+            if self._variant_provider is not None:
+                variant_id = self._variant_provider(event)
+                if not isinstance(variant_id, str):
+                    raise TypeError("sound variant provider must return text")
+            source = (
+                self._resolver.resolve(event)
+                if variant_id is None
+                else self._resolver.resolve(event, variant_id=variant_id)
+            )
             playable = source if volume == 100 else self._scaled_copy(source, event, volume)
             import winsound
 

@@ -139,6 +139,97 @@ class PackagedSoundResolverTests(unittest.TestCase):
             for event in REQUIRED_SOUND_EVENTS:
                 self.assertEqual(resolver.resolve(event), (root / f"{event.value}.wav").resolve())
 
+    def test_variant_catalog_defaults_to_variant_one_when_optional_catalog_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "assets" / "sounds"
+            files = {}
+            for event in REQUIRED_SOUND_EVENTS:
+                name = f"{event.value}.wav"
+                files[event.value] = name
+                self._write_silent_wav(root / name)
+            (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "files": files}), encoding="utf-8"
+            )
+
+            resolver = PackagedSoundAssetResolver(tmp)
+            options = resolver.variants_for(SoundEvent.MOVE)
+
+            self.assertEqual([item.variant_id for item in options], ["1"])
+            self.assertEqual(options[0].path, (root / "move.wav").resolve())
+
+    def test_variant_catalog_resolves_selected_user_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "assets" / "sounds"
+            files = {}
+            events = {}
+            for event in REQUIRED_SOUND_EVENTS:
+                name = f"{event.value}.wav"
+                files[event.value] = name
+                self._write_silent_wav(root / name)
+                events[event.value] = [
+                    {
+                        "id": "1",
+                        "file": name,
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+            alternate = root / "library" / "Board" / "MOVE2.WAV"
+            self._write_silent_wav(alternate)
+            events[SoundEvent.MOVE.value].append(
+                {
+                    "id": "2",
+                    "file": "library/Board/MOVE2.WAV",
+                    "label_uk": "Хід 2",
+                    "label_en": "Move 2",
+                }
+            )
+            (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "files": files}), encoding="utf-8"
+            )
+            (root / "variants.json").write_text(
+                json.dumps({"schema_version": 1, "events": events}), encoding="utf-8"
+            )
+
+            resolver = PackagedSoundAssetResolver(tmp)
+
+            self.assertEqual(
+                resolver.resolve(SoundEvent.MOVE, variant_id="2"),
+                alternate.resolve(),
+            )
+            self.assertEqual(
+                [item.variant_id for item in resolver.variants_for(SoundEvent.MOVE)],
+                ["1", "2"],
+            )
+
+    def test_variant_catalog_rejects_path_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "assets" / "sounds"
+            files = {}
+            events = {}
+            for event in REQUIRED_SOUND_EVENTS:
+                name = f"{event.value}.wav"
+                files[event.value] = name
+                self._write_silent_wav(root / name)
+                events[event.value] = [
+                    {
+                        "id": "1",
+                        "file": name,
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+            events[SoundEvent.MOVE.value][0]["file"] = "../move.wav"
+            (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "files": files}), encoding="utf-8"
+            )
+            (root / "variants.json").write_text(
+                json.dumps({"schema_version": 1, "events": events}), encoding="utf-8"
+            )
+
+            with self.assertRaises(ValueError):
+                PackagedSoundAssetResolver(tmp).load_variant_catalog()
+
     def test_missing_asset_is_explicit_error_not_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "assets" / "sounds"

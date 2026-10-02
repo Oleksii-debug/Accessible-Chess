@@ -52,6 +52,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         game_sounds: Any | None = None,
         sound_runtime: Any | None = None,
         settings: Any | None = None,
+        sound_asset_resolver: Any | None = None,
         engine_play_service: EnginePlayService | None = None,
         **kwargs: Any,
     ) -> None:
@@ -64,6 +65,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._game_sounds = game_sounds
         self._sound_runtime = sound_runtime
         self._settings = settings
+        self._sound_asset_resolver = sound_asset_resolver
         self._engine_play_service = engine_play_service
         self._engine_session: EngineGameSessionCoordinator | None = None
         self._engine_game_phase = "idle"
@@ -78,6 +80,25 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
     def _sound_message(self, uk: str, en: str) -> str:
         return uk if self.lang == "uk" else en
 
+    def _sound_variant_options(self, event: SoundEvent) -> tuple[dict[str, str], ...]:
+        options = ()
+        resolver = self._sound_asset_resolver
+        if resolver is not None and callable(getattr(resolver, "variants_for", None)):
+            try:
+                options = tuple(resolver.variants_for(event))
+            except Exception:
+                options = ()
+        if not options:
+            return ({"id": "1", "labelUk": "Варіант 1", "labelEn": "Variant 1"},)
+        return tuple(
+            {
+                "id": str(option.variant_id),
+                "labelUk": str(option.label_uk),
+                "labelEn": str(option.label_en),
+            }
+            for option in options
+        )
+
     def _sound_state(self) -> dict[str, Any]:
         enabled = True
         volume = 80
@@ -87,15 +108,83 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 volume = int(self._settings.get("volume", 80))
             except Exception:
                 enabled, volume = True, 80
+
+        variants: dict[str, list[dict[str, str]]] = {}
+        selected: dict[str, str] = {}
+        for event in SoundEvent:
+            options = self._sound_variant_options(event)
+            variants[event.value] = list(options)
+            available = {item["id"] for item in options}
+            choice = "1"
+            if self._settings is not None:
+                try:
+                    choice = str(
+                        self._settings.get(f"sound_{event.value}_variant", "1")
+                    )
+                except Exception:
+                    choice = "1"
+            selected[event.value] = choice if choice in available else "1"
+
         return {
             "enabled": enabled,
             "volume": max(0, min(100, volume)),
             "events": [event.value for event in SoundEvent],
+            "variants": variants,
+            "selectedVariants": selected,
         }
 
     def get_sound_settings(self) -> dict[str, Any]:
         state = self._sound_state()
         return {"ok": True, **state, "message": ""}
+
+    def set_sound_variant(self, event_id: str, variant_id: str) -> dict[str, Any]:
+        try:
+            event = SoundEvent(str(event_id))
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message("Невідомий звук.", "Unknown sound."),
+            }
+        if self._settings is None or not isinstance(variant_id, str):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося змінити варіант звуку.",
+                    "Sound variant could not be changed.",
+                ),
+            }
+        options = self._sound_variant_options(event)
+        available = {item["id"] for item in options}
+        if variant_id not in available:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Такого варіанта звуку немає.",
+                    "That sound variant is not available.",
+                ),
+            }
+        try:
+            self._settings.set(f"sound_{event.value}_variant", variant_id)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти варіант звуку.",
+                    "Sound variant could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                f"Вибрано варіант {variant_id}.",
+                f"Variant {variant_id} selected.",
+            ),
+        }
 
     def set_sound_enabled(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool) or self._settings is None:

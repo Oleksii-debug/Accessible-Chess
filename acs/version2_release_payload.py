@@ -414,15 +414,24 @@ def _validate_sound_pack(product_dir: Path) -> None:
         seen_assets.add(folded)
 
     try:
-        manifest = PackagedSoundAssetResolver(product_dir).load_manifest()
+        resolver = PackagedSoundAssetResolver(product_dir)
+        manifest = resolver.load_manifest()
+        variants = resolver.load_variant_catalog()
     except Exception as exc:
         raise Version2ReleasePayloadError(
             "sound pack does not satisfy the production resolver contract"
         ) from exc
     if set(manifest.files) != set(SoundEvent):
         raise Version2ReleasePayloadError("production sound resolver did not resolve all events")
+    if set(variants) != set(SoundEvent):
+        raise Version2ReleasePayloadError(
+            "production sound variant catalog did not resolve all events"
+        )
 
-    for path in manifest.files.values():
+    for path in {
+        *manifest.files.values(),
+        *(option.path for options in variants.values() for option in options),
+    }:
         try:
             with wave.open(str(path), "rb") as reader:
                 channels = reader.getnchannels()

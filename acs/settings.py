@@ -16,11 +16,33 @@ DEFAULTS: dict[str, Any] = {
     "tick_policy": "my_turn",
     "tick_last_seconds": 0,
     "engine_path": "",
+    "sound_move_variant": "1",
+    "sound_capture_variant": "1",
+    "sound_check_variant": "1",
+    "sound_castle_variant": "1",
+    "sound_promotion_variant": "1",
+    "sound_illegal_variant": "1",
+    "sound_start_variant": "1",
+    "sound_end_variant": "1",
+    "sound_tick_variant": "1",
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
 _ALLOWED_NOTATION = {"san", "uk_literal", "en_literal"}
 _ALLOWED_TICK_POLICY = {"off", "my_turn", "both"}
+_SOUND_VARIANT_KEYS = frozenset(
+    {
+        "sound_move_variant",
+        "sound_capture_variant",
+        "sound_check_variant",
+        "sound_castle_variant",
+        "sound_promotion_variant",
+        "sound_illegal_variant",
+        "sound_start_variant",
+        "sound_end_variant",
+        "sound_tick_variant",
+    }
+)
 
 
 class SettingsError(ValueError):
@@ -114,6 +136,18 @@ def _validated_value(key: str, value: Any) -> Any:
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3600:
             raise SettingsError("tick_last_seconds must be an integer in 0..3600")
         return value
+    if key in _SOUND_VARIANT_KEYS:
+        if not isinstance(value, str):
+            raise SettingsError("sound variant must be text")
+        token = value.strip()
+        if (
+            not token
+            or len(token) > 40
+            or token != value
+            or any(not (character.isalnum() or character in {"-", "_"}) for character in token)
+        ):
+            raise SettingsError("sound variant id is invalid")
+        return token
     if key == "engine_path":
         if not isinstance(value, str):
             raise SettingsError("engine_path must be a string")

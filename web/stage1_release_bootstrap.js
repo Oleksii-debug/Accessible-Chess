@@ -336,13 +336,13 @@ function installBoardFocusContinuity() {
 const soundLabels = {
     uk: {
         legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
-        previewEvent: 'Звук для прослуховування', preview: 'Прослухати',
+        previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
         unavailable: 'Налаштування звуку недоступні.',
         events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокіровка', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', volume: 'Volume',
-        previewEvent: 'Sound to preview', preview: 'Preview',
+        previewEvent: 'Sound to preview', variant: 'Sound variant', preview: 'Preview',
         unavailable: 'Sound settings are unavailable.',
         events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Game end', tick:'Clock tick'}
     }
@@ -352,21 +352,54 @@ function text() {
     return soundLabels[document.documentElement.lang === 'en' ? 'en' : 'uk'];
 }
 
+let currentSoundState = null;
+
+function renderSoundVariants() {
+    const eventSelect = byId('sound-preview-event');
+    const variantSelect = byId('sound-variant');
+    if (!eventSelect || !variantSelect) return;
+    const eventId = eventSelect.value;
+    const variants = currentSoundState && currentSoundState.variants
+        ? currentSoundState.variants[eventId]
+        : null;
+    const selected = currentSoundState && currentSoundState.selectedVariants
+        ? currentSoundState.selectedVariants[eventId]
+        : '1';
+    variantSelect.textContent = '';
+    const language = document.documentElement.lang === 'en' ? 'en' : 'uk';
+    (Array.isArray(variants) && variants.length
+        ? variants
+        : [{id:'1', labelUk:'Варіант 1', labelEn:'Variant 1'}]
+    ).forEach(item => {
+        const option = document.createElement('option');
+        option.value = String(item.id || '1');
+        option.textContent = language === 'en'
+            ? String(item.labelEn || ('Variant ' + option.value))
+            : String(item.labelUk || ('Варіант ' + option.value));
+        option.selected = option.value === String(selected || '1');
+        variantSelect.appendChild(option);
+    });
+}
+
 async function loadSoundState() {
     const a = api();
     const enabled = byId('sound-enabled');
     const volume = byId('sound-volume');
+    const variant = byId('sound-variant');
     const status = byId('sound-settings-status');
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
         if (enabled) enabled.disabled = true;
         if (volume) volume.disabled = true;
+        if (variant) variant.disabled = true;
         return;
     }
     try {
         const state = await a.get_sound_settings();
+        currentSoundState = state;
         if (enabled) enabled.checked = !!state.enabled;
         if (volume) volume.value = String(state.volume ?? 80);
+        renderSoundVariants();
         if (status) status.textContent = '';
     } catch (_) {
         if (status) status.textContent = text().unavailable;
@@ -379,11 +412,13 @@ function applySoundLanguage() {
     const enabledLabel = byId('sound-enabled-label');
     const volumeLabel = byId('sound-volume-label');
     const eventLabel = byId('sound-preview-event-label');
+    const variantLabel = byId('sound-variant-label');
     const preview = byId('sound-preview');
     if (legend) legend.textContent = t.legend;
     if (enabledLabel) enabledLabel.textContent = t.enabled;
     if (volumeLabel) volumeLabel.textContent = t.volume;
     if (eventLabel) eventLabel.textContent = t.previewEvent;
+    if (variantLabel) variantLabel.textContent = t.variant;
     if (preview) preview.textContent = t.preview;
     const select = byId('sound-preview-event');
     if (select) {
@@ -391,6 +426,7 @@ function applySoundLanguage() {
             option.textContent = t.events[option.value] || option.value;
         });
     }
+    renderSoundVariants();
 }
 
 function installSoundSettings() {
@@ -443,11 +479,23 @@ function installSoundSettings() {
         option.value = value;
         eventSelect.appendChild(option);
     });
+    previewRow.append(eventLabel, eventSelect);
+    fieldset.appendChild(previewRow);
+
+    const variantRow = document.createElement('div');
+    variantRow.className = 'row';
+    const variantLabel = document.createElement('label');
+    variantLabel.id = 'sound-variant-label';
+    variantLabel.htmlFor = 'sound-variant';
+    const variantSelect = document.createElement('select');
+    variantSelect.id = 'sound-variant';
+    variantRow.append(variantLabel, variantSelect);
+    fieldset.appendChild(variantRow);
+
     const preview = document.createElement('button');
     preview.id = 'sound-preview';
     preview.type = 'button';
-    previewRow.append(eventLabel, eventSelect, preview);
-    fieldset.appendChild(previewRow);
+    fieldset.appendChild(preview);
 
     const status = document.createElement('div');
     status.id = 'sound-settings-status';
@@ -476,6 +524,25 @@ function installSoundSettings() {
         try {
             const result = await a.set_sound_volume(Number.isInteger(value) ? value : -1);
             volume.value = String(result.volume ?? 80);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    eventSelect.addEventListener('change', () => {
+        renderSoundVariants();
+    });
+
+    variantSelect.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_sound_variant !== 'function') return;
+        try {
+            const result = await a.set_sound_variant(eventSelect.value, variantSelect.value);
+            currentSoundState = result;
+            renderSoundVariants();
             status.textContent = result.ok ? '' : (result.message || '');
             speak(result.message);
         } catch (_) {
