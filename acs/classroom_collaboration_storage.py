@@ -884,8 +884,16 @@ class ClassroomCollaborationSQLiteStore:
                         if loaded.transfer_state in {"uploading", "failed"}:
                             # A provider call can succeed remotely even when the
                             # client crashes or observes an ambiguous failure.
-                            # Server history owns sequence and terminal state.
-                            pass
+                            # Server history owns sequence and terminal state,
+                            # except that a malware-blocked failure may only be
+                            # made safer by authoritative deletion.
+                            if (
+                                loaded.scan_state == "blocked"
+                                and attachment.transfer_state != "deleted"
+                            ):
+                                raise CollaborationConflictError(
+                                    "blocked attachment cannot be restored by sync authority"
+                                )
                         else:
                             if loaded.sequence_no != attachment.sequence_no:
                                 raise CollaborationConflictError(
