@@ -292,6 +292,23 @@ class LocalSoundCompositionTests(unittest.TestCase):
         self.assertEqual("classic", _local_pack_resolver(store)("local.ogg"))
         self.assertEqual({"local.wav": wav}, _playable_installed_packs(store))
 
+    def test_optional_pack_inventory_failure_does_not_break_classic_startup(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-pack-read-failure-") as raw:
+            root = Path(raw)
+            with mock.patch.object(
+                FilesystemSoundPackStore,
+                "installed",
+                side_effect=OSError("pack root unavailable"),
+            ):
+                composition = create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=root / "data",
+                    asset_playback=_Playback(),
+                )
+
+            self.assertEqual("classic", composition.profile_manager.current.pack_id)
+            self.assertEqual((), composition.settings.snapshot(language="en")["packs"])
+
     def test_composition_binds_settings_to_filtered_local_pack_provider(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-local-pack-provider-") as raw:
             root = Path(raw)
