@@ -604,6 +604,10 @@ class ClassroomCollaborationController:
             raise CollaborationError("file store returned invalid short-lived token")
         return token
 
+    def is_current_participant(self, participant_id: str) -> bool:
+        participant = _id(participant_id, "participant id")
+        return participant in self._participant_ids()
+
     def _message(self, message_id: str) -> ChatMessageMetadata:
         matches = tuple(
             item
