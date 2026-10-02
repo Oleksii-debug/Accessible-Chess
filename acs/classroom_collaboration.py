@@ -360,6 +360,14 @@ class ClassroomCollaborationController:
             ]
         return tuple(persisted)
 
+    def can_moderate_chat(self) -> bool:
+        """Return whether the local participant currently has chat moderation authority."""
+        try:
+            self._require_moderator(self.local_participant_id)
+        except CollaborationError:
+            return False
+        return True
+
     def can_moderate_chat_participant(self, participant_id: str) -> bool:
         """Return whether the local participant may moderate this chat target.
 
