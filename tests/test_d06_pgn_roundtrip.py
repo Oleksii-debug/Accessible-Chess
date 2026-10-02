@@ -150,7 +150,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertEqual([move.san for move in games[0].line.moves], ["e4", "e5"])
 
     def test_strict_mode_requires_exact_boolean_and_fails_before_byte_decode(self):
-        damaged = '[Event "Damaged"]\\n[Result "*"]\\n\\n1. e4 e5'
+        damaged = '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5'
         for invalid in (0, 1, None, "", "false", (), object()):
             with self.subTest(invalid=repr(invalid)):
                 with self.assertRaisesRegex(TypeError, "strict must be a boolean"):
@@ -165,11 +165,11 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assert_code(
             PgnRoundTripErrorCode.INVALID_TEXT,
             parse_pgn_text,
-            '[Event "bad\\ud800"]\\n[Result "*"]\\n\\n1. e4 *',
+            '[Event "bad\ud800"]\n[Result "*"]\n\n1. e4 *',
         )
 
         tag_game = PgnGame(
-            tags={"Event": "bad\\ud800", "Result": "*"},
+            tags={"Event": "bad\ud800", "Result": "*"},
             line=VariationLine(moves=[MoveNode("e4", move_number="1.")], result="*"),
         )
         self.assert_code(
@@ -185,7 +185,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
                     MoveNode(
                         "e4",
                         move_number="1.",
-                        comments_after=[Comment("bad\\udfff")],
+                        comments_after=[Comment("bad\udfff")],
                     )
                 ],
                 result="*",
@@ -252,7 +252,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
             )
 
     def test_tag_names_share_the_canonical_lexical_token_bound(self):
-        source = '[EventLong "x"]\\n[Result "*"]\\n\\n1. e4 *'
+        source = '[EventLong "x"]\n[Result "*"]\n\n1. e4 *'
         with patch("acs.pgn_roundtrip.MAX_PGN_TOKEN_CHARS", 8):
             self.assert_code(
                 PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
