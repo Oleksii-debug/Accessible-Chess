@@ -331,7 +331,21 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             safe_display_filename(Path("lesson.pgn"))
 
     def test_safe_filename_rejects_reserved_windows_device_names(self) -> None:
-        for value in ("CON", "con.txt", "PRN.pgn", "AUX ", "NUL.bin", "COM1.zip", "LPT9"):
+        for value in (
+            "CON",
+            "con.txt",
+            "PRN.pgn",
+            "AUX ",
+            "NUL.bin",
+            "COM1.zip",
+            "LPT9",
+            "COM¹",
+            "com².txt",
+            "COM³.pgn",
+            "LPT¹",
+            "lpt².zip",
+            "LPT³.bin",
+        ):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     safe_display_filename(value)
