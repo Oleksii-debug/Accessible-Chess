@@ -1081,6 +1081,86 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             live_teacher.receive_file(uploaded)
         self.assertEqual(live_store.room_attachments("room-1"), ())
 
+    def test_receive_later_file_recovers_complete_authoritative_prefix(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "remote-a0",
+            "room-1",
+            "student-1",
+            0,
+            "zero.bin",
+            None,
+            1,
+            "0" * 64,
+            "rooms/room-1/remote-a0",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        missed = AttachmentMetadata(
+            "remote-a1",
+            "room-1",
+            "student-2",
+            1,
+            "one.bin",
+            None,
+            1,
+            "1" * 64,
+            "rooms/room-1/remote-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        later = AttachmentMetadata(
+            "remote-a2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "2" * 64,
+            "rooms/room-1/remote-a2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (first, missed, later)
+
+        received = controller.receive_file(later)
+
+        self.assertEqual(received, later)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (first, missed, later),
+        )
+
+    def test_receive_later_file_fails_closed_when_server_history_omits_prefix(self):
+        controller = self.controller("teacher-1")
+        later = AttachmentMetadata(
+            "remote-a2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "2" * 64,
+            "rooms/room-1/remote-a2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (later,)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "file history has an unresolved sequence gap",
+        ):
+            controller.receive_file(later)
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
     def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
         controller = self.controller("teacher-1")
         base = AttachmentMetadata(
