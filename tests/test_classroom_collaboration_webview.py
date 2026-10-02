@@ -109,6 +109,32 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(0, read.payload["collaboration"]["chat"]["unread_count"])
         self.assertEqual("collaboration-chat-sync", read.payload["focus_target"])
 
+    def test_sync_sanitizes_controls_only_in_live_announcement(self) -> None:
+        view = self.webview()
+        view.dispatch("collaboration.chat.send", {"body": "Local"})
+        body = "Visible\u202Egnp\u200b\n next"
+        self.chat.ordered.append(
+            ChatMessageMetadata(
+                "remote-announcement-control",
+                "room-1",
+                "student-2",
+                1,
+                body,
+                sent_at_unix_ms=1700000001000,
+            )
+        )
+
+        event = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual(
+            "Student two: Visiblegnp next",
+            event.payload["announcement"],
+        )
+        messages = event.payload["collaboration"]["chat"]["messages"]
+        self.assertEqual(body, messages[-1]["body"])
+        self.assertNotIn("\u202E", event.payload["announcement"])
+        self.assertNotIn("\u200b", event.payload["announcement"])
+
     def test_snapshot_projects_safe_ordered_metadata_without_internal_ids(self) -> None:
         view = self.webview()
         view.dispatch("collaboration.chat.send", {"body": "One"})
