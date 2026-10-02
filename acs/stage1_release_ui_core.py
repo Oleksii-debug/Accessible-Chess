@@ -946,12 +946,18 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                         session._lifecycle.restore_checkpoint(previous_lifecycle)
                     raise
             else:
-                session.handle_handoff(
-                    EngineGameHandoff(
-                        EngineGameIntent.REQUEST_TAKEBACK,
-                        actor=human,
+                # A failed compensated acceptance leaves the original request
+                # pending so the user can retry without a duplicate request.
+                pending = session.snapshot().lifecycle.takeback_requested_by
+                if pending is None:
+                    session.handle_handoff(
+                        EngineGameHandoff(
+                            EngineGameIntent.REQUEST_TAKEBACK,
+                            actor=human,
+                        )
                     )
-                )
+                elif pending != human:
+                    raise RuntimeError("takeback is pending for the other side")
                 snapshot = session.handle_handoff(
                     EngineGameHandoff(
                         EngineGameIntent.ACCEPT_TAKEBACK,
