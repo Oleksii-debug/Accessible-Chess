@@ -177,6 +177,7 @@
     if (busy || !bridge || typeof bridge.sound_settings_command !== "function") {
       restoreConfirmedSnapshot();
       exposeError(text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
+      restoreFocus(restoreFocusId, restoreFocusFallbackId);
       return Promise.resolve(false);
     }
     setBusy(true);
