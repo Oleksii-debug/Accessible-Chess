@@ -15,6 +15,8 @@ from acs.sqlite_classroom_moderation_ledger import (
 
 FP_A = "a" * 64
 FP_B = "b" * 64
+OWNER_A = "worker-a"
+OWNER_B = "worker-b"
 OWNER_A = "service-owner-a"
 OWNER_B = "service-owner-b"
 
@@ -75,6 +77,7 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
         )
         self.assertEqual(first.fingerprint, FP_A)
         self.assertFalse(first.committed)
+        self.assertEqual(first.reservation_owner, OWNER_A)
         self.assertEqual(first.reservation_owner, OWNER_A)
         self.assertEqual(second, first)
         self.assertEqual(
@@ -198,6 +201,31 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
             )
         state = self.ledger.operation_state(room_id="room-1", operation_id="op-1")
         self.assertEqual(state.fingerprint, FP_A)
+        self.assertFalse(state.committed)
+        self.assertEqual(state.reservation_owner, OWNER_A)
+
+    def test_commit_rejects_non_owner_of_pending_reservation(self):
+        self.ledger.reserve(
+            room_id="room-owner",
+            operation_id="op-owner",
+            fingerprint=FP_A,
+            reservation_owner=OWNER_A,
+        )
+        with self.assertRaisesRegex(
+            ClassroomModerationLedgerError,
+            "reservation owner conflict",
+        ):
+            self.ledger.commit(
+                room_id="room-owner",
+                operation_id="op-owner",
+                fingerprint=FP_A,
+                reservation_owner=OWNER_B,
+            )
+        state = self.ledger.operation_state(
+            room_id="room-owner",
+            operation_id="op-owner",
+        )
+        self.assertIsNotNone(state)
         self.assertFalse(state.committed)
         self.assertEqual(state.reservation_owner, OWNER_A)
 
@@ -356,6 +384,14 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
                         fingerprint=fingerprint,
                         reservation_owner=owner,
                     )
+
+        with self.assertRaises(ClassroomModerationLedgerError):
+            self.ledger.reserve(
+                room_id="room",
+                operation_id="op-owner",
+                fingerprint=FP_A,
+                reservation_owner=" owner",
+            )
 
         with self.assertRaises(ClassroomModerationLedgerError):
             SqliteClassroomModerationLedger(":memory:")
