@@ -414,8 +414,10 @@ class ClassroomCollaborationController:
         )
         if type(incoming) is not tuple or len(incoming) > MAX_SYNC_MESSAGES:
             raise CollaborationError("attachment history response is invalid or too large")
+        # Validate the complete transport page before writing any item. A later
+        # cross-room, namespace or sequence defect must not leave a trusted prefix
+        # persisted from an otherwise rejected response.
         previous = after
-        persisted: list[AttachmentMetadata] = []
         for attachment in incoming:
             self._validate_remote_attachment(
                 attachment,
@@ -426,13 +428,16 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "attachment history has an unresolved sequence gap"
                 )
+            previous = attachment.sequence_no
+
+        persisted: list[AttachmentMetadata] = []
+        for attachment in incoming:
             saved = self._store.register_attachment(
                 attachment,
                 max_room_bytes=self._quota.max_room_bytes,
             )
             if saved.transfer_state != "deleted":
                 persisted.append(saved)
-            previous = attachment.sequence_no
 
         state_after = self._store.attachment_state_revision(self.room_id)
         updates = self._files.state_updates_after(

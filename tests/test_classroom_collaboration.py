@@ -1094,6 +1094,50 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "clean",
         )
 
+    def test_file_history_gap_fails_without_persisting_valid_prefix(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "remote-a1",
+            "room-1",
+            "student-1",
+            0,
+            "one.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room-1/remote-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        skipped = AttachmentMetadata(
+            "remote-a2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room-1/remote-a2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.ordered = [first, skipped]
+        self.files.attachments = {
+            first.attachment_id: first,
+            skipped.attachment_id: skipped,
+        }
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "attachment history has an unresolved sequence gap",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
     def test_attachment_sync_rejects_cross_room_gap_and_unknown_state_update(self):
         controller = self.controller("student-1")
         foreign = AttachmentMetadata(
