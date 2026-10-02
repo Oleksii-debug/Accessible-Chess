@@ -33,6 +33,8 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
 )
 
 _ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
+_WINDOWS_FORBIDDEN_PATH_CHARS = frozenset('<>:"|?*')
+_WINDOWS_RESERVED_BASENAMES = frozenset({"con", "prn", "aux", "nul", "conin$", "conout$"})
 _VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9a-z]+(?:[.-][0-9a-z]+)*))?$")
 
 
@@ -310,6 +312,19 @@ def _stable_version(value: object) -> str:
     return text
 
 
+def _windows_reserved_path_component(part: str) -> bool:
+    """Reject Win32 device aliases even when an extension is present."""
+
+    basename = part.split(".", 1)[0].rstrip(" ").casefold()
+    if basename in _WINDOWS_RESERVED_BASENAMES:
+        return True
+    return bool(
+        len(basename) == 4
+        and basename[:3] in {"com", "lpt"}
+        and basename[3] in "123456789"
+    )
+
+
 def _safe_audio_path(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("sound file path must be text")
@@ -326,8 +341,14 @@ def _safe_audio_path(value: object) -> str:
         or any(part in {"", "."} for part in posix.parts)
     ):
         raise ValueError("sound file path must stay below pack root")
-    if any(part.endswith((" ", ".")) for part in posix.parts):
-        raise ValueError("sound file path is not stable on Windows")
+    for part in posix.parts:
+        if part.endswith((" ", ".")):
+            raise ValueError("sound file path is not stable on Windows")
+        if (
+            any(ch in _WINDOWS_FORBIDDEN_PATH_CHARS or ord(ch) < 32 for ch in part)
+            or _windows_reserved_path_component(part)
+        ):
+            raise ValueError("sound file path is not valid on Windows")
     if posix.suffix.lower() not in _ALLOWED_AUDIO_SUFFIXES:
         raise ValueError("unsupported sound asset type")
     return posix.as_posix()
