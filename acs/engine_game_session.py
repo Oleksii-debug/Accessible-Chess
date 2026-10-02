@@ -190,6 +190,22 @@ class EngineNoMoveResolution:
             ) from exc
 
 
+@dataclass(frozen=True)
+class TakebackTransaction:
+    """Board-owner operations with exact compensation for a takeback."""
+
+    undo: Callable[[], None]
+    rollback: Callable[[], None]
+    commit: Callable[[], None]
+
+    def __post_init__(self) -> None:
+        if not all(callable(op) for op in (self.undo, self.rollback, self.commit)):
+            raise EngineContractError(
+                "takeback transaction needs callable undo, rollback and commit",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+
+
 class EngineGameSessionCoordinator:
     """Coordinate engine-game flow without taking ownership of board/history."""
 
@@ -203,6 +219,7 @@ class EngineGameSessionCoordinator:
         history_node_provider: Callable[[], str],
         undo_committed_move: Callable[[], None] | None = None,
         clock_restore_provider: Callable[[], ClockSnapshot] | None = None,
+        takeback_transaction: Callable[[], TakebackTransaction] | None = None,
         no_move_resolver: Callable[[EngineNoMoveHandoff], EngineNoMoveResolution | None] | None = None,
         timeout_mating_capability_provider: Callable[[str], bool | None] | None = None,
         analysis_handoff: Callable[[EngineGameHandoff], None] | None = None,
@@ -227,6 +244,7 @@ class EngineGameSessionCoordinator:
         optional_callbacks = {
             "undo_committed_move": undo_committed_move,
             "clock_restore_provider": clock_restore_provider,
+            "takeback_transaction": takeback_transaction,
             "no_move_resolver": no_move_resolver,
             "timeout_mating_capability_provider": timeout_mating_capability_provider,
             "analysis_handoff": analysis_handoff,
@@ -255,6 +273,7 @@ class EngineGameSessionCoordinator:
         self._history_node_provider = history_node_provider
         self._undo_committed_move = undo_committed_move
         self._clock_restore_provider = clock_restore_provider
+        self._takeback_transaction = takeback_transaction
         self._no_move_resolver = no_move_resolver
         self._timeout_mating_capability_provider = timeout_mating_capability_provider
         self._analysis_handoff = analysis_handoff
@@ -583,13 +602,65 @@ class EngineGameSessionCoordinator:
         assert self._clock is not None
         self._clock.snapshot()
 
-        self._undo_committed_move()
-        restored_clock = self._resolve_clock_restore_after_takeback()
-        if restored_clock is not None:
-            self._clock.restore(restored_clock, resume_running=True)
-        self._lifecycle.accept_takeback(actor)
-        self._lifecycle.invalidate_position_outcome()
-        return self.snapshot()
+        if self._takeback_transaction is None:
+            # Without Board-owned compensation, any fallible post-undo clock
+            # provider makes the old callback contract unsound. Fail before undo.
+            if self._clock_restore_provider is not None:
+                raise EngineContractError(
+                    "historical takeback requires a compensating transaction",
+                    code=EngineContractErrorCode.INVALID_PROVIDER,
+                )
+            self._undo_committed_move()
+            self._lifecycle.accept_takeback(actor)
+            self._lifecycle.invalidate_position_outcome()
+            return self.snapshot()
+
+        transaction = self._takeback_transaction()
+        if not isinstance(transaction, TakebackTransaction):
+            raise EngineContractError(
+                "takeback_transaction must return TakebackTransaction",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        original_clock = self._clock.snapshot()
+        original_lifecycle = self._lifecycle.snapshot()
+        clock_replaced = False
+        try:
+            transaction.undo()
+            restored_clock = self._resolve_clock_restore_after_takeback()
+            post_side = self._side_to_move()
+            if restored_clock is not None:
+                # Reject structurally valid but wrong-side history *before*
+                # restoring the running clock or accepting the lifecycle.
+                assert self._config is not None
+                expected_turn = (
+                    EngineTurnState.ENGINE
+                    if post_side == self._config.engine_side
+                    else EngineTurnState.HUMAN
+                )
+                EngineGameSessionSnapshot(
+                    self._config, post_side, expected_turn,
+                    original_lifecycle, restored_clock,
+                )
+                self._clock.restore(restored_clock, resume_running=True)
+                clock_replaced = True
+            self._lifecycle.accept_takeback(actor)
+            self._lifecycle.invalidate_position_outcome()
+            accepted = self.snapshot()
+            transaction.commit()
+            return accepted
+        except Exception:
+            # If clock.restore() rejected its final time sample, ChessClock
+            # itself rolls back. Never manufacture a historical snapshot.
+            try:
+                transaction.rollback()
+            finally:
+                if clock_replaced:
+                    self._clock.restore(
+                        original_clock,
+                        resume_running=original_clock.state is ClockState.RUNNING,
+                    )
+                self._lifecycle.restore_checkpoint(original_lifecycle)
+            raise
 
     def _resolve_clock_restore_after_takeback(self) -> ClockSnapshot | None:
         if self._clock_restore_provider is None:
