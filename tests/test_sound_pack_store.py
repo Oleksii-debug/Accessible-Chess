@@ -148,6 +148,27 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual(store.installed()[first.pack_id], first)
             self.assertEqual(store.versions(first.pack_id), ("1.0.0",))
 
+    def test_downloaded_metadata_rejects_duplicate_normalized_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            assets = dict(downloaded.assets)
+            move_path = manifest.files["move"]
+            assets[move_path.replace("/", "\\")] = assets[move_path]
+            ambiguous = DownloadedSoundPack(
+                manifest=manifest,
+                assets=assets,
+                total_bytes=sum(item.size_bytes for item in assets.values()),
+                payload_ref=downloaded.payload_ref,
+            )
+            store = FilesystemSoundPackStore(root / "packs")
+
+            with self.assertRaisesRegex(ValueError, "duplicate normalized"):
+                store.install_atomically(ambiguous)
+
+            self.assertFalse(store.root.exists())
+
     def test_undeclared_staged_payload_is_rejected_before_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
