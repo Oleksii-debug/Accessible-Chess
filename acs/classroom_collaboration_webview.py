@@ -613,10 +613,13 @@ class ClassroomCollaborationWebView:
             else:
                 self._prepared.pop(prepared.metadata.attachment_id, None)
             raise
-        if uploaded.transfer_state == "failed" and uploaded.scan_state != "blocked":
-            self._prepared[uploaded.attachment_id] = prepared
-        else:
-            self._prepared.pop(uploaded.attachment_id, None)
+        if uploaded.transfer_state == "failed":
+            if uploaded.scan_state != "blocked":
+                self._prepared[uploaded.attachment_id] = prepared
+            else:
+                self._prepared.pop(uploaded.attachment_id, None)
+            return self._error()
+        self._prepared.pop(uploaded.attachment_id, None)
         return self._event(
             "collaboration.file.sent",
             announcement=_LABELS[self._language]["file_sent"],
@@ -639,16 +642,15 @@ class ClassroomCollaborationWebView:
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
         retried = self._controller.retry_file(prepared)
-        if retried.transfer_state != "failed" or retried.scan_state == "blocked":
-            self._prepared.pop(retried.attachment_id, None)
+        if retried.transfer_state == "failed":
+            if retried.scan_state == "blocked":
+                self._prepared.pop(retried.attachment_id, None)
+            return self._error()
+        self._prepared.pop(retried.attachment_id, None)
         return self._event(
             "collaboration.file.retried",
             announcement=_LABELS[self._language]["file_retried"],
-            focus_target=(
-                "collaboration-file-choose"
-                if retried.transfer_state != "failed"
-                else ""
-            ),
+            focus_target="collaboration-file-choose",
         )
 
     def _cancel_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
