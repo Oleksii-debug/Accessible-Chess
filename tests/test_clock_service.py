@@ -142,6 +142,56 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(unchanged.active, "w")
         self.assertEqual(unchanged.state, ClockState.RUNNING)
 
+    def test_setting_running_mover_to_zero_flags_without_tick_or_increment(self):
+        clock = ChessClock(TimeControl(1_000, 2_000), now=self.now)
+        clock.start("w")
+
+        zero = clock.set_remaining("w", 0)
+        self.assertEqual(zero.white_ms, 0)
+        self.assertEqual(zero.flagged, "w")
+        self.assertEqual(zero.state, ClockState.FLAGGED)
+        self.assertIsNone(zero.active)
+
+        rejected = clock.switch_after_move("w")
+        self.assertEqual(rejected, zero)
+        self.assertEqual(rejected.black_ms, 1_000)
+
+    def test_restored_running_zero_time_flags_before_move_increment(self):
+        clock = ChessClock(TimeControl(1_000, 2_000), now=self.now)
+
+        restored = clock.restore(
+            ClockSnapshot(0, 1_000, "w", ClockState.RUNNING),
+            resume_running=True,
+        )
+        self.assertEqual(restored.state, ClockState.FLAGGED)
+        self.assertEqual(restored.flagged, "w")
+        self.assertEqual(restored.white_ms, 0)
+        self.assertEqual(clock.switch_after_move("w"), restored)
+
+    def test_paused_zero_time_flags_on_resume_before_move_increment(self):
+        clock = ChessClock(TimeControl(1_000, 2_000), now=self.now)
+        paused = clock.restore(ClockSnapshot(0, 1_000, "w", ClockState.PAUSED))
+        self.assertEqual(paused.state, ClockState.PAUSED)
+
+        resumed = clock.resume()
+        self.assertEqual(resumed.state, ClockState.FLAGGED)
+        self.assertEqual(resumed.flagged, "w")
+        self.assertEqual(resumed.white_ms, 0)
+        self.assertEqual(clock.switch_after_move("w"), resumed)
+
+    def test_zero_time_next_side_flags_only_after_movers_accepted_switch(self):
+        clock = ChessClock(TimeControl(1_000, 100), now=self.now)
+        clock.start("w")
+        running = clock.set_remaining("b", 0)
+        self.assertEqual(running.state, ClockState.RUNNING)
+        self.assertEqual(running.active, "w")
+
+        switched = clock.switch_after_move("w")
+        self.assertEqual(switched.white_ms, 1_100)
+        self.assertEqual(switched.black_ms, 0)
+        self.assertEqual(switched.flagged, "b")
+        self.assertEqual(switched.state, ClockState.FLAGGED)
+
     def test_pause_resume_does_not_charge_paused_time(self):
         clock = ChessClock(TimeControl(10_000), now=self.now)
         clock.start("b")
