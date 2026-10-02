@@ -163,7 +163,11 @@ def _require_clean_source_tree(root: Path, *, label: str) -> None:
 
 def _copy_tree_without_links(source: Path, destination: Path) -> None:
     _require_clean_source_tree(source, label="source")
-    shutil.copytree(source, destination, symlinks=False)
+    # Never dereference a link that appears after the source pre-scan. Preserve
+    # such an entry so the destination post-scan can fail closed instead of
+    # silently importing bytes from outside the qualified source tree.
+    shutil.copytree(source, destination, symlinks=True)
+    _require_clean_source_tree(destination, label="copied source")
 
 
 def _safe_zip_name(info: zipfile.ZipInfo) -> PurePosixPath:
