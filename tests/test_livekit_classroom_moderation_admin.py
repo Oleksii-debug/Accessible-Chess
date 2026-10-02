@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from importlib import metadata
 from types import SimpleNamespace
 import traceback
 import unittest
@@ -442,6 +443,48 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
                 api_module=FakeApi,
                 sdk_version=LIVEKIT_API_VERSION,
             )
+
+    def test_real_pinned_sdk_preserves_rpc_data_grant_when_installed(self):
+        try:
+            installed = metadata.version("livekit-api")
+        except metadata.PackageNotFoundError:
+            self.skipTest("livekit-api is installed by the dedicated provider gate")
+        self.assertEqual(installed, LIVEKIT_API_VERSION)
+
+        from livekit import api
+
+        current = SimpleNamespace(
+            identity="student-1",
+            permission=api.ParticipantPermission(
+                can_subscribe=True,
+                can_publish=True,
+                can_publish_data=True,
+                can_publish_sources=[
+                    api.TrackSource.MICROPHONE,
+                    api.TrackSource.CAMERA,
+                ],
+            ),
+            tracks=[],
+        )
+        room = FakeRoomService(current)
+        admin = LiveKitClassroomModerationAdmin(room_service=room)
+
+        self.apply(
+            admin,
+            command(
+                ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.CAMERA,
+                value=False,
+            ),
+        )
+
+        request = room.updates[0]
+        self.assertEqual(
+            list(request.permission.can_publish_sources),
+            [api.TrackSource.MICROPHONE],
+        )
+        self.assertTrue(request.permission.can_publish)
+        self.assertTrue(request.permission.can_publish_data)
 
     def test_repr_does_not_render_room_service_details(self):
         secret = "room-service-secret"
