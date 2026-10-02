@@ -293,6 +293,7 @@ class ClassroomCollaborationSQLiteStore:
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
                 "SELECT * FROM collaboration_messages WHERE message_id=?", (message.message_id,)
             ).fetchone()
@@ -370,7 +371,10 @@ class ClassroomCollaborationSQLiteStore:
             return tuple(self._message_from_row(row) for row in db.execute(query, args))
 
     def set_message_hidden(self, message_id: str, hidden: bool) -> ChatMessageMetadata:
+        if type(hidden) is not bool:
+            raise ValueError("hidden flag must be boolean")
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
             if row is None:
                 raise CollaborationStorageError(f"unknown message: {message_id}")
@@ -450,6 +454,7 @@ class ClassroomCollaborationSQLiteStore:
         self, attachment_id: str, *, transfer_state: str, scan_state: str | None = None
     ) -> AttachmentMetadata:
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM collaboration_attachments WHERE attachment_id=?", (attachment_id,)).fetchone()
             if row is None:
                 raise CollaborationStorageError(f"unknown attachment: {attachment_id}")
