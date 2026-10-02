@@ -8,8 +8,11 @@ The runtime owns the realtime Room connection, proves that LiveKit connected the
 expected moderation participant to the expected room, binds the existing
 LiveKitModerationRpcTransport, and retains cleanup authority after failures.
 
-The service token is never stored on the runtime and provider details are
-redacted from diagnostics.
+The wrapper does not duplicate the service token into its own fields: it passes
+the token directly to the provider Room.connect call. The provider SDK owns its
+connection state while active. After successful teardown this wrapper drops the
+Room handle; after cleanup failure it deliberately retains that handle only so
+cleanup can be retried. Provider details are redacted from diagnostics.
 """
 
 import importlib
@@ -84,7 +87,7 @@ class LiveKitModerationServiceRuntime:
             sdk_version=sdk_version,
         )
         try:
-            self._room = self._rtc.Room()
+            self._room: object | None = self._rtc.Room()
         except Exception:
             raise LiveKitModerationServiceRuntimeError(
                 "LiveKit moderation service room initialization failed"
@@ -176,7 +179,12 @@ class LiveKitModerationServiceRuntime:
             ) from None
 
         try:
-            await self._room.connect(
+            room = self._room
+            if room is None:
+                raise LiveKitModerationServiceRuntimeError(
+                    "LiveKit moderation service room is unavailable"
+                )
+            await room.connect(
                 self._url,
                 token,
                 options=options,
@@ -191,8 +199,13 @@ class LiveKitModerationServiceRuntime:
             ) from None
 
         try:
-            actual_room = getattr(self._room, "name")
-            local_participant = getattr(self._room, "local_participant")
+            room = self._room
+            if room is None:
+                raise LiveKitModerationServiceRuntimeError(
+                    "LiveKit moderation service room is unavailable"
+                )
+            actual_room = getattr(room, "name")
+            local_participant = getattr(room, "local_participant")
             actual_identity = getattr(local_participant, "identity", None)
             if actual_room != self._room_id:
                 raise LiveKitModerationServiceRuntimeError(
@@ -225,14 +238,21 @@ class LiveKitModerationServiceRuntime:
     async def _cleanup_failed_connection(self, message: str) -> None:
         """Best-effort cleanup while retaining this object on failure."""
 
+        room = self._room
+        if room is None:
+            self._connected = False
+            self._closed = True
+            self._cleanup_required = False
+            return
         try:
-            await self._room.disconnect()
+            await room.disconnect()
         except Exception:
             self._cleanup_required = True
             raise LiveKitModerationServiceRuntimeError(
                 message + "; cleanup is required"
             ) from None
         self._connected = False
+        self._room = None
         self._closed = True
         self._cleanup_required = False
 
@@ -253,14 +273,18 @@ class LiveKitModerationServiceRuntime:
                     self._transport.close()
                 except Exception:
                     transport_failed = True
+                else:
+                    self._transport = None
 
-            if self._connected or self._cleanup_required:
+            room = self._room
+            if room is not None and (self._connected or self._cleanup_required):
                 try:
-                    await self._room.disconnect()
+                    await room.disconnect()
                 except Exception:
                     disconnect_failed = True
                 else:
                     self._connected = False
+                    self._room = None
 
             if transport_failed or disconnect_failed:
                 self._cleanup_required = True
@@ -268,6 +292,8 @@ class LiveKitModerationServiceRuntime:
                     "LiveKit moderation service cleanup failed"
                 ) from None
 
+            self._transport = None
+            self._room = None
             self._cleanup_required = False
             self._closed = True
         finally:
