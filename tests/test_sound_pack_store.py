@@ -190,6 +190,39 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
 
             self.assertNotIn(manifest.pack_id, store.installed())
 
+    def test_versions_follow_semver_prerelease_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            versions = (
+                "1.0.0-beta.10",
+                "1.0.0",
+                "1.0.0-alpha",
+                "1.0.0-beta.2",
+                "1.0.0-beta.1",
+                "1.0.0-alpha.1",
+            )
+            for index, version in enumerate(versions):
+                manifest = _manifest(version=version)
+                downloaded, _ = _staged_download(
+                    root,
+                    manifest,
+                    seed=bytes((97 + index,)),
+                )
+                store.install_atomically(downloaded)
+
+            self.assertEqual(
+                (
+                    "1.0.0-alpha",
+                    "1.0.0-alpha.1",
+                    "1.0.0-beta.1",
+                    "1.0.0-beta.2",
+                    "1.0.0-beta.10",
+                    "1.0.0",
+                ),
+                store.versions("soft.wood"),
+            )
+
     def test_same_version_with_different_content_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
