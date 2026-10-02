@@ -243,6 +243,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 allowed = {"enabled", "volume_percent"}
                 if not keys or not keys <= allowed:
                     raise ValueError("set_master payload")
+                if "enabled" in data and type(data["enabled"]) is not bool:
+                    raise ValueError("set_master enabled")
+                if (
+                    "volume_percent" in data
+                    and type(data["volume_percent"]) is not int
+                ):
+                    raise ValueError("set_master volume_percent")
                 result = sound.set_master(
                     enabled=data.get("enabled"),
                     volume_percent=data.get("volume_percent"),
@@ -259,6 +266,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 event_id = data.get("event_id")
                 if type(event_id) is not str:
                     raise ValueError("event_id")
+                if "enabled" in data and type(data["enabled"]) is not bool:
+                    raise ValueError("set_event enabled")
+                if (
+                    "volume_percent" in data
+                    and type(data["volume_percent"]) is not int
+                ):
+                    raise ValueError("set_event volume_percent")
                 result = sound.set_event(
                     event_id,
                     enabled=data.get("enabled"),
