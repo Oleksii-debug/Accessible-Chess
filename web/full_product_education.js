@@ -555,6 +555,10 @@
           const hide = node("button", chat.hide_label || "Hide message");
           hide.id = item.id + "-hide";
           hide.type = "button";
+          hide.setAttribute(
+            "aria-label",
+            (chat.hide_label || "Hide message") + ": " + String(message.sender || "")
+          );
           hide.setAttribute("data-command", "collaboration.chat.hide");
           hide.addEventListener("click", function () {
             invokeCollaboration(
@@ -572,6 +576,10 @@
           const mute = node("button", chat.mute_sender_label || "Mute sender");
           mute.id = item.id + "-mute";
           mute.type = "button";
+          mute.setAttribute(
+            "aria-label",
+            (chat.mute_sender_label || "Mute sender") + ": " + String(message.sender || "")
+          );
           mute.setAttribute("data-command", "collaboration.chat.mute_sender");
           mute.addEventListener("click", function () {
             invokeCollaboration(
@@ -587,6 +595,10 @@
           const allow = node("button", chat.allow_sender_label || "Allow sender");
           allow.id = item.id + "-allow";
           allow.type = "button";
+          allow.setAttribute(
+            "aria-label",
+            (chat.allow_sender_label || "Allow sender") + ": " + String(message.sender || "")
+          );
           allow.setAttribute("data-command", "collaboration.chat.allow_sender");
           allow.addEventListener("click", function () {
             invokeCollaboration(
@@ -604,6 +616,10 @@
           const remove = node("button", chat.remove_sender_label || "Remove participant");
           remove.id = item.id + "-remove";
           remove.type = "button";
+          remove.setAttribute(
+            "aria-label",
+            (chat.remove_sender_label || "Remove participant") + ": " + String(message.sender || "")
+          );
           remove.setAttribute("data-command", "collaboration.participant.remove_sender");
           remove.addEventListener("click", function () {
             invokeCollaboration(
@@ -619,6 +635,10 @@
           const block = node("button", chat.block_sender_label || "Remove and block participant");
           block.id = item.id + "-block";
           block.type = "button";
+          block.setAttribute(
+            "aria-label",
+            (chat.block_sender_label || "Remove and block participant") + ": " + String(message.sender || "")
+          );
           block.setAttribute("data-command", "collaboration.participant.block_sender");
           block.addEventListener("click", function () {
             invokeCollaboration(
@@ -692,6 +712,10 @@
           const save = node("button", files.save_label || "Save");
           save.id = item.id + "-save";
           save.type = "button";
+          save.setAttribute(
+            "aria-label",
+            (files.save_label || "Save") + ": " + String(file.name || "")
+          );
           save.setAttribute("data-command", "collaboration.file.save");
           save.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.save", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
@@ -702,6 +726,10 @@
           const open = node("button", files.open_label || "Open");
           open.id = item.id + "-open";
           open.type = "button";
+          open.setAttribute(
+            "aria-label",
+            (files.open_label || "Open") + ": " + String(file.name || "")
+          );
           open.setAttribute("data-command", "collaboration.file.open");
           open.addEventListener("click", function () {
             invokeCollaboration(
@@ -719,6 +747,10 @@
           const retry = node("button", files.retry_label || "Retry");
           retry.id = item.id + "-retry";
           retry.type = "button";
+          retry.setAttribute(
+            "aria-label",
+            (files.retry_label || "Retry") + ": " + String(file.name || "")
+          );
           retry.setAttribute("data-command", "collaboration.file.retry");
           retry.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.retry", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
@@ -729,6 +761,10 @@
           const cancel = node("button", files.cancel_label || "Cancel");
           cancel.id = item.id + "-cancel";
           cancel.type = "button";
+          cancel.setAttribute(
+            "aria-label",
+            (files.cancel_label || "Cancel") + ": " + String(file.name || "")
+          );
           cancel.setAttribute("data-command", "collaboration.file.cancel");
           cancel.addEventListener("click", function () {
             invokeCollaboration(invoke, "collaboration.file.cancel", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
