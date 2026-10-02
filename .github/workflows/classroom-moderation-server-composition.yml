@@ -45,7 +45,7 @@ jobs:
           EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
           LEDGER_OWNER_SHA: f716219966b30ad8c1c844e033a47ad63ec18e9d
-          ADMIN_OWNER_SHA: 65c33891fc370005dc00ada8a8a3f395296ba6dd
+          ADMIN_OWNER_SHA: f6da2f689533fc95209ea0a656880cda8d877dc7
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
