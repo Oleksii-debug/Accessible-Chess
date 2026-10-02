@@ -713,6 +713,52 @@ class ClassroomCollaborationSQLiteStore:
                 ) from exc
         return attachment
 
+    def discard_provisional_attachment(
+        self,
+        attachment_id: str,
+    ) -> AttachmentMetadata:
+        _canonical_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment_id,),
+                ).fetchone()
+                if row is None:
+                    raise CollaborationStorageError(
+                        f"unknown attachment: {attachment_id}"
+                    )
+                current = self._attachment_from_row(row)
+                if current.transfer_state not in {"pending", "uploading", "failed"}:
+                    raise CollaborationStorageError(
+                        "only provisional attachment metadata can be discarded"
+                    )
+                _validate_transfer_transition(current.transfer_state, "deleted")
+                tombstone = AttachmentMetadata(
+                    current.attachment_id,
+                    current.room_id,
+                    current.sender_id,
+                    current.sequence_no,
+                    current.display_name,
+                    current.mime_type,
+                    current.size_bytes,
+                    current.sha256,
+                    current.object_key,
+                    "deleted",
+                    current.retention,
+                    current.scan_state,
+                )
+                db.execute(
+                    "DELETE FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment_id,),
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        return tombstone
+
     def register_attachments_atomic(
         self,
         attachments: tuple[AttachmentMetadata, ...],
