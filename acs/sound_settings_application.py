@@ -38,6 +38,8 @@ _EVENT_LABELS = {
     "classroom.hand_raise": ("Піднята рука", "Hand raised"),
     "classroom.permission": ("Дозвіл у класі", "Classroom permission"),
     "lesson.position_deployed": ("Позицію уроку надіслано", "Lesson position deployed"),
+    "chat.message": ("Повідомлення чату", "Chat message"),
+    "file.transfer_complete": ("Передавання файлу завершено", "File transfer complete"),
 }
 
 
