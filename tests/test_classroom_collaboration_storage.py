@@ -9,6 +9,7 @@ from pathlib import Path
 from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
@@ -33,7 +34,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_schema_is_versioned_and_reopen_is_idempotent(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 3
+                db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()[0], 4
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
@@ -85,7 +86,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(message.sent_at_unix_ms)
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     "SELECT value FROM collaboration_schema_meta WHERE key='schema_version'"
                 ).fetchone()[0],
@@ -97,6 +98,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 )
             }
             self.assertIn("collaboration_chat_state_cursors", cursor_tables)
+            self.assertIn("collaboration_attachment_state_cursors", cursor_tables)
 
     def test_message_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         message = ChatMessageMetadata(
@@ -482,6 +484,47 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertLessEqual(len(safe.encode("utf-16-le")) // 2, 255)
         self.assertEqual(safe, "😀" * 127)
 
+    def test_attachment_registration_requires_gap_free_room_sequence(self) -> None:
+        first = AttachmentMetadata(
+            "a0", "room", "teacher", 0, "zero.bin", None, 1,
+            "0" * 64, "rooms/room/a0", "stored", "session", "clean"
+        )
+        self.assertEqual(self.store.register_attachment(first), first)
+        with self.assertRaises(CollaborationSequenceGapError):
+            self.store.register_attachment(
+                AttachmentMetadata(
+                    "a2", "room", "teacher", 2, "two.bin", None, 1,
+                    "2" * 64, "rooms/room/a2", "stored", "session", "clean"
+                )
+            )
+        second = AttachmentMetadata(
+            "a1", "room", "teacher", 1, "one.bin", None, 1,
+            "1" * 64, "rooms/room/a1", "stored", "session", "clean"
+        )
+        self.assertEqual(self.store.register_attachment(second), second)
+
+    def test_attachment_state_cursor_is_durable_atomic_and_gap_free(self) -> None:
+        record = AttachmentMetadata(
+            "a1", "room", "teacher", 0, "file.bin", None, 1,
+            "0" * 64, "rooms/room/a1", "stored", "persistent", "pending"
+        )
+        self.store.register_attachment(record)
+        self.assertIsNone(self.store.attachment_state_revision("room"))
+        self.store.apply_attachment_state_updates(
+            room_id="room",
+            updates=(AttachmentStateUpdate("room", "a1", 0, "stored", "clean"),),
+        )
+        self.assertEqual(self.store.attachment_state_revision("room"), 0)
+        self.assertEqual(self.store.room_attachments("room")[0].scan_state, "clean")
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(reopened.attachment_state_revision("room"), 0)
+        with self.assertRaises(CollaborationStorageError):
+            reopened.apply_attachment_state_updates(
+                room_id="room",
+                updates=(AttachmentStateUpdate("room", "a1", 2, "stored", "clean"),),
+            )
+        self.assertEqual(reopened.attachment_state_revision("room"), 0)
+
     def test_transfer_state_machine_rejects_resurrection_and_invalid_scan_reversal(self) -> None:
         record = AttachmentMetadata(
             "a1", "room", "teacher", 0, "file.bin", None, 1,
@@ -497,7 +540,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
     def test_rejoin_reads_durable_persistent_attachment_metadata(self) -> None:
         record = AttachmentMetadata(
-            "a1", "room", "teacher", 4, "homework.pgn", "application/x-chess-pgn", 12,
+            "a1", "room", "teacher", 0, "homework.pgn", "application/x-chess-pgn", 12,
             "a" * 64, "rooms/room/a1", "stored", "persistent", "clean"
         )
         self.store.register_attachment(record)
