@@ -490,6 +490,7 @@
     const input = node("textarea");
     input.id = "collaboration-chat-input";
     input.rows = 3;
+    input.setAttribute("dir", "auto");
     const maxBody = Number(chat.max_body_chars || 0);
     if (Number.isFinite(maxBody) && maxBody > 0) input.maxLength = maxBody;
     form.appendChild(input);
@@ -525,7 +526,11 @@
         item.id = String(message.dom_id || "");
         item.tabIndex = -1;
         if (message.unread) item.setAttribute("data-unread", "true");
-        item.appendChild(node("strong", message.sender || ""));
+        const sender = node("strong");
+        const senderText = node("bdi", message.sender || "");
+        senderText.setAttribute("dir", "auto");
+        sender.appendChild(senderText);
+        item.appendChild(sender);
         item.appendChild(document.createTextNode(": "));
         const body = node("bdi", message.body || "");
         body.setAttribute("dir", "auto");
@@ -667,10 +672,16 @@
         const item = node("li");
         item.id = String(file.dom_id || "");
         item.tabIndex = -1;
-        item.appendChild(node("strong", file.name || ""));
+        const fileName = node("strong");
+        const fileNameText = node("bdi", file.name || "");
+        fileNameText.setAttribute("dir", "auto");
+        fileName.appendChild(fileNameText);
+        item.appendChild(fileName);
         if (file.sender) {
           item.appendChild(document.createTextNode(" — "));
-          item.appendChild(node("span", file.sender));
+          const fileSender = node("bdi", file.sender);
+          fileSender.setAttribute("dir", "auto");
+          item.appendChild(fileSender);
         }
         [file.size_label, file.type_label, file.status_label, file.scan_label].forEach(function (value) {
           if (!value) return;
