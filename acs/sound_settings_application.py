@@ -7,13 +7,13 @@ persistence, pack verification/storage and playback remain owned by the existing
 sound-profile, pack-coordinator and profiled-runtime authorities.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from .sound_pack_catalog import SoundPackCatalogEntry, SoundPackState
 from .sound_pack_profile import SoundPackProfileCoordinator
 from .sound_profile_store import SoundProfileManager
-from .sound_profiles import CORE_SOUND_EVENTS, SoundEventPreference
+from .sound_profiles import CORE_SOUND_EVENTS, SoundEventPreference, SoundPackManifest
 from .sound_runtime import ProfiledSoundRuntime
 
 
@@ -46,6 +46,7 @@ class SoundSettingsApplication:
         *,
         pack_coordinator: SoundPackProfileCoordinator | None = None,
         catalog: Mapping[str, SoundPackCatalogEntry] | None = None,
+        installed_pack_provider: Callable[[], Mapping[str, SoundPackManifest]] | None = None,
     ) -> None:
         if not isinstance(profile_manager, SoundProfileManager):
             raise TypeError("profile_manager must be SoundProfileManager")
@@ -68,14 +69,33 @@ class SoundSettingsApplication:
             normalized[pack_id] = entry
         if normalized and pack_coordinator is None:
             raise ValueError("catalog actions require a pack coordinator")
+        if installed_pack_provider is not None and not callable(installed_pack_provider):
+            raise TypeError("installed_pack_provider must be callable or None")
         self._profiles = profile_manager
         self._runtime = runtime
         self._packs = pack_coordinator
         self._catalog = normalized
+        self._installed_pack_provider = installed_pack_provider
 
     @staticmethod
     def _language(value: object) -> str:
         return "en" if value == "en" else "uk"
+
+    def _installed_local_packs(self) -> dict[str, SoundPackManifest]:
+        provider = self._installed_pack_provider
+        if provider is None:
+            return {}
+        raw = provider()
+        if not isinstance(raw, Mapping):
+            raise TypeError("installed pack provider must return a mapping")
+        result: dict[str, SoundPackManifest] = {}
+        for pack_id, manifest in raw.items():
+            if not isinstance(pack_id, str) or not isinstance(manifest, SoundPackManifest):
+                raise TypeError("installed pack provider returned an invalid mapping")
+            if pack_id != manifest.pack_id:
+                raise ValueError("installed pack key must equal manifest pack_id")
+            result[pack_id] = manifest
+        return result
 
     def snapshot(self, *, language: str = "uk") -> dict[str, object]:
         lang = self._language(language)
@@ -96,11 +116,13 @@ class SoundSettingsApplication:
             )
 
         packs: list[dict[str, object]] = []
+        represented: set[str] = set()
         if self._packs is not None:
             for pack_id in sorted(self._catalog):
                 entry = self._catalog[pack_id]
                 status = self._packs.status(entry)
                 manifest = entry.manifest
+                represented.add(manifest.pack_id)
                 packs.append(
                     {
                         "pack_id": manifest.pack_id,
@@ -119,10 +141,30 @@ class SoundSettingsApplication:
                     }
                 )
 
+        for pack_id, manifest in sorted(self._installed_local_packs().items()):
+            if pack_id == "classic" or pack_id in represented:
+                continue
+            packs.append(
+                {
+                    "pack_id": manifest.pack_id,
+                    "title": manifest.title,
+                    "version": manifest.version,
+                    "author": manifest.author,
+                    "license_id": manifest.license_id,
+                    "compatible": True,
+                    "installed_version": manifest.version,
+                    "state": "local_installed",
+                    "active": profile.pack_id == manifest.pack_id,
+                    "can_install": False,
+                    "can_uninstall": False,
+                }
+            )
+
         return {
             "master_enabled": profile.master_enabled,
             "master_volume_percent": profile.master_volume_percent,
             "active_pack_id": profile.pack_id,
+            "can_select_classic": profile.pack_id != "classic",
             "writes_blocked": self._profiles.writes_blocked,
             "events": tuple(events),
             "packs": tuple(packs),
@@ -188,14 +230,24 @@ class SoundSettingsApplication:
         return self._result(message, language=language)
 
     def select_pack(self, pack_id: str, *, language: str = "uk") -> SoundSettingsResult:
-        if self._packs is None:
-            raise RuntimeError("sound pack management is unavailable")
-        if pack_id not in self._catalog:
-            raise ValueError("unknown sound pack")
-        resolved = self._packs.resolve_usable_pack(pack_id)
-        if resolved != pack_id:
-            raise ValueError("sound pack is not installed")
-        self._profiles.set_pack(pack_id)
+        if pack_id == "classic":
+            selected = self._profiles.set_pack(pack_id)
+            if selected.pack_id != "classic":
+                raise RuntimeError("classic sound pack fallback is unavailable")
+        elif self._packs is not None and pack_id in self._catalog:
+            resolved = self._packs.resolve_usable_pack(pack_id)
+            if resolved != pack_id:
+                raise ValueError("sound pack is not installed")
+            selected = self._profiles.set_pack(pack_id)
+            if selected.pack_id != pack_id:
+                raise RuntimeError("selected sound pack could not be retained")
+        else:
+            installed = self._installed_local_packs()
+            if pack_id not in installed:
+                raise ValueError("unknown sound pack")
+            selected = self._profiles.set_pack(pack_id)
+            if selected.pack_id != pack_id:
+                raise RuntimeError("selected local sound pack is unavailable")
         message = "Sound pack selected." if language == "en" else "Набір звуків вибрано."
         return self._result(message, language=language)
 
