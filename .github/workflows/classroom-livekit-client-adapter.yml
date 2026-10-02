@@ -37,9 +37,15 @@ jobs:
       - name: Prove bounded provider scope
         if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
+          test -n "$PR_BASE_REF"
+          git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
           mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-livekit-client-adapter.yml'
@@ -54,7 +60,13 @@ jobs:
             exit 1
           fi
           git diff --check "$base...HEAD"
-          git diff --quiet "$base...HEAD" --             acs/classroom_realtime_media.py             acs/classroom_domain.py             acs/chesscore.py             acs/teaching_session.py             acs/teaching_classroom_adapter.py
+          git diff --quiet "$base...HEAD" -- \
+            acs/classroom_realtime_media.py \
+            acs/classroom_domain.py \
+            acs/chesscore.py \
+            acs/teaching_session.py \
+            acs/teaching_classroom_adapter.py
+          echo "CLASSROOM_LIVEKIT_LIVE_BASE=$base"
           echo 'CLASSROOM_LIVEKIT_BOUNDED_SCOPE=PASS'
 
       - name: Run provider client contract
