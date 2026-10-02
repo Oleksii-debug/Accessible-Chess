@@ -329,7 +329,16 @@ class ChessClock:
         # The switch already validated its instant; do not sample time again
         # while charging the previous mover.
         now = self._read_now(not_before=self._last_tick) if at is None else at
-        elapsed_ms = int((now - self._last_tick) * 1000)
+        elapsed_float_ms = (now - self._last_tick) * 1000
+        # Two individually finite readings can still overflow when their
+        # difference is scaled to milliseconds. Do not leak OverflowError from
+        # int(inf), or partially charge a malformed clock sample.
+        if not math.isfinite(elapsed_float_ms):
+            raise ClockError(
+                "monotonic time delta must be finite",
+                code=ClockErrorCode.INVALID_TIME_SOURCE,
+            )
+        elapsed_ms = int(elapsed_float_ms)
         # A running side with zero time has already exhausted its clock,
         # even when the monotonic source has not advanced a whole millisecond.
         # In particular, administrative set_remaining(0) and restoration of
