@@ -98,6 +98,26 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertEqual(45, second.profile_manager.current.preference_for("check").volume_percent)
             self.assertEqual("check.soft", second.profile_manager.current.preference_for("check").sound_id)
 
+    def test_classroom_runtime_reuses_exact_profile_and_playback_authorities(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-classroom-") as raw:
+            root = Path(raw)
+            playback = _Playback()
+            composition = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=playback,
+            )
+
+            self.assertIs(
+                composition.classroom_runtime._playback,
+                composition.profiled_runtime._asset_playback,
+            )
+            composition.settings.set_master(enabled=False)
+            result = composition.classroom_runtime.dispatch("classroom.join")
+            self.assertTrue(result.ok)
+            self.assertFalse(result.delivered)
+            self.assertEqual([], playback.requests)
+
     def test_preview_runs_through_composed_profiled_runtime(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-preview-") as raw:
             root = Path(raw)
