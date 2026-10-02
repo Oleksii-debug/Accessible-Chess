@@ -115,6 +115,9 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "https://",
             "not-a-url",
             "https://classroom.example.invalid\n",
+            "https://class room.example.invalid",
+            "https://classroom.example.invalid\t",
+            "https://classroom.example.invalid:0",
             "https://classroom.example.invalid/" + ("x" * MAX_PROVIDER_ENDPOINT_CHARS),
         )
         for endpoint in invalid:
@@ -129,9 +132,11 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             (" key", "secret"),
             ("key ", "secret"),
             ("key\n", "secret"),
+            ("key\tpart", "secret"),
             ("key", ""),
             ("key", " secret"),
             ("key", "secret\r"),
+            ("key", "secret\tpart"),
             ("k" * (MAX_PROVIDER_CREDENTIAL_CHARS + 1), "secret"),
             ("key", "s" * (MAX_PROVIDER_CREDENTIAL_CHARS + 1)),
         )
