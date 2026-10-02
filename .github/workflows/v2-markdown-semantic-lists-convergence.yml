@@ -39,15 +39,18 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - name: Restore frozen Stage1 blobs byte-exact on Windows
+      - name: Restore inherited Stage1 blobs byte-exact on Windows
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
-          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
-          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
-          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
+          stage1_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          keymap_blob="$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
+          git cat-file blob "$stage1_blob" > acs/stage1_release_ui_core.py
+          git cat-file blob "$keymap_blob" > acs/webapp_keymap_core.py
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$stage1_blob"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$keymap_blob"
+          echo "STAGE1_WINDOWS_BYTE_REMATERIALIZATION=PASS stage1=$stage1_blob keymap=$keymap_blob"
 
       - uses: actions/setup-python@v5
         with:
@@ -121,12 +124,16 @@ jobs:
           tests.test_bookreader
           tests.test_v2_accessible_book_core
 
-      - name: Re-materialize frozen Stage1 blobs before broad byte contracts
+      - name: Re-materialize inherited Stage1 blobs before broad byte contracts
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
-          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          stage1_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          keymap_blob="$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
+          git cat-file blob "$stage1_blob" > acs/stage1_release_ui_core.py
+          git cat-file blob "$keymap_blob" > acs/webapp_keymap_core.py
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$stage1_blob"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$keymap_blob"
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
