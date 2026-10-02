@@ -525,6 +525,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(prepared.metadata.transfer_state, "pending")
         self.assertEqual(prepared.metadata.scan_state, "pending")
 
+    def test_default_storage_key_supports_canonical_ids_with_colons(self):
+        controller = ClassroomCollaborationController(
+            room_id="room:42",
+            local_participant_id="student-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=self.store,
+            file_store=self.file_store,
+        )
+        path = self.make_file("lesson.pgn", b"1. e4 e5")
+        first = controller.prepare_file(
+            attachment_id="attachment:1",
+            local_path=path,
+            sequence_no=0,
+        )
+        again = controller.prepare_file(
+            attachment_id="attachment:1",
+            local_path=path,
+            sequence_no=0,
+        )
+        self.assertEqual(first.metadata.object_key, again.metadata.object_key)
+        self.assertTrue(first.metadata.object_key.startswith("rooms/id-"))
+        self.assertNotIn(":", first.metadata.object_key)
+
     def test_prepare_file_enforces_per_file_and_room_quota(self):
         path = self.make_file(content=b"12345")
         controller = self.controller(
