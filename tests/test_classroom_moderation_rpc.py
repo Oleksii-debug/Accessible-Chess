@@ -465,6 +465,17 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.provider.calls), 1)
         self.assertNotIn((ROOM, "op-commit"), self.ledger.values)
 
+    def test_non_utf8_surrogate_text_fails_closed(self) -> None:
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "valid UTF-8",
+        ):
+            parse_moderation_rpc(
+                "\ud800",
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+            )
+
     def test_duplicate_json_object_fields_fail_closed(self) -> None:
         base = payload(operation("op-duplicate"))
         duplicate_envelope = base.replace(
