@@ -28,6 +28,26 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
             version2_release_ui._resource_sources,
         )
 
+    @staticmethod
+    def _write_resource_fixture(root: Path) -> Path:
+        web = root / "web"
+        web.mkdir(parents=True, exist_ok=True)
+        resources = (
+            "stage1_release_bootstrap.js",
+            "stage1_board_actions.js",
+            "full_product_pgn.js",
+            "full_product_library.js",
+            "full_product_books_training.js",
+            "full_product_teacher.js",
+            "full_product_education.js",
+            "version2_final_product_bootstrap.js",
+            "p0_accessibility_runtime.js",
+            "livekit_classroom_media.js",
+        )
+        for name in resources:
+            (web / name).write_text("// test resource\n", encoding="utf-8")
+        return web
+
     def test_import_preserves_exact_prior_release_owners(self) -> None:
         from acs import version2_final_release
 
@@ -199,23 +219,9 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            web = root / "web"
+            web = self._write_resource_fixture(root)
             vendor = web / "vendor" / "livekit"
             vendor.mkdir(parents=True)
-            resources = (
-                "stage1_release_bootstrap.js",
-                "stage1_board_actions.js",
-                "full_product_pgn.js",
-                "full_product_library.js",
-                "full_product_books_training.js",
-                "full_product_teacher.js",
-                "full_product_education.js",
-                "version2_final_product_bootstrap.js",
-                "p0_accessibility_runtime.js",
-                "livekit_classroom_media.js",
-            )
-            for name in resources:
-                (web / name).write_text("// test resource\n", encoding="utf-8")
             (vendor / "livekit-client.umd.js").write_text(
                 "globalThis.LivekitClient={Room:function Room(){}};\n",
                 encoding="utf-8",
@@ -243,22 +249,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            web = root / "web"
-            web.mkdir(parents=True)
-            resources = (
-                "stage1_release_bootstrap.js",
-                "stage1_board_actions.js",
-                "full_product_pgn.js",
-                "full_product_library.js",
-                "full_product_books_training.js",
-                "full_product_teacher.js",
-                "full_product_education.js",
-                "version2_final_product_bootstrap.js",
-                "p0_accessibility_runtime.js",
-                "livekit_classroom_media.js",
-            )
-            for name in resources:
-                (web / name).write_text("// test resource\n", encoding="utf-8")
+            self._write_resource_fixture(root)
 
             with mock.patch.object(
                 final_release._release_ui,
@@ -270,6 +261,46 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         labels = [label for label, _source in sources]
         self.assertNotIn("LiveKit browser SDK", labels)
         self.assertNotIn("Classroom LiveKit media adapter", labels)
+
+    def test_partial_livekit_vendor_root_fails_closed(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = self._write_resource_fixture(root)
+            (web / "vendor" / "livekit").mkdir(parents=True)
+
+            with mock.patch.object(
+                final_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK not found in packaged resources",
+                ):
+                    final_release._final_product_resource_sources()
+
+    def test_non_directory_livekit_vendor_root_fails_closed(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = self._write_resource_fixture(root)
+            vendor = web / "vendor"
+            vendor.mkdir(parents=True)
+            (vendor / "livekit").write_text("not a directory\n", encoding="utf-8")
+
+            with mock.patch.object(
+                final_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK resource root is invalid",
+                ):
+                    final_release._final_product_resource_sources()
 
     def test_main_failure_restores_exact_prior_release_owners(self) -> None:
         from acs import version2_final_release as final_release
