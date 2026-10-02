@@ -64,13 +64,18 @@ jobs:
           set -euo pipefail
           product_ref="work/full-product-teacher-education-reachability-20260911"
           if [ "${{ github.event.pull_request.base.ref }}" = "$product_ref" ]; then
-            # Current Product is a convergence branch. Qualify only W3-owned
-            # paths against the exact PR base; unrelated retained-workflow
-            # changes in the same Product PR are outside W3 ownership.
-            base="${{ github.event.pull_request.base.sha }}"
-            test -n "$base"
-            git cat-file -e "$base^{commit}"
+            # Product is long-lived: the pull-request event base SHA can lag
+            # the live Product tip after independent intake. Prove monotonic
+            # event-base -> live Product -> candidate ancestry, then scope only
+            # from the freshly fetched Product tip.
+            event_base="${{ github.event.pull_request.base.sha }}"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"
+            base="$(git rev-parse "refs/remotes/origin/$product_ref")"
+            git merge-base --is-ancestor "$event_base" "$base"
             git merge-base --is-ancestor "$base" HEAD
+            test "$(git merge-base "$base" HEAD)" = "$base"
             git diff --check "$base" HEAD
             owned_changed="$(git diff --name-only "$base" HEAD -- \
               .github/workflows/w3-takeback-clock-oracle-determinism.yml \

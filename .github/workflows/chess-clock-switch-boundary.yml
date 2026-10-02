@@ -57,10 +57,14 @@ jobs:
             # workflow plus the canonical clock source/test if those are
             # intentionally changed. Do not reinterpret unrelated Product
             # history as clock-lane scope.
-            scope_base="$PR_BASE_SHA"
-            test -n "$scope_base"
-            git cat-file -e "$scope_base^{commit}"
+            event_base="$PR_BASE_SHA"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"
+            scope_base="$(git rev-parse "refs/remotes/origin/$product_ref")"
+            git merge-base --is-ancestor "$event_base" "$scope_base"
             git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
             git diff --check "$scope_base" HEAD
             owned_changed="$(git diff --name-only "$scope_base" HEAD -- \
               .github/workflows/chess-clock-switch-boundary.yml \

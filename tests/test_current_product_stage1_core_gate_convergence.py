@@ -74,6 +74,22 @@ class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
             text,
         )
         self.assertIn(
+            'event_base="${{ github.event.pull_request.base.sha }}"',
+            text,
+        )
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"',
+            text,
+        )
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$product_ref")"',
+            text,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$base" HEAD)" = "$base"',
+            text,
+        )
+        self.assertIn(
             'elif [ "${{ github.event.pull_request.head.ref }}" = "$product_ref" ]; then',
             text,
         )
@@ -106,6 +122,15 @@ class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
             self.assertIn(digest, text)
         self.assertIn(
             "Clock Product convergence crossed foreign runtime ownership",
+            text,
+        )
+        self.assertIn('event_base="$PR_BASE_SHA"', text)
+        self.assertIn(
+            'scope_base="$(git rev-parse "refs/remotes/origin/$product_ref")"',
+            text,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"',
             text,
         )
 
