@@ -974,6 +974,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "short-lived-read-token",
         )
 
+    def test_file_history_preserves_departed_sender_but_live_receive_requires_membership(self):
+        historical = AttachmentMetadata(
+            "departed-file",
+            "room-1",
+            "student-2",
+            0,
+            "before-leaving.pgn",
+            "application/x-chess-pgn",
+            8,
+            "c" * 64,
+            "rooms/room-1/departed-file",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (historical,)
+        self.roster.roles.pop("student-2")
+        controller = self.controller("teacher-1")
+
+        self.assertEqual(controller.sync_files(), (historical,))
+        self.assertEqual(self.store.room_attachments("room-1"), (historical,))
+
+        live_after_departure = replace(
+            historical,
+            attachment_id="departed-live",
+            sequence_no=1,
+            object_key="rooms/room-1/departed-live",
+        )
+        with self.assertRaises(CollaborationError):
+            controller.receive_file(live_after_departure)
+        self.assertEqual(self.store.room_attachments("room-1"), (historical,))
+
     def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
         controller = self.controller("teacher-1")
         base = AttachmentMetadata(
