@@ -317,21 +317,22 @@ class ClassroomCollaborationWebView:
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
         moderator = self._moderator()
         sender_active = item.sender_id not in self._removed_participant_ids
-        sender_moderatable = (
-            sender_active
-            and self._controller.can_moderate_chat_participant(item.sender_id)
-        )
         view: dict[str, object] = {
             "dom_id": "collaboration-message-" + sha256(item.message_id.encode("utf-8")).hexdigest()[:16],
             "sender": self._label(item.sender_id),
             "body": item.body,
             "unread": item.message_id in self._unread_message_ids,
             "can_hide": moderator,
-            "can_moderate_sender": moderator and sender_moderatable,
+            "can_moderate_sender": (
+                moderator
+                and sender_active
+                and item.sender_id != self._controller.local_participant_id
+            ),
             "can_remove_sender": (
                 moderator
-                and sender_moderatable
+                and sender_active
                 and self._participant_moderation is not None
+                and item.sender_id != self._controller.local_participant_id
             ),
         }
         if item.sent_at_unix_ms is not None:
