@@ -71,6 +71,16 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         self.assertIn('focusById(root, payload.focus_target || "")', source)
         self.assertNotIn("root.replaceChildren", source)
 
+    def test_media_workflow_expected_scope_is_c_sorted(self) -> None:
+        source = self.workflow
+        expected_block = source.split("expected=(", 1)[1].split(")", 1)[0]
+        expected = [
+            line.strip().strip("'")
+            for line in expected_block.splitlines()
+            if line.strip().startswith("'")
+        ]
+        self.assertEqual(expected, sorted(expected))
+
     def test_media_workflow_binds_immutable_pull_request_base(self) -> None:
         source = self.workflow
         self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", source)
