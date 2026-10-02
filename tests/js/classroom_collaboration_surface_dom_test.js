@@ -102,6 +102,11 @@ function collaboration(messages, unreadCount, moderation) {
       send_label: "Send",
       sync_label: "Refresh chat",
       mark_read_label: "Mark read",
+      older_label: "Older messages",
+      newer_label: "Newer messages",
+      page_label: "Message history page 1 of 1",
+      can_older: false,
+      can_newer: false,
       timestamp_label: "Message time",
       hide_label: "Hide message",
       mute_sender_label: "Mute sender",
@@ -233,6 +238,49 @@ check(
   "timestamps must not become live announcements"
 );
 
+const pageStatus = root.querySelector("#collaboration-chat-page-status");
+check(
+  pageStatus !== null &&
+  pageStatus.textContent === "Message history page 1 of 1" &&
+  pageStatus.getAttribute("aria-live") === "off",
+  "chat history page status must remain selectable without becoming a live-region loop"
+);
+check(
+  root.querySelector("#collaboration-chat-older").disabled &&
+  root.querySelector("#collaboration-chat-newer").disabled,
+  "single-page history must expose native disabled paging boundaries"
+);
+const pagedSnapshot = collaboration([
+  {
+    dom_id: "collaboration-message-one",
+    sender: "Teacher",
+    body: "e4 is the target.",
+    timestamp_text: "2023-11-14 22:13:20 UTC",
+    timestamp_datetime: "2023-11-14T22:13:20Z",
+    unread: false
+  }
+], 0, false);
+pagedSnapshot.chat.can_newer = true;
+pagedSnapshot.chat.page_label = "Message history page 1 of 2";
+root.querySelector("#collaboration-chat-sync").focus();
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.page",
+    payload: {
+      collaboration: pagedSnapshot,
+      focus_target: "collaboration-chat-newer"
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-chat-newer"),
+  "chat history paging must honor its bounded stable focus target"
+);
+
 const fileItem = root.querySelector("#collaboration-file-a");
 check(fileItem && fileItem.tagName === "LI", "file metadata must be a semantic list item");
 const fileBidi = fileItem.querySelectorAll("BDI");
@@ -283,6 +331,8 @@ check(
 check(
   root.querySelector("#collaboration-chat-sync") !== null &&
   root.querySelector("#collaboration-chat-mark-read") !== null &&
+  root.querySelector("#collaboration-chat-older") !== null &&
+  root.querySelector("#collaboration-chat-newer") !== null &&
   root.querySelector("#collaboration-chat-send") !== null &&
   root.querySelector("#collaboration-file-sync") !== null &&
   root.querySelector("#collaboration-file-choose") !== null &&
