@@ -48,10 +48,13 @@ class FakeChat:
         self.ordered = []
         self.moderation_calls = []
         self.state_updates = []
+        self.send_allowed = {}
         self.mutate_delivery = False
         self.omit_timestamp = False
 
     def send_message(self, draft):
+        if not self.send_allowed.get((draft.room_id, draft.sender_id), True):
+            raise CollaborationError("server rejected locked chat sender")
         current = self.messages.get(draft.message_id)
         if current is not None:
             return current
@@ -93,6 +96,9 @@ class FakeChat:
     def apply_moderation(self, commands):
         self.moderation_calls.append(commands)
         for command in commands:
+            if command.action.value == "set_send_permission":
+                self.send_allowed[(command.room_id, command.target_id)] = command.allowed
+                continue
             if command.action.value != "hide_message":
                 continue
             for index, message in enumerate(self.ordered):
@@ -282,23 +288,34 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 ChatMessageMetadata("m1", "room-1", "student-2", 0, "orphan", sent_at_unix_ms=1700000000000)
             )
 
-    def test_teacher_chat_lock_prevents_local_send_until_restored(self):
-        controller = self.controller("student-1")
-        controller.set_chat_send_permission(
+    def test_teacher_chat_lock_is_server_authoritative_across_controller_recreation(self):
+        teacher = self.controller("teacher-1")
+        teacher.set_chat_send_permission(
             actor_id="teacher-1",
             target_id="student-1",
             allowed=False,
             operation_id="lock-student-chat",
         )
-        with self.assertRaises(CollaborationError):
-            controller.send_chat(message_id="m1", body="blocked")
-        controller.set_chat_send_permission(
+
+        student = self.controller("student-1")
+        with self.assertRaisesRegex(CollaborationError, "server rejected locked chat sender"):
+            student.send_chat(message_id="m1", body="blocked")
+
+        # A fresh controller/reconnect must not reset the server-side permission.
+        student = self.controller("student-1")
+        with self.assertRaisesRegex(CollaborationError, "server rejected locked chat sender"):
+            student.send_chat(message_id="m1b", body="still blocked")
+
+        teacher.set_chat_send_permission(
             actor_id="teacher-1",
             target_id="student-1",
             allowed=True,
             operation_id="unlock-student-chat",
         )
-        self.assertEqual(controller.send_chat(message_id="m2", body="allowed").body, "allowed")
+        self.assertEqual(
+            student.send_chat(message_id="m2", body="allowed").body,
+            "allowed",
+        )
 
     def test_all_students_lock_is_bounded_to_student_roles(self):
         controller = self.controller("teacher-1")
