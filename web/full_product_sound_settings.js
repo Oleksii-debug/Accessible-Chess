@@ -325,6 +325,7 @@
       text("Версія ", "Version ") + String(item.version || "") + ". " +
       text("Автор: ", "Author: ") + String(item.author || "") + ". " +
       text("Ліцензія: ", "License: ") + String(item.license_id || "") + ". " +
+      text("Походження: ", "Provenance: ") + String(item.provenance || "") + ". " +
       installed + ".";
     group.appendChild(metadata);
 
