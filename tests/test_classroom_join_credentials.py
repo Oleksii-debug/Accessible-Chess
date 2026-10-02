@@ -259,6 +259,23 @@ class ClassroomJoinCredentialServiceTests(unittest.TestCase):
         rendered = "".join(traceback.format_exception(caught.exception))
         self.assertNotIn(issuer.token, rendered)
 
+    def test_duplicate_json_object_fields_fail_closed(self):
+        duplicate_payloads = (
+            '{"version":1,"version":1,"room_id":"room-1","participant_id":"student-1"}',
+            '{"version":1,"room_id":"room-1","room_id":"room-2","participant_id":"student-1"}',
+            '{"version":1,"room_id":"room-1","participant_id":"student-1","participant_id":"student-2"}',
+        )
+        for payload_value in duplicate_payloads:
+            with self.subTest(payload=payload_value):
+                with self.assertRaisesRegex(
+                    ClassroomJoinCredentialError,
+                    "fields must be unique",
+                ):
+                    parse_join_request(
+                        payload_value,
+                        trusted_caller_identity="account-17",
+                    )
+
     def test_request_parser_is_strict_and_bounded_before_authorization(self):
         for payload in (
             "",
