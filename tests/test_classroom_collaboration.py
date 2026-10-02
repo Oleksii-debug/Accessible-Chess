@@ -1500,6 +1500,40 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertIsNone(self.store.attachment_state_revision("room-1"))
 
+    def test_live_receive_adopts_authority_over_ambiguous_failed_upload(self):
+        controller = self.controller("student-1")
+        prepared = controller.prepare_file(
+            attachment_id="ambiguous-live-a0",
+            local_path=self.make_file("ambiguous-live-a0.bin", b"payload"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        failed = self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+        )
+        self.assertEqual(failed.sequence_no, 73)
+
+        authoritative = replace(
+            prepared.metadata,
+            sequence_no=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        received = controller.receive_file(authoritative)
+
+        self.assertEqual(received, authoritative)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (authoritative,),
+        )
+
     def test_live_receive_advances_after_tombstone_prefix(self):
         controller = self.controller("teacher-1")
         tombstone = AttachmentMetadata(
