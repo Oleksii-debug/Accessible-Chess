@@ -35,7 +35,10 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
 _ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
 _WINDOWS_FORBIDDEN_PATH_CHARS = frozenset('<>:"|?*')
 _WINDOWS_RESERVED_BASENAMES = frozenset({"con", "prn", "aux", "nul", "conin$", "conout$"})
-_VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9a-z]+(?:[.-][0-9a-z]+)*))?$")
+_VERSION_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-([0-9a-z-]+(?:\.[0-9a-z-]+)*))?$"
+)
 
 
 @dataclass(frozen=True)
@@ -321,9 +324,35 @@ def _stable_version(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("sound pack version must be text")
     text = value.strip().lower()
-    if not _VERSION_RE.fullmatch(text):
+    match = _VERSION_RE.fullmatch(text)
+    if match is None:
         raise ValueError("sound pack version must be canonical semantic version text")
+    prerelease = match.group(4)
+    if prerelease is not None:
+        for identifier in prerelease.split("."):
+            if identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0"):
+                raise ValueError(
+                    "sound pack version must use canonical semantic version prerelease identifiers"
+                )
     return text
+
+
+def _semantic_version_key(value: str) -> tuple[object, ...]:
+    """Return SemVer precedence for an already-canonical sound-pack version."""
+
+    version = _stable_version(value)
+    core, marker, prerelease = version.partition("-")
+    major, minor, patch = (int(part) for part in core.split("."))
+    if not marker:
+        return (major, minor, patch, 1, ())
+    identifiers: list[tuple[int, object]] = []
+    for identifier in prerelease.split("."):
+        identifiers.append(
+            (0, int(identifier))
+            if identifier.isdigit()
+            else (1, identifier)
+        )
+    return (major, minor, patch, 0, tuple(identifiers))
 
 
 def _windows_reserved_path_component(part: str) -> bool:
