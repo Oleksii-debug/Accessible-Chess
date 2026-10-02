@@ -8,6 +8,7 @@ active-version boundary. This module owns no chess-event ordering or profile
 persistence.
 """
 
+from contextlib import contextmanager
 import hashlib
 import io
 import logging
@@ -27,6 +28,18 @@ from .sound_windows import PackagedSoundAssetResolver
 
 
 PROFILED_SCALED_SOUND_CACHE_FORMAT_VERSION = 1
+_CACHE_LOCKS_GUARD = threading.Lock()
+_CACHE_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _cache_process_lock(path: Path) -> threading.RLock:
+    key = os.path.normcase(os.path.abspath(os.fspath(path)))
+    with _CACHE_LOCKS_GUARD:
+        lock = _CACHE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _CACHE_LOCKS[key] = lock
+        return lock
 
 
 def _scale_pcm_frames(frames: bytes, sample_width: int, factor: float) -> bytes:
@@ -79,7 +92,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
         self._cache_dir = Path(cache_dir)
         self._classic = classic_pack_id.strip()
         self._logger = logger or logging.getLogger(__name__)
-        self._play_lock = threading.RLock()
+        self._play_lock = _cache_process_lock(self._cache_dir)
 
     def _classic_event(self, request: SoundAssetRequest) -> SoundEvent:
         if request.pack_id != self._classic:
@@ -125,7 +138,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
             # critical section. Otherwise a concurrent pack update/play can prune
             # a content-addressed file after another call resolves it but before
             # winsound opens it.
-            with self._play_lock:
+            with self._exclusive_playback():
                 source, cache_key = self._resolve(request)
                 if request.pack_id == self._classic and request.volume == 100:
                     # Packaged classic assets are immutable release resources.
@@ -149,6 +162,100 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 type(exc).__name__,
             )
             raise
+
+    @property
+    def _cache_lock_path(self) -> Path:
+        return self._cache_dir / ".playback.lock"
+
+    @staticmethod
+    def _lock_descriptor(descriptor: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+        except OSError as exc:
+            raise RuntimeError("profiled sound cache is busy") from exc
+
+    @staticmethod
+    def _unlock_descriptor(descriptor: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError:
+            pass
+
+    def _open_cache_lock_descriptor(self) -> int:
+        path = self._cache_lock_path
+        try:
+            metadata = os.lstat(path)
+        except FileNotFoundError:
+            metadata = None
+        except OSError as exc:
+            raise RuntimeError("profiled sound cache lock is unavailable") from exc
+        if metadata is not None:
+            reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            attributes = getattr(metadata, "st_file_attributes", 0)
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or bool(reparse_flag and attributes & reparse_flag)
+                or not stat.S_ISREG(metadata.st_mode)
+            ):
+                raise RuntimeError("profiled sound cache lock is not a regular file")
+
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(path, flags, 0o600)
+        except OSError as exc:
+            raise RuntimeError("profiled sound cache lock is unavailable") from exc
+        try:
+            opened = os.fstat(descriptor)
+            reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            attributes = getattr(opened, "st_file_attributes", 0)
+            if (
+                stat.S_ISLNK(opened.st_mode)
+                or bool(reparse_flag and attributes & reparse_flag)
+                or not stat.S_ISREG(opened.st_mode)
+            ):
+                raise RuntimeError("profiled sound cache lock is not a regular file")
+            if opened.st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    @contextmanager
+    def _exclusive_playback(self):
+        with self._play_lock:
+            self._ensure_real_cache_dir()
+            descriptor = self._open_cache_lock_descriptor()
+            acquired = False
+            try:
+                self._lock_descriptor(descriptor)
+                acquired = True
+                yield
+            finally:
+                if acquired:
+                    self._unlock_descriptor(descriptor)
+                os.close(descriptor)
 
     def _ensure_real_cache_dir(self) -> None:
         if os.path.lexists(self._cache_dir):
