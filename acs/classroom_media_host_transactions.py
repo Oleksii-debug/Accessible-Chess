@@ -37,6 +37,11 @@ from .classroom_realtime_media import (
 
 
 _TRANSACTION_RE = re.compile(r"^host-[0-9a-f]{32}$")
+# The current LiveKit moderation adapter accepts at most 256 commands and a
+# 15-KiB JSON RPC body. Twenty-four worst-case canonical commands (three
+# 128-character identifiers each) leave deterministic headroom for room identity
+# and JSON framing, so large classroom actions are planned as bounded calls.
+MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK = 24
 
 
 class MediaHostTransactionError(RuntimeError):
@@ -114,41 +119,80 @@ class MediaProviderEffect:
         ):
             raise MediaHostTransactionError("device-recovery effect shape is invalid")
 
-    def browser_payload(self) -> Mapping[str, object]:
-        """Return a JSON-compatible payload that never contains a join token."""
+    @staticmethod
+    def _moderation_command_payload(
+        command: ModerationCommand,
+    ) -> Mapping[str, object]:
+        return {
+            "operation_id": command.operation_id,
+            "actor_id": command.actor_id,
+            "target_id": command.target_id,
+            "action": command.action.value,
+            "source": None if command.source is None else command.source.value,
+            "value": command.value,
+        }
+
+    def browser_payloads(self) -> tuple[Mapping[str, object], ...]:
+        """Return an ordered, bounded browser execution plan.
+
+        A moderation effect remains one canonical transaction even when its
+        provider execution needs multiple RPC-sized chunks. The host must execute
+        every chunk in order and call commit_provider_success only after all
+        chunks have exact provider success. Any partial/unknown outcome is
+        recovery-required.
+        """
 
         if self.kind is MediaProviderEffectKind.LOCAL_SOURCE:
-            return {
-                "transaction_id": self.transaction_id,
-                "operation": self.kind.value,
-                "source": self.source.value,
-                "enabled": self.enabled,
-            }
+            return (
+                {
+                    "transaction_id": self.transaction_id,
+                    "operation": self.kind.value,
+                    "source": self.source.value,
+                    "enabled": self.enabled,
+                },
+            )
         if self.kind is MediaProviderEffectKind.MODERATION:
-            return {
+            chunks = tuple(
+                self.commands[index:index + MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK]
+                for index in range(
+                    0,
+                    len(self.commands),
+                    MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK,
+                )
+            )
+            chunk_count = len(chunks)
+            return tuple(
+                {
+                    "transaction_id": self.transaction_id,
+                    "operation": self.kind.value,
+                    "chunk_index": index,
+                    "chunk_count": chunk_count,
+                    "commands": [
+                        self._moderation_command_payload(command)
+                        for command in chunk
+                    ],
+                }
+                for index, chunk in enumerate(chunks)
+            )
+        return (
+            {
                 "transaction_id": self.transaction_id,
                 "operation": self.kind.value,
-                "commands": [
-                    {
-                        "operation_id": command.operation_id,
-                        "actor_id": command.actor_id,
-                        "target_id": command.target_id,
-                        "action": command.action.value,
-                        "source": (
-                            None if command.source is None else command.source.value
-                        ),
-                        "value": command.value,
-                    }
-                    for command in self.commands
-                ],
-            }
-        return {
-            "transaction_id": self.transaction_id,
-            "operation": self.kind.value,
-            "kind": self.device_kind.value,
-            "device_id": self.device_id,
-            "republish_enabled": self.republish_enabled,
-        }
+                "kind": self.device_kind.value,
+                "device_id": self.device_id,
+                "republish_enabled": self.republish_enabled,
+            },
+        )
+
+    def browser_payload(self) -> Mapping[str, object]:
+        """Return one browser payload only when the effect needs one provider call."""
+
+        payloads = self.browser_payloads()
+        if len(payloads) != 1:
+            raise MediaHostTransactionError(
+                "media effect requires multiple ordered browser payload chunks"
+            )
+        return payloads[0]
 
 
 class _PreparedProviderEffect(Exception):
@@ -557,5 +601,6 @@ __all__ = [
     "MediaHostRecoveryRequired",
     "MediaHostTransactionError",
     "MediaProviderEffect",
+    "MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK",
     "MediaProviderEffectKind",
 ]
