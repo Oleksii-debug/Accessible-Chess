@@ -26,6 +26,8 @@ env:
   SOURCE_PAYLOAD_OWNER: acd277cafd5ac6f7d312e26dc79105308c6fac0b
   SOURCE_PAYLOAD_BLOB: 05d659e6036ede602b06511cb4d1f796f77440f2
   SOURCE_TEST_BLOB: fdb7ce3ab838606b95bdf5e17d9afa3fd4c8de57
+  SOURCE_PAYLOAD_LIVEKIT_BLOB: 22e3d27ab21c58c10c60f514698cd3983815025b
+  SOURCE_TEST_LIVEKIT_BLOB: 45e4d18c5562ec3d412b58751298cd3272a5b3fe
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
@@ -72,8 +74,23 @@ jobs:
             echo 'W6_PAYLOAD_TOPOLOGY=CURRENT_RUNTIME_COMPOSITION'
           fi
 
-          test "$(git rev-parse HEAD:acs/version2_release_payload.py)" = "$SOURCE_PAYLOAD_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_release_payload.py)" = "$SOURCE_TEST_BLOB"
+          payload_blob="$(git rev-parse HEAD:acs/version2_release_payload.py)"
+          test_blob="$(git rev-parse HEAD:tests/test_version2_release_payload.py)"
+          case "$payload_blob" in
+            "$SOURCE_PAYLOAD_BLOB"|"$SOURCE_PAYLOAD_LIVEKIT_BLOB") ;;
+            *) echo "Unreviewed V2 release-payload identity: $payload_blob" >&2; exit 1 ;;
+          esac
+          case "$test_blob" in
+            "$SOURCE_TEST_BLOB"|"$SOURCE_TEST_LIVEKIT_BLOB") ;;
+            *) echo "Unreviewed V2 release-payload test identity: $test_blob" >&2; exit 1 ;;
+          esac
+          if [ "$payload_blob" = "$SOURCE_PAYLOAD_LIVEKIT_BLOB" ]; then
+            test "$test_blob" = "$SOURCE_TEST_LIVEKIT_BLOB"
+            echo 'W6_PAYLOAD_IDENTITY=LIVEKIT_PACKAGE_SUCCESSOR'
+          else
+            test "$test_blob" = "$SOURCE_TEST_BLOB"
+            echo 'W6_PAYLOAD_IDENTITY=PRE_LIVEKIT_BASELINE'
+          fi
 
       - name: Compile bounded release payload boundary
         run: >-
