@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from .classroom_collaboration import (
+    MAX_SYNC_MESSAGES,
     ChatDraft,
     ChatModerationAction,
     ChatModerationCommand,
@@ -34,8 +35,13 @@ from .classroom_collaboration_storage import (
 from .classroom_domain import MAX_WIRE_INTEGER
 
 
-MAX_SERVER_HISTORY_MESSAGES = 500
-MAX_SERVER_MODERATION_COMMANDS = 500
+# The trusted server must accept the exact bounded page requested by the
+# canonical client transport contract; a smaller independent cap makes the
+# two sides impossible to compose without a lossy adapter.
+MAX_SERVER_HISTORY_MESSAGES = MAX_SYNC_MESSAGES
+# Canonical classroom rosters are bounded to 5,000 participants. A teacher's
+# one-shot all-student moderation command must remain composable at that bound.
+MAX_SERVER_MODERATION_COMMANDS = 5000
 _SERVER_SCHEMA_VERSION = 2
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
