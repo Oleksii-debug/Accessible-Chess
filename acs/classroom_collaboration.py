@@ -613,7 +613,6 @@ class ClassroomCollaborationController:
                 "attachment_id",
                 "room_id",
                 "sender_id",
-                "sequence_no",
                 "display_name",
                 "mime_type",
                 "size_bytes",
@@ -627,6 +626,15 @@ class ClassroomCollaborationController:
             ):
                 raise CollaborationError(
                     "live file reused attachment identity with different payload"
+                )
+            if current.transfer_state in {"uploading", "failed"}:
+                # The provider may have committed an upload while this client
+                # crashed or observed an ambiguous failure. The local sequence
+                # is provisional; allow room authority to reconcile it below.
+                return None
+            if current.sequence_no != attachment.sequence_no:
+                raise CollaborationError(
+                    "live file changed authoritative attachment sequence"
                 )
             # Preserve any newer mutable state already reconciled locally; a
             # delayed stored push must never resurrect a tombstone or scan block.
@@ -670,11 +678,16 @@ class ClassroomCollaborationController:
                 "live file sequence is stale or unresolved after recovery"
             )
         try:
-            return self._store.register_attachment(attachment)
+            persisted = self._store.reconcile_attachment_sync_atomic(
+                room_id=self.room_id,
+                attachments=(attachment,),
+                updates=(),
+            )
         except CollaborationStorageError as error:
             raise CollaborationError(
                 "remote attachment could not be reconciled"
             ) from error
+        return persisted[0]
 
     def sync_files(self) -> tuple[AttachmentMetadata, ...]:
         self._require_member(self.local_participant_id)
