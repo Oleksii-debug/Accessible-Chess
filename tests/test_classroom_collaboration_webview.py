@@ -184,8 +184,15 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         messages = event.payload["collaboration"]["chat"]["messages"]
         self.assertEqual(body, messages[-1]["body"])
+        self.assertEqual(
+            "Student two: Visiblegnp next",
+            messages[-1]["action_message"],
+        )
+        self.assertEqual("Student two", messages[-1]["action_sender"])
         self.assertNotIn("\u202E", event.payload["announcement"])
         self.assertNotIn("\u200b", event.payload["announcement"])
+        self.assertNotIn("\u202E", messages[-1]["action_message"])
+        self.assertNotIn("\u200b", messages[-1]["action_message"])
 
     def test_snapshot_projects_safe_ordered_metadata_without_internal_ids(self) -> None:
         view = self.webview()
