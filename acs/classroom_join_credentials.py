@@ -203,6 +203,14 @@ class ClassroomJoinCredentialService:
                 "join token issuer returned invalid credential"
             ) from None
 
+        try:
+            completion_time = _utc(self._now(), "join credential completion clock")
+            credential.assert_usable(completion_time)
+        except Exception:
+            raise ClassroomJoinCredentialError(
+                "join token issuer returned unusable credential"
+            ) from None
+
         response = json.dumps(
             {
                 "version": JOIN_REQUEST_VERSION,
