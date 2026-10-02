@@ -13,6 +13,7 @@ import io
 import logging
 import os
 from pathlib import Path
+import stat
 import struct
 import sys
 import tempfile
@@ -149,6 +150,21 @@ class ProfiledWindowsSoundPlaybackAdapter:
             )
             raise
 
+    def _ensure_real_cache_dir(self) -> None:
+        if os.path.lexists(self._cache_dir):
+            metadata = os.lstat(self._cache_dir)
+        else:
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
+            metadata = os.lstat(self._cache_dir)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        attributes = getattr(metadata, "st_file_attributes", 0)
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or bool(reparse_flag and attributes & reparse_flag)
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise ValueError("profiled sound cache is not a real directory")
+
     def _scaled_copy(self, source: Path, cache_key: str, volume: int) -> Path:
         """Return an exact, content-addressed scaled WAV snapshot.
 
@@ -158,7 +174,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
         publish the derived WAV atomically.
         """
 
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_real_cache_dir()
         source_bytes = source.read_bytes()
         source_digest = hashlib.sha256(source_bytes).hexdigest()
         destination = self._cache_dir / (
