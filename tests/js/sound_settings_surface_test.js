@@ -34,6 +34,7 @@ class Element {
     return child;
   }
   replaceChildren(...children) {
+    this.children.slice().forEach(child => unregisterTree(child));
     this.children = [];
     children.forEach(child => this.appendChild(child));
   }
@@ -44,6 +45,13 @@ class Element {
     const callback = this.listeners[name];
     if (callback) callback({target: this});
   }
+}
+
+function unregisterTree(node) {
+  if (!node) return;
+  if (node.id && elements.get(node.id) === node) elements.delete(node.id);
+  if (Array.isArray(node.children)) node.children.forEach(child => unregisterTree(child));
+  node.parentNode = null;
 }
 
 class Fragment {
@@ -231,8 +239,8 @@ async function run() {
   assert.deepStrictEqual(calls[2], ["install_pack", {pack_id: "soft", activate: true}]);
   const removePack = elements.get("sound-pack-soft-uninstall");
   assert.ok(removePack, "installed non-fallback pack must expose a native remove button");
-  assert.strictEqual(document.activeElement.id, "sound-pack-soft-install",
-    "pack rerender must restore focus by semantic control id when it still exists or leave a stable id");
+  assert.strictEqual(document.activeElement.id, "sound-pack-soft",
+    "pack mutation must move focus to the stable pack group when its action control disappears");
 
   commandMode = "failure";
   let failedMaster = elements.get("sound-master-enabled");
