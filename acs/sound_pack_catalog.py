@@ -73,6 +73,8 @@ class SoundPackCatalogEntry:
             key = _safe_audio_path(path)
             if key != digest.path:
                 raise ValueError("asset mapping key must match digest path")
+            if key in normalized:
+                raise ValueError("duplicate normalized sound asset path")
             normalized[key] = digest
         required_paths = set(self.manifest.files.values())
         if set(normalized) != required_paths:
