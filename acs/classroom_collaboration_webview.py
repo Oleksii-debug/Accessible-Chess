@@ -261,6 +261,18 @@ class ClassroomCollaborationWebView:
         except Exception:
             return False
 
+    def _participant_moderation_ready(self) -> bool:
+        moderation = self._participant_moderation
+        if moderation is None:
+            return False
+        try:
+            state = moderation.state
+        except Exception:
+            return False
+        if state.participant_id != self._controller.local_participant_id:
+            return False
+        return state.room_id in {None, self._controller.room_id}
+
     def _message_key(self, message_id: str) -> str:
         material = f"{self._controller.room_id}\\0message\\0{message_id}".encode("utf-8")
         return hmac.new(self._action_secret, material, sha256).hexdigest()
@@ -334,7 +346,7 @@ class ClassroomCollaborationWebView:
             "can_remove_sender": (
                 moderator
                 and sender_moderatable
-                and self._participant_moderation is not None
+                and self._participant_moderation_ready()
             ),
         }
         if item.sent_at_unix_ms is not None:
@@ -565,9 +577,10 @@ class ClassroomCollaborationWebView:
         *,
         block: bool,
     ) -> ClassroomCollaborationWebViewEvent:
-        if self._participant_moderation is None:
+        if not self._participant_moderation_ready():
             raise RuntimeError("participant moderation is unavailable")
         message = self._message_for_key(message_key)
+        assert self._participant_moderation is not None
         self._participant_moderation.remove_participant(
             actor_id=self._controller.local_participant_id,
             target_id=message.sender_id,
