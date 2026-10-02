@@ -811,6 +811,9 @@ class ClassroomCollaborationWebView:
 
     def _retry_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
         attachment = self._attachment_for_key(file_key)
+        if attachment.transfer_state != "failed" or attachment.scan_state == "blocked":
+            self._prepared.pop(attachment.attachment_id, None)
+            raise RuntimeError("retry source is unavailable")
         prepared = self._prepared.get(attachment.attachment_id)
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
