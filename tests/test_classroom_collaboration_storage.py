@@ -225,6 +225,22 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
     def test_safe_filename_normalization_is_display_only(self) -> None:
         self.assertEqual(safe_display_filename("notes:lesson?.txt"), "notes_lesson_.txt")
         self.assertEqual(safe_display_filename("folder/lesson.txt"), "lesson.txt")
+        self.assertEqual(
+            safe_display_filename("Домашнє завдання — партія №1.pgn"),
+            "Домашнє завдання — партія №1.pgn",
+        )
+        self.assertEqual(
+            safe_display_filename("e\u0301tude.pgn"),
+            "étude.pgn",
+        )
+        self.assertEqual(
+            safe_display_filename("safe\u202Egnp.exe"),
+            "safe_gnp.exe",
+        )
+
+    def test_safe_filename_requires_text(self) -> None:
+        with self.assertRaises(ValueError):
+            safe_display_filename(Path("lesson.pgn"))
 
     def test_safe_filename_rejects_reserved_windows_device_names(self) -> None:
         for value in ("CON", "con.txt", "PRN.pgn", "AUX ", "NUL.bin", "COM1.zip", "LPT9"):
