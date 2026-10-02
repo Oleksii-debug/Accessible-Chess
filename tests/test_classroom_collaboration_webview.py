@@ -124,6 +124,40 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertNotIn("message-ui-1", repr(failed.payload))
         self.assertNotIn("message-ui-1", repr(retried.payload))
 
+    def test_changed_chat_draft_mints_new_identity_after_failure(self) -> None:
+        view = self.webview()
+        calls: list[tuple[str, str]] = []
+
+        def flaky_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append((message_id, body))
+            if len(calls) == 1:
+                raise RuntimeError("ambiguous chat transport")
+            return None
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=flaky_send,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Original draft"},
+            )
+            changed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Edited draft"},
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("collaboration.chat.sent", changed.kind)
+        self.assertEqual(
+            calls,
+            [
+                ("message-ui-1", "Original draft"),
+                ("message-ui-2", "Edited draft"),
+            ],
+        )
+
     def test_chat_sync_clears_recovered_pending_identity(self) -> None:
         view = self.webview()
         calls: list[str] = []
