@@ -7,6 +7,7 @@ from unittest import mock
 
 from acs.classroom_collaboration import ClassroomCollaborationController
 from acs.classroom_collaboration_storage import (
+    AttachmentMetadata,
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
 )
@@ -316,6 +317,33 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("collaboration.file.cancelled", cancelled.kind)
         self.assertEqual("collaboration-file-choose", cancelled.payload["focus_target"])
+
+    def test_remote_failed_file_never_exposes_cancel_action(self) -> None:
+        self.store.register_attachment(
+            AttachmentMetadata(
+                "remote-file",
+                "room-1",
+                "student-2",
+                0,
+                "remote.pgn",
+                "application/x-chess-pgn",
+                1,
+                "0" * 64,
+                "rooms/room-1/remote-file",
+                "failed",
+                scan_state="pending",
+            )
+        )
+
+        item = self.webview().snapshot()["files"]["items"][0]
+        self.assertFalse(item["can_cancel"])
+
+        cancelled = self.webview().dispatch(
+            "collaboration.file.cancel",
+            {"file_key": item["file_key"]},
+        )
+        self.assertEqual("error", cancelled.kind)
+        self.assertEqual([], self.files.cancel_calls)
 
     def test_blocked_failed_file_never_exposes_retry_action(self) -> None:
         self.selected_file = self.root / "blocked-retry.pgn"
