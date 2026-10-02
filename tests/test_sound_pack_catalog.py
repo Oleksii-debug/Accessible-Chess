@@ -128,7 +128,7 @@ class SoundPackCatalogTests(unittest.TestCase):
         assets = dict(make_entry(manifest).assets)
         move_path = manifest.files["move"]
         move_digest = assets[move_path]
-        assets[move_path.replace("/", "\\")] = move_digest
+        assets[move_path.replace("/", chr(92))] = move_digest
 
         with self.assertRaisesRegex(ValueError, "duplicate normalized"):
             SoundPackCatalogEntry(
