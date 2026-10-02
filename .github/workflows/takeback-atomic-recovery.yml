@@ -51,7 +51,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
           test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
           test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
-          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = 0c6ec99b97b4e561a0bed9f16ed4cc5d42dbc0e0
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = 28d1fff137d973eec6021455c3197421c3796fb4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
