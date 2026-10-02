@@ -2,9 +2,12 @@ name: D06 Real Corpus Recovery
 
 on:
   pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/pgn_document.py'
       - 'tests/test_d06_real_corpus_recovery.py'
+      - 'tests/test_d06_real_corpus_recovery_workflow.py'
       - '.github/workflows/d06-real-corpus-recovery.yml'
 
 permissions:
@@ -14,9 +17,6 @@ concurrency:
   group: d06-real-corpus-recovery-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  RECOVERY_BASE: 6567f3d35ffefaa85ae7e8b87d9fcc0d188e7cac
-
 jobs:
   recovery:
     strategy:
@@ -25,8 +25,12 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -47,27 +51,57 @@ jobs:
       - name: Install pinned test dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove D06 recovery ancestry and scope
+      - name: Prove live-Product recovery authority
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$RECOVERY_BASE^{commit}"
-          test "$(git merge-base HEAD "$RECOVERY_BASE")" = "$RECOVERY_BASE"
-          git diff --check "$RECOVERY_BASE" HEAD
-          changed="$(git diff --name-only "$RECOVERY_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d06-real-corpus-recovery.yml' \
-            'tests/test_d06_real_corpus_recovery.py' | sort)"
-          if git diff --name-only "$RECOVERY_BASE" HEAD -- acs/pgn_document.py | grep -q .; then
-            expected="$(printf '%s\n' "$expected" 'acs/pgn_document.py' | sort)"
+          test -n "$PR_BASE_SHA"
+          test -n "$PR_HEAD_SHA"
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+
+          git fetch --no-tags origin "$PRODUCT_BRANCH"
+          live_product="$(git rev-parse FETCH_HEAD)"
+          git cat-file -e "$PR_BASE_SHA^{commit}"
+
+          # The event base is an ancestry witness only. Product may have moved
+          # after the pull-request event snapshot; the fetched canonical branch
+          # is the exact scope and recovery-oracle authority.
+          git merge-base --is-ancestor "$PR_BASE_SHA" "$live_product"
+          git merge-base --is-ancestor "$live_product" HEAD
+          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+          git diff --check "$live_product" HEAD
+
+          changed="$(git diff --name-only "$live_product" HEAD | sort)"
+          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|^acs/stage1_release_ui(_core)?\.py$'; then
+            echo 'Frozen Stage 1 / strict-release contamination detected' >&2
+            exit 1
           fi
-          test "$changed" = "$expected"
+
+          oracle='tests/test_d06_real_corpus_recovery.py'
+          base_oracle="$(git rev-parse "$live_product:$oracle")"
+          candidate_oracle="$(git rev-parse "HEAD:$oracle")"
+          test "$candidate_oracle" = "$base_oracle" || {
+            printf 'D06 recovery oracle drift requires a dedicated successor: base=%s candidate=%s\n' \
+              "$base_oracle" "$candidate_oracle" >&2
+            exit 1
+          }
+
+          echo "D06_RECOVERY_EVENT_BASE=$PR_BASE_SHA"
+          echo "D06_RECOVERY_LIVE_PRODUCT=$live_product"
+          echo "D06_RECOVERY_HEAD=$(git rev-parse HEAD)"
 
       - name: Compile recovery surface
-        run: python -m py_compile acs/pgn_document.py tests/test_d06_real_corpus_recovery.py
+        run: >-
+          python -m py_compile
+          acs/pgn_document.py
+          tests/test_d06_real_corpus_recovery.py
+          tests/test_d06_real_corpus_recovery_workflow.py
 
       - name: Real-corpus-derived RED regression
-        run: python -m unittest -v tests.test_d06_real_corpus_recovery
+        run: >-
+          python -m unittest -v
+          tests.test_d06_real_corpus_recovery_workflow
+          tests.test_d06_real_corpus_recovery
 
       - name: Focused PGN document/workspace/recovery regressions
         run: >-
