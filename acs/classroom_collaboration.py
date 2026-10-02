@@ -17,6 +17,7 @@ from typing import Protocol
 
 from .classroom_collaboration_storage import (
     AttachmentMetadata,
+    AttachmentStateUpdate,
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
@@ -183,7 +184,17 @@ class FileTransferPort(Protocol):
         after_sequence: int | None,
         limit: int,
     ) -> tuple[AttachmentMetadata, ...]:
-        """Return stored room attachments ordered by authoritative sequence."""
+        """Return stored/tombstoned attachments ordered by authoritative sequence."""
+        ...
+
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[AttachmentStateUpdate, ...]:
+        """Return mutable attachment-state updates in exact revision order."""
         ...
 
 
@@ -573,7 +584,11 @@ class ClassroomCollaborationController:
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
-        self._validate_remote_attachment(attachment, require_current_sender=True)
+        self._validate_remote_attachment(
+            attachment,
+            require_current_sender=True,
+            allow_tombstone=False,
+        )
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
@@ -600,10 +615,10 @@ class ClassroomCollaborationController:
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
-            if item.transfer_state == "stored"
+            if item.transfer_state in {"stored", "deleted"}
         )
         # Advance only through the locally complete authoritative prefix. A
-        # later stored row must never cause reconnect to skip missing history.
+        # later terminal row must never cause reconnect to skip missing history.
         after: int | None = None
         for attachment in authoritative:
             expected = 0 if after is None else after + 1
@@ -623,6 +638,7 @@ class ClassroomCollaborationController:
             self._validate_remote_attachment(
                 attachment,
                 require_current_sender=False,
+                allow_tombstone=True,
             )
             if attachment.sequence_no != expected_sequence:
                 raise CollaborationError(
@@ -631,11 +647,61 @@ class ClassroomCollaborationController:
             expected_sequence += 1
 
         try:
-            return self._store.register_attachments_atomic(incoming)
+            persisted = self._store.register_attachments_atomic(incoming)
         except CollaborationStorageError as error:
             raise CollaborationError(
                 "remote attachment batch could not be reconciled"
             ) from error
+
+        state_after = self._store.attachment_state_revision(self.room_id)
+        updates = self._files.state_updates_after(
+            room_id=self.room_id,
+            after_revision=state_after,
+            limit=MAX_SYNC_ATTACHMENTS,
+        )
+        if type(updates) is not tuple or len(updates) > MAX_SYNC_ATTACHMENTS:
+            raise CollaborationError(
+                "attachment state response is invalid or too large"
+            )
+        state_previous = state_after
+        for update in updates:
+            if type(update) is not AttachmentStateUpdate:
+                raise CollaborationError(
+                    "attachment state response contains invalid update type"
+                )
+            if update.room_id != self.room_id:
+                raise CollaborationError(
+                    "attachment state response crossed room boundary"
+                )
+            expected_revision = (
+                0 if state_previous is None else state_previous + 1
+            )
+            if update.revision != expected_revision:
+                raise CollaborationError(
+                    "attachment state has an unresolved revision gap"
+                )
+            state_previous = update.revision
+        try:
+            self._store.apply_attachment_state_updates(
+                room_id=self.room_id,
+                updates=updates,
+            )
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "attachment state could not be reconciled"
+            ) from error
+
+        if not persisted:
+            return ()
+        current_by_id = {
+            item.attachment_id: item
+            for item in self._store.room_attachments(self.room_id)
+        }
+        return tuple(
+            current_by_id[item.attachment_id]
+            for item in persisted
+            if current_by_id[item.attachment_id].transfer_state == "stored"
+        )
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -767,6 +833,7 @@ class ClassroomCollaborationController:
         attachment: AttachmentMetadata,
         *,
         require_current_sender: bool,
+        allow_tombstone: bool,
     ) -> None:
         if type(attachment) is not AttachmentMetadata:
             raise CollaborationError("file history contains invalid attachment type")
@@ -787,7 +854,8 @@ class ClassroomCollaborationController:
             raise CollaborationError(
                 "file history crossed canonical attachment namespace"
             )
-        if attachment.transfer_state != "stored":
+        allowed_states = {"stored", "deleted"} if allow_tombstone else {"stored"}
+        if attachment.transfer_state not in allowed_states:
             raise CollaborationError(
                 "file history contains non-durable attachment state"
             )
