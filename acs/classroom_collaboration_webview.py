@@ -64,6 +64,7 @@ _LABELS = {
         "allow_all": "Дозволити чат усім учням",
         "no_messages": "Повідомлень немає.",
         "files": "Файли",
+        "sync_files": "Оновити файли",
         "choose_upload": "Вибрати й надіслати файл",
         "no_files": "Файлів немає.",
         "save": "Зберегти",
@@ -84,6 +85,8 @@ _LABELS = {
         "file_opened": "Файл передано до явного відкриття.",
         "file_cancelled": "Передавання файлу скасовано.",
         "file_retried": "Повторне передавання завершено.",
+        "new_file": "Новий файл: {name}.",
+        "new_many_files": "Нових файлів: {count}.",
         "new_many": "Нових повідомлень: {count}.",
         "unread": "Непрочитаних: {count}",
         "type": "Тип",
@@ -109,6 +112,7 @@ _LABELS = {
         "allow_all": "Allow all students",
         "no_messages": "No messages.",
         "files": "Files",
+        "sync_files": "Refresh files",
         "choose_upload": "Choose and send file",
         "no_files": "No files.",
         "save": "Save",
@@ -129,6 +133,8 @@ _LABELS = {
         "file_opened": "File passed to explicit open.",
         "file_cancelled": "File transfer cancelled.",
         "file_retried": "File retry completed.",
+        "new_file": "New file: {name}.",
+        "new_many_files": "New files: {count}.",
         "new_many": "New messages: {count}.",
         "unread": "Unread: {count}",
         "type": "Type",
@@ -455,6 +461,7 @@ class ClassroomCollaborationWebView:
             },
             "files": {
                 "heading": labels["files"],
+                "sync_label": labels["sync_files"],
                 "choose_upload_label": labels["choose_upload"],
                 "empty_message": labels["no_files"],
                 "save_label": labels["save"],
@@ -520,6 +527,24 @@ class ClassroomCollaborationWebView:
         elif len(new_remote) > 1:
             announcement = _LABELS[self._language]["new_many"].format(count=len(new_remote))
         return self._event("collaboration.chat.synced", announcement=announcement)
+
+    def _sync_files(self) -> ClassroomCollaborationWebViewEvent:
+        incoming = self._controller.sync_files()
+        new_remote = tuple(
+            item
+            for item in incoming
+            if item.sender_id != self._controller.local_participant_id
+        )
+        announcement = ""
+        if len(new_remote) == 1:
+            announcement = _LABELS[self._language]["new_file"].format(
+                name=new_remote[0].display_name
+            )
+        elif len(new_remote) > 1:
+            announcement = _LABELS[self._language]["new_many_files"].format(
+                count=len(new_remote)
+            )
+        return self._event("collaboration.files.synced", announcement=announcement)
 
     def _mark_read(self) -> ClassroomCollaborationWebViewEvent:
         self._unread_message_ids.clear()
@@ -752,6 +777,10 @@ class ClassroomCollaborationWebView:
                 return self._set_all_students_allowed(
                     allowed=command.endswith("allow_all_students")
                 )
+            if command == "collaboration.file.sync":
+                if data:
+                    raise ValueError("file sync accepts no browser fields")
+                return self._sync_files()
             if command == "collaboration.file.choose_upload":
                 if data:
                     raise ValueError("file picker accepts no browser fields")
