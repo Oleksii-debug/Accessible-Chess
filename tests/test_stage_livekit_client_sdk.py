@@ -159,6 +159,24 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
             self._stage()
         self.assertFalse(self.output.exists())
 
+    def test_windows_unsafe_member_names_are_rejected(self) -> None:
+        unsafe_names = (
+            "package/CON.txt",
+            "package/trailing./file.txt",
+            "package/drive:C/file.txt",
+            "package/control\x1f/file.txt",
+        )
+        for index, name in enumerate(unsafe_names):
+            with self.subTest(name=name):
+                self.output = self.root / f"unsafe-{index}"
+                self._write_archive(members=[(name, b"x")])
+                with self.assertRaisesRegex(
+                    sdk.LiveKitClientSdkStageError,
+                    "Windows-unsafe member name",
+                ):
+                    self._stage()
+                self.assertFalse(self.output.exists())
+
     def test_archive_link_is_rejected_before_read(self) -> None:
         original_lstat = Path.lstat
 
