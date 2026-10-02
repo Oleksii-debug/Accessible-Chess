@@ -473,6 +473,12 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
             self.assertEqual(api.review_history.export_tree(), unsafe_history)
 
         self.assertTrue(api.stop_engine_game()["ok"])
+        with patch.object(api, "_temporary_exploration_error", return_value={
+            "ok": False, "announcement": "finish exploration before reset",
+        }):
+            self.assertFalse(api.new_game()["ok"])
+            self.assertFalse(api.clear_board()["ok"])
+            self.assertTrue(api._engine_takeback_unsafe)
         self.assertFalse(api.make_move("e4")["ok"])
         self.assertTrue(api._engine_takeback_unsafe)
         self.assertTrue(api.new_game()["ok"])

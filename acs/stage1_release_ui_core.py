@@ -1038,6 +1038,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         )
 
     def new_game(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            # Keymap reset may reject while the analysis explorer is open.
+            # An unsuccessful explicit reset must never clear the safety fence.
+            blocked = self._temporary_exploration_error()
+            if blocked is not None:
+                return blocked
         self._reset_engine_game_state()
         result = super().new_game()
         if result.get("ok") and self._game_sounds is not None:
@@ -1045,6 +1051,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return result
 
     def clear_board(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            # Keymap reset may reject while the analysis explorer is open.
+            # An unsuccessful explicit reset must never clear the safety fence.
+            blocked = self._temporary_exploration_error()
+            if blocked is not None:
+                return blocked
         self._reset_engine_game_state()
         return super().clear_board()
 
