@@ -197,6 +197,14 @@ class Version2WindowsFileActionDelegate:
         }
     )
     _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"})
+    _IMPORT_TERMINAL_KINDS = frozenset(
+        {
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            FileWorkflowEventKind.IMPORT_CANCELLED,
+            FileWorkflowEventKind.IMPORT_EMPTY,
+            FileWorkflowEventKind.FAILED,
+        }
+    )
 
     def __init__(
         self,
@@ -233,6 +241,11 @@ class Version2WindowsFileActionDelegate:
         self._lock = threading.RLock()
         self._worker: threading.Thread | None = None
         self._cancel_event: threading.Event | None = None
+        # A terminal outcome can be chosen by the worker just before its event
+        # reaches the observer. Keep that exact event as the cancellation
+        # linearization state so a concurrent UI-thread Cancel cannot insert a
+        # contradictory FAILED/CANCELLING event ahead of the terminal result.
+        self._terminal_pending: tuple[int, FileWorkflowEvent] | None = None
         self._generation = 0
 
     @property
@@ -331,8 +344,10 @@ class Version2WindowsFileActionDelegate:
             return self._dialog_cancelled("pgn.open", previous_focus)
         try:
             session = PgnDocumentSession.open(path)
-            self._set_pgn_session(session)
+            # Materialize presentation state before publishing the replacement.
+            # A failed readback must leave the previous active document intact.
             view = session.view()
+            self._set_pgn_session(session)
         except Exception:
             return self._failed("pgn.open", "pgn_open_failed", focus_target=previous_focus)
         return self._emit(
@@ -362,6 +377,11 @@ class Version2WindowsFileActionDelegate:
             return current
         previous_focus = self._focus()
         try:
+            # Capture presentation metadata before the atomic publication. Once
+            # save() returns, canonical PGN bytes and session provenance have
+            # committed; no fallible presentation readback may turn that
+            # durable success into a caller-visible failure.
+            game_count = current.view().game_count
             current.save()
         except PgnDocumentError as exc:
             if exc.code in {
@@ -377,7 +397,7 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEventKind.PGN_SAVED,
                 "pgn.save",
                 focus_target=previous_focus,
-                game_count=current.view().game_count,
+                game_count=game_count,
             )
         )
 
@@ -392,7 +412,15 @@ class Version2WindowsFileActionDelegate:
         if isinstance(current, FileWorkflowEvent):
             return current
         previous_focus = self._focus() if prior_focus is None else prior_focus
-        view = current.view()
+        try:
+            view = current.view()
+        except Exception:
+            return self._failed(
+                "pgn.save_as",
+                "pgn_save_as_failed",
+                focus_target=previous_focus,
+            )
+        game_count = view.game_count
         suggested = "game.pgn"
         if view.source_path:
             suggested = Path(view.source_path).name or suggested
@@ -416,7 +444,7 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEventKind.PGN_SAVED_AS,
                 "pgn.save_as",
                 focus_target=previous_focus,
-                game_count=current.view().game_count,
+                game_count=game_count,
             )
         )
 
@@ -454,6 +482,7 @@ class Version2WindowsFileActionDelegate:
             generation = self._generation
             cancel_event = threading.Event()
             self._cancel_event = cancel_event
+            self._terminal_pending = None
             worker = threading.Thread(
                 target=self._run_import,
                 args=(generation, Path(source_path), suffix, cancel_event),
@@ -476,11 +505,19 @@ class Version2WindowsFileActionDelegate:
             except Exception:
                 self._worker = None
                 self._cancel_event = None
+                self._terminal_pending = None
                 return self._failed("library.import", "import_worker_unavailable", focus_target=previous_focus)
             return started
 
     def _cancel_import(self) -> FileWorkflowEvent:
         with self._lock:
+            pending = self._terminal_pending
+            if pending is not None and pending[0] == self._generation:
+                # The worker has already chosen a terminal outcome, but the
+                # observer callback has not returned yet. Cancellation has lost
+                # that race. Return the exact pending outcome without emitting a
+                # second event; the worker remains the single publisher.
+                return pending[1]
             worker = self._worker
             cancel_event = self._cancel_event
             if worker is None or cancel_event is None or not worker.is_alive():
@@ -657,12 +694,35 @@ class Version2WindowsFileActionDelegate:
                 if generation == self._generation:
                     self._worker = None
                     self._cancel_event = None
+                    self._terminal_pending = None
 
     def _emit_if_current(self, generation: int, event: FileWorkflowEvent) -> None:
+        terminal = False
         with self._lock:
             current = generation == self._generation
-        if current:
+            terminal = current and event.kind in self._IMPORT_TERMINAL_KINDS
+            if terminal:
+                # Choosing the terminal event closes canonical cancellation.
+                # Publication itself happens outside the host lock so an event
+                # sink that marshals to the UI thread cannot deadlock with a
+                # concurrent Cancel action. The pending event bridges that small
+                # interval and is the exact outcome a losing Cancel observes.
+                self._terminal_pending = (generation, event)
+                self._cancel_event = None
+        if not current:
+            return
+        try:
             self._emit(event)
+        finally:
+            if terminal:
+                with self._lock:
+                    pending = self._terminal_pending
+                    if (
+                        pending is not None
+                        and pending[0] == generation
+                        and pending[1] is event
+                    ):
+                        self._terminal_pending = None
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
         """Wait for the current import worker; useful for orderly host shutdown/tests."""
