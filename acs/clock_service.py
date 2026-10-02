@@ -226,10 +226,22 @@ class ChessClock:
         self._sync(at=tick)
         if self._state is ClockState.FLAGGED:
             return self.snapshot()
+        charged_remaining = self._remaining[moved_side]
         self._remaining[moved_side] += self.control.increment_ms
         self._active = "b" if moved_side == "w" else "w"
         self._last_tick = tick
-        return self.snapshot()
+        try:
+            # The returned snapshot also charges the newly active opponent.
+            # If that third time read fails, the Board-owning caller rejects
+            # the move; do not leave the clock switched and incremented.
+            return self.snapshot()
+        except Exception:
+            self._remaining[moved_side] = charged_remaining
+            self._active = moved_side
+            self._state = ClockState.RUNNING
+            self._flagged = None
+            self._last_tick = tick
+            raise
 
     def set_remaining(self, side: str, milliseconds: int) -> ClockSnapshot:
         """Administrative/game-restore hook; never changes whose clock is active."""
