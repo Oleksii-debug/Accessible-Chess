@@ -31,11 +31,10 @@
 
   function identifier(value, name) {
     if (typeof value !== "string") throw new LiveKitClassroomMediaError(name + " must be text");
-    const token = value.trim();
-    if (!token || token.length > MAX_ID_LENGTH || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(token)) {
+    if (!value || value.length > MAX_ID_LENGTH || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)) {
       throw new LiveKitClassroomMediaError(name + " is invalid");
     }
-    return token;
+    return value;
   }
 
   function rpcMethod(value) {
@@ -47,7 +46,7 @@
   }
 
   function secretToken(value) {
-    if (typeof value !== "string" || !value || value.length > MAX_TOKEN_LENGTH || /[\u0000-\u001f\u007f]/.test(value)) {
+    if (typeof value !== "string" || !value || value.length > MAX_TOKEN_LENGTH || /[\s\u007f]/u.test(value)) {
       throw new LiveKitClassroomMediaError("join token is invalid");
     }
     return value;
@@ -226,6 +225,9 @@
         await room.connect(this._serverUrl, credential.token);
         if (!room.localParticipant || room.localParticipant.identity !== credential.participant_id) {
           throw new LiveKitClassroomMediaError("LiveKit participant identity does not match join credential");
+        }
+        if (room.localParticipant.identity === this._moderationParticipantIdentity) {
+          throw new LiveKitClassroomMediaError("moderation participant identity must be remote");
         }
         if (typeof room.name !== "string" || room.name !== credential.room_id) {
           throw new LiveKitClassroomMediaError("LiveKit room identity does not match join credential");
