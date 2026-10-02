@@ -24,7 +24,12 @@ CREATE TABLE IF NOT EXISTS classroom_moderation_operations (
     operation_id TEXT NOT NULL,
     fingerprint TEXT NOT NULL,
     committed INTEGER NOT NULL DEFAULT 0 CHECK (committed IN (0, 1)),
-    PRIMARY KEY (room_id, operation_id)
+    reservation_owner TEXT,
+    PRIMARY KEY (room_id, operation_id),
+    CHECK (
+        (committed = 0 AND reservation_owner IS NOT NULL)
+        OR (committed = 1 AND reservation_owner IS NULL)
+    )
 )
 """
 
@@ -88,7 +93,7 @@ class SqliteClassroomModerationLedger:
             with closing(self._connect()) as connection:
                 row = connection.execute(
                     """
-                    SELECT fingerprint, committed
+                    SELECT fingerprint, committed, reservation_owner
                     FROM classroom_moderation_operations
                     WHERE room_id = ? AND operation_id = ?
                     """,
@@ -106,24 +111,32 @@ class SqliteClassroomModerationLedger:
         room_id: str,
         operation_id: str,
         fingerprint: str,
+        reservation_owner: str,
     ) -> ModerationOperationState:
         room = _identifier(room_id, "room id")
         operation = _identifier(operation_id, "operation id")
         digest = _fingerprint(fingerprint)
+        owner = _identifier(reservation_owner, "reservation owner")
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 INSERT OR IGNORE INTO classroom_moderation_operations
-                    (room_id, operation_id, fingerprint, committed)
-                VALUES (?, ?, ?, 0)
+                    (
+                        room_id,
+                        operation_id,
+                        fingerprint,
+                        committed,
+                        reservation_owner
+                    )
+                VALUES (?, ?, ?, 0, ?)
                 """,
-                (room, operation, digest),
+                (room, operation, digest, owner),
             )
             row = connection.execute(
                 """
-                SELECT fingerprint, committed
+                SELECT fingerprint, committed, reservation_owner
                 FROM classroom_moderation_operations
                 WHERE room_id = ? AND operation_id = ?
                 """,
@@ -152,16 +165,18 @@ class SqliteClassroomModerationLedger:
         room_id: str,
         operation_id: str,
         fingerprint: str,
+        reservation_owner: str,
     ) -> None:
         room = _identifier(room_id, "room id")
         operation = _identifier(operation_id, "operation id")
         digest = _fingerprint(fingerprint)
+        owner = _identifier(reservation_owner, "reservation owner")
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
-                SELECT fingerprint, committed
+                SELECT fingerprint, committed, reservation_owner
                 FROM classroom_moderation_operations
                 WHERE room_id = ? AND operation_id = ?
                 """,
@@ -176,20 +191,27 @@ class SqliteClassroomModerationLedger:
                 raise ClassroomModerationLedgerError(
                     "moderation ledger fingerprint conflict"
                 )
-            if not current.committed:
-                cursor = connection.execute(
-                    """
-                    UPDATE classroom_moderation_operations
-                    SET committed = 1
-                    WHERE room_id = ? AND operation_id = ?
-                      AND fingerprint = ? AND committed = 0
-                    """,
-                    (room, operation, digest),
+            if current.committed:
+                connection.execute("COMMIT")
+                return
+            if current.reservation_owner != owner:
+                raise ClassroomModerationLedgerError(
+                    "moderation ledger reservation owner conflict"
                 )
-                if cursor.rowcount != 1:
-                    raise ClassroomModerationLedgerError(
-                        "moderation ledger commit lost reservation"
-                    )
+            cursor = connection.execute(
+                """
+                UPDATE classroom_moderation_operations
+                SET committed = 1, reservation_owner = NULL
+                WHERE room_id = ? AND operation_id = ?
+                  AND fingerprint = ? AND committed = 0
+                  AND reservation_owner = ?
+                """,
+                (room, operation, digest, owner),
+            )
+            if cursor.rowcount != 1:
+                raise ClassroomModerationLedgerError(
+                    "moderation ledger commit lost reservation"
+                )
             connection.execute("COMMIT")
         except ClassroomModerationLedgerError:
             _rollback(connection)
@@ -232,18 +254,27 @@ def _fingerprint(value: object) -> str:
     return value
 
 
-def _state(row: tuple[object, object]) -> ModerationOperationState:
-    fingerprint, committed = row
+def _state(row: tuple[object, object, object]) -> ModerationOperationState:
+    fingerprint, committed, reservation_owner = row
     if (
         type(fingerprint) is not str
         or _FINGERPRINT_RE.fullmatch(fingerprint) is None
         or type(committed) is not int
         or committed not in (0, 1)
+        or (
+            committed == 0
+            and (
+                type(reservation_owner) is not str
+                or _IDENTIFIER_RE.fullmatch(reservation_owner) is None
+            )
+        )
+        or (committed == 1 and reservation_owner is not None)
     ):
         raise ClassroomModerationLedgerError("moderation ledger row is invalid")
     return ModerationOperationState(
         fingerprint=fingerprint,
         committed=bool(committed),
+        reservation_owner=reservation_owner,
     )
 
 
