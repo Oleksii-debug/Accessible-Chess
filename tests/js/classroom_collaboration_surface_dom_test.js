@@ -15,6 +15,8 @@ class FakeElement {
     this.textContent = "";
     this.disabled = false;
     this.tabIndex = 0;
+    this.selectionStart = 0;
+    this.selectionEnd = 0;
   }
   appendChild(child) {
     child.parentNode = this;
@@ -44,6 +46,10 @@ class FakeElement {
     return this.children.some((child) => child.contains && child.contains(target));
   }
   focus() { document.activeElement = this; }
+  setSelectionRange(start, end) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
+  }
   querySelector(selector) {
     const all = this.querySelectorAll(selector);
     return all.length ? all[0] : null;
@@ -229,6 +235,8 @@ check(
   "collaboration actions must expose stable focus anchors"
 );
 
+input.value = "Prepared reply";
+input.setSelectionRange(4, 9);
 input.focus();
 check(document.activeElement === input, "test precondition: composer focused");
 window.AccessibleChessEducationSurface.apply(
@@ -267,6 +275,12 @@ check(
   "incoming chat refresh must preserve composer focus"
 );
 check(
+  replacementInput.value === "Prepared reply" &&
+  replacementInput.selectionStart === 4 &&
+  replacementInput.selectionEnd === 9,
+  "incoming chat refresh must preserve the draft and caret selection"
+);
+check(
   announcements.includes("Student: Understood."),
   "incoming message must use concise external announcement channel"
 );
@@ -277,6 +291,39 @@ check(
 check(
   root.querySelector("#collaboration-message-two") !== null,
   "new ordered chat message must render"
+);
+
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.sent",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-one",
+          sender: "Teacher",
+          body: "e4 is the target.",
+          unread: false
+        },
+        {
+          dom_id: "collaboration-message-two",
+          sender: "Student",
+          body: "Understood.",
+          unread: true
+        }
+      ], 1),
+      focus_target: "collaboration-chat-input"
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+const clearedInput = root.querySelector("#collaboration-chat-input");
+check(clearedInput.value === "", "successful chat send must clear the submitted draft");
+check(
+  document.activeElement === clearedInput,
+  "successful chat send must return focus to the composer"
 );
 
 const refreshedSync = root.querySelector("#collaboration-chat-sync");
