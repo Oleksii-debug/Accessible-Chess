@@ -38,11 +38,12 @@ def _profile_for_manifest(
 ) -> SoundProfile:
     """Keep only explicit asset ids that the target manifest still owns."""
 
+    pack_changed = profile.pack_id != manifest.pack_id
     events = {
         event_id: (
             replace(preference, sound_id=None)
             if preference.sound_id is not None
-            and preference.sound_id not in manifest.files
+            and (pack_changed or preference.sound_id not in manifest.files)
             else preference
         )
         for event_id, preference in profile.events.items()
