@@ -186,7 +186,19 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual(initial, storage.payload)
 
     def test_verified_local_installed_pack_is_discoverable_and_selectable_without_remote_catalog(self) -> None:
-        local = _manifest("local.wood")
+        base = _manifest("local.wood")
+        files = dict(base.files)
+        files["quiet.move"] = "audio/quiet-move.wav"
+        files["classroom.join"] = "audio/classroom-join.wav"
+        local = SoundPackManifest(
+            pack_id=base.pack_id,
+            version=base.version,
+            title=base.title,
+            license_id=base.license_id,
+            files=files,
+            author=base.author,
+            provenance=base.provenance,
+        )
         _storage, manager, _playback, runtime = self._profile_runtime(
             resolver=lambda requested: requested if requested in {"classic", "local.wood"} else "classic"
         )
@@ -210,6 +222,35 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual("local.wood", manager.current.pack_id)
         self.assertTrue(result.snapshot["can_select_classic"])
+        event_ids = {item["event_id"] for item in result.snapshot["events"]}
+        self.assertIn("classroom.join", event_ids)
+        move = next(item for item in result.snapshot["events"] if item["event_id"] == "move")
+        self.assertIn("quiet.move", move["sound_choices"])
+
+        changed = app.set_event("move", sound_id="quiet.move", language="en")
+        self.assertEqual("quiet.move", manager.current.preference_for("move").sound_id)
+        changed_move = next(
+            item for item in changed.snapshot["events"] if item["event_id"] == "move"
+        )
+        self.assertEqual("quiet.move", changed_move["sound_id"])
+
+        classroom = app.set_event(
+            "classroom.join",
+            enabled=False,
+            volume_percent=35,
+            language="en",
+        )
+        classroom_item = next(
+            item for item in classroom.snapshot["events"]
+            if item["event_id"] == "classroom.join"
+        )
+        self.assertFalse(classroom_item["enabled"])
+        self.assertEqual(35, classroom_item["volume_percent"])
+
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="missing.sound")
+        with self.assertRaisesRegex(ValueError, "unknown sound event"):
+            app.set_event("classroom.leave", enabled=False)
 
         classic = app.select_pack("classic", language="en")
         self.assertTrue(classic.ok)
@@ -218,6 +259,16 @@ class SoundSettingsApplicationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown sound pack"):
             app.select_pack("missing.pack")
+
+    def test_classic_provider_rejects_arbitrary_sound_remap(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {},
+        )
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="quiet.move")
 
     def test_installed_pack_provider_rejects_unverified_shapes(self) -> None:
         _storage, manager, _playback, runtime = self._profile_runtime()
