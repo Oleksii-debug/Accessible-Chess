@@ -374,6 +374,24 @@ def test_media_provider_failure_does_not_abort_product_language_synchronization(
     assert application.media.projection.language is UILanguage.UA
 
 
+
+def test_committed_local_media_action_enters_recovery_if_projection_fails_after_effect():
+    controller, _roster, media, labels, _projection, bridge = composition("student-1")
+    labels["student-1"] = "broken\nlabel"
+
+    event = bridge.dispatch(
+        "media.local_source",
+        {"source": "microphone", "enabled": True},
+    )
+
+    assert event.kind == "media-updated"
+    assert event.payload["snapshot"] is None
+    assert event.payload["recovery_required"] is True
+    assert event.payload["focus_target"] == "classroom-media-heading"
+    assert event.payload["announcement"] == "Media state updated."
+    assert media.local_calls[-1] == (MediaSource.MICROPHONE, True)
+    assert MediaSource.MICROPHONE in controller.state.desired_sources
+
 def test_disconnected_or_removed_room_state_exposes_no_live_moderation_controls():
     controller, _roster, _media, _labels, projection, _bridge = composition("teacher-1")
     connected = projection.snapshot()
