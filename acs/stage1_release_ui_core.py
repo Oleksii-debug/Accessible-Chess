@@ -9,6 +9,7 @@ short messages so Python exception text never becomes screen-reader output.
 
 from pathlib import Path
 import copy
+import logging
 import tempfile
 from typing import Any
 
@@ -28,6 +29,7 @@ from .engine_play_service import (
     EnginePlayService,
     EngineSideMode,
 )
+from .engine_ports import EngineContractError, EngineContractErrorCode
 from .game_lifecycle import EndReason, GameStatus
 from .sound_events import MoveSoundFacts, SoundEvent
 from .ui_native_menu import install_windows_native_menu
@@ -36,6 +38,9 @@ from .webapp_keymap import (
     _asset_root,
     _shared_spoken_san,
 )
+
+
+_LOG = logging.getLogger(__name__)
 
 
 class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
@@ -63,6 +68,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_session: EngineGameSessionCoordinator | None = None
         self._engine_game_phase = "idle"
         self._engine_game_error: str | None = None
+        self._engine_takeback_unsafe = False
         self._engine_thinking = False
         self._engine_clock_history: list[ClockSnapshot] = []
 
@@ -238,6 +244,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_session = None
         self._engine_game_phase = "idle"
         self._engine_game_error = None
+        self._engine_takeback_unsafe = False
         self._engine_thinking = False
         self._engine_clock_history = []
 
@@ -414,7 +421,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "canTakeback": False,
             "canOfferDraw": False,
             "canStop": self._engine_game_phase in {"active", "error"} and session is not None,
-            "canRetry": self._engine_game_phase == "error" and session is not None,
+            "canRetry": (self._engine_game_phase == "error" and session is not None
+                         and not self._engine_takeback_unsafe),
             "error": self._engine_game_error,
             "status": "",
         }
@@ -438,7 +446,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             base["phase"] = "error"
             base["active"] = False
             base["turn"] = "error"
-            base["canRetry"] = True
+            base["canRetry"] = not self._engine_takeback_unsafe
             base["status"] = self._engine_game_error or (
                 "Гру проти Stockfish призупинено."
                 if self.lang == "uk"
@@ -459,6 +467,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "blackClock": self._clock_text(snapshot.clock.black_ms),
             "canTakeback": (
                 self._engine_game_phase in {"active", "finished", "error"}
+                and not self._engine_takeback_unsafe
                 and any(side == human for side in self.move_sides)
             ),
             "canOfferDraw": (
@@ -472,7 +481,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 if self.lang == "uk"
                 else f"Clocks: White {base['whiteClock']}, Black {base['blackClock']}."
             )
-        if self._engine_game_phase == "error":
+        if self._engine_takeback_unsafe:
+            base["status"] = self._engine_game_error or self._takeback_recovery_message()
+        elif self._engine_game_phase == "error":
             base["status"] = self._engine_game_error or (
                 "Гру проти Stockfish призупинено."
                 if self.lang == "uk"
@@ -585,6 +596,24 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_game_phase = "finished"
         return snapshot
 
+    def _takeback_recovery_message(self) -> str:
+        return (
+            "Відновити стан партії не вдалося. Повтор і ходи заблоковано; "
+            "зупиніть партію та почніть нову."
+            if self.lang == "uk" else
+            "Game recovery failed. Retry and moves are blocked; "
+            "stop this game and start a new one."
+        )
+
+    def _block_unrecoverable_takeback(self, exc: Exception) -> dict[str, Any]:
+        # The canonical Board owner reported unsuccessful compensation. Never
+        # allow a retry, direct undo or ordinary move on an untrusted history.
+        _LOG.error("Unrecoverable engine takeback compensation: %s", type(exc).__name__, exc_info=True)
+        self._engine_takeback_unsafe = True
+        self._engine_game_phase = "error"
+        self._engine_game_error = self._takeback_recovery_message()
+        return self._error(self._engine_game_error)
+
     def _pause_engine_after_failure(self) -> str:
         session = self._engine_session
         if session is not None:
@@ -652,6 +681,11 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         )
 
     def _human_engine_move_guard(self) -> dict[str, Any] | None:
+        if self._engine_takeback_unsafe:
+            return self._concise_error(
+                "Стан партії не вдалося відновити. Почніть нову партію.",
+                "The game state could not be recovered. Start a new game.",
+            )
         if self._engine_game_phase == "error":
             return self._concise_error(
                 "Спочатку повторіть хід Stockfish або зупиніть гру.",
@@ -829,7 +863,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             except Exception:
                 pass
         self._engine_game_phase = "stopped"
-        self._engine_game_error = None
+        if not self._engine_takeback_unsafe:
+            self._engine_game_error = None
         return self._ok(
             "Гру проти Stockfish зупинено."
             if self.lang == "uk"
@@ -837,6 +872,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         )
 
     def retry_engine_move(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         session = self._engine_session
         if session is None or self._engine_game_phase != "error":
             return self._concise_error(
@@ -912,6 +949,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         )
 
     def engine_takeback(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         session = self._engine_session
         human = self._engine_human_side()
         if session is None or human is None or self._engine_game_phase not in {
@@ -939,11 +978,22 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                     )
                     self._commit_engine_takeback_state()
                 except Exception:
-                    try:
-                        self._restore_engine_takeback_state(board_checkpoint)
-                    finally:
-                        session._clock.restore(previous_clock)
-                        session._lifecycle.restore_checkpoint(previous_lifecycle)
+                    recovery_error = None
+                    for restore in (
+                        lambda: self._restore_engine_takeback_state(board_checkpoint),
+                        lambda: session._clock.restore(previous_clock),
+                        lambda: session._lifecycle.restore_checkpoint(previous_lifecycle),
+                    ):
+                        try:
+                            restore()
+                        except Exception as exc:
+                            if recovery_error is None:
+                                recovery_error = exc
+                    if recovery_error is not None:
+                        raise EngineContractError(
+                            "takeback compensation failed; session requires recovery",
+                            code=EngineContractErrorCode.INVALID_SESSION,
+                        ) from recovery_error
                     raise
             else:
                 # A failed compensated acceptance leaves the original request
@@ -964,7 +1014,11 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                         actor=engine,
                     )
                 )
-        except Exception:
+        except Exception as exc:
+            if (isinstance(exc, EngineContractError)
+                    and exc.code is EngineContractErrorCode.INVALID_SESSION
+                    and "takeback compensation failed" in str(exc)):
+                return self._block_unrecoverable_takeback(exc)
             return self._error(self._pause_engine_after_failure())
         self._engine_game_phase = "active"
         self._engine_game_error = None
@@ -995,6 +1049,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return super().clear_board()
 
     def make_move(self, text: str) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         if self._engine_game_phase == "stopped":
             self._reset_engine_game_state()
         guard = self._human_engine_move_guard()
@@ -1045,6 +1101,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return result
 
     def undo(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         if self._engine_game_phase == "active":
             return self.engine_takeback()
         if self._engine_game_phase in {"stopped", "finished"}:
@@ -1052,6 +1110,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return super().undo()
 
     def redo(self) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         if self._engine_game_phase in {"active", "error"}:
             return self._concise_error(
                 "Повтор ходу недоступний під час гри проти Stockfish.",
@@ -1062,6 +1122,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return super().redo()
 
     def activate_square(self, square: str) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
         if self._engine_game_phase == "stopped":
             self._reset_engine_game_state()
         guard = self._human_engine_move_guard()
