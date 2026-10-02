@@ -338,7 +338,7 @@ const soundLabels = {
         legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
         previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
         unavailable: 'Налаштування звуку недоступні.',
-        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокіровка', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
+        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', volume: 'Volume',
