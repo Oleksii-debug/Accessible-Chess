@@ -11,6 +11,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import tarfile
@@ -248,9 +249,9 @@ def stage_livekit_client_sdk(
 ) -> Path:
     archive = Path(archive_path)
     output = Path(output_dir)
-    if output.exists():
+    if os.path.lexists(output):
         raise LiveKitClientSdkStageError("LiveKit SDK output directory already exists")
-    if output.parent.exists() and output.parent.is_symlink():
+    if os.path.lexists(output.parent) and output.parent.is_symlink():
         raise LiveKitClientSdkStageError("LiveKit SDK output parent must not be a symlink")
 
     bundle, license_bytes, notice_bytes = _validated_payload(
