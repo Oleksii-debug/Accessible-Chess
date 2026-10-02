@@ -317,6 +317,30 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("collaboration.file.cancelled", cancelled.kind)
         self.assertEqual("collaboration-file-choose", cancelled.payload["focus_target"])
 
+    def test_blocked_failed_file_never_exposes_retry_action(self) -> None:
+        self.selected_file = self.root / "blocked-retry.pgn"
+        self.selected_file.write_text('[Event "Blocked"]\n\n1. e4 e5 *\n', encoding="utf-8")
+        self.files.fail_upload = True
+        view = self.webview()
+
+        failed = view.dispatch("collaboration.file.choose_upload", {})
+        item = failed.payload["collaboration"]["files"]["items"][0]
+        attachment = self.store.room_attachments("room-1")[0]
+        self.store.update_attachment_state(
+            attachment.attachment_id,
+            transfer_state="failed",
+            scan_state="blocked",
+        )
+
+        blocked = view.snapshot()["files"]["items"][0]
+        self.assertFalse(blocked["can_retry"])
+        retried = view.dispatch(
+            "collaboration.file.retry",
+            {"file_key": item["file_key"]},
+        )
+        self.assertEqual("error", retried.kind)
+        self.assertEqual([], self.files.retry_calls)
+
     def test_file_action_key_is_room_bound_and_unknown_or_extra_payload_fails_closed(self) -> None:
         view = self.webview()
         bad = view.dispatch("collaboration.file.save", {"file_key": "0" * 64})
