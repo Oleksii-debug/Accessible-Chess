@@ -83,6 +83,12 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     return tuple(output)
 
 
+def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
+    """Return the canonical final-product WebView resource sequence."""
+
+    return _final_product_resource_sources()
+
+
 def _composed_language_sync(
     base_sync: Callable[[Any, UILanguage], None],
 ) -> Callable[[Any, UILanguage], None]:
@@ -164,4 +170,8 @@ def main() -> None:
         _release_app.main()
 
 
-__all__ = ["create_version2_release_application", "main"]
+__all__ = [
+    "create_version2_release_application",
+    "final_product_resource_sources",
+    "main",
+]
