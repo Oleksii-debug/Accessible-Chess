@@ -87,7 +87,13 @@ def credential(participant_id: str) -> JoinCredential:
 
 
 class ClassroomMediaHostTransactionTests(unittest.TestCase):
-    def make_host(self, participant_id="student-1", *, student_count=2):
+    def make_host(
+        self,
+        participant_id="student-1",
+        *,
+        student_count=2,
+        transaction_id_factory=None,
+    ):
         roster = FakeRoster(student_count=student_count)
         session = FakeSessionPort()
         port = ClassroomMediaHostTransactionPort(session_port=session)
@@ -105,7 +111,7 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         host = ClassroomMediaHostTransactions(
             controller,
             port,
-            transaction_id_factory=transaction_id,
+            transaction_id_factory=transaction_id_factory or transaction_id,
         )
         controller.join(
             credential(participant_id),
@@ -548,6 +554,23 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         self.assertEqual(session.connect_calls[0][1], ())
         self.assertIsNone(host.pending_effect)
         self.assertTrue(controller.state.connected)
+
+    def test_transaction_identity_cannot_be_reused_after_safe_discard(self):
+        repeated = "host-" + "a" * 32
+        controller, _roster, _session, _port, host = self.make_host(
+            transaction_id_factory=lambda: repeated,
+        )
+        effect = host.prepare_local_source(MediaSource.CAMERA, True)
+        self.assertEqual(effect.transaction_id, repeated)
+        host.provider_not_started(repeated)
+
+        with self.assertRaisesRegex(
+            MediaHostTransactionError,
+            "reused a media transaction identity",
+        ):
+            host.prepare_local_source(MediaSource.MICROPHONE, True)
+        self.assertEqual(controller.state.desired_sources, frozenset())
+        self.assertIsNone(host.pending_effect)
 
     def test_invalid_and_unknown_transaction_ids_do_not_clear_pending(self):
         _controller, _roster, _session, _port, host = self.make_host()
