@@ -255,6 +255,54 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
                 ):
                     self.issue(self.issuer())
 
+    def test_real_reviewed_sdk_signs_and_verifies_when_installed(self):
+        try:
+            from livekit import api
+        except ImportError:
+            self.skipTest("reviewed LiveKit SDK is not installed")
+
+        now = datetime.now(timezone.utc)
+        key = "k" * 24
+        secret = "s" * 48
+        issuer = LiveKitClassroomJoinTokenIssuer(
+            api_key=key,
+            api_secret=secret,
+            now=lambda: now,
+        )
+        signed = asyncio.run(
+            issuer.issue_join_token(
+                grant=ClassroomJoinGrant(
+                    room_id="contract-room",
+                    participant_id="contract-participant",
+                    publish_sources=(
+                        MediaSource.CAMERA,
+                        MediaSource.MICROPHONE,
+                    ),
+                ),
+                issued_at=now,
+                expires_at=now + timedelta(seconds=90),
+            )
+        )
+        claims = api.TokenVerifier(
+            api_key=key,
+            api_secret=secret,
+            leeway=timedelta(seconds=0),
+        ).verify(signed)
+        self.assertEqual(claims.identity, "contract-participant")
+        self.assertIsNotNone(claims.video)
+        self.assertTrue(claims.video.room_join)
+        self.assertEqual(claims.video.room, "contract-room")
+        self.assertFalse(claims.video.room_admin)
+        self.assertTrue(claims.video.can_publish)
+        self.assertTrue(claims.video.can_subscribe)
+        self.assertFalse(claims.video.can_publish_data)
+        self.assertEqual(
+            claims.video.can_publish_sources,
+            ["microphone", "camera"],
+        )
+        self.assertFalse(claims.video.can_update_own_metadata)
+        self.assertFalse(claims.video.hidden)
+
     def test_workflow_tests_current_base_merge_not_stale_head(self):
         source = (
             Path(__file__).parents[1]
