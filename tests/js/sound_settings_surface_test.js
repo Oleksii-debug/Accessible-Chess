@@ -137,7 +137,7 @@ const api = {
     if (commandMode === "reject") {
       return Promise.reject(new Error("bridge failure"));
     }
-    const snapshot = JSON.parse(JSON.stringify(initial));
+    const snapshot = JSON.parse(JSON.stringify(serverSnapshot));
     if (command === "set_master" && Object.prototype.hasOwnProperty.call(payload, "enabled")) {
       snapshot.master_enabled = payload.enabled;
     }
@@ -166,6 +166,7 @@ const api = {
       snapshot.packs[0].can_install = true;
       snapshot.packs[0].can_uninstall = false;
     }
+    serverSnapshot = snapshot;
     return Promise.resolve({ok: true, snapshot, message: "Saved."});
   }
 };
