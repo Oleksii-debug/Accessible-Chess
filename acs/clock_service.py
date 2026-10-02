@@ -165,7 +165,14 @@ class ChessClock:
         self._active = side
         self._state = ClockState.RUNNING
         self._last_tick = tick
-        return self.snapshot()
+        try:
+            return self.snapshot()
+        except Exception:
+            # Failed startup cannot leave a running clock behind.
+            self._active = None
+            self._state = ClockState.STOPPED
+            self._last_tick = None
+            raise
 
     def pause(self) -> ClockSnapshot:
         self._sync()
@@ -191,6 +198,13 @@ class ChessClock:
             tick = self._read_now()
             self._state = ClockState.RUNNING
             self._last_tick = tick
+            try:
+                return self.snapshot()
+            except Exception:
+                # A failed resume must remain paused for explicit recovery.
+                self._state = ClockState.PAUSED
+                self._last_tick = None
+                raise
         return self.snapshot()
 
     def stop(self) -> ClockSnapshot:
@@ -221,10 +235,27 @@ class ChessClock:
             )
 
         tick = self._read_now(not_before=self._last_tick)
+        # Charge the mover through the exact switch instant. If the mover flags
+        # during this interval, no increment or side switch is permitted.
+        self._sync(at=tick)
+        if self._state is ClockState.FLAGGED:
+            return self.snapshot()
+        charged_remaining = self._remaining[moved_side]
         self._remaining[moved_side] += self.control.increment_ms
         self._active = "b" if moved_side == "w" else "w"
         self._last_tick = tick
-        return self.snapshot()
+        try:
+            # The returned snapshot also charges the newly active opponent.
+            # If that third time read fails, the Board-owning caller rejects
+            # the move; do not leave the clock switched and incremented.
+            return self.snapshot()
+        except Exception:
+            self._remaining[moved_side] = charged_remaining
+            self._active = moved_side
+            self._state = ClockState.RUNNING
+            self._flagged = None
+            self._last_tick = tick
+            raise
 
     def set_remaining(self, side: str, milliseconds: int) -> ClockSnapshot:
         """Administrative/game-restore hook; never changes whose clock is active."""
@@ -238,12 +269,34 @@ class ChessClock:
                 "milliseconds must be a non-negative integer",
                 code=ClockErrorCode.INVALID_COMMAND,
             )
+        # An untimed clock has exactly one canonical persisted state: both
+        # balances zero. Accepting a nonzero administrative balance here would
+        # publish a snapshot that restore() subsequently rejects.
+        if self.control.untimed and milliseconds != 0:
+            raise ClockError(
+                "untimed clock requires zero remaining time",
+                code=ClockErrorCode.INVALID_COMMAND,
+            )
         self._sync()
+        prior = (
+            self._remaining[side],
+            self._flagged,
+            self._state,
+            self._active,
+            self._last_tick,
+        )
         self._remaining[side] = milliseconds
         if self._state == ClockState.FLAGGED and self._flagged == side and milliseconds > 0:
             self._flagged = None
             self._state = ClockState.PAUSED if self._active is not None else ClockState.STOPPED
-        return self.snapshot()
+        try:
+            return self.snapshot()
+        except Exception:
+            # A failed administrative edit must not leak into persisted
+            # history. Keep time already charged by the initial _sync().
+            (self._remaining[side], self._flagged, self._state,
+             self._active, self._last_tick) = prior
+            raise
 
     def restore(self, snapshot: ClockSnapshot, *, resume_running: bool = False) -> ClockSnapshot:
         """Restore a validated historical clock snapshot without owning history.
@@ -281,6 +334,13 @@ class ChessClock:
         if snapshot.state is ClockState.RUNNING and resume_running:
             resume_tick = self._read_now()
 
+        prior = (
+            self._remaining.copy(),
+            self._active,
+            self._flagged,
+            self._state,
+            self._last_tick,
+        )
         self._remaining = {"w": snapshot.white_ms, "b": snapshot.black_ms}
         self._active = snapshot.active
         self._flagged = snapshot.flagged
@@ -293,7 +353,14 @@ class ChessClock:
                 self._last_tick = resume_tick
         else:
             self._state = snapshot.state
-        return self.snapshot()
+        try:
+            return self.snapshot()
+        except Exception:
+            # Preserve the original canonical state if resumed restoration
+            # fails on its final time sample; do not publish a partial restore.
+            (self._remaining, self._active, self._flagged,
+             self._state, self._last_tick) = prior
+            raise
 
     def reset(self, *, side_to_move: str | None = None) -> ClockSnapshot:
         if side_to_move is not None:
@@ -310,16 +377,32 @@ class ChessClock:
             self._last_tick = None
         return self.snapshot()
 
-    def _sync(self) -> None:
+    def _sync(self, *, at: float | None = None) -> None:
         if self._state != ClockState.RUNNING or self._active is None or self._last_tick is None:
             return
-        now = self._read_now(not_before=self._last_tick)
-        elapsed_ms = int((now - self._last_tick) * 1000)
-        if elapsed_ms <= 0:
-            return
-        self._last_tick += elapsed_ms / 1000
+        # The switch already validated its instant; do not sample time again
+        # while charging the previous mover.
+        now = self._read_now(not_before=self._last_tick) if at is None else at
+        elapsed_float_ms = (now - self._last_tick) * 1000
+        # Two individually finite readings can still overflow when their
+        # difference is scaled to milliseconds. Do not leak OverflowError from
+        # int(inf), or partially charge a malformed clock sample.
+        if not math.isfinite(elapsed_float_ms):
+            raise ClockError(
+                "monotonic time delta must be finite",
+                code=ClockErrorCode.INVALID_TIME_SOURCE,
+            )
+        elapsed_ms = int(elapsed_float_ms)
+        # A running side with zero time has already exhausted its clock,
+        # even when the monotonic source has not advanced a whole millisecond.
+        # In particular, administrative set_remaining(0) and restoration of
+        # a running zero-time snapshot must never permit a free increment.
         side = self._active
-        remaining = self._remaining[side] - elapsed_ms
+        if elapsed_ms <= 0 and self._remaining[side] > 0:
+            return
+        if elapsed_ms > 0:
+            self._last_tick += elapsed_ms / 1000
+        remaining = self._remaining[side] - max(elapsed_ms, 0)
         if remaining <= 0:
             self._remaining[side] = 0
             self._flagged = side
@@ -343,16 +426,26 @@ class ChessClock:
 
     def _read_now(self, *, not_before: float | None = None) -> float:
         value = self._now()
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or not math.isfinite(value)
-        ):
+        # Convert only after rejecting non-numeric/bool samples. math.isfinite()
+        # itself raises OverflowError for integers outside float range; an
+        # untrusted source must instead fail through the stable domain error.
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ClockError(
                 "monotonic time source must return a finite number",
                 code=ClockErrorCode.INVALID_TIME_SOURCE,
             )
-        instant = float(value)
+        try:
+            instant = float(value)
+        except (OverflowError, ValueError, TypeError):
+            raise ClockError(
+                "monotonic time source must return a finite number",
+                code=ClockErrorCode.INVALID_TIME_SOURCE,
+            ) from None
+        if not math.isfinite(instant):
+            raise ClockError(
+                "monotonic time source must return a finite number",
+                code=ClockErrorCode.INVALID_TIME_SOURCE,
+            )
         if not_before is not None and instant < not_before:
             raise ClockError(
                 "monotonic time source moved backwards",
