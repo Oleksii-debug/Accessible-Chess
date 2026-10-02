@@ -11,7 +11,10 @@ from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_application import Version2Application
-from acs.version2_release_app import create_version2_release_application
+from acs.version2_release_app import (
+    _build_version2_windows_file_runtime,
+    create_version2_release_application,
+)
 
 
 PGN_TEMPLATE = """[Event \"{event}\"]
@@ -62,23 +65,37 @@ class W3LibraryDirtyReplaceConfirmationEvidenceTests(unittest.TestCase):
         self.assertEqual(self.application.snapshot(), snapshot)
 
     def test_production_composition_binds_confirmation_after_close_guard_and_runtime_exist(self) -> None:
-        source = inspect.getsource(create_version2_release_application)
-        runtime_build = source.index("file_runtime = Version2WindowsFileWorkflowRuntime(")
-        close_guard = source.index("file_runtime = _install_close_guard_or_shutdown(", runtime_build)
-        binding = source.index(
-            "application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn",
-            close_guard,
+        runtime_source = inspect.getsource(_build_version2_windows_file_runtime)
+        self.assertIn(
+            "return build_version2_windows_library_file_runtime(",
+            runtime_source,
+            "production must compose the canonical Library-export-aware Windows file runtime",
         )
-        runtime_return = source.index("return file_runtime", binding)
-
-        self.assertLess(runtime_build, close_guard)
-        self.assertLess(close_guard, binding)
-        self.assertLess(binding, runtime_return)
         self.assertIn(
             "set_pgn_session=lambda session: _install_host_confirmed_document(application, session)",
-            source,
+            runtime_source,
             "native PGN Open must retain the host-confirmed no-double-prompt installation path",
         )
+
+        source = inspect.getsource(create_version2_release_application)
+        runtime_build = source.index("file_runtime = _build_version2_windows_file_runtime(")
+        close_guard = source.index("file_runtime = _install_close_guard_or_shutdown(", runtime_build)
+        open_book_binding = source.index("application.open_book_dialog = book_dialogs.open_book", close_guard)
+        recovery_binding = source.index(
+            "application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress",
+            open_book_binding,
+        )
+        replacement_binding = source.index(
+            "application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn",
+            recovery_binding,
+        )
+        runtime_return = source.index("return file_runtime", replacement_binding)
+
+        self.assertLess(runtime_build, close_guard)
+        self.assertLess(close_guard, open_book_binding)
+        self.assertLess(open_book_binding, recovery_binding)
+        self.assertLess(recovery_binding, replacement_binding)
+        self.assertLess(replacement_binding, runtime_return)
 
     def test_before_native_owner_dirty_application_replacement_fails_closed(self) -> None:
         current = self._dirty_document()

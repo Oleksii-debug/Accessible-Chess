@@ -409,6 +409,21 @@ class Version2Application:
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
         if action == "library.export" and not payload:
+            if not self.library.projection.export_game_ids:
+                message = (
+                    "Виберіть щонайменше одну партію в Бібліотеці перед експортом."
+                    if self.shell.language is UILanguage.UA
+                    else "Select at least one game in the Library before exporting."
+                )
+                event_payload = {"announcement": message}
+                if (
+                    type(self._focus) is str
+                    and len(self._focus) <= 160
+                    and all(char.isalnum() or char in "-_" for char in self._focus)
+                ):
+                    event_payload["focus_target"] = self._focus
+                self._events.append({"kind": "status", "payload": event_payload})
+                return None
             return self.library.projection.request_export_selected()
         if action == "book.open":
             if payload: raise ValueError("book file selection belongs to the host")
@@ -580,9 +595,28 @@ class Version2Application:
             self.library.projection.search(self.library.projection.query)
 
     def _file_event(self, event):
+        focus_target = ""
+        if getattr(event, "action_id", "") == "library.export":
+            candidate = getattr(event, "focus_target", "")
+            if (
+                type(candidate) is str
+                and len(candidate) <= 160
+                and all(char.isalnum() or char in "-_" for char in candidate)
+            ):
+                focus_target = candidate
+
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
-            self._events.append(self._error())
+            projected = self._error()
+            if focus_target:
+                projected = {
+                    "kind": projected["kind"],
+                    "payload": {
+                        **dict(projected["payload"]),
+                        "focus_target": focus_target,
+                    },
+                }
+            self._events.append(projected)
             return
         kind = getattr(event.kind, "value", "")
         messages = {
@@ -593,7 +627,13 @@ class Version2Application:
             "dialog_cancelled": ("Скасовано.", "Cancelled."),
         }
         message = messages.get(kind)
-        if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
+        if message:
+            payload = {
+                "announcement": message[self.shell.language is UILanguage.EN],
+            }
+            if focus_target:
+                payload["focus_target"] = focus_target
+            self._events.append({"kind": "status", "payload": payload})
 
     def shutdown(self, timeout: float | None = None):
         """Cancel and join native import work before closing shared application state.
