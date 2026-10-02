@@ -325,21 +325,39 @@ async function run() {
         active: false,
         can_install: false,
         can_uninstall: false
+      },
+      {
+        pack_id: "local-wood",
+        title: "Local Wood Dash",
+        version: "2.0.0",
+        author: "Local author",
+        license_id: "CC0-1.0",
+        compatible: true,
+        installed_version: "2.0.0",
+        state: "local_installed",
+        active: false,
+        can_install: false,
+        can_uninstall: false
       }
     ]
   };
   await window.AccessibleChessSoundSettingsSurface.refresh();
   await Promise.resolve();
-  const localSelect = elements.get("sound-pack-local-wood-select");
+  const localSelect = elements.get("sound-pack-local.wood-select");
+  const dashedLocalSelect = elements.get("sound-pack-local-wood-select");
   assert.ok(localSelect,
-    "verified local installed pack must expose a native select button");
+    "verified dotted local pack must expose a native select button");
+  assert.ok(dashedLocalSelect,
+    "distinct dashed local pack must retain a distinct DOM identity");
+  assert.notStrictEqual(localSelect, dashedLocalSelect,
+    "valid dotted and dashed pack IDs must never collide in the DOM");
   localSelect.focus();
   localSelect.dispatch("click");
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
   assert.deepStrictEqual(calls[4], ["select_pack", {pack_id: "local.wood"}]);
-  assert.strictEqual(document.activeElement.id, "sound-pack-local-wood");
+  assert.strictEqual(document.activeElement.id, "sound-pack-local.wood");
   const moveChoice = elements.get("sound-event-move-choice");
   const classroomVolume = elements.get("sound-event-classroom-join-volume");
   assert.ok(moveChoice, "custom pack with alternate ids must expose a native sound selector");
@@ -378,7 +396,7 @@ async function run() {
   await window.AccessibleChessSoundSettingsSurface.refresh();
   await Promise.resolve();
   commandMode = "partial";
-  const partialRemove = elements.get("sound-pack-local-wood-uninstall");
+  const partialRemove = elements.get("sound-pack-local.wood-uninstall");
   partialRemove.focus();
   partialRemove.dispatch("click");
   await Promise.resolve();
