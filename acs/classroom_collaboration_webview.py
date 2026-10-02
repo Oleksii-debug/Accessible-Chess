@@ -303,6 +303,17 @@ class ClassroomCollaborationWebView:
             instant.isoformat(timespec="seconds").replace("+00:00", "Z"),
         )
 
+    @staticmethod
+    def _announcement_body(value: str) -> str:
+        normalized = unicodedata.normalize("NFC", value)
+        safe = "".join(
+            " " if ch.isspace() else ""
+            if unicodedata.category(ch).startswith("C")
+            else ch
+            for ch in normalized
+        )
+        return " ".join(safe.split())[:160]
+
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
         moderator = self._moderator()
         sender_active = item.sender_id not in self._removed_participant_ids
@@ -483,7 +494,7 @@ class ClassroomCollaborationWebView:
         announcement = ""
         if len(new_remote) == 1:
             item = new_remote[0]
-            compact_body = " ".join(item.body.split())[:160]
+            compact_body = self._announcement_body(item.body)
             announcement = f"{self._label(item.sender_id)}: {compact_body}"
         elif len(new_remote) > 1:
             announcement = _LABELS[self._language]["new_many"].format(count=len(new_remote))
