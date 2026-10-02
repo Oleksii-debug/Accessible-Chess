@@ -333,6 +333,62 @@ class D06PgnRoundTripTests(unittest.TestCase):
             (mismatched_result,),
         )
 
+    def test_serialization_rejects_lossy_programmatic_comment_layouts(self):
+        missing_number = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        comments_before=[Comment("before")],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (missing_number,),
+        )
+
+        carriage_return = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_after=[Comment("line one\\rline two")],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (carriage_return,),
+        )
+
+        representable = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_before=[Comment("before")],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        self.assertEqual(
+            parse_pgn_text(serialize_pgn_text((representable,))),
+            (representable,),
+        )
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
