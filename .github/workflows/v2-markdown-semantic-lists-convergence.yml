@@ -73,14 +73,36 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$markdown_owner" HEAD
           git diff --check "$base" HEAD
-          for path in \
-            acs/book_text_import.py \
-            tests/test_v2_book_text_import.py \
-            tests/test_v2_markdown_semantic_lists.py
-          do
-            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$markdown_owner:$path")"
-          done
-          printf 'Markdown retained authority PASS: immutable-pr-base=%s owner=%s head=%s\n' "$base" "$markdown_owner" "$(git rev-parse HEAD)"
+          source_actual="$(git rev-parse HEAD:acs/book_text_import.py)"
+          importer_test_actual="$(git rev-parse HEAD:tests/test_v2_book_text_import.py)"
+          semantic_list_actual="$(git rev-parse HEAD:tests/test_v2_markdown_semantic_lists.py)"
+          source_owner="$(git rev-parse "$markdown_owner:acs/book_text_import.py")"
+          importer_test_owner="$(git rev-parse "$markdown_owner:tests/test_v2_book_text_import.py")"
+          semantic_list_owner="$(git rev-parse "$markdown_owner:tests/test_v2_markdown_semantic_lists.py")"
+          successor="d30917d46c2fa54821e2f90df9750220e60d48e3"
+          successor_source="27a8880246fed5d5c35292aab95a349a86a2440c"
+          successor_importer_test="323438ce3249696b2fa0ce59839e5849984aa1ec"
+
+          test "$semantic_list_actual" = "$semantic_list_owner" || {
+            printf 'Markdown semantic-list oracle drift: owner=%s actual=%s\n' "$semantic_list_owner" "$semantic_list_actual" >&2
+            exit 1
+          }
+
+          if test "$source_actual" = "$source_owner" && test "$importer_test_actual" = "$importer_test_owner"; then
+            authority_mode="SETTLED_OWNER"
+          elif test "$source_actual" = "$successor_source" && test "$importer_test_actual" = "$successor_importer_test"; then
+            git cat-file -e "${successor}^{commit}"
+            git merge-base --is-ancestor "$successor" HEAD
+            authority_mode="REVIEWED_MARKDOWN_TEXT_INTEGRITY_SUCCESSOR"
+          else
+            printf 'Markdown authority pair drift: source owner=%s successor=%s actual=%s; test owner=%s successor=%s actual=%s\n' \
+              "$source_owner" "$successor_source" "$source_actual" \
+              "$importer_test_owner" "$successor_importer_test" "$importer_test_actual" >&2
+            exit 1
+          fi
+
+          printf 'Markdown retained authority PASS: immutable-pr-base=%s owner=%s mode=%s head=%s\n' \
+            "$base" "$markdown_owner" "$authority_mode" "$(git rev-parse HEAD)"
 
       - name: Compile bounded Books adapter
         run: python -m py_compile acs/book_text_import.py tests/test_v2_book_text_import.py tests/test_v2_markdown_semantic_lists.py
