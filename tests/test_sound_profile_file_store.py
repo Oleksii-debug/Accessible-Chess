@@ -11,6 +11,7 @@ from acs.sound_profile_file_store import (
     SoundProfileFileError,
 )
 from acs.sound_profile_store import (
+    SoundProfileConflictError,
     SoundProfileManager,
     SoundProfileRecoveryReason,
     SoundProfileWriteBlockedError,
@@ -61,6 +62,56 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
 
             self.assertEqual(storage.read_profile(), profile.to_mapping())
             self.assertFalse(path.with_suffix(path.suffix + ".tmp").exists())
+
+    def test_two_process_owners_fail_closed_instead_of_lost_update(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "sound-profile.json"
+            first_storage = JsonSoundProfileStorage(path)
+            first = SoundProfileManager(first_storage, self._resolver)
+            first.load()
+
+            second_storage = JsonSoundProfileStorage(path)
+            second = SoundProfileManager(second_storage, self._resolver)
+            second.load()
+
+            first.set_master(volume_percent=31)
+
+            with self.assertRaisesRegex(
+                SoundProfileConflictError,
+                "changed in another process",
+            ):
+                second.set_event(
+                    "move",
+                    SoundEventPreference(enabled=False, volume_percent=44),
+                )
+
+            self.assertEqual(31, second.current.master_volume_percent)
+            self.assertEqual(SoundEventPreference(), second.current.preference_for("move"))
+            self.assertEqual(second.current.to_mapping(), second_storage.read_profile())
+
+            retried = second.set_event(
+                "move",
+                SoundEventPreference(enabled=False, volume_percent=44),
+            )
+            self.assertEqual(31, retried.master_volume_percent)
+            self.assertEqual(
+                SoundEventPreference(enabled=False, volume_percent=44),
+                retried.preference_for("move"),
+            )
+
+    def test_same_canonical_recovery_write_is_idempotent_across_owners(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "sound-profile.json"
+            path.write_bytes(b"{bad-json")
+            first = SoundProfileManager(JsonSoundProfileStorage(path), self._resolver)
+            second = SoundProfileManager(JsonSoundProfileStorage(path), self._resolver)
+
+            first_result = first.load()
+            second_result = second.load()
+
+            self.assertEqual(SoundProfile(), first_result.profile)
+            self.assertEqual(SoundProfile(), second_result.profile)
+            self.assertEqual(SoundProfile().to_mapping(), JsonSoundProfileStorage(path).read_profile())
 
     def test_duplicate_or_malformed_json_recovers_via_manager(self) -> None:
         for raw_payload in (
