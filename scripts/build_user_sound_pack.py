@@ -54,11 +54,11 @@ EVENT_VARIANTS = {
         ("1", "library/Russian/Notation/Check.wav", "Шах — голос", "Check — voice"),
     ),
     "castle": (
-        ("1", "library/Board/castle.wav", "Рокіровка", "Castling"),
+        ("1", "library/Board/castle.wav", "Рокірування", "Castling"),
     ),
     "promotion": (
-        ("1", "library/Board/failhigh.wav", "Перетворення 1", "Promotion 1"),
-        ("2", "library/Board/coach.wav", "Перетворення 2", "Promotion 2"),
+        ("1", "library/Board/failhigh.wav", "Сигнал перетворення 1", "Promotion cue 1"),
+        ("2", "library/Board/coach.wav", "Сигнал перетворення 2", "Promotion cue 2"),
     ),
     "illegal": (
         ("1", "library/Board/illegal.wav", "Нелегальний хід", "Illegal move"),
@@ -70,8 +70,6 @@ EVENT_VARIANTS = {
     ),
     "end": (
         ("1", "library/Server/Gong.WAV", "Кінець партії — гонг", "Game end — gong"),
-        ("2", "library/Russian/Notation/Mate.wav", "Мат — голос", "Mate — voice"),
-        ("3", "library/Russian/Draw.wav", "Нічия — голос", "Draw — voice"),
     ),
     "tick": (
         ("1", "library/Board/Tick.wav", "Годинник", "Clock"),
