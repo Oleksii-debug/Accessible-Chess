@@ -6,6 +6,8 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/education_workspace.py'
+      - 'acs/prepared_position_authoring.py'
+      - 'tests/test_prepared_position_authoring.py'
       - 'tests/test_prepared_position_lesson_metadata.py'
       - '.github/workflows/prepared-position-lesson-metadata.yml'
   workflow_dispatch:
@@ -54,6 +56,8 @@ jobs:
           expected=(
             '.github/workflows/prepared-position-lesson-metadata.yml'
             'acs/education_workspace.py'
+            'acs/prepared_position_authoring.py'
+            'tests/test_prepared_position_authoring.py'
             'tests/test_prepared_position_lesson_metadata.py'
           )
           if [[ "${actual[*]}" != "${expected[*]}" ]]; then
@@ -74,11 +78,14 @@ jobs:
         run: >-
           python -m py_compile
           acs/education_workspace.py
+          acs/prepared_position_authoring.py
+          tests/test_prepared_position_authoring.py
           tests/test_prepared_position_lesson_metadata.py
 
       - name: Run metadata and adjacent durability contracts
         run: >-
           python -m unittest -v
+          tests.test_prepared_position_authoring
           tests.test_prepared_position_lesson_metadata
           tests.test_d10_prepared_position_durability
           tests.test_education_workspace
