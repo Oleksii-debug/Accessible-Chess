@@ -45,6 +45,15 @@ class SoundProfileTests(unittest.TestCase):
         self.assertEqual(SoundEventPreference(True, 70), changed.preference_for("check"))
         self.assertEqual(profile, profile.with_pack("soft.wood"))
 
+    def test_event_ids_cannot_collide_after_canonicalization(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate.*event"):
+            SoundProfile(
+                events={
+                    "move": SoundEventPreference(enabled=True),
+                    " MOVE ": SoundEventPreference(enabled=False),
+                }
+            )
+
     def test_master_disable_silences_every_event(self) -> None:
         profile = SoundProfile(master_enabled=False)
         self.assertEqual(profile.effective_volume("move"), 0)
