@@ -10,6 +10,7 @@ on:
     paths:
       - 'scripts/stage_livekit_client_sdk.py'
       - 'tests/test_stage_livekit_client_sdk.py'
+      - 'tests/test_version2_package_assembler.py'
       - 'acs/version2_release_payload.py'
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_release_payload.py'
@@ -67,6 +68,7 @@ jobs:
             'scripts/stage_livekit_client_sdk.py'
             'tests/test_stage_livekit_client_sdk.py'
             'tests/test_v2_package_required_resources.py'
+            'tests/test_version2_package_assembler.py'
             'tests/test_version2_package_preflight.py'
             'tests/test_version2_release_payload.py'
             'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
@@ -95,7 +97,7 @@ jobs:
           python-version: '3.12.10'
 
       - name: Run adversarial staging and release-payload contracts
-        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media
+        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media
 
       - name: Download and stage the real pinned npm artifact
         shell: bash
