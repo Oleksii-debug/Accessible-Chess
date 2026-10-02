@@ -268,7 +268,7 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
 
         self.assertEqual(
             [command.operation_id for command in effect.commands],
-            ["bulk-lock.1", "bulk-lock.2"],
+            ["bulk-lock:1", "bulk-lock:2"],
         )
         host.commit_provider_success(effect.transaction_id)
         for participant_id in ("student-1", "student-2"):
