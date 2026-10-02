@@ -10,11 +10,7 @@ save_prepared_position CAS boundary.
 """
 
 from .chesscore import Board
-from .education_workspace import (
-    EducationWorkspace,
-    delete_prepared_position,
-    save_prepared_position,
-)
+from .education_workspace import EducationWorkspace, save_prepared_position
 from .teaching_session import (
     PositionSourceKind,
     TeachingPositionSource,
@@ -132,21 +128,6 @@ def save_authored_prepared_position(
     )
 
 
-def delete_authored_prepared_position(
-    workspace: EducationWorkspace,
-    *,
-    position_id: str,
-    expected_position_revision: int,
-) -> EducationWorkspace:
-    """Delete one authored prepared position through the canonical D10 CAS."""
-
-    return delete_prepared_position(
-        workspace,
-        position_id=position_id,
-        expected_position_revision=expected_position_revision,
-    )
-
-
 def _external_source(
     kind: PositionSourceKind,
     *,
@@ -169,7 +150,6 @@ def _external_source(
 
 __all__ = [
     "PreparedPositionAuthoringError",
-    "delete_authored_prepared_position",
     "save_authored_prepared_position",
     "source_from_board",
     "source_from_book",
