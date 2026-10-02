@@ -47,6 +47,7 @@ class FakeChat:
         self.ordered = []
         self.moderation_calls = []
         self.mutate_delivery = False
+        self.omit_timestamp = False
 
     def send_message(self, draft):
         current = self.messages.get(draft.message_id)
@@ -59,6 +60,11 @@ class FakeChat:
             len(self.ordered),
             draft.body,
             draft.retention,
+            sent_at_unix_ms=(
+                None
+                if self.omit_timestamp
+                else 1700000000000 + len(self.ordered) * 1000
+            ),
         )
         if self.mutate_delivery:
             message = replace(message, body="transport changed body")
@@ -162,8 +168,27 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         again = controller.send_chat(message_id="m1", body="Hello")
         self.assertEqual(first, again)
         self.assertEqual(first.sequence_no, 0)
+        self.assertEqual(first.sent_at_unix_ms, 1700000000000)
         self.assertEqual(self.store.room_messages("room-1"), (first,))
         self.assertEqual(len(self.chat.ordered), 1)
+
+    def test_transport_timestamp_is_required_for_send_receive_and_history(self):
+        controller = self.controller()
+        self.chat.omit_timestamp = True
+        with self.assertRaises(CollaborationError):
+            controller.send_chat(message_id="m1", body="No timestamp")
+        self.assertEqual(self.store.room_messages("room-1"), ())
+
+        with self.assertRaises(CollaborationError):
+            controller.receive_chat(
+                ChatMessageMetadata("m2", "room-1", "teacher-1", 0, "Legacy live message")
+            )
+
+        self.chat.ordered = [
+            ChatMessageMetadata("m3", "room-1", "teacher-1", 0, "Missing timestamp")
+        ]
+        with self.assertRaises(CollaborationError):
+            controller.sync_chat()
 
     def test_transport_cannot_mutate_message_identity_or_body(self):
         controller = self.controller()
@@ -191,13 +216,13 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
     def test_sync_rejects_cross_room_or_out_of_order_transport_history(self):
         controller = self.controller()
         self.chat.ordered.append(
-            ChatMessageMetadata("m1", "other-room", "teacher-1", 0, "wrong room")
+            ChatMessageMetadata("m1", "other-room", "teacher-1", 0, "wrong room", sent_at_unix_ms=1700000000000)
         )
         self.assertEqual(controller.sync_chat(), ())
 
         self.chat.ordered = [
-            ChatMessageMetadata("m2", "room-1", "teacher-1", 2, "later"),
-            ChatMessageMetadata("m3", "room-1", "student-1", 1, "earlier"),
+            ChatMessageMetadata("m2", "room-1", "teacher-1", 2, "later", sent_at_unix_ms=1700000002000),
+            ChatMessageMetadata("m3", "room-1", "student-1", 1, "earlier", sent_at_unix_ms=1700000001000),
         ]
         with self.assertRaises(CollaborationError):
             controller.sync_chat()
@@ -207,7 +232,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.roster.roles.pop("student-2")
         with self.assertRaises(CollaborationError):
             controller.receive_chat(
-                ChatMessageMetadata("m1", "room-1", "student-2", 0, "orphan")
+                ChatMessageMetadata("m1", "room-1", "student-2", 0, "orphan", sent_at_unix_ms=1700000000000)
             )
 
     def test_teacher_chat_lock_prevents_local_send_until_restored(self):
