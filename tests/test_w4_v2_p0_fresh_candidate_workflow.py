@@ -51,6 +51,27 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("write_version2_package_zip", self.text)
         self.assertIn("validate_version2_package_tree", self.text)
 
+    def test_pinned_livekit_sdk_is_staged_and_read_back_before_build(self) -> None:
+        source = self.text.index("Qualify exact Product source before compilation")
+        stage = self.text.index("Materialize pinned LiveKit browser SDK")
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        self.assertLess(source, stage)
+        self.assertLess(stage, build)
+        self.assertIn(
+            "python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload",
+            self.text,
+        )
+        self.assertIn("scripts/stage_livekit_client_sdk.py --print-tarball-url", self.text)
+        self.assertIn(
+            "scripts/stage_livekit_client_sdk.py 'release-inputs\\livekit-client.tgz' 'web\\vendor\\livekit'",
+            self.text,
+        )
+        self.assertIn("PINNED_LIVEKIT_CLIENT_SDK=PASS", self.text)
+        self.assertIn("PACKAGED_LIVEKIT_CLIENT_SDK_MISSING", self.text)
+        for name in ("livekit-client.umd.js", "LICENSE", "NOTICE", "provenance.json"):
+            self.assertIn(name, self.text)
+
+
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
         self.assertIn("STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139", self.text)
