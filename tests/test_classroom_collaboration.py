@@ -492,6 +492,18 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             )
 
     def test_chat_moderation_capability_projects_canonical_role_hierarchy_without_side_effects(self):
+        for actor, expected in (
+            ("teacher-1", True),
+            ("co-1", True),
+            ("student-1", False),
+            ("observer-1", False),
+        ):
+            with self.subTest(local_actor=actor):
+                controller = self.controller(actor)
+                calls_before = len(self.chat.moderation_calls)
+                self.assertIs(controller.can_moderate_chat(), expected)
+                self.assertEqual(len(self.chat.moderation_calls), calls_before)
+
         cases = (
             ("teacher-1", "co-1", True),
             ("teacher-1", "student-1", True),
@@ -517,6 +529,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.roster.roles.pop("student-2")
         teacher = self.controller("teacher-1")
         self.assertFalse(teacher.can_moderate_chat_participant("student-2"))
+        self.roster.roles.pop("teacher-1")
+        self.assertFalse(teacher.can_moderate_chat())
         self.assertEqual(self.chat.moderation_calls, [])
 
     def test_teacher_chat_lock_is_server_authoritative_across_controller_recreation(self):
