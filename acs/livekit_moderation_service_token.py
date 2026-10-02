@@ -232,7 +232,6 @@ def _verify_provider_claims(
         "can_publish": False,
         "can_subscribe": False,
         "can_publish_data": True,
-        "can_publish_sources": [],
         "can_update_own_metadata": False,
         "ingress_admin": False,
         "hidden": False,
@@ -245,6 +244,12 @@ def _verify_provider_claims(
             raise LiveKitModerationServiceTokenError(
                 f"LiveKit moderation service grant verification failed for {name}"
             )
+    # With can_publish=False, an absent or empty source allowlist is equally
+    # non-publishing. Provider serializers may normalize [] to omission.
+    if getattr(video, "can_publish_sources", None) not in (None, []):
+        raise LiveKitModerationServiceTokenError(
+            "LiveKit moderation service grant verification failed for can_publish_sources"
+        )
     if getattr(video, "destination_room", None) not in (None, ""):
         raise LiveKitModerationServiceTokenError(
             "LiveKit moderation service destination-room grant is forbidden"
