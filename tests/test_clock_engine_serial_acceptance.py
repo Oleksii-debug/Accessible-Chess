@@ -81,6 +81,7 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(pending.lifecycle.draw_offered_by, "w")
         before_tree = api.review_history.export_tree()
+        initial_white = clock.snapshot().white_ms
         actual_switch = clock.switch_after_move
         clock.switch_after_move = self.inject_switch_samples(
             clock, actual_switch, "w", lambda _anchor: float("nan")
@@ -104,8 +105,10 @@ class ClockEngineSerialAcceptanceTests(unittest.TestCase):
         self.assertEqual(after.clock.active, "w")
         # Stage1 deliberately pauses a recoverable clock in the error phase.
         self.assertEqual(after.clock.state, ClockState.PAUSED)
-        self.assertGreaterEqual(after.clock.white_ms, 59_949)
-        self.assertLess(after.clock.white_ms, 60_000)
+        # Fresh Windows startup can consume time before QA installs its
+        # deterministic clock. The rejected switch itself charges 49-51ms.
+        self.assertGreaterEqual(after.clock.white_ms, initial_white - 51)
+        self.assertLessEqual(after.clock.white_ms, initial_white - 49)
         self.assertEqual(after.clock.black_ms, 60_000)
 
         clock.switch_after_move = actual_switch
