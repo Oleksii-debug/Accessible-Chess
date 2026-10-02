@@ -484,7 +484,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.sync_chat()
 
         self.chat.state_updates = [
-            ChatMessageStateUpdate("room-1", "unknown-message", 2),
+            ChatMessageStateUpdate("room-1", "unknown-message", 0),
         ]
         with self.assertRaises(CollaborationError):
             controller.sync_chat()

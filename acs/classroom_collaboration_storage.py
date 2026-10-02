@@ -462,9 +462,10 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "message state update crossed room boundary"
                         )
-                    if previous is not None and update.revision <= previous:
+                    expected_revision = 0 if previous is None else previous + 1
+                    if update.revision != expected_revision:
                         raise CollaborationStorageError(
-                            "message state updates are not strictly ordered"
+                            "message state updates have an unresolved revision gap"
                         )
                     message = db.execute(
                         """

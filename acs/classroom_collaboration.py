@@ -281,9 +281,10 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "chat moderation state crossed room boundary"
                 )
-            if state_previous is not None and update.revision <= state_previous:
+            expected_revision = 0 if state_previous is None else state_previous + 1
+            if update.revision != expected_revision:
                 raise CollaborationError(
-                    "chat moderation state is not strictly ordered"
+                    "chat moderation state has an unresolved revision gap"
                 )
             state_previous = update.revision
         try:
