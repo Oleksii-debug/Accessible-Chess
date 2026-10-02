@@ -871,14 +871,33 @@ def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
     return text
 
 
+def _utf8_size_exceeds_limit(text: str, limit: int) -> bool:
+    if text.isascii():
+        return len(text) > limit
+    total = 0
+    for character in text:
+        codepoint = ord(character)
+        if codepoint <= 0x7F:
+            total += 1
+        elif codepoint <= 0x7FF:
+            total += 2
+        elif codepoint <= 0xFFFF:
+            total += 3
+        else:
+            total += 4
+        if total > limit:
+            return True
+    return False
+
+
 def serialize_pgn_bytes(games: Iterable[PgnGame]) -> bytes:
     text = serialize_pgn_text(games)
-    data = text.encode("utf-8", errors="strict")
-    if len(data) > MAX_PGN_SOURCE_BYTES:
+    if _utf8_size_exceeds_limit(text, MAX_PGN_SOURCE_BYTES):
         _raise_limit(
             "PGN serialization exceeds the byte safety limit",
             PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
         )
+    data = text.encode("utf-8", errors="strict")
     return data
 
 
