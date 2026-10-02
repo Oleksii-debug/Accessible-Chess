@@ -804,7 +804,14 @@ class EngineGameSessionTests(unittest.TestCase):
         )
         clock = session._clock
         self.assertIsNotNone(clock)
-        clock.switch_after_move = lambda side: clock.set_remaining(side, 0)
+        def flag_mover_during_switch(side):
+            # The standalone #1021 branch predates #1059 zero-time clock
+            # handling. Make a real second-time-sample timeout rather than
+            # assuming set_remaining(0) alone flags at an unchanged tick.
+            now.advance(2)
+            return clock.set_remaining(side, 0)
+
+        clock.switch_after_move = flag_mover_during_switch
 
         with self.assertRaisesRegex(ValueError, "clock flagged before engine move acceptance"):
             session.request_engine_move()
@@ -827,7 +834,14 @@ class EngineGameSessionTests(unittest.TestCase):
         )
         clock = session._clock
         self.assertIsNotNone(clock)
-        clock.switch_after_move = lambda side: clock.set_remaining(side, 0)
+        def flag_mover_during_switch(side):
+            # The standalone #1021 branch predates #1059 zero-time clock
+            # handling. Make a real second-time-sample timeout rather than
+            # assuming set_remaining(0) alone flags at an unchanged tick.
+            now.advance(2)
+            return clock.set_remaining(side, 0)
+
+        clock.switch_after_move = flag_mover_during_switch
         state["side"] = "b"  # A Board-owning caller just tentatively committed.
 
         with self.assertRaisesRegex(ValueError, "clock flagged before human move acceptance"):
