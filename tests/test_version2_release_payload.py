@@ -69,6 +69,30 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+        livekit_root = self.standalone / "web" / "vendor" / "livekit"
+        livekit_bundle = b"/* packaged LiveKit fixture */ LivekitClient Room\n"
+        livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
+        livekit_notice = b"Copyright LiveKit\nApache License\n"
+        (livekit_root / "livekit-client.umd.js").write_bytes(livekit_bundle)
+        (livekit_root / "LICENSE").write_bytes(livekit_license)
+        (livekit_root / "NOTICE").write_bytes(livekit_notice)
+        livekit_provenance = {
+            "schema_version": 1,
+            "component": "livekit-client",
+            "version": payload._LIVEKIT_CLIENT_VERSION,
+            "license_id": payload._LIVEKIT_CLIENT_LICENSE_ID,
+            "source": payload._LIVEKIT_CLIENT_NPM_TARBALL_URL,
+            "upstream_tag": f"v{payload._LIVEKIT_CLIENT_VERSION}",
+            "npm_integrity": payload._LIVEKIT_CLIENT_NPM_INTEGRITY,
+            "bundle_sha256": hashlib.sha256(livekit_bundle).hexdigest(),
+            "license_sha256": hashlib.sha256(livekit_license).hexdigest(),
+            "notice_sha256": hashlib.sha256(livekit_notice).hexdigest(),
+        }
+        (livekit_root / "provenance.json").write_text(
+            json.dumps(livekit_provenance, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
         self.sounds = self.root / "sounds"
         self.sounds.mkdir()
         files: dict[str, str] = {}
@@ -246,6 +270,15 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.assertFalse((manifest.root / "provenance.json").exists())
 
         notices = result.notices_dir
+        self.assertEqual(
+            (notices / payload._LIVEKIT_LICENSE_NOTICE).read_bytes(),
+            (result.product_dir / "web" / "vendor" / "livekit" / "LICENSE").read_bytes(),
+        )
+        self.assertEqual(
+            (notices / payload._LIVEKIT_TEXT_NOTICE).read_bytes(),
+            (result.product_dir / "web" / "vendor" / "livekit" / "NOTICE").read_bytes(),
+        )
+        self.assertTrue((notices / payload._LIVEKIT_PROVENANCE_NOTICE).is_file())
         sound_provenance = json.loads(
             (notices / "SOUND_PROVENANCE.json").read_text(encoding="utf-8")
         )
@@ -469,6 +502,33 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                     self.sounds,
                     output,
                 )
+        self._assert_no_publication(output)
+
+    def test_livekit_bundle_digest_tamper_fails_without_output(self) -> None:
+        bundle = self.standalone / "web" / "vendor" / "livekit" / "livekit-client.umd.js"
+        bundle.write_bytes(bundle.read_bytes() + b"tampered")
+        output = self.root / "payload-livekit-tampered"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "LiveKit client packaged resource digest mismatch",
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_livekit_provenance_identity_tamper_fails_without_output(self) -> None:
+        provenance_path = self.standalone / "web" / "vendor" / "livekit" / "provenance.json"
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        provenance["version"] = "0.0.0"
+        provenance_path.write_text(
+            json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        output = self.root / "payload-livekit-provenance-tampered"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "does not match the pinned release",
+        ):
+            self._prepare(output)
         self._assert_no_publication(output)
 
     def test_every_required_web_resource_is_fail_closed(self) -> None:
