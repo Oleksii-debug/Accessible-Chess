@@ -111,6 +111,9 @@
       documentState.heading || uiText(language, "Аудіо та відео заняття", "Lesson audio and video")
     );
     heading.id = "classroom-media-heading";
+    // Programmatic recovery target only; normal heading navigation remains
+    // semantic and this does not add the heading to the Tab order.
+    heading.tabIndex = -1;
     section.appendChild(heading);
 
     if (!snapshot || typeof snapshot !== "object") {
@@ -177,10 +180,17 @@
   function applyEvent(root, result, invoke, announce, language) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
-    if (payload.snapshot && typeof payload.snapshot === "object") {
+    if (Object.prototype.hasOwnProperty.call(payload, "snapshot")) {
       const current = root.querySelector("#classroom-media-section");
       if (current && typeof current.replaceWith === "function") {
-        current.replaceWith(renderSection(payload.snapshot, invoke, announce, root, language, null));
+        current.replaceWith(renderSection(
+          payload.snapshot,
+          invoke,
+          announce,
+          root,
+          language,
+          { recovery_required: payload.recovery_required === true }
+        ));
       }
     }
     if (payload.announcement) announce(String(payload.announcement));
