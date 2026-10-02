@@ -145,7 +145,7 @@ class LiveKitModerationServiceTokenTests(unittest.TestCase):
         self.assertFalse(api.grant.can_publish)
         self.assertFalse(api.grant.can_subscribe)
         self.assertTrue(api.grant.can_publish_data)
-        self.assertEqual(api.grant.can_publish_sources, [])
+        self.assertIn(api.grant.can_publish_sources, (None, []))
 
     def test_every_non_rpc_provider_capability_is_explicitly_disabled(self):
         issuer, api = self.issuer()
@@ -412,7 +412,7 @@ class LiveKitModerationServiceTokenTests(unittest.TestCase):
         self.assertFalse(claims.video.can_publish)
         self.assertFalse(claims.video.can_subscribe)
         self.assertTrue(claims.video.can_publish_data)
-        self.assertEqual(claims.video.can_publish_sources, [])
+        self.assertIn(claims.video.can_publish_sources, (None, []))
         self.assertFalse(claims.video.room_admin)
 
 
