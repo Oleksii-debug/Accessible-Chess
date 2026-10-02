@@ -295,6 +295,16 @@ class ClassroomCollaborationController:
             raise CollaborationError(
                 "chat moderation state could not be reconciled"
             ) from error
+        if updates and persisted:
+            visible_ids = {
+                message.message_id
+                for message in self._store.room_messages(self.room_id)
+            }
+            persisted = [
+                message
+                for message in persisted
+                if message.message_id in visible_ids
+            ]
         return tuple(persisted)
 
     def set_chat_send_permission(
