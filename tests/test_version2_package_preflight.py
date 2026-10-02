@@ -122,6 +122,7 @@ def _make_tree(root: Path) -> None:
         b"Copyright 2021 LiveKit, Inc.\n"
         b"Apache License, Version 2.0\n"
         b"fixture redistribution notice\n"
+        b"Distributed on an AS IS basis without warranties or conditions.\n"
     )
     (livekit / "livekit-client.umd.js").write_bytes(livekit_bundle)
     (livekit / "LICENSE").write_bytes(livekit_license)
