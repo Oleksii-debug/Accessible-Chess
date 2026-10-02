@@ -7,6 +7,7 @@ on:
       - 'tests/test_sound_runtime.py'
       - 'tests/test_sound_events.py'
       - 'tests/test_dev3_sound_failure_isolation.py'
+      - 'tests/test_sound_scaled_cache_integrity_workflow.py'
       - '.github/workflows/sound-scaled-cache-integrity.yml'
 
 permissions:
@@ -34,17 +35,50 @@ jobs:
         shell: bash
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          test "$BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
-          base="refs/remotes/origin/$BASE_REF"
-          git show-ref --verify --quiet "$base"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-          unexpected="$(git diff --name-only "$base" HEAD | grep -Ev '^(acs/sound_windows\.py|tests/test_sound_runtime\.py|\.github/workflows/sound-scaled-cache-integrity\.yml)$' || true)"
-          if [ -n "$unexpected" ]; then
-            printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
-            exit 1
+          product_ref="work/full-product-teacher-education-reachability-20260911"
+          integrated_sound_product=3f30f0d093fc19afe60e8262a70ccfdb3702d614
+
+          if [ "$HEAD_REF" = "$product_ref" ]; then
+            # The retained sound gate also runs on the long-lived Product PR.
+            # Bind that state to the exact already-integrated #995/#1061 sound
+            # authorities instead of treating the whole Product history as one
+            # sound candidate.
+            git merge-base --is-ancestor "$integrated_sound_product" HEAD
+            test "$(git rev-parse HEAD:acs/sound_windows.py)" = 28559f05972ed46145e4c19d7f30973bbe7937be
+            test "$(git rev-parse HEAD:tests/test_sound_runtime.py)" = 64c69688d01c19cb5ad411e46da6869d2a6ccd07
+            test "$(git rev-parse HEAD:tests/test_sound_events.py)" = e45bd14fa742e437c8580bf7f23796fe57bb5b3d
+            test "$(git rev-parse HEAD:tests/test_dev3_sound_failure_isolation.py)" = b6dc29af150ec30de65691d90dcd6596b755662a
+            echo 'Sound retained Product authority PASS'
+          else
+            # A current sound successor must target Product and is bounded from
+            # the exact PR base SHA; branch-tip movement cannot silently change
+            # the reviewed candidate scope.
+            test "$BASE_REF" = "$product_ref"
+            test -n "$BASE_SHA"
+            git cat-file -e "$BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$BASE_SHA" HEAD
+            test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+            git diff --check "$BASE_SHA" HEAD
+            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/sound_windows\.py|tests/test_sound_runtime\.py|tests/test_sound_scaled_cache_integrity_workflow\.py|\.github/workflows/sound-scaled-cache-integrity\.yml)
+      - name: Compile sound authority
+        run: python -m py_compile acs/sound_events.py acs/sound_runtime.py acs/sound_windows.py tests/test_sound_runtime.py tests/test_sound_events.py tests/test_dev3_sound_failure_isolation.py tests/test_sound_scaled_cache_integrity_workflow.py
+
+      - name: Run sound regressions
+        run: >-
+          python -m unittest -v
+          tests.test_sound_runtime
+          tests.test_sound_events
+          tests.test_dev3_sound_failure_isolation
+          tests.test_sound_scaled_cache_integrity_workflow
+ || true)"
+            if [ -n "$unexpected" ]; then
+              printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
+              exit 1
+            fi
           fi
 
       - name: Compile sound authority
