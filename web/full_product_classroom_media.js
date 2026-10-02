@@ -50,8 +50,18 @@
         if (!result || typeof result !== "object") {
           throw new TypeError("classroom media result must be an object");
         }
+        // Structured error events keep the current DOM. Re-enable before
+        // applyEvent() so focus recovery can target the same native button.
+        // Successful events may replace the button during applyEvent().
+        if (button.isConnected) button.disabled = false;
         applyEvent(root, result, invoke, announce, language);
       }).catch(function () {
+        if (button.isConnected) {
+          button.disabled = false;
+          if (typeof button.focus === "function") {
+            button.focus({ preventScroll: true });
+          }
+        }
         announce(uiText(
           language,
           "Не вдалося змінити стан медіа.",
