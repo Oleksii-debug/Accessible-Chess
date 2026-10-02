@@ -346,7 +346,10 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         failed = api.engine_takeback()
         self.assertFalse(failed["ok"], failed)
         self.assertEqual(self.stage1_state(api), before)
-        self.assertEqual(session._lifecycle.snapshot().takeback_requested_by, "b")
+        self.assertEqual(
+            session._lifecycle.snapshot().takeback_requested_by,
+            api._engine_human_side(),
+        )
         retried = api.engine_takeback()
         self.assertTrue(retried["ok"], retried)
         self.assertEqual(calls, 2)
