@@ -19,6 +19,7 @@ from acs.classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
     content_sha256,
 )
+from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_realtime_media import ClassroomRole
 
 
@@ -607,6 +608,27 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(first.metadata.object_key, again.metadata.object_key)
         self.assertTrue(first.metadata.object_key.startswith("rooms/id-"))
         self.assertNotIn(":", first.metadata.object_key)
+
+    def test_file_quota_and_sequence_use_canonical_json_safe_integer_bound(self):
+        FileQuotaPolicy(
+            max_file_bytes=1,
+            max_room_bytes=MAX_WIRE_INTEGER,
+        )
+        with self.assertRaises(CollaborationError):
+            FileQuotaPolicy(
+                max_file_bytes=MAX_WIRE_INTEGER + 1,
+                max_room_bytes=MAX_WIRE_INTEGER + 1,
+            )
+
+        controller = self.controller()
+        with self.assertRaises(CollaborationError):
+            controller.prepare_file(
+                attachment_id="a-sequence-overflow",
+                local_path=self.make_file(content=b"x"),
+                sequence_no=MAX_WIRE_INTEGER + 1,
+            )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.assertEqual(self.files.upload_calls, [])
 
     def test_prepare_file_enforces_per_file_and_room_quota(self):
         path = self.make_file(content=b"12345")
