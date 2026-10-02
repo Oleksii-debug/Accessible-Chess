@@ -236,6 +236,7 @@
 
     const chatActions = node("div");
     const sync = node("button", chat.sync_label || "Refresh chat");
+    sync.id = "collaboration-chat-sync";
     sync.type = "button";
     sync.setAttribute("data-command", "collaboration.chat.sync");
     sync.addEventListener("click", function () {
@@ -243,6 +244,7 @@
     });
     chatActions.appendChild(sync);
     const markRead = node("button", chat.mark_read_label || "Mark read");
+    markRead.id = "collaboration-chat-mark-read";
     markRead.type = "button";
     markRead.disabled = !(Number(chat.unread_count || 0) > 0);
     markRead.setAttribute("data-command", "collaboration.chat.mark_read");
@@ -252,6 +254,7 @@
     chatActions.appendChild(markRead);
     if (chat.moderation_available) {
       const muteAll = node("button", chat.mute_all_label || "Mute all students");
+      muteAll.id = "collaboration-chat-mute-all";
       muteAll.type = "button";
       muteAll.setAttribute("data-command", "collaboration.chat.mute_all_students");
       muteAll.addEventListener("click", function () {
@@ -266,6 +269,7 @@
       });
       chatActions.appendChild(muteAll);
       const allowAll = node("button", chat.allow_all_label || "Allow all students");
+      allowAll.id = "collaboration-chat-allow-all";
       allowAll.type = "button";
       allowAll.setAttribute("data-command", "collaboration.chat.allow_all_students");
       allowAll.addEventListener("click", function () {
@@ -294,6 +298,7 @@
     if (Number.isFinite(maxBody) && maxBody > 0) input.maxLength = maxBody;
     form.appendChild(input);
     const send = node("button", chat.send_label || "Send");
+    send.id = "collaboration-chat-send";
     send.type = "submit";
     send.setAttribute("data-command", "collaboration.chat.send");
     form.appendChild(send);
@@ -343,6 +348,7 @@
         }
         if (message.can_hide && message.message_key) {
           const hide = node("button", chat.hide_label || "Hide message");
+          hide.id = item.id + "-hide";
           hide.type = "button";
           hide.setAttribute("data-command", "collaboration.chat.hide");
           hide.addEventListener("click", function () {
@@ -359,6 +365,7 @@
         }
         if (message.can_moderate_sender && message.message_key) {
           const mute = node("button", chat.mute_sender_label || "Mute sender");
+          mute.id = item.id + "-mute";
           mute.type = "button";
           mute.setAttribute("data-command", "collaboration.chat.mute_sender");
           mute.addEventListener("click", function () {
@@ -373,6 +380,7 @@
           });
           item.appendChild(mute);
           const allow = node("button", chat.allow_sender_label || "Allow sender");
+          allow.id = item.id + "-allow";
           allow.type = "button";
           allow.setAttribute("data-command", "collaboration.chat.allow_sender");
           allow.addEventListener("click", function () {
@@ -389,6 +397,7 @@
         }
         if (message.can_remove_sender && message.message_key) {
           const remove = node("button", chat.remove_sender_label || "Remove participant");
+          remove.id = item.id + "-remove";
           remove.type = "button";
           remove.setAttribute("data-command", "collaboration.participant.remove_sender");
           remove.addEventListener("click", function () {
@@ -403,6 +412,7 @@
           });
           item.appendChild(remove);
           const block = node("button", chat.block_sender_label || "Remove and block participant");
+          block.id = item.id + "-block";
           block.type = "button";
           block.setAttribute("data-command", "collaboration.participant.block_sender");
           block.addEventListener("click", function () {
@@ -430,6 +440,7 @@
     fileHeading.id = "collaboration-files-heading";
     fileSection.appendChild(fileHeading);
     const choose = node("button", files.choose_upload_label || "Choose and send file");
+    choose.id = "collaboration-file-choose";
     choose.type = "button";
     choose.disabled = !files.can_choose_upload;
     choose.setAttribute("data-command", "collaboration.file.choose_upload");
@@ -459,6 +470,7 @@
         });
         if (file.can_save) {
           const save = node("button", files.save_label || "Save");
+          save.id = item.id + "-save";
           save.type = "button";
           save.setAttribute("data-command", "collaboration.file.save");
           save.addEventListener("click", function () {
@@ -468,6 +480,7 @@
         }
         if (file.can_open) {
           const open = node("button", files.open_label || "Open");
+          open.id = item.id + "-open";
           open.type = "button";
           open.setAttribute("data-command", "collaboration.file.open");
           open.addEventListener("click", function () {
@@ -484,6 +497,7 @@
         }
         if (file.can_retry) {
           const retry = node("button", files.retry_label || "Retry");
+          retry.id = item.id + "-retry";
           retry.type = "button";
           retry.setAttribute("data-command", "collaboration.file.retry");
           retry.addEventListener("click", function () {
@@ -493,6 +507,7 @@
         }
         if (file.can_cancel) {
           const cancel = node("button", files.cancel_label || "Cancel");
+          cancel.id = item.id + "-cancel";
           cancel.type = "button";
           cancel.setAttribute("data-command", "collaboration.file.cancel");
           cancel.addEventListener("click", function () {
