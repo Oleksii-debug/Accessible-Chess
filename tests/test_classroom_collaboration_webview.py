@@ -226,6 +226,45 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertNotIn("announcement", repeated.payload)
         self.assertEqual(1, len(repeated.payload["collaboration"]["files"]["items"]))
 
+    def test_file_sync_announces_existing_file_state_change_without_focus_request(self) -> None:
+        self.store.register_attachment(
+            AttachmentMetadata(
+                "remote-scanning-file",
+                "room-1",
+                "student-2",
+                0,
+                "scanning.pgn",
+                "application/x-chess-pgn",
+                4,
+                "0" * 64,
+                "rooms/room-1/remote-scanning-file",
+                "stored",
+                scan_state="pending",
+            )
+        )
+        view = self.webview()
+
+        def complete_scan():
+            self.store.update_attachment_state(
+                "remote-scanning-file",
+                scan_state="clean",
+            )
+            return ()
+
+        with mock.patch.object(self.controller, "sync_files", side_effect=complete_scan):
+            event = view.dispatch("collaboration.file.sync", {})
+
+        self.assertEqual("collaboration.files.synced", event.kind)
+        self.assertEqual(
+            "File status updated: scanning.pgn.",
+            event.payload["announcement"],
+        )
+        self.assertNotIn("focus_target", event.payload)
+        item = event.payload["collaboration"]["files"]["items"][0]
+        self.assertEqual("Scan: clean", item["scan_label"])
+        self.assertTrue(item["can_save"])
+        self.assertTrue(item["can_open"])
+
     def test_file_sync_rejects_browser_fields_without_transport_call(self) -> None:
         view = self.webview()
         event = view.dispatch("collaboration.file.sync", {"after": 0})
