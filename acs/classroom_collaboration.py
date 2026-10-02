@@ -404,7 +404,10 @@ class ClassroomCollaborationController:
         display_name = safe_display_filename(path.name)
         digest = _sha256_path(path)
         mime_type, _encoding = mimetypes.guess_type(display_name)
-        key = object_key or f"rooms/{self.room_id}/{attachment}"
+        key = object_key or (
+            f"rooms/{_storage_key_segment(self.room_id)}/"
+            f"{_storage_key_segment(attachment)}"
+        )
         metadata = AttachmentMetadata(
             attachment_id=attachment,
             room_id=self.room_id,
@@ -714,6 +717,14 @@ def _sha256_path(path: Path) -> str:
     except OSError as exc:
         raise CollaborationError("selected file could not be read") from exc
     return digest.hexdigest()
+
+
+def _storage_key_segment(identifier: str) -> str:
+    identifier = _id(identifier, "storage identity")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", identifier):
+        return identifier
+    digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()
+    return f"id-{digest}"
 
 
 def _child_operation_id(root: str, target_id: str) -> str:
