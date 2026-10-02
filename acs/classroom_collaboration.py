@@ -238,7 +238,43 @@ class ClassroomCollaborationController:
             body=body,
             retention=retention,
         )
-        delivered = self._chat.send_message(draft)
+        try:
+            delivered = self._chat.send_message(draft)
+        except Exception as initial_error:
+            # The transport contract is idempotent for the same message_id.
+            # Retry the exact draft once so an accepted-but-unacknowledged send
+            # cannot force callers to mint a second logical message.
+            try:
+                delivered = self._chat.send_message(draft)
+            except Exception:
+                try:
+                    self.sync_chat()
+                except Exception:
+                    raise initial_error
+                recovered = next(
+                    (
+                        message
+                        for message in self._store.room_messages(
+                            self.room_id,
+                            include_hidden=True,
+                        )
+                        if message.message_id == draft.message_id
+                    ),
+                    None,
+                )
+                if recovered is None:
+                    raise initial_error
+                if (
+                    recovered.room_id != draft.room_id
+                    or recovered.sender_id != draft.sender_id
+                    or recovered.body != draft.body
+                    or recovered.retention != draft.retention
+                    or recovered.sent_at_unix_ms is None
+                ):
+                    raise CollaborationError(
+                        "recovered chat message changed immutable message identity"
+                    )
+                return recovered
         self._validate_delivered_message(draft, delivered)
         return self._persist_chat_with_gap_recovery(delivered)
 
