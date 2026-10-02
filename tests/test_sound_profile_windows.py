@@ -169,6 +169,42 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             ), self.assertRaises(FileNotFoundError):
                 adapter.play_sound(request)
 
+    def test_adapter_log_does_not_expose_private_asset_path(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-log-redaction-") as raw:
+            root = Path(raw)
+            resolver = _packaged_root(root / "app")
+            store = FilesystemSoundPackStore(root / "packs")
+            logger = mock.Mock()
+            adapter = ProfiledWindowsSoundPlaybackAdapter(
+                resolver,
+                store,
+                cache_dir=root / "cache",
+                logger=logger,
+            )
+            request = SoundAssetRequest(
+                pack_id="soft.pack",
+                event_id="move",
+                sound_id="soft.move",
+                volume=100,
+                preview=False,
+            )
+
+            with mock.patch.object(
+                store,
+                "resolve_asset",
+                side_effect=FileNotFoundError(
+                    "C:/Users/private/AppData/AccessibleChess/soft.move.wav"
+                ),
+            ), mock.patch.object(sys, "platform", "win32"), self.assertRaises(
+                FileNotFoundError
+            ):
+                adapter.play_sound(request)
+
+            logger.error.assert_called_once()
+            rendered = repr(logger.error.call_args)
+            self.assertIn("FileNotFoundError", rendered)
+            self.assertNotIn("C:/Users/private", rendered)
+
     def test_partial_volume_creates_deterministic_scaled_cache(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-volume-") as raw:
             root = Path(raw)
