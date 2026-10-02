@@ -13,6 +13,9 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         cls.bootstrap = (
             Path(__file__).parents[1] / "web" / "version2_final_product_bootstrap.js"
         ).read_text(encoding="utf-8")
+        cls.workflow = (
+            Path(__file__).parents[1] / ".github" / "workflows" / "classroom-media-webview.yml"
+        ).read_text(encoding="utf-8")
 
     def test_important_media_state_is_real_selectable_dom_text(self) -> None:
         source = self.source
@@ -67,6 +70,12 @@ class ClassroomMediaWebAssetTests(unittest.TestCase):
         self.assertIn("current.replaceWith(renderSection", source)
         self.assertIn('focusById(root, payload.focus_target || "")', source)
         self.assertNotIn("root.replaceChildren", source)
+
+    def test_media_workflow_binds_immutable_pull_request_base(self) -> None:
+        source = self.workflow
+        self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", source)
+        self.assertIn('base="$PR_BASE_SHA"', source)
+        self.assertNotIn('git rev-parse "refs/remotes/origin/$PR_BASE_REF"', source)
 
     def test_classes_media_remains_reachable_when_education_is_unavailable(self) -> None:
         source = self.bootstrap
