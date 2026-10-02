@@ -161,6 +161,30 @@ class ClassroomChatRpcTests(unittest.TestCase):
         )
         self.assertNotIn("sent_at_unix_ms", self.student_call.calls[0]["message"])
 
+    def test_message_id_retry_with_different_payload_is_rejected(self):
+        self.student.send_message(
+            ChatDraft("msg-conflict", "room-1", "student-1", "Original")
+        )
+        request = {
+            "v": 1,
+            "op": "send",
+            "room_id": "room-1",
+            "participant_id": "student-1",
+            "message": {
+                "message_id": "msg-conflict",
+                "body": "Changed",
+                "retention": "session",
+            },
+        }
+        with self.assertRaisesRegex(ClassroomChatRpcError, "immutable"):
+            self.service.handle(
+                request,
+                authenticated_room_id="room-1",
+                authenticated_participant_id="student-1",
+            )
+        self.assertEqual(1, len(self.backend.ordered))
+        self.assertEqual("Original", self.backend.ordered[0].body)
+
     def test_history_round_trip_is_ordered_bounded_and_timestamped(self):
         self.student.send_message(ChatDraft("msg-1", "room-1", "student-1", "One"))
         self.student.send_message(ChatDraft("msg-2", "room-1", "student-1", "Two"))
