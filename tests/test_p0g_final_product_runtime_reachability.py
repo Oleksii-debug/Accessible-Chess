@@ -34,17 +34,25 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         runtime_label = "P0 accessibility runtime"
         teacher_label = "V2 Teacher surface"
         education_label = "V2 Education surface"
+        adapter_label = "V2 Classroom LiveKit adapter"
         media_label = "V2 Classroom media surface"
         bootstrap_label = "V2 final-product bootstrap"
 
         self.assertEqual(labels.count(runtime_label), 1)
+        self.assertEqual(labels.count(adapter_label), 1)
         self.assertEqual(labels.count(media_label), 1)
         self.assertLess(labels.index(teacher_label), labels.index(runtime_label))
         self.assertLess(labels.index(education_label), labels.index(runtime_label))
+        self.assertLess(labels.index(adapter_label), labels.index(media_label))
+        self.assertLess(labels.index(adapter_label), labels.index(bootstrap_label))
         self.assertLess(labels.index(media_label), labels.index(bootstrap_label))
         self.assertLess(labels.index(media_label), labels.index(runtime_label))
         self.assertLess(labels.index(bootstrap_label), labels.index(runtime_label))
 
+        adapter_source = dict(sources)[adapter_label]
+        self.assertIn("AccessibleChessLiveKitMedia", adapter_source)
+        self.assertIn("LiveKitClassroomMediaAdapter", adapter_source)
+        self.assertNotIn("api_secret", adapter_source.casefold())
         runtime_source = dict(sources)[runtime_label]
         for surface in (
             "AccessibleChessPgnSurface",
