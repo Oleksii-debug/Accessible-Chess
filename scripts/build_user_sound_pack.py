@@ -35,6 +35,9 @@ EVENT_VARIANTS = {
         ("4", "library/Board/MOVE4.WAV", "Хід 4", "Move 4"),
         ("5", "library/Board/move5.wav", "Хід 5", "Move 5"),
         ("6", "library/Board/move6.wav", "Хід 6", "Move 6"),
+        ("3d-1", "library/Board3d/MOVE.WAV", "Хід 3D 1", "3D move 1"),
+        ("3d-2", "library/Board3d/MOVE2.WAV", "Хід 3D 2", "3D move 2"),
+        ("3d-3", "library/Board3d/MOVE3.WAV", "Хід 3D 3", "3D move 3"),
     ),
     "capture": (
         ("1", "library/Board/CAPTURE.WAV", "Взяття 1", "Capture 1"),
@@ -42,6 +45,10 @@ EVENT_VARIANTS = {
         ("3", "library/Board/CAPTURE3.WAV", "Взяття 3", "Capture 3"),
         ("4", "library/Board/capture4.wav", "Взяття 4", "Capture 4"),
         ("5", "library/Board/capture5.wav", "Взяття 5", "Capture 5"),
+        ("3d-1", "library/Board3d/CAPTURE.WAV", "Взяття 3D 1", "3D capture 1"),
+        ("3d-2", "library/Board3d/CAPTURE2.WAV", "Взяття 3D 2", "3D capture 2"),
+        ("3d-3", "library/Board3d/CAPTURE3.WAV", "Взяття 3D 3", "3D capture 3"),
+        ("3d-4", "library/Board3d/capture4.wav", "Взяття 3D 4", "3D capture 4"),
     ),
     "check": (
         ("1", "library/Russian/Notation/Check.wav", "Шах — голос", "Check — voice"),
@@ -55,9 +62,11 @@ EVENT_VARIANTS = {
     ),
     "illegal": (
         ("1", "library/Board/illegal.wav", "Нелегальний хід", "Illegal move"),
+        ("3d", "library/Board3d/illegal.wav", "Нелегальний хід 3D", "3D illegal move"),
     ),
     "start": (
         ("1", "library/Board/NEWGAME.WAV", "Нова партія", "New game"),
+        ("3d", "library/Board3d/NEWGAME.WAV", "Нова партія 3D", "3D new game"),
     ),
     "end": (
         ("1", "library/Server/Gong.WAV", "Кінець партії — гонг", "Game end — gong"),
@@ -66,6 +75,7 @@ EVENT_VARIANTS = {
     ),
     "tick": (
         ("1", "library/Board/Tick.wav", "Годинник", "Clock"),
+        ("3d", "library/Board3d/Tick.wav", "Годинник 3D", "3D clock"),
     ),
 }
 
