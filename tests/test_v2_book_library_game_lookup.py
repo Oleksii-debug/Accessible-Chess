@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import unittest
 
 from acs.acsdb import AcsDatabase
@@ -62,6 +64,88 @@ class BookLibraryGameLookupTests(unittest.TestCase):
             self.assertEqual(first.variations[0].moves[0].san, "d4")
             self.assertIn("$1", first.variations[0].moves[0].nags)
             self.assertIn("{Alternative}", serialize_game(resolved.game))
+
+    def test_imported_recovery_warnings_survive_canonical_storage_and_book_lookup(self) -> None:
+        damaged = '[Event "Recovered"]\n[Result "*"]\n\n1. e4 e5'
+        with AcsDatabase() as database:
+            report = database.import_pgn_text(damaged, "recovered-library.pgn")
+            self.assertEqual(report.warning, 1)
+            self.assertEqual(len(report.game_ids), 1)
+
+            row = database.get_game(report.game_ids[0])
+            self.assertIsNotNone(row)
+            assert row is not None
+            persisted = json.loads(row["warnings_json"])
+            self.assertTrue(persisted)
+            self.assertFalse(
+                parse_pgn_text(row["pgn_text"], strict=False)[0].warnings,
+                "canonical stored PGN should not be the only warning authority",
+            )
+
+            lookup = AcsdbBookGameLookup(database)
+            loaded = lookup.load_book_game(report.game_ids[0])
+            self.assertEqual(loaded.warnings, persisted)
+
+            resolved = resolve_book_game(
+                Game(game_id=report.game_ids[0], block_id="recovered-ref"),
+                lookup=lookup,
+            )
+            self.assertEqual(resolved.warnings, tuple(persisted))
+            self.assertEqual(resolved.game.warnings, persisted)
+
+    def test_raw_recovery_warnings_are_not_duplicated_when_metadata_agrees(self) -> None:
+        damaged = '[Event "Raw recovery"]\n[Result "*"]\n\n1. d4 d5'
+        with AcsDatabase() as database:
+            source_id = database.add_source("raw-recovery.pgn", "pgn", "b" * 64)
+            recovered = parse_pgn_text(damaged, strict=False)[0]
+            self.assertTrue(recovered.warnings)
+            game_id = database.store_game(recovered, source_id, raw_pgn=damaged)
+
+            loaded = AcsdbBookGameLookup(database).load_book_game(game_id)
+            self.assertEqual(loaded.warnings, recovered.warnings)
+
+    def test_fresh_stored_pgn_recovery_warning_is_retained_when_metadata_is_empty(self) -> None:
+        damaged = '[Event "Fresh recovery"]\n[Result "*"]\n\n1. c4 e5'
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET pgn_text=?, warnings_json='[]' WHERE id=?",
+                    (damaged, game_id),
+                )
+
+            loaded = AcsdbBookGameLookup(database).load_book_game(game_id)
+            self.assertTrue(loaded.warnings)
+            self.assertEqual(
+                loaded.warnings,
+                parse_pgn_text(damaged, strict=False)[0].warnings,
+            )
+
+    def test_corrupt_persisted_warning_metadata_fails_closed(self) -> None:
+        malformed = (
+            "{",
+            '{"warning":"not-a-list"}',
+            '["text", 7]',
+            "null",
+        )
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            lookup = AcsdbBookGameLookup(database)
+
+            for payload in malformed:
+                with self.subTest(payload=payload):
+                    with database.conn:
+                        database.conn.execute(
+                            "UPDATE games SET warnings_json=? WHERE id=?",
+                            (payload, game_id),
+                        )
+                    with self.assertRaises(BookLibraryGameLookupError) as caught:
+                        lookup.load_book_game(game_id)
+                    self.assertEqual(
+                        str(caught.exception),
+                        "stored book game warnings are invalid",
+                    )
+                    self.assertNotIn(payload, str(caught.exception))
 
     def test_each_load_returns_a_fresh_canonical_graph(self) -> None:
         with AcsDatabase() as database:
@@ -143,6 +227,27 @@ class BookLibraryGameLookupTests(unittest.TestCase):
             resolve_book_game(Game(game_id=game_id), lookup=lookup)
         self.assertEqual(public.exception.code, BookGameContentErrorCode.GAME_NOT_FOUND)
         self.assertEqual(str(public.exception), "referenced book game was not found")
+
+    def test_qualification_gate_late_binds_canonical_product(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "v2-book-library-game-lookup.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$PRODUCT_BRANCH"', workflow)
+        self.assertIn('live_product="$(git rev-parse FETCH_HEAD)"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$PR_BASE_SHA" "$live_product"',
+            workflow,
+        )
+        self.assertIn('upstream="$live_product"', workflow)
+        self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
 
     def test_constructor_rejects_noncanonical_database_adapter(self) -> None:
         with self.assertRaises(TypeError):
