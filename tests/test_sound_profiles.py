@@ -175,6 +175,43 @@ class SoundPackManifestTests(unittest.TestCase):
             self._pack(files=files)
 
 
+class SoundProfileMappingShapeTests(unittest.TestCase):
+    def test_current_schema_rejects_unknown_or_missing_fields(self) -> None:
+        canonical = SoundProfile().to_mapping()
+        unknown = dict(canonical)
+        unknown["future_without_version_bump"] = True
+        missing = dict(canonical)
+        missing.pop("events")
+        for payload in (unknown, missing):
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                ValueError, "fields"
+            ):
+                SoundProfile.from_mapping(payload)
+
+    def test_event_mapping_rejects_unknown_or_missing_fields(self) -> None:
+        canonical = SoundEventPreference().to_mapping()
+        unknown = dict(canonical)
+        unknown["unexpected"] = 1
+        missing = dict(canonical)
+        missing.pop("sound_id")
+        for payload in (unknown, missing):
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                ValueError, "fields"
+            ):
+                SoundEventPreference.from_mapping(payload)
+
+    def test_legacy_mapping_requires_only_known_legacy_fields(self) -> None:
+        self.assertEqual(
+            SoundProfile(master_enabled=False, master_volume_percent=37),
+            SoundProfile.from_mapping({"sounds": False, "volume": 37}),
+        )
+        for payload in ({}, {"other": True}, {"sounds": True, "other": 1}):
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                ValueError, "legacy.*fields"
+            ):
+                SoundProfile.from_mapping(payload)
+
+
 class SoundProfileStrictScalarTests(unittest.TestCase):
     def test_profile_and_event_volumes_do_not_coerce_strings_floats_or_booleans(self) -> None:
         for value in ("80", 80.0, True):
