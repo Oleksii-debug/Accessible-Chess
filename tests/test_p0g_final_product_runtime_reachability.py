@@ -31,7 +31,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
     def test_launcher_diagnoses_staged_livekit_shipping_resource_order(self) -> None:
         source = LAUNCHER.read_text(encoding="utf-8")
         diagnostic_marker = 'if "--diagnostic" in sys.argv:'
-        diagnostic = source.split(diagnostic_marker, 1)[1].split("\\nelse:", 1)[0]
+        diagnostic = source.split(diagnostic_marker, 1)[1].split("\nelse:", 1)[0]
 
         self.assertIn('livekit_sdk_label = "LiveKit browser SDK"', diagnostic)
         self.assertIn(
