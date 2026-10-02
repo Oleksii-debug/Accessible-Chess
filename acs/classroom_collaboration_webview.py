@@ -361,8 +361,12 @@ class ClassroomCollaborationWebView:
         )
         return " ".join(safe.split())[:160]
 
-    def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
-        moderator = self._moderator()
+    def _message_view(
+        self,
+        item: ChatMessageMetadata,
+        *,
+        moderator: bool,
+    ) -> dict[str, object]:
         sender_moderatable = (
             moderator
             and item.sender_id not in self._removed_participant_ids
@@ -616,6 +620,7 @@ class ClassroomCollaborationWebView:
         visible_ids = {item.message_id for item in messages}
         self._unread_message_ids.intersection_update(visible_ids)
         unread_count = len(self._unread_message_ids)
+        moderation_available = self._moderator()
         return {
             "available": True,
             "heading": labels["heading"],
@@ -645,12 +650,15 @@ class ClassroomCollaborationWebView:
                 "block_sender_label": labels["block_sender"],
                 "mute_all_label": labels["mute_all"],
                 "allow_all_label": labels["allow_all"],
-                "moderation_available": self._moderator(),
+                "moderation_available": moderation_available,
                 "empty_message": labels["no_messages"],
                 "unread_label": labels["unread"].format(count=unread_count),
                 "unread_count": unread_count,
                 "max_body_chars": MAX_CHAT_BODY_CHARS,
-                "messages": tuple(self._message_view(item) for item in message_page),
+                "messages": tuple(
+                    self._message_view(item, moderator=moderation_available)
+                    for item in message_page
+                ),
             },
             "files": {
                 "heading": labels["files"],
