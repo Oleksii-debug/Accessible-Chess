@@ -40,6 +40,17 @@ class ClassroomJoinCredentialError(ValueError):
     """Fail-closed join-credential service error safe for transport handling."""
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ClassroomJoinCredentialError(
+                "join request JSON object fields must be unique"
+            )
+        value[key] = item
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ClassroomJoinGrant:
     """Canonical authorization result passed to the provider token issuer."""
@@ -114,7 +125,9 @@ def parse_join_request(
     if not encoded or len(encoded) > MAX_JOIN_REQUEST_BYTES:
         raise ClassroomJoinCredentialError("join request payload size is invalid")
     try:
-        decoded = json.loads(payload)
+        decoded = json.loads(payload, object_pairs_hook=_unique_json_object)
+    except ClassroomJoinCredentialError:
+        raise
     except (TypeError, ValueError, json.JSONDecodeError):
         raise ClassroomJoinCredentialError("join request payload is invalid JSON") from None
     if type(decoded) is not dict or set(decoded) != _REQUEST_FIELDS:
