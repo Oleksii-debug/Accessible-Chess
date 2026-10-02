@@ -470,6 +470,41 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "publish failed"):
                     adapter._scaled_copy(source, SoundEvent.MOVE, 50)
 
+    def test_windows_playback_resolves_persisted_variant_before_playing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "move2.wav"
+            self._write_silent_wav(source)
+
+            class VariantResolver:
+                def __init__(self):
+                    self.calls = []
+
+                def resolve(self, event, *, variant_id=None):
+                    self.calls.append((event, variant_id))
+                    return source
+
+            resolver = VariantResolver()
+            calls = []
+            fake_winsound = types.SimpleNamespace(
+                SND_FILENAME=0x00020000,
+                SND_NODEFAULT=0x00000002,
+                PlaySound=lambda sound, flags: calls.append((sound, flags)),
+            )
+            adapter = WindowsSoundPlaybackAdapter(
+                resolver,
+                cache_dir=Path(tmp) / "cache",
+                variant_provider=lambda event: "2",
+            )
+
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules,
+                {"winsound": fake_winsound},
+            ):
+                adapter.play(SoundEvent.MOVE, volume=100)
+
+            self.assertEqual(resolver.calls, [(SoundEvent.MOVE, "2")])
+            self.assertEqual(calls[0][0], str(source))
+
     def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
