@@ -8,6 +8,7 @@ on:
       - '.github/workflows/classroom-durable-policy-server-composition.yml'
       - '.github/workflows/classroom-join-credential-service.yml'
       - '.github/workflows/classroom-join-identity-mapping.yml'
+      - '.github/workflows/classroom-distinct-moderation-serialization.yml'
       - '.github/workflows/classroom-media-policy-authority.yml'
       - 'acs/classroom_join_credentials.py'
       - 'acs/classroom_media_policy_authority.py'
@@ -47,7 +48,7 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          IDENTITY_OWNER_SHA: a16b5208891e21de8003f365530862fb1a5b1e6f
+          POLICY_OWNER_SHA: 886a5fc7ae366ba1d50502c6d36670120ca94990
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
@@ -58,7 +59,7 @@ jobs:
           git merge-base --is-ancestor "$EVENT_BASE_SHA" "$base"
           git merge-base --is-ancestor "$base" HEAD
           test "$(git merge-base "$base" HEAD)" = "$base"
-          git merge-base --is-ancestor "$IDENTITY_OWNER_SHA" HEAD
+          git merge-base --is-ancestor "$POLICY_OWNER_SHA" HEAD
 
           for path in             .github/workflows/classroom-join-credential-service.yml             .github/workflows/classroom-join-identity-mapping.yml             .github/workflows/classroom-media-policy-authority.yml             acs/classroom_join_credentials.py             acs/classroom_media_policy_authority.py             acs/classroom_realtime_media.py             tests/test_classroom_join_credentials.py             tests/test_classroom_media_policy_authority.py
           do
@@ -108,6 +109,8 @@ jobs:
           grep -Fq 'join_identity_resolver=self.resolver' tests/test_classroom_durable_policy_server_composition.py
           grep -Fq 'trusted_caller_identity=STUDENT_ACCOUNT' tests/test_classroom_durable_policy_server_composition.py
           grep -Fq 'ClassroomMediaPolicyProviderAdmin' tests/test_classroom_durable_policy_server_composition.py
+          grep -Fq 'provider-effect-lock.sqlite3' acs/classroom_media_policy_authority.py
+          grep -Fq 'BEGIN IMMEDIATE' acs/classroom_media_policy_authority.py
           grep -Fq 'grant.publish_sources, (MediaSource.MICROPHONE,)' tests/test_classroom_durable_policy_server_composition.py
           grep -Fq 'self.assertFalse(pending.committed)' tests/test_classroom_durable_policy_server_composition.py
           grep -Fq 'self.assertTrue(committed.committed)' tests/test_classroom_durable_policy_server_composition.py
