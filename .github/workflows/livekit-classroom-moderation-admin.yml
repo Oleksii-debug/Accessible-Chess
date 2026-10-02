@@ -37,22 +37,28 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
-          git cat-file -e "${EXPECTED_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EXPECTED_BASE_SHA"
-          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
-          git diff --check "$EXPECTED_BASE_SHA" HEAD
-          changed="$(git diff --name-only "$EXPECTED_BASE_SHA" HEAD | sort)"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current moderation base $base is not an ancestor of HEAD; synchronize the stacked PR."
+            exit 1
+          fi
+          git diff --check "$base...HEAD"
+          changed="$(git diff --name-only "$base...HEAD" | sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/livekit-classroom-moderation-admin.yml' \
             'acs/livekit_classroom_moderation_admin.py' \
             'tests/test_livekit_classroom_moderation_admin.py' | sort)"
           test "$changed" = "$allowed"
-          git diff --quiet "$EXPECTED_BASE_SHA" HEAD -- \
+          git diff --quiet "$base" HEAD -- \
             acs/classroom_moderation_rpc.py \
             acs/classroom_realtime_media.py \
             acs/classroom_domain.py \
@@ -68,13 +74,6 @@ jobs:
           python -m py_compile
           acs/livekit_classroom_moderation_admin.py
           tests/test_livekit_classroom_moderation_admin.py
-
-      - name: Run adapter and canonical moderation/media contracts
-        run: >-
-          python -m unittest -v
-          tests.test_livekit_classroom_moderation_admin
-          tests.test_classroom_moderation_rpc
-          tests.test_classroom_realtime_media
 
       - name: Verify pinned official LiveKit server wheel
         shell: bash
@@ -98,6 +97,13 @@ jobs:
       - name: Install exact LiveKit server SDK
         run: python -m pip install --disable-pip-version-check -q livekit-api==1.2.1
 
+      - name: Run adapter and canonical moderation/media contracts
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_classroom_moderation_admin
+          tests.test_classroom_moderation_rpc
+          tests.test_classroom_realtime_media
+
       - name: Prove exact installed room-admin schema surface
         shell: bash
         run: |
@@ -110,7 +116,7 @@ jobs:
           permission = api.ParticipantPermission(
               can_subscribe=True,
               can_publish=True,
-              can_publish_data=False,
+              can_publish_data=True,
               can_publish_sources=[
                   api.TrackSource.MICROPHONE,
                   api.TrackSource.CAMERA,
@@ -122,6 +128,7 @@ jobs:
               api.TrackSource.MICROPHONE,
               api.TrackSource.CAMERA,
           ]
+          assert clone.can_publish_data is True
           update = api.UpdateParticipantRequest(
               room="ci-room",
               identity="ci-student",
