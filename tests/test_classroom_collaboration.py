@@ -129,29 +129,86 @@ class FakeFiles:
         self.fail_upload = False
         self.fail_retry = False
         self.scan_state = "pending"
+        self.attachments = {}
+        self.ordered = []
+        self.history_override = None
+
+    def _next_sequence(self, room_id):
+        room_sequences = [
+            item.sequence_no
+            for item in self.ordered
+            if item.room_id == room_id
+        ]
+        return max(room_sequences, default=-1) + 1
+
+    def _remember(self, attachment):
+        current = self.attachments.get(attachment.attachment_id)
+        self.attachments[attachment.attachment_id] = attachment
+        if current is None:
+            self.ordered.append(attachment)
+        else:
+            self.ordered = [
+                attachment if item.attachment_id == attachment.attachment_id else item
+                for item in self.ordered
+            ]
+        self.ordered.sort(key=lambda item: (item.room_id, item.sequence_no))
+        return attachment
 
     def upload(self, prepared):
         self.upload_calls.append(prepared)
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
-        return replace(
-            prepared.metadata,
-            transfer_state="stored",
-            scan_state=self.scan_state,
+        current = self.attachments.get(prepared.metadata.attachment_id)
+        sequence = (
+            current.sequence_no
+            if current is not None
+            else self._next_sequence(prepared.metadata.room_id)
+        )
+        return self._remember(
+            replace(
+                prepared.metadata,
+                sequence_no=sequence,
+                transfer_state="stored",
+                scan_state=self.scan_state,
+            )
         )
 
     def retry(self, prepared):
         self.retry_calls.append(prepared)
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
-        return replace(
-            prepared.metadata,
-            transfer_state="stored",
-            scan_state=self.scan_state,
+        current = self.attachments.get(prepared.metadata.attachment_id)
+        sequence = (
+            current.sequence_no
+            if current is not None
+            else self._next_sequence(prepared.metadata.room_id)
+        )
+        return self._remember(
+            replace(
+                prepared.metadata,
+                sequence_no=sequence,
+                transfer_state="stored",
+                scan_state=self.scan_state,
+            )
         )
 
     def cancel(self, *, attachment_id):
         self.cancel_calls.append(attachment_id)
+        current = self.attachments.get(attachment_id)
+        if current is not None:
+            self._remember(replace(current, transfer_state="deleted"))
+
+    def history_after(self, *, room_id, after_sequence, limit):
+        if self.history_override is not None:
+            return self.history_override
+        rows = tuple(
+            item
+            for item in self.ordered
+            if item.room_id == room_id
+            and item.transfer_state == "stored"
+            and (after_sequence is None or item.sequence_no > after_sequence)
+        )
+        return rows[:limit]
 
 
 class FakeFileStore:
@@ -861,6 +918,136 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.files.upload_calls, [])
         self.assertEqual(self.store.room_attachments("room-1"), ())
+
+    def test_upload_adopts_server_authoritative_file_sequence(self):
+        controller = self.controller()
+        prepared = controller.prepare_file(
+            attachment_id="server-sequenced",
+            local_path=self.make_file("server-sequenced.bin", b"opaque"),
+            sequence_no=73,
+            retention="persistent",
+        )
+        self.files.scan_state = "clean"
+
+        stored = controller.upload_file(prepared)
+
+        self.assertEqual(stored.sequence_no, 0)
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(self.store.room_attachments("room-1"), (stored,))
+        self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
+
+    def test_second_client_discovers_durable_shared_file_from_server_history(self):
+        teacher = self.controller("teacher-1")
+        prepared = teacher.prepare_file(
+            attachment_id="shared-a1",
+            local_path=self.make_file("shared-a1.pgn", b"1. e4 e5"),
+            sequence_no=41,
+            retention="persistent",
+        )
+        self.files.scan_state = "clean"
+        uploaded = teacher.upload_file(prepared)
+        self.assertEqual(uploaded.sequence_no, 0)
+
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "second-client.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=second_store,
+            file_store=self.file_store,
+        )
+
+        discovered = student.sync_files()
+
+        self.assertEqual(discovered, (uploaded,))
+        self.assertEqual(second_store.room_attachments("room-1"), (uploaded,))
+        self.assertEqual(student.sync_files(), ())
+        self.assertEqual(
+            student.issue_download_token(
+                attachment_id=uploaded.attachment_id,
+                ttl_seconds=60,
+            ),
+            "short-lived-read-token",
+        )
+
+    def test_file_history_rejects_cross_room_and_noncanonical_namespace(self):
+        controller = self.controller("teacher-1")
+        base = AttachmentMetadata(
+            "remote-a1",
+            "room-1",
+            "student-1",
+            0,
+            "lesson.pgn",
+            "application/x-chess-pgn",
+            8,
+            "a" * 64,
+            "rooms/room-1/remote-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        invalid = (
+            replace(
+                base,
+                room_id="room-2",
+                object_key="rooms/room-2/remote-a1",
+            ),
+            replace(
+                base,
+                object_key="rooms/other-room/remote-a1",
+            ),
+        )
+        for remote in invalid:
+            with self.subTest(remote=remote):
+                self.files.history_override = (remote,)
+                with self.assertRaises(CollaborationError):
+                    controller.sync_files()
+                self.assertEqual(self.store.room_attachments("room-1"), ())
+        self.files.history_override = None
+
+    def test_file_history_must_be_strictly_ordered(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "remote-a1",
+            "room-1",
+            "student-1",
+            3,
+            "one.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room-1/remote-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        second = AttachmentMetadata(
+            "remote-a2",
+            "room-1",
+            "student-2",
+            2,
+            "two.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room-1/remote-a2",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (first, second)
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "file history is not strictly ordered",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), (first,))
 
     def test_upload_failure_is_persisted_failed_and_retry_preserves_identity(self):
         controller = self.controller()
