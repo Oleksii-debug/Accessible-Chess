@@ -238,12 +238,19 @@ class D06PgnRoundTripTests(unittest.TestCase):
             '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
             '[Event "Two"]\n[Result "*"]\n\n1. d4 *\n'
         )
-        with patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1):
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1),
+            patch(
+                "acs.pgn_roundtrip.parse_games",
+                side_effect=AssertionError("parser materialization must not run"),
+            ) as parser,
+        ):
             self.assert_code(
                 PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
                 parse_pgn_text,
                 two_games,
             )
+            parser.assert_not_called()
         with patch("acs.pgn_roundtrip.MAX_PGN_TAGS_PER_GAME", 1):
             self.assert_code(
                 PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
