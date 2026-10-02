@@ -457,6 +457,7 @@
     olderMessages.id = "collaboration-chat-older";
     olderMessages.type = "button";
     olderMessages.disabled = !chat.can_older;
+    olderMessages.setAttribute("aria-describedby", "collaboration-chat-page-status");
     olderMessages.setAttribute("data-command", "collaboration.chat.older");
     olderMessages.addEventListener("click", function () {
       invokeCollaboration(invoke, "collaboration.chat.older", {}, wrapper, announce, fallbackMessage);
@@ -470,6 +471,7 @@
     newerMessages.id = "collaboration-chat-newer";
     newerMessages.type = "button";
     newerMessages.disabled = !chat.can_newer;
+    newerMessages.setAttribute("aria-describedby", "collaboration-chat-page-status");
     newerMessages.setAttribute("data-command", "collaboration.chat.newer");
     newerMessages.addEventListener("click", function () {
       invokeCollaboration(invoke, "collaboration.chat.newer", {}, wrapper, announce, fallbackMessage);
@@ -717,6 +719,7 @@
     olderFiles.id = "collaboration-file-older";
     olderFiles.type = "button";
     olderFiles.disabled = !files.can_older;
+    olderFiles.setAttribute("aria-describedby", "collaboration-file-page-status");
     olderFiles.setAttribute("data-command", "collaboration.file.older");
     olderFiles.addEventListener("click", function () {
       invokeCollaboration(invoke, "collaboration.file.older", {}, wrapper, announce, fallbackMessage);
@@ -730,6 +733,7 @@
     newerFiles.id = "collaboration-file-newer";
     newerFiles.type = "button";
     newerFiles.disabled = !files.can_newer;
+    newerFiles.setAttribute("aria-describedby", "collaboration-file-page-status");
     newerFiles.setAttribute("data-command", "collaboration.file.newer");
     newerFiles.addEventListener("click", function () {
       invokeCollaboration(invoke, "collaboration.file.newer", {}, wrapper, announce, fallbackMessage);
