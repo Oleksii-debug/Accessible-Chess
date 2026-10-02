@@ -368,6 +368,7 @@ class ClassroomCollaborationController:
             raise CollaborationError("chat send permission must be boolean")
         actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
+        root_operation = _id(operation_id, "operation id")
         targets = tuple(sorted(
             participant
             for participant in self._participant_ids()
@@ -375,7 +376,7 @@ class ClassroomCollaborationController:
         ))
         commands = tuple(
             ChatModerationCommand(
-                operation_id=_child_operation_id(operation_id, target),
+                operation_id=_child_operation_id(root_operation, target),
                 room_id=self.room_id,
                 actor_id=actor,
                 target_id=target,
