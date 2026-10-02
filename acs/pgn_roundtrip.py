@@ -258,6 +258,8 @@ def _preflight_text(
 
     if type(text_precounted) is not bool:
         raise TypeError("text_precounted must be a boolean")
+    if type(strict) is not bool:
+        raise TypeError("strict must be a boolean")
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
     if not isinstance(source_budget, PgnSourceBudget):
@@ -530,6 +532,8 @@ def parse_pgn_text(
 
 
 def parse_pgn_bytes(data: object, *, strict: bool = True) -> tuple[PgnGame, ...]:
+    if type(strict) is not bool:
+        raise TypeError("strict must be a boolean")
     return parse_pgn_text(decode_pgn_bytes(data), strict=strict)
 
 
