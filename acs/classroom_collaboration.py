@@ -18,9 +18,11 @@ from typing import Protocol
 from .classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
     CollaborationQuotaError,
     CollaborationSequenceGapError,
+    CollaborationStorageError,
     FileStorePort,
     safe_display_filename,
 )
@@ -137,6 +139,15 @@ class ChatTransportPort(Protocol):
     ) -> tuple[ChatMessageMetadata, ...]:
         ...
 
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        ...
+
     def apply_moderation(self, commands: tuple[ChatModerationCommand, ...]) -> None:
         ...
 
@@ -245,8 +256,45 @@ class ClassroomCollaborationController:
             self._require_member(message.sender_id)
             _chat_body(message.body)
             self._require_transport_timestamp(message)
-            persisted.append(self._store.append_message(message))
+            saved = self._store.append_message(message)
+            if not saved.hidden:
+                persisted.append(saved)
             previous = message.sequence_no
+
+        state_after = self._store.chat_state_revision(self.room_id)
+        updates = self._chat.state_updates_after(
+            room_id=self.room_id,
+            after_revision=state_after,
+            limit=MAX_SYNC_MESSAGES,
+        )
+        if type(updates) is not tuple or len(updates) > MAX_SYNC_MESSAGES:
+            raise CollaborationError(
+                "chat moderation state response is invalid or too large"
+            )
+        state_previous = state_after
+        for update in updates:
+            if type(update) is not ChatMessageStateUpdate:
+                raise CollaborationError(
+                    "chat moderation state contains invalid update type"
+                )
+            if update.room_id != self.room_id:
+                raise CollaborationError(
+                    "chat moderation state crossed room boundary"
+                )
+            if state_previous is not None and update.revision <= state_previous:
+                raise CollaborationError(
+                    "chat moderation state is not strictly ordered"
+                )
+            state_previous = update.revision
+        try:
+            self._store.apply_message_state_updates(
+                room_id=self.room_id,
+                updates=updates,
+            )
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "chat moderation state could not be reconciled"
+            ) from error
         return tuple(persisted)
 
     def set_chat_send_permission(
