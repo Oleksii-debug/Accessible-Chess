@@ -32,7 +32,7 @@ class LiveKitClassroomServerRuntimeError(RuntimeError):
 class LiveKitClassroomServerRuntime:
     """Own one explicit-credential LiveKitAPI client for server moderation."""
 
-    __slots__ = ("_client", "_moderation_admin", "_closed")
+    __slots__ = ("_client", "_moderation_admin", "_closed", "_closing")
 
     def __init__(
         self,
@@ -43,6 +43,7 @@ class LiveKitClassroomServerRuntime:
         self._client = client
         self._moderation_admin = moderation_admin
         self._closed = False
+        self._closing = False
 
     @classmethod
     async def open(
@@ -93,7 +94,13 @@ class LiveKitClassroomServerRuntime:
             ) from None
 
     def __repr__(self) -> str:
-        state = "closed" if self._closed else "open"
+        state = (
+            "closed"
+            if self._closed
+            else "closing"
+            if self._closing
+            else "open"
+        )
         return (
             "LiveKitClassroomServerRuntime("
             f"sdk_version={LIVEKIT_API_VERSION!r}, state={state!r}, "
@@ -106,6 +113,10 @@ class LiveKitClassroomServerRuntime:
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime is closed"
             )
+        if self._closing:
+            raise LiveKitClassroomServerRuntimeError(
+                "LiveKit server runtime is closing"
+            )
         return self._moderation_admin
 
     @property
@@ -115,26 +126,37 @@ class LiveKitClassroomServerRuntime:
     async def aclose(self) -> None:
         if self._closed:
             return
+        if self._closing:
+            raise LiveKitClassroomServerRuntimeError(
+                "LiveKit server runtime close is already in progress"
+            )
         close = getattr(self._client, "aclose", None)
         if not callable(close):
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server client lifecycle API is unavailable"
             )
+        self._closing = True
         try:
             await close()
         except Exception:
             # Keep the runtime open so the owner retains the only cleanup
             # handle and can retry provider shutdown. Publishing a false
             # terminal state here would silently leak the underlying session.
+            self._closing = False
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime close failed"
             ) from None
+        self._closing = False
         self._closed = True
 
     async def __aenter__(self) -> "LiveKitClassroomServerRuntime":
         if self._closed:
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime is closed"
+            )
+        if self._closing:
+            raise LiveKitClassroomServerRuntimeError(
+                "LiveKit server runtime is closing"
             )
         return self
 
