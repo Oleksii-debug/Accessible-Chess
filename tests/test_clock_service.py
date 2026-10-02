@@ -246,6 +246,21 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(snap.white_ms, 0)
         self.assertIsNone(snap.flagged)
 
+    def test_untimed_administrative_balance_must_remain_canonical(self):
+        clock = ChessClock(TimeControl(0), now=self.now)
+        canonical = clock.start("b")
+        self.assertEqual(canonical, ClockSnapshot(0, 0, None, ClockState.STOPPED))
+
+        for side in ("w", "b"):
+            with self.subTest(side=side):
+                with self.assertRaises(ClockError) as caught:
+                    clock.set_remaining(side, 1_000)
+                self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_COMMAND)
+                self.assertEqual(clock.snapshot(), canonical)
+                self.assertEqual(clock.set_remaining(side, 0), canonical)
+                # A returned administrative snapshot must always be restorable.
+                self.assertEqual(clock.restore(clock.snapshot()), canonical)
+
     def test_untimed_reset_discards_side_to_move_from_stopped_clock(self):
         clock = ChessClock(TimeControl(0, 0), now=self.now)
 
