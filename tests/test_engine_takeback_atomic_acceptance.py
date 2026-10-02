@@ -452,6 +452,7 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         self.assertEqual(projection["status"], api._engine_game_error)
 
         unsafe_board = api.board.fen()
+        unsafe_history = api.review_history.export_tree()
         for rejected_action in (
             lambda: api.retry_engine_move(),
             lambda: api.engine_takeback(),
@@ -465,8 +466,11 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
             lambda: api.insert_analysis_move(),
             lambda: api.insert_analysis_line(),
         ):
-            self.assertFalse(rejected_action()["ok"])
+            result = rejected_action()
+            self.assertFalse(result["ok"], result)
+            self.assertEqual(result.get("announcement"), api._takeback_recovery_message())
             self.assertEqual(api.board.fen(), unsafe_board)
+            self.assertEqual(api.review_history.export_tree(), unsafe_history)
 
         self.assertTrue(api.stop_engine_game()["ok"])
         self.assertFalse(api.make_move("e4")["ok"])
