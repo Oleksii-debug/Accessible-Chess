@@ -131,6 +131,21 @@ def _strict_bool(value: object, name: str) -> bool:
     return value
 
 
+def _strict_json_object(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    """Reject ambiguous JSON objects instead of accepting last-key-wins input."""
+
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ClassroomModerationRpcError(
+                "moderation RPC JSON contains duplicate object fields"
+            )
+        result[key] = value
+    return result
+
+
 def _canonical_command_dict(command: ModerationCommand) -> dict[str, object]:
     return {
         "operation_id": command.operation_id,
@@ -204,7 +219,7 @@ def parse_moderation_rpc(
     if not encoded or len(encoded) > MAX_RPC_PAYLOAD_BYTES:
         raise ClassroomModerationRpcError("moderation RPC payload size is invalid")
     try:
-        decoded = json.loads(payload)
+        decoded = json.loads(payload, object_pairs_hook=_strict_json_object)
     except (TypeError, ValueError, json.JSONDecodeError):
         raise ClassroomModerationRpcError("moderation RPC payload is invalid JSON") from None
     if type(decoded) is not dict or set(decoded) != _ENVELOPE_FIELDS:
