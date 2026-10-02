@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 25b6da6 / p0g 31e0918 / p0-document 6c8d72e
+# exact-package-reconvergence: 25b6da6 / p0g 31e0918 / p0-document d8ea36f
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LINEAGE_PARENT_SHA: 19a4c88d507ab0d3a4755d4f2fa98fbe8df7c1b0
-  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 1dbaba01307fb19b81712b13ca6decdf4350964c
+  LINEAGE_PARENT_SHA: 77ad8449654af636a5c89911c60c416640adb3a3
+  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 3b903962021d5a1f2e353f0d34b796c272cc2065
   AUDITED_PARENT_SHA: 036e72bcec14a0b070c30fa846bc353ac08176ef
   PACKAGE_ANCHOR_SHA: e6bc2406dba105f8d1721fee13e66ffc067d4e54
   PRODUCT_PARENT_SHA: 25b6da6eb8bccea95628ecfce5ba81fece1a5666
@@ -31,8 +31,8 @@ env:
   P0G_QA_SHA: 31e0918efe824d7ec2fe95cad4b4e26d6c5bb92a
   P0G_PROBE_BLOB_SHA: c178f973466e5864231d1b972209ce132c3dfb04
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 6c8d72e03a50ee5f7ceee965602820ce91e852bf
-  P0_DOCUMENT_PROBE_BLOB_SHA: dc1170b91caaa181d23778066ef62a7333067673
+  P0_DOCUMENT_QA_SHA: d8ea36fe16e3de3f6712af55575a334178383262
+  P0_DOCUMENT_PROBE_BLOB_SHA: f69e71af1813f2d20bf05a9686e6adf5272bc0ef
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
