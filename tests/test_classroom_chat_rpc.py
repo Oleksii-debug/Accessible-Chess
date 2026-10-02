@@ -14,7 +14,10 @@ from acs.classroom_collaboration import (
     ChatModerationAction,
     ChatModerationCommand,
 )
-from acs.classroom_collaboration_storage import ChatMessageMetadata
+from acs.classroom_collaboration_storage import (
+    ChatMessageMetadata,
+    ChatMessageStateUpdate,
+)
 
 
 class FakeAuthority:
@@ -52,10 +55,12 @@ class FakeBackend:
         self.by_id = {}
         self.ordered = []
         self.moderation_calls = []
+        self.state_updates = []
         self.fail = False
         self.omit_timestamp = False
         self.mutate_delivery = False
         self.history_override = None
+        self.state_override = None
 
     def send_message(self, draft):
         if self.fail:
@@ -95,10 +100,33 @@ class FakeBackend:
         )
         return rows[:limit]
 
+    def state_updates_after(self, *, room_id, after_revision, limit):
+        if self.fail:
+            raise RuntimeError("backend supersecret token")
+        if self.state_override is not None:
+            return self.state_override
+        rows = tuple(
+            item
+            for item in self.state_updates
+            if item.room_id == room_id
+            and (after_revision is None or item.revision > after_revision)
+        )
+        return rows[:limit]
+
     def apply_moderation(self, commands) -> None:
         if self.fail:
             raise RuntimeError("backend supersecret token")
         self.moderation_calls.append(commands)
+        for command in commands:
+            if command.action is not ChatModerationAction.HIDE_MESSAGE:
+                continue
+            self.state_updates.append(
+                ChatMessageStateUpdate(
+                    room_id=command.room_id,
+                    message_id=command.message_id,
+                    revision=len(self.state_updates),
+                )
+            )
 
 
 class BoundCall:
@@ -193,6 +221,83 @@ class ClassroomChatRpcTests(unittest.TestCase):
         )
         self.assertEqual(["msg-2"], [item.message_id for item in rows])
         self.assertEqual([1700000001000], [item.sent_at_unix_ms for item in rows])
+
+    def test_state_update_stream_round_trip_is_authorized_and_contiguous(self):
+        self.backend.state_updates = [
+            ChatMessageStateUpdate("room-1", "msg-1", 0),
+            ChatMessageStateUpdate("room-1", "msg-2", 1),
+        ]
+        first = self.student.state_updates_after(
+            room_id="room-1",
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual([0, 1], [item.revision for item in first])
+        self.assertTrue(all(item.hidden for item in first))
+        later = self.student.state_updates_after(
+            room_id="room-1",
+            after_revision=0,
+            limit=10,
+        )
+        self.assertEqual(["msg-2"], [item.message_id for item in later])
+        self.assertEqual(
+            [("room-1", "student-1"), ("room-1", "student-1")],
+            self.authority.history_calls,
+        )
+
+    def test_state_update_stream_rejects_room_revision_and_shape_forgery(self):
+        cases = (
+            (ChatMessageStateUpdate("room-2", "msg-x", 0),),
+            (ChatMessageStateUpdate("room-1", "msg-x", 1),),
+            (
+                ChatMessageStateUpdate("room-1", "msg-x", 0),
+                ChatMessageStateUpdate("room-1", "msg-y", 2),
+            ),
+        )
+        for updates in cases:
+            with self.subTest(updates=updates):
+                self.backend.state_override = updates
+                with self.assertRaises(ClassroomChatRpcError):
+                    self.student.state_updates_after(
+                        room_id="room-1",
+                        after_revision=None,
+                        limit=10,
+                    )
+
+        malformed = ClassroomChatRpcClient(
+            room_id="room-1",
+            participant_id="student-1",
+            transport=StaticCall({
+                "v": 1,
+                "ok": True,
+                "updates": [{
+                    "room_id": "room-1",
+                    "message_id": "msg-x",
+                    "revision": 0,
+                    "hidden": False,
+                }],
+            }),
+        )
+        with self.assertRaisesRegex(ClassroomChatRpcError, "state update"):
+            malformed.state_updates_after(
+                room_id="room-1",
+                after_revision=None,
+                limit=10,
+            )
+
+    def test_state_update_client_refuses_cross_room_and_bool_revision(self):
+        with self.assertRaisesRegex(ClassroomChatRpcError, "bound room"):
+            self.student.state_updates_after(
+                room_id="room-2",
+                after_revision=None,
+                limit=1,
+            )
+        with self.assertRaisesRegex(ClassroomChatRpcError, "after_revision"):
+            self.student.state_updates_after(
+                room_id="room-1",
+                after_revision=True,
+                limit=1,
+            )
 
     def test_client_refuses_room_or_sender_forgery_before_transport(self):
         with self.assertRaisesRegex(ClassroomChatRpcError, "bound identity"):
