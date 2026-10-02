@@ -17,6 +17,8 @@ on:
       - 'tests/test_v2_package_required_resources.py'
       - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
       - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
       - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
       - '.github/workflows/classroom-livekit-sdk-package.yml'
   workflow_dispatch:
@@ -57,6 +59,8 @@ jobs:
           expected=(
             '.github/workflows/classroom-livekit-sdk-package.yml'
             '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+            '.github/workflows/w6-v2-package-assembler.yml'
+            '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
             '.github/workflows/w6-v2-release-payload-current-assembler.yml'
             'acs/version2_package_preflight.py'
             'acs/version2_release_payload.py'
