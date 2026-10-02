@@ -48,7 +48,7 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          POLICY_OWNER_SHA: 886a5fc7ae366ba1d50502c6d36670120ca94990
+          POLICY_OWNER_SHA: 7fa1a19f589968c800bf3d5ecce60fff89c3f225
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
@@ -61,14 +61,14 @@ jobs:
           test "$(git merge-base "$base" HEAD)" = "$base"
           git merge-base --is-ancestor "$POLICY_OWNER_SHA" HEAD
 
-          for path in             .github/workflows/classroom-join-credential-service.yml             .github/workflows/classroom-join-identity-mapping.yml             .github/workflows/classroom-media-policy-authority.yml             acs/classroom_join_credentials.py             acs/classroom_media_policy_authority.py             acs/classroom_realtime_media.py             tests/test_classroom_join_credentials.py             tests/test_classroom_media_policy_authority.py
+          for path in             .github/workflows/classroom-join-credential-service.yml             .github/workflows/classroom-join-identity-mapping.yml             .github/workflows/classroom-distinct-moderation-serialization.yml             .github/workflows/classroom-media-policy-authority.yml             acs/classroom_join_credentials.py             acs/classroom_media_policy_authority.py             acs/classroom_realtime_media.py             tests/test_classroom_join_credentials.py             tests/test_classroom_media_policy_authority.py
           do
-            test "$(git rev-parse "$IDENTITY_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+            test "$(git rev-parse "$POLICY_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
           done
 
           git diff --check "$base...HEAD"
           changed="$(git diff --name-only "$base...HEAD" | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/classroom-durable-policy-server-composition.yml'             '.github/workflows/classroom-join-credential-service.yml'             '.github/workflows/classroom-join-identity-mapping.yml'             '.github/workflows/classroom-media-policy-authority.yml'             'acs/classroom_join_credentials.py'             'acs/classroom_media_policy_authority.py'             'acs/classroom_realtime_media.py'             'tests/test_classroom_durable_policy_server_composition.py'             'tests/test_classroom_join_credentials.py'             'tests/test_classroom_media_policy_authority.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/classroom-distinct-moderation-serialization.yml'             '.github/workflows/classroom-durable-policy-server-composition.yml'             '.github/workflows/classroom-join-credential-service.yml'             '.github/workflows/classroom-join-identity-mapping.yml'             '.github/workflows/classroom-media-policy-authority.yml'             'acs/classroom_join_credentials.py'             'acs/classroom_media_policy_authority.py'             'acs/classroom_realtime_media.py'             'tests/test_classroom_durable_policy_server_composition.py'             'tests/test_classroom_join_credentials.py'             'tests/test_classroom_media_policy_authority.py' | sort)"
           test "$changed" = "$expected"
 
           git diff --quiet "$base...HEAD" --             acs/chesscore.py             acs/classroom_domain.py             acs/classroom_moderation_rpc.py             acs/sqlite_classroom_moderation_ledger.py             acs/livekit_classroom_moderation_admin.py
