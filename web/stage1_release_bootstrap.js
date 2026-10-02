@@ -145,6 +145,190 @@ function stableBoardAccessibleName(cell) {
     return detail ? `${square}, ${detail}` : square;
 }
 
+const NEW_GAME_IMPACT_MS = Object.freeze([
+    160, 374, 748, 853, 1112, 1302, 1427, 1532,
+    1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
+    4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
+    6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231
+]);
+
+const VISUAL_PIECE_NAMES = Object.freeze([
+    ['білий король', '♔'], ['white king', '♔'],
+    ['білий ферзь', '♕'], ['white queen', '♕'],
+    ['біла тура', '♖'], ['white rook', '♖'],
+    ['білий слон', '♗'], ['white bishop', '♗'],
+    ['білий кінь', '♘'], ['white knight', '♘'],
+    ['білий пішак', '♙'], ['white pawn', '♙'],
+    ['чорний король', '♚'], ['black king', '♚'],
+    ['чорний ферзь', '♛'], ['black queen', '♛'],
+    ['чорна тура', '♜'], ['black rook', '♜'],
+    ['чорний слон', '♝'], ['black bishop', '♝'],
+    ['чорний кінь', '♞'], ['black knight', '♞'],
+    ['чорний пішак', '♟'], ['black pawn', '♟']
+]);
+
+let newGameVisualPending = false;
+let newGameAnimationGeneration = 0;
+let newGameAnimationEndTimer = null;
+
+function visualPieceGlyph(cell) {
+    const label = String(cell && cell.getAttribute('aria-label') || '').toLowerCase();
+    for (const [name, glyph] of VISUAL_PIECE_NAMES) {
+        if (label.includes(name)) return glyph;
+    }
+    return '';
+}
+
+function ensureVisualPieceStyle() {
+    if (byId('stage1-visual-piece-style')) return;
+    const style = document.createElement('style');
+    style.id = 'stage1-visual-piece-style';
+    style.textContent = [
+        '#board-grid [role="gridcell"]{position:relative;min-height:4.5rem;overflow:visible}',
+        '.stage1-visual-piece{display:block;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:2.25rem;line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity}',
+        '#board-grid.stage1-new-game-animating .stage1-visual-piece{z-index:3}'
+    ].join('');
+    document.head.appendChild(style);
+}
+
+function decorateVisibleBoardPieces(grid = byId('board-grid')) {
+    if (!grid) return 0;
+    ensureVisualPieceStyle();
+    const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
+    let count = 0;
+    cells.forEach(cell => {
+        const glyph = visualPieceGlyph(cell);
+        const existing = cell.querySelector('.stage1-visual-piece');
+        if (!glyph) {
+            if (existing) existing.remove();
+            return;
+        }
+        const piece = existing || document.createElement('span');
+        piece.className = 'stage1-visual-piece';
+        piece.setAttribute('aria-hidden', 'true');
+        piece.textContent = glyph;
+        piece.dataset.square = String(cell.dataset.square || '');
+        if (!existing) cell.appendChild(piece);
+        count += 1;
+    });
+    return count;
+}
+
+function finishNewGameVisualSequence() {
+    newGameVisualPending = false;
+    newGameAnimationGeneration += 1;
+    if (newGameAnimationEndTimer !== null) {
+        clearTimeout(newGameAnimationEndTimer);
+        newGameAnimationEndTimer = null;
+    }
+    const grid = byId('board-grid');
+    if (!grid) return;
+    grid.classList.remove('stage1-new-game-animating');
+    grid.querySelectorAll('.stage1-visual-piece').forEach(piece => {
+        piece.style.transition = 'none';
+        piece.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+        piece.style.opacity = '1';
+        piece.style.zIndex = '';
+        delete piece.dataset.newGameAnimating;
+    });
+}
+
+function startNewGameVisualSequence() {
+    newGameVisualPending = false;
+    const board = byId('board-application');
+    const grid = byId('board-grid');
+    if (!grid || !board || board.hidden) return false;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+
+    decorateVisibleBoardPieces(grid);
+    const pieces = [...grid.querySelectorAll('.stage1-visual-piece')];
+    if (pieces.length !== 32) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+
+    finishNewGameVisualSequence();
+    const generation = newGameAnimationGeneration;
+    const gridRect = grid.getBoundingClientRect();
+    const centerX = gridRect.left + gridRect.width / 2;
+    const centerY = gridRect.top + gridRect.height / 2;
+    grid.classList.add('stage1-new-game-animating');
+
+    pieces.forEach((piece, index) => {
+        const rect = piece.getBoundingClientRect();
+        const pieceX = rect.left + rect.width / 2;
+        const pieceY = rect.top + rect.height / 2;
+        const seed = index + 1;
+        const jitterX = ((seed * 37) % 53) - 26;
+        const jitterY = ((seed * 29) % 47) - 23;
+        const rotation = ((seed * 41) % 111) - 55;
+        piece.style.transition = 'none';
+        piece.style.opacity = '0.94';
+        piece.style.zIndex = String(40 + index);
+        piece.style.transform =
+            `translate(${Math.round(centerX - pieceX + jitterX)}px, ${Math.round(centerY - pieceY + jitterY)}px) rotate(${rotation}deg) scale(0.82)`;
+        piece.dataset.newGameAnimating = 'true';
+    });
+
+    // Force the scattered state to become the visual starting point before
+    // applying the impact-timed landing transitions.
+    void grid.offsetWidth;
+
+    requestAnimationFrame(() => {
+        if (generation !== newGameAnimationGeneration) return;
+        pieces.forEach((piece, index) => {
+            const impact = NEW_GAME_IMPACT_MS[index];
+            const duration = Math.min(300, Math.max(150, impact));
+            const delay = Math.max(0, impact - duration);
+            piece.style.transition =
+                `transform ${duration}ms cubic-bezier(.18,.84,.24,1.18) ${delay}ms, opacity 120ms linear ${delay}ms`;
+            piece.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+            piece.style.opacity = '1';
+        });
+    });
+
+    newGameAnimationEndTimer = setTimeout(() => {
+        if (generation !== newGameAnimationGeneration) return;
+        grid.classList.remove('stage1-new-game-animating');
+        pieces.forEach(piece => {
+            piece.style.transition = '';
+            piece.style.transform = '';
+            piece.style.opacity = '';
+            piece.style.zIndex = '';
+            delete piece.dataset.newGameAnimating;
+        });
+        newGameAnimationEndTimer = null;
+    }, 8500);
+    return true;
+}
+
+window.startNewGameVisualSequence = startNewGameVisualSequence;
+window.finishNewGameVisualSequence = finishNewGameVisualSequence;
+
+function installNewGameVisualSequence() {
+    if (document.body.dataset.stage1NewGameVisualReady === 'true') return;
+    document.addEventListener('click', event => {
+        const target = event.target && event.target.closest
+            ? event.target.closest('#new-game')
+            : null;
+        if (target) newGameVisualPending = true;
+    }, true);
+    document.addEventListener('keydown', () => {
+        if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
+            finishNewGameVisualSequence();
+        }
+    }, true);
+    document.addEventListener('pointerdown', () => {
+        if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
+            finishNewGameVisualSequence();
+        }
+    }, true);
+    document.body.dataset.stage1NewGameVisualReady = 'true';
+}
+
 function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
     if (!grid) return 0;
     const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
@@ -157,6 +341,7 @@ function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
         cell.setAttribute('aria-label', stableBoardAccessibleName(cell));
         cell.setAttribute('data-accessible-square', square);
     });
+    decorateVisibleBoardPieces(grid);
     if (cells.length === 64) document.body.dataset.stage1BoardUiaSemanticsReady = 'true';
     return cells.length;
 }
@@ -305,7 +490,10 @@ function installBoardFocusContinuity() {
     const observer = new MutationObserver(records => {
         // Rendering replaces the grid cells. Re-normalize their exposed names
         // on every render before focus recovery.
-        queueMicrotask(() => stabilizeBoardUiaSemantics(grid));
+        queueMicrotask(() => {
+            stabilizeBoardUiaSemantics(grid);
+            if (newGameVisualPending) startNewGameVisualSequence();
+        });
         if (!focusState.boardNode || board.hidden) return;
         const focusedCellWasReplaced = records.some(record =>
             [...record.removedNodes].some(node =>
@@ -592,6 +780,7 @@ async function markReady() {
 installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
+installNewGameVisualSequence();
 installSemanticFocusBoundary();
 installSoundSettings();
 new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
