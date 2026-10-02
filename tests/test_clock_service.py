@@ -341,6 +341,33 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(snap.white_ms, 0)
         self.assertIsNone(snap.flagged)
 
+    def test_failed_administrative_edit_preserves_preedit_balances(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, 100.0, 100.5, float("nan")]
+                self.fallback = 100.5
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        for edited_side in ("w", "b"):
+            with self.subTest(side=edited_side):
+                clock = ChessClock(TimeControl(3_000), now=Samples())
+                clock.start("w")
+                with self.assertRaises(ClockError) as caught:
+                    clock.set_remaining(edited_side, 1_500)
+                self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+                recovered = clock.snapshot()
+                # Half a second actually elapsed before the rejected edit.
+                self.assertEqual(recovered.white_ms, 2_500)
+                self.assertEqual(recovered.black_ms, 3_000)
+                self.assertEqual(recovered.active, "w")
+                self.assertEqual(recovered.state, ClockState.RUNNING)
+                self.assertEqual(
+                    clock.set_remaining(edited_side, 1_500).remaining(edited_side),
+                    1_500,
+                )
+
     def test_untimed_administrative_balance_must_remain_canonical(self):
         clock = ChessClock(TimeControl(0), now=self.now)
         canonical = clock.start("b")
