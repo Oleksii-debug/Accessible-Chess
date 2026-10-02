@@ -41,12 +41,19 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.assertIn("sent_at_unix_ms", columns)
             index_row = db.execute(
                 "SELECT sql FROM sqlite_master "
-                "WHERE type='index' AND name='uq_collaboration_attachments_terminal_sequence'"
+                "WHERE type='index' AND name='uq_collaboration_attachments_authoritative_sequence'"
             ).fetchone()
             self.assertIsNotNone(index_row)
+            normalized_index_sql = " ".join(index_row[0].split()).replace(", ", ",")
             self.assertIn(
                 "WHERE transfer_state IN ('stored','deleted')",
-                " ".join(index_row[0].split()),
+                normalized_index_sql,
+            )
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='index' AND name='uq_collaboration_attachments_terminal_sequence'"
+                ).fetchone()
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
 
