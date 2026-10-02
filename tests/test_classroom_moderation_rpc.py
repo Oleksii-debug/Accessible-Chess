@@ -444,6 +444,10 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
             str(reserve_error.exception),
             "moderation replay ledger reservation failed",
         )
+        self.assert_sanitized_exception(
+            reserve_error.exception,
+            "sensitive ledger reservation detail",
+        )
         self.assertEqual(self.provider.calls, [])
 
         self.ledger.fail_reserve_for.clear()
