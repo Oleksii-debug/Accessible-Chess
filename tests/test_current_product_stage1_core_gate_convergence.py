@@ -72,6 +72,18 @@ class CurrentProductStage1CoreGateConvergenceTests(unittest.TestCase):
             "W3 Product convergence must not mutate runtime source ownership",
             text,
         )
+        self.assertIn(
+            'elif [ "${{ github.event.pull_request.head.ref }}" = "$product_ref" ]; then',
+            text,
+        )
+        self.assertIn(
+            "integrated_product=3f30f0d093fc19afe60e8262a70ccfdb3702d614",
+            text,
+        )
+        self.assertIn(
+            "60df98fc2138baa1ece727bac3eef4f8379a8e64",
+            text,
+        )
         self.assertNotIn("core_expected=", text)
 
     def test_d01_core_lock_remains_fail_closed(self) -> None:
