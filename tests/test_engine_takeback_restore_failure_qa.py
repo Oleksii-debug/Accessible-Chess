@@ -13,9 +13,10 @@ path is introduced by these tests.
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from acs.clock_service import ChessClock, ClockSnapshot, ClockState, TimeControl
+from acs.clock_service import ChessClock, ClockError, ClockSnapshot, ClockState, TimeControl
 from acs.engine_game_session import EngineGameSessionCoordinator
 from acs.engine_play_service import (
     EngineGameConfig,
@@ -24,6 +25,7 @@ from acs.engine_play_service import (
     EnginePlayService,
 )
 from acs.engine_ports import EngineContractError
+from acs import stage1_release_ui_core as _stage1_core
 from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
 from tests.test_engine_game_session import FakeMoveEngine
 from tests.test_stage1_engine_play_ui import _LegalMoveEngine
@@ -118,6 +120,18 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
             )
         self.assertEqual(self.state_tuple(state), before)
 
+    @unittest.expectedFailure  # #1060: failed resumed clock snapshot after undo.
+    def test_resume_time_source_failure_must_not_leave_board_undone(self):
+        session, state = self.make_coordinator(self.valid_restore)
+        before = self.state_tuple(state)
+        samples = iter((100.0, 100.0, float("nan")))
+        session._clock._now = lambda: next(samples)
+        with self.assertRaises(ClockError):
+            session.handle_handoff(
+                EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="w")
+            )
+        self.assertEqual(self.state_tuple(state), before)
+
     def make_stage1(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -184,6 +198,30 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         result = api.engine_takeback()
         self.assertFalse(result["ok"], result)
         self.assertEqual(self.stage1_state(api), before)
+
+
+    @unittest.expectedFailure  # #1060: second-ply failure after first real undo.
+    def test_second_undo_failure_must_not_publish_partial_takeback(self):
+        api = self.make_stage1()
+        before = self.stage1_state(api)
+        base = _stage1_core.Stage1ReleaseAccessibleChessAPI.__mro__[1]
+        original_undo = base.undo
+        calls = 0
+
+        def fail_second_undo(instance):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                return {"ok": False, "announcement": "injected second undo failure"}
+            return original_undo(instance)
+
+        with patch.object(base, "undo", fail_second_undo):
+            result = api.engine_takeback()
+        self.assertEqual(calls, 2)
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(self.stage1_state(api), before)
+
+
 
 
 if __name__ == "__main__":
