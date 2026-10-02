@@ -455,6 +455,9 @@ class ClassroomCollaborationSQLiteStore:
                     "DROP INDEX IF EXISTS uq_collaboration_attachments_stored_sequence"
                 )
                 db.execute(
+                    "DROP INDEX IF EXISTS uq_collaboration_attachments_terminal_sequence"
+                )
+                db.execute(
                     """
                     CREATE UNIQUE INDEX uq_collaboration_attachments_authoritative_sequence
                     ON collaboration_attachments(room_id, sequence_no)
