@@ -75,6 +75,19 @@ class SoundProfileManagerTests(unittest.TestCase):
         self.assertTrue(result.persisted_canonical)
         self.assertEqual(len(store.writes), 1)
 
+    def test_current_schema_unknown_fields_recover_as_malformed_instead_of_silent_drop(self) -> None:
+        payload = SoundProfile().to_mapping()
+        payload["unknown_current_field"] = {"must": "not be silently ignored"}
+        store = MemoryProfileStore(payload)
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertIn(SoundProfileRecoveryReason.MALFORMED, result.recovery_reasons)
+        self.assertTrue(result.persisted_canonical)
+        self.assertEqual(SoundProfile(), result.profile)
+        self.assertEqual(SoundProfile().to_mapping(), store.payload)
+
     def test_future_schema_is_not_overwritten_on_downgrade(self) -> None:
         raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
         store = MemoryProfileStore(raw)
