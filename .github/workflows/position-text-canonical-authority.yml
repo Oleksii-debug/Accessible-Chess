@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: position-text-canonical-authority-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   canonical-position-text:
     strategy:
