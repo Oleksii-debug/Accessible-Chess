@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from threading import Thread
 import unittest
 
 from acs.classroom_media_host_transactions import (
     ClassroomMediaHostTransactionPort,
     ClassroomMediaHostTransactions,
+    MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK,
     MediaHostRecoveryRequired,
     MediaHostTransactionError,
+    MediaProviderEffect,
     MediaProviderEffectKind,
 )
 from acs.classroom_realtime_media import (
@@ -25,12 +28,14 @@ NOW = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
 
 
 class FakeRoster:
-    def __init__(self) -> None:
-        self.roles = {
-            "teacher-1": ClassroomRole.TEACHER,
-            "student-1": ClassroomRole.STUDENT,
-            "student-2": ClassroomRole.STUDENT,
-        }
+    def __init__(self, student_count: int = 2) -> None:
+        self.roles = {"teacher-1": ClassroomRole.TEACHER}
+        self.roles.update(
+            {
+                f"student-{index}": ClassroomRole.STUDENT
+                for index in range(1, student_count + 1)
+            }
+        )
 
     def participant_ids(self):
         return tuple(self.roles)
@@ -81,8 +86,8 @@ def credential(participant_id: str) -> JoinCredential:
 
 
 class ClassroomMediaHostTransactionTests(unittest.TestCase):
-    def make_host(self, participant_id="student-1"):
-        roster = FakeRoster()
+    def make_host(self, participant_id="student-1", *, student_count=2):
+        roster = FakeRoster(student_count=student_count)
         session = FakeSessionPort()
         port = ClassroomMediaHostTransactionPort(session_port=session)
         controller = ClassroomMediaController(
@@ -311,6 +316,95 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
                 .source(MediaSource.MICROPHONE)
                 .publish_allowed
             )
+
+    def test_large_bulk_moderation_is_planned_as_ordered_bounded_chunks(self):
+        controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_publish_permission(
+            actor_id="teacher-1",
+            source=MediaSource.CAMERA,
+            allowed=False,
+            operation_id="large-lock",
+        )
+
+        payloads = effect.browser_payloads()
+        self.assertEqual(
+            [len(payload["commands"]) for payload in payloads],
+            [24, 24, 12],
+        )
+        self.assertEqual(
+            [payload["chunk_index"] for payload in payloads],
+            [0, 1, 2],
+        )
+        self.assertTrue(
+            all(payload["chunk_count"] == 3 for payload in payloads)
+        )
+        flattened_ids = [
+            command["operation_id"]
+            for payload in payloads
+            for command in payload["commands"]
+        ]
+        self.assertEqual(
+            flattened_ids,
+            [command.operation_id for command in effect.commands],
+        )
+        with self.assertRaisesRegex(
+            MediaHostTransactionError,
+            "multiple ordered browser payload chunks",
+        ):
+            effect.browser_payload()
+
+        for index in range(1, 61):
+            self.assertTrue(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.CAMERA)
+                .publish_allowed
+            )
+
+        host.commit_provider_success(effect.transaction_id)
+        for index in range(1, 61):
+            self.assertFalse(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.CAMERA)
+                .publish_allowed
+            )
+
+    def test_moderation_chunk_size_fits_current_livekit_rpc_envelope(self):
+        commands = tuple(
+            ModerationCommand(
+                operation_id=("o" * 123) + f"{index:05d}",
+                actor_id="a" * 128,
+                target_id="t" * 128,
+                action=ModerationAction.PUBLISH_PERMISSION,
+                source=MediaSource.SCREEN_SHARE,
+                value=False,
+            )
+            for index in range(MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK)
+        )
+        effect = MediaProviderEffect(
+            transaction_id="host-" + "1" * 32,
+            kind=MediaProviderEffectKind.MODERATION,
+            commands=commands,
+        )
+        payload = effect.browser_payload()
+        provider_rpc_body = {
+            "version": 1,
+            "room_id": "r" * 128,
+            "operations": payload["commands"],
+        }
+        encoded = json.dumps(
+            provider_rpc_body,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        self.assertLessEqual(
+            len(encoded),
+            15 * 1024,
+            "host chunk plan must fit the current LiveKit moderation RPC bound",
+        )
 
     def test_device_recovery_uses_prepared_republish_state(self):
         controller, _roster, session, _port, host = self.make_host()
