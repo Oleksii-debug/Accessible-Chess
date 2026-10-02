@@ -341,12 +341,9 @@ class ClassroomCollaborationWebView:
 
     def _message_view(self, item: ChatMessageMetadata) -> dict[str, object]:
         moderator = self._moderator()
-        sender_active = (
-            item.sender_id not in self._removed_participant_ids
-            and self._controller.is_current_participant(item.sender_id)
-        )
         sender_moderatable = (
-            sender_active
+            moderator
+            and item.sender_id not in self._removed_participant_ids
             and self._controller.can_moderate_chat_participant(item.sender_id)
         )
         view: dict[str, object] = {
@@ -355,7 +352,7 @@ class ClassroomCollaborationWebView:
             "body": item.body,
             "unread": item.message_id in self._unread_message_ids,
             "can_hide": moderator,
-            "can_moderate_sender": moderator and sender_moderatable,
+            "can_moderate_sender": sender_moderatable,
             "can_remove_sender": (
                 moderator
                 and sender_moderatable
