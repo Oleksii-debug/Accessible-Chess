@@ -204,6 +204,33 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'SOURCE_EPUB_APPLICATION_REACHABILITY_FAILURE'}
           Write-Host 'SOURCE_EPUB_APPLICATION_REACHABILITY=PASS'
 
+          python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_LIVEKIT_PACKAGE_CONTRACT_FAILURE'}
+          Write-Host 'SOURCE_LIVEKIT_PACKAGE_CONTRACT=PASS'
+
+      - name: Materialize pinned LiveKit browser SDK
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          $url=(python scripts/stage_livekit_client_sdk.py --print-tarball-url).Trim()
+          if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($url)){throw 'LIVEKIT_TARBALL_URL_FAILURE'}
+          Invoke-WebRequest -Uri $url -OutFile 'release-inputs\livekit-client.tgz'
+          python scripts/stage_livekit_client_sdk.py 'release-inputs\livekit-client.tgz' 'web\vendor\livekit'
+          if($LASTEXITCODE -ne 0){throw 'LIVEKIT_CLIENT_SDK_STAGE_FAILURE'}
+          $required=@(
+            'web\vendor\livekit\livekit-client.umd.js',
+            'web\vendor\livekit\LICENSE',
+            'web\vendor\livekit\NOTICE',
+            'web\vendor\livekit\provenance.json'
+          )
+          foreach($path in $required){
+            if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw "LIVEKIT_CLIENT_SDK_MISSING $path"}
+            if((Get-Item -LiteralPath $path).Length -le 0){throw "LIVEKIT_CLIENT_SDK_EMPTY $path"}
+          }
+          Write-Host 'PINNED_LIVEKIT_CLIENT_SDK=PASS'
+
       - name: Build standalone AccessibleChess.exe
         shell: pwsh
         working-directory: product-source
@@ -215,6 +242,12 @@ jobs:
           $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
           $exe=Join-Path $dist 'AccessibleChess.exe'
           if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AccessibleChess.exe missing'}
+          $livekitRoot=Join-Path $dist 'web\vendor\livekit'
+          foreach($name in @('livekit-client.umd.js','LICENSE','NOTICE','provenance.json')){
+            $path=Join-Path $livekitRoot $name
+            if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw "PACKAGED_LIVEKIT_CLIENT_SDK_MISSING $name"}
+            if((Get-Item -LiteralPath $path).Length -le 0){throw "PACKAGED_LIVEKIT_CLIENT_SDK_EMPTY $name"}
+          }
           $config=(Resolve-Path 'packaging\AccessibleChess.exe.config').Path
           $distConfig=Join-Path $dist 'AccessibleChess.exe.config'
           if(-not (Test-Path -LiteralPath $distConfig -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}
