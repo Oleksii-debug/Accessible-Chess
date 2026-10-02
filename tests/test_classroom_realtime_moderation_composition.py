@@ -161,6 +161,25 @@ class ClassroomRealtimeModerationCompositionTests(unittest.IsolatedAsyncioTestCa
             ledger=SqliteClassroomModerationLedger(self.ledger_path),
         )
 
+    def test_workflow_binds_current_runtime_owner_and_live_base(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-realtime-moderation-composition.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "RUNTIME_OWNER_SHA: e59b8d88e4e270f9d1b5487a979b59d94c5b2ac9",
+            workflow,
+        )
+        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
+
     async def test_realtime_rpc_commits_durable_policy_provider_and_next_join_grant(self):
         authority = self.authority()
         provider_room = FakeRoomService(
