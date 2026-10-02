@@ -85,7 +85,21 @@ const initial = {
       effective_volume: 49
     }
   ],
-  packs: []
+  packs: [
+    {
+      pack_id: "soft",
+      title: "Soft Wood",
+      version: "1.0.0",
+      author: "Accessible Chess",
+      license_id: "CC0-1.0",
+      compatible: true,
+      installed_version: null,
+      state: "not_installed",
+      active: false,
+      can_install: true,
+      can_uninstall: false
+    }
+  ]
 };
 let serverSnapshot = initial;
 let commandMode = "success";
@@ -105,6 +119,22 @@ const api = {
     const snapshot = JSON.parse(JSON.stringify(initial));
     if (command === "set_master" && Object.prototype.hasOwnProperty.call(payload, "enabled")) {
       snapshot.master_enabled = payload.enabled;
+    }
+    if (command === "install_pack") {
+      snapshot.active_pack_id = payload.pack_id;
+      snapshot.packs[0].installed_version = snapshot.packs[0].version;
+      snapshot.packs[0].state = "current";
+      snapshot.packs[0].active = payload.activate === true;
+      snapshot.packs[0].can_install = false;
+      snapshot.packs[0].can_uninstall = true;
+    }
+    if (command === "uninstall_pack") {
+      snapshot.active_pack_id = "classic";
+      snapshot.packs[0].installed_version = null;
+      snapshot.packs[0].state = "not_installed";
+      snapshot.packs[0].active = false;
+      snapshot.packs[0].can_install = true;
+      snapshot.packs[0].can_uninstall = false;
     }
     return Promise.resolve({ok: true, snapshot, message: "Saved."});
   }
@@ -186,6 +216,23 @@ async function run() {
     "repeated explicit results must carry distinct P0 dispatch identities");
   assert.strictEqual(live.textContent, "",
     "sound actions must not bypass the canonical P0 announcement queue");
+
+  let installPack = elements.get("sound-pack-soft-install");
+  const packMetadata = elements.get("sound-pack-soft-metadata");
+  assert.ok(installPack && packMetadata,
+    "catalog packs must expose native controls plus visible metadata");
+  assert.ok(packMetadata.textContent.includes("CC0-1.0"),
+    "pack license metadata must remain visible/selectable text");
+  installPack.focus();
+  installPack.dispatch("click");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepStrictEqual(calls[2], ["install_pack", {pack_id: "soft", activate: true}]);
+  const removePack = elements.get("sound-pack-soft-uninstall");
+  assert.ok(removePack, "installed non-fallback pack must expose a native remove button");
+  assert.strictEqual(document.activeElement.id, "sound-pack-soft-install",
+    "pack rerender must restore focus by semantic control id when it still exists or leave a stable id");
 
   commandMode = "failure";
   let failedMaster = elements.get("sound-master-enabled");
