@@ -8,6 +8,7 @@ short messages so Python exception text never becomes screen-reader output.
 """
 
 from pathlib import Path
+import copy
 import tempfile
 from typing import Any
 
@@ -15,6 +16,7 @@ from .chesscore import parse_sq
 from .clock_service import ClockSnapshot, TimeControl
 from .engine_game_session import (
     EngineGameSessionCoordinator,
+    TakebackTransaction,
     EngineNoMoveHandoff,
     EngineNoMoveResolution,
     EngineTurnState,
@@ -309,9 +311,64 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 break
         if undone == 0 or self.board.turn != human:
             raise RuntimeError("engine takeback could not restore the human turn")
+        # Redo and historical clock entries must remain intact until both
+        # the restored-ply provider and clock/lifecycle acceptance succeed.
+
+    def _capture_engine_takeback_state(self) -> dict[str, Any]:
+        return {
+            "fen": self.board.fen(),
+            "undo_stack": copy.deepcopy(self.board.undo_stack),
+            "redo_stack": copy.deepcopy(self.board.redo_stack),
+            "last_move": self.board.last_move,
+            "sans": list(self.sans),
+            "move_sides": list(self.move_sides),
+            "redo_meta": copy.deepcopy(self.redo_meta),
+            "history": self.review_history.export_tree(),
+            "live_history_node": self.live_history_node,
+            "selected_source": self.selected_source,
+            "clock_history": list(self._engine_clock_history),
+            "phase": self._engine_game_phase,
+            "error": self._engine_game_error,
+            "announcement": self.announcement,
+        }
+
+    def _restore_engine_takeback_state(self, state: dict[str, Any]) -> None:
+        # Rebuild from canonical, previously validated Board/ReviewHistory
+        # snapshots while retaining the original Board object's identity.
+        history = type(self.review_history).from_tree(state["history"])
+        self.board.set_fen(state["fen"], clear_history=False)
+        self.board.undo_stack[:] = copy.deepcopy(state["undo_stack"])
+        self.board.redo_stack[:] = copy.deepcopy(state["redo_stack"])
+        self.board.last_move = state["last_move"]
+        self.sans[:] = state["sans"]
+        self.move_sides[:] = state["move_sides"]
+        self.redo_meta[:] = copy.deepcopy(state["redo_meta"])
+        self.review_history = history
+        self.review_adapter = self.review_adapter.__class__(
+            history, language=self.lang,
+        )
+        self.live_history_node = state["live_history_node"]
+        self.selected_source = state["selected_source"]
+        self._engine_clock_history[:] = state["clock_history"]
+        self._engine_game_phase = state["phase"]
+        self._engine_game_error = state["error"]
+        self.announcement = state["announcement"]
+        if (self.board.fen() != state["fen"]
+                or self.review_history.export_tree() != state["history"]):
+            raise RuntimeError("engine takeback checkpoint recovery failed")
+
+    def _commit_engine_takeback_state(self) -> None:
         self.redo_meta.clear()
         self.board.redo_stack.clear()
         del self._engine_clock_history[len(self.sans) + 1:]
+
+    def _prepare_engine_takeback_transaction(self) -> TakebackTransaction:
+        state = self._capture_engine_takeback_state()
+        return TakebackTransaction(
+            undo=self._undo_engine_game_to_human_turn,
+            rollback=lambda: self._restore_engine_takeback_state(state),
+            commit=self._commit_engine_takeback_state,
+        )
 
     def _outcome_text(self, snapshot: Any) -> str:
         outcome = snapshot.lifecycle.outcome
@@ -724,6 +781,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             history_node_provider=lambda: str(self.live_history_node),
             undo_committed_move=self._undo_engine_game_to_human_turn,
             clock_restore_provider=self._engine_clock_restore_snapshot,
+            takeback_transaction=self._prepare_engine_takeback_transaction,
             no_move_resolver=self._resolve_engine_no_move,
             timeout_mating_capability_provider=self._timeout_mating_capability,
         )
@@ -871,10 +929,22 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         engine = "b" if human == "w" else "w"
         try:
             if self._engine_game_phase == "finished":
-                self._undo_engine_game_to_human_turn()
-                snapshot = session.reset(
-                    clock_snapshot=self._engine_clock_restore_snapshot()
-                )
+                board_checkpoint = self._capture_engine_takeback_state()
+                previous_clock = session._clock.snapshot()
+                previous_lifecycle = session._lifecycle.snapshot()
+                try:
+                    self._undo_engine_game_to_human_turn()
+                    snapshot = session.reset(
+                        clock_snapshot=self._engine_clock_restore_snapshot()
+                    )
+                    self._commit_engine_takeback_state()
+                except Exception:
+                    try:
+                        self._restore_engine_takeback_state(board_checkpoint)
+                    finally:
+                        session._clock.restore(previous_clock)
+                        session._lifecycle.restore_checkpoint(previous_lifecycle)
+                    raise
             else:
                 session.handle_handoff(
                     EngineGameHandoff(
