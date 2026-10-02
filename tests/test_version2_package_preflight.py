@@ -116,7 +116,13 @@ def _make_tree(root: Path) -> None:
 
     livekit = web / "vendor" / "livekit"
     livekit.mkdir(parents=True)
-    livekit_bundle = b"/* fixture */ LivekitClient Room " + (b"x" * 120_000)
+    livekit_bundle = (
+        b"/* fixture */ LivekitClient Room "
+        + b"".join(
+            hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
+            for index in range(4000)
+        )
+    )
     livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
     livekit_notice = (
         b"Copyright 2021 LiveKit, Inc.\n"
