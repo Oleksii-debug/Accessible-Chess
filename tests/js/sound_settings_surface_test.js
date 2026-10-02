@@ -394,6 +394,24 @@ async function run() {
   );
   commandMode = "success";
 
+  const savedCommandBridge = api.sound_settings_command;
+  api.sound_settings_command = undefined;
+  let unavailablePreview = elements.get("sound-event-move-preview");
+  unavailablePreview.focus();
+  unavailablePreview.dispatch("click");
+  await Promise.resolve();
+  unavailablePreview = elements.get("sound-event-move-preview");
+  assert.strictEqual(document.activeElement.id, "sound-event-move-preview",
+    "bridge-unavailable rerender must restore focus to the replacement control");
+  assert.notStrictEqual(document.activeElement, unavailablePreview,
+    "focus must land on the newly rendered semantic control");
+  assert.strictEqual(
+    elements.get("sound-profile-settings-status").textContent,
+    "Sound settings are unavailable.",
+    "bridge-unavailable failure must remain visible/selectable"
+  );
+  api.sound_settings_command = savedCommandBridge;
+
   commandMode = "failure";
   let failedMaster = elements.get("sound-master-enabled");
   const confirmedMaster = failedMaster.checked;
