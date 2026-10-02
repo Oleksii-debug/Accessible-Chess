@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from acs.classroom_collaboration import ClassroomCollaborationController
-from acs.classroom_collaboration_storage import ClassroomCollaborationSQLiteStore
+from acs.classroom_collaboration_storage import AttachmentMetadata, ClassroomCollaborationSQLiteStore
 from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_final_product_application import Version2FinalProductApplication
@@ -19,12 +19,13 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.store = ClassroomCollaborationSQLiteStore(str(root / "collaboration.sqlite3"))
+        self.files = FakeFiles()
         controller = ClassroomCollaborationController(
             room_id="room-1",
             local_participant_id="student-1",
             roster=FakeRoster(),
             chat=FakeChat(),
-            files=FakeFiles(),
+            files=self.files,
             store=self.store,
             file_store=FakeFileStore(),
         )
@@ -78,6 +79,32 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertEqual(
             "Reachable from final Classes",
             self.store.room_messages("room-1")[0].body,
+        )
+
+    def test_classes_browser_area_reaches_remote_file_sync(self) -> None:
+        self.files.ordered.append(
+            AttachmentMetadata(
+                "remote-final-product-file",
+                "room-1",
+                "student-2",
+                0,
+                "shared.pgn",
+                "application/x-chess-pgn",
+                4,
+                "0" * 64,
+                "rooms/room-1/remote-final-product-file",
+                "stored",
+                scan_state="clean",
+            )
+        )
+        app = self.bare_app()
+        app.collaboration = self.collaboration
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            event = app.browser_command("classes", "collaboration.file.sync", {})
+        self.assertEqual("collaboration.files.synced", event["kind"])
+        self.assertEqual(
+            "shared.pgn",
+            event["payload"]["collaboration"]["files"]["items"][0]["name"],
         )
 
     def test_classes_non_text_command_fails_closed_before_collaboration_prefix_check(self) -> None:
