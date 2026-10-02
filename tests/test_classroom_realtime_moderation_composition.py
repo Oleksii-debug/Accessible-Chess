@@ -207,13 +207,14 @@ class ClassroomRealtimeModerationCompositionTests(unittest.IsolatedAsyncioTestCa
         realtime_room = FakeRoom.instances[-1]
         handler = realtime_room.local_participant.handlers[MODERATION_RPC_METHOD]
 
-        response = await handler(
-            SimpleNamespace(
-                caller_identity=TEACHER,
-                payload=wire(),
-            )
+        invocation = SimpleNamespace(
+            caller_identity=TEACHER,
+            payload=wire(),
         )
+        response = await handler(invocation)
+        replay = await handler(invocation)
 
+        self.assertEqual(response, replay)
         self.assertEqual(
             json.loads(response)["accepted_operation_ids"],
             ["op-camera-lock"],
