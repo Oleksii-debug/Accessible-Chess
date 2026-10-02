@@ -8,6 +8,7 @@ import unittest
 from acs.classroom_moderation_rpc import (
     ClassroomModerationRpcError,
     ClassroomModerationRpcService,
+    ModerationOperationState,
     MAX_RPC_OPERATIONS,
     MAX_RPC_PAYLOAD_BYTES,
     RPC_VERSION,
@@ -79,16 +80,49 @@ class FakeProviderAdmin:
 class FakeLedger:
     def __init__(self) -> None:
         self.values: dict[tuple[str, str], str] = {}
+        self.reservations: dict[tuple[str, str], str] = {}
         self.read_calls: list[tuple[str, str]] = []
+        self.reserve_calls: list[tuple[str, str, str]] = []
         self.commit_calls: list[tuple[str, str, str]] = []
         self.fail_read = False
+        self.fail_reserve_for: set[str] = set()
         self.fail_commit_for: set[str] = set()
 
-    def committed_fingerprint(self, *, room_id, operation_id):
+    def operation_state(self, *, room_id, operation_id):
         self.read_calls.append((room_id, operation_id))
         if self.fail_read:
             raise RuntimeError("sensitive ledger read detail")
-        return self.values.get((room_id, operation_id))
+        key = (room_id, operation_id)
+        if key in self.values:
+            return ModerationOperationState(
+                fingerprint=self.values[key],
+                committed=True,
+            )
+        if key in self.reservations:
+            return ModerationOperationState(
+                fingerprint=self.reservations[key],
+                committed=False,
+            )
+        return None
+
+    def reserve(self, *, room_id, operation_id, fingerprint):
+        self.reserve_calls.append((room_id, operation_id, fingerprint))
+        if operation_id in self.fail_reserve_for:
+            raise RuntimeError("sensitive ledger reservation detail")
+        key = (room_id, operation_id)
+        if key in self.values:
+            return ModerationOperationState(
+                fingerprint=self.values[key],
+                committed=True,
+            )
+        existing = self.reservations.get(key)
+        if existing is None:
+            self.reservations[key] = fingerprint
+            existing = fingerprint
+        return ModerationOperationState(
+            fingerprint=existing,
+            committed=False,
+        )
 
     def commit(self, *, room_id, operation_id, fingerprint):
         self.commit_calls.append((room_id, operation_id, fingerprint))
@@ -96,8 +130,14 @@ class FakeLedger:
             raise RuntimeError("sensitive ledger commit detail")
         key = (room_id, operation_id)
         existing = self.values.get(key)
-        if existing is not None and existing != fingerprint:
-            raise RuntimeError("conflicting commit")
+        if existing is not None:
+            if existing != fingerprint:
+                raise RuntimeError("conflicting committed fingerprint")
+            return
+        reserved = self.reservations.get(key)
+        if reserved is None or reserved != fingerprint:
+            raise RuntimeError("commit does not match reservation")
+        del self.reservations[key]
         self.values[key] = fingerprint
 
 
@@ -241,6 +281,7 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.provider.calls, [])
         self.assertEqual(self.ledger.values, {})
+        self.assertEqual(self.ledger.reservations, {})
 
     async def test_partial_provider_failure_commits_prefix_then_retry_resumes_only_remainder(self) -> None:
         wire = payload(
@@ -307,6 +348,79 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(self.ledger.commit_calls), 1)
 
+    async def test_cross_instance_conflicting_semantics_fail_before_second_provider_effect(self) -> None:
+        shared_ledger = FakeLedger()
+        first_authorization = FakeAuthorization()
+        second_authorization = FakeAuthorization()
+        first_provider = FakeProviderAdmin()
+        second_provider = FakeProviderAdmin()
+        first_provider.yield_before_apply = True
+        second_provider.yield_before_apply = True
+        first_service = ClassroomModerationRpcService(
+            authorization=first_authorization,
+            provider_admin=first_provider,
+            ledger=shared_ledger,
+        )
+        second_service = ClassroomModerationRpcService(
+            authorization=second_authorization,
+            provider_admin=second_provider,
+            ledger=shared_ledger,
+        )
+
+        first_wire = payload(operation("op-cross-instance", value=False))
+        conflicting_wire = payload(operation("op-cross-instance", value=True))
+        first_result, conflicting_result = await asyncio.gather(
+            first_service.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=first_wire,
+            ),
+            second_service.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=conflicting_wire,
+            ),
+            return_exceptions=True,
+        )
+
+        results = (first_result, conflicting_result)
+        self.assertEqual(sum(isinstance(item, str) for item in results), 1)
+        errors = [item for item in results if isinstance(item, Exception)]
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], ClassroomModerationRpcError)
+        self.assertIn("reused with different semantics", str(errors[0]))
+        self.assertEqual(
+            len(first_provider.calls) + len(second_provider.calls),
+            1,
+        )
+        self.assertEqual(
+            shared_ledger.values[(ROOM, "op-cross-instance")],
+            next(iter(shared_ledger.values.values())),
+        )
+        self.assertNotIn((ROOM, "op-cross-instance"), shared_ledger.reservations)
+
+    async def test_pending_exact_reservation_is_retriable_after_provider_failure(self) -> None:
+        wire = payload(operation("op-pending-retry", source="camera", value=False))
+        self.provider.fail_once.add("op-pending-retry")
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "provider operation failed",
+        ):
+            await self.handle(wire)
+
+        self.assertIn((ROOM, "op-pending-retry"), self.ledger.reservations)
+        self.assertNotIn((ROOM, "op-pending-retry"), self.ledger.values)
+
+        await self.handle(wire)
+
+        self.assertNotIn((ROOM, "op-pending-retry"), self.ledger.reservations)
+        self.assertIn((ROOM, "op-pending-retry"), self.ledger.values)
+        self.assertEqual(
+            [command.operation_id for _, command in self.provider.calls],
+            ["op-pending-retry", "op-pending-retry"],
+        )
+
     async def test_ledger_failures_are_sanitized(self) -> None:
         self.ledger.fail_read = True
         with self.assertRaises(ClassroomModerationRpcError) as read_error:
@@ -323,6 +437,16 @@ class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.provider.calls, [])
 
         self.ledger.fail_read = False
+        self.ledger.fail_reserve_for.add("op-reserve")
+        with self.assertRaises(ClassroomModerationRpcError) as reserve_error:
+            await self.handle(payload(operation("op-reserve")))
+        self.assertEqual(
+            str(reserve_error.exception),
+            "moderation replay ledger reservation failed",
+        )
+        self.assertEqual(self.provider.calls, [])
+
+        self.ledger.fail_reserve_for.clear()
         self.ledger.fail_commit_for.add("op-commit")
         with self.assertRaises(ClassroomModerationRpcError) as commit_error:
             await self.handle(payload(operation("op-commit")))
