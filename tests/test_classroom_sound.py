@@ -84,13 +84,28 @@ class ClassroomSoundRuntimeTests(unittest.TestCase):
 
     def test_chat_and_file_namespaces_are_supported_without_chess_policy(self) -> None:
         assets = FakeAssetPlayback()
-        runtime = ClassroomSoundRuntime(assets, SoundProfile())
+        runtime = ClassroomSoundRuntime(assets, SoundProfile(pack_id="class.pack"))
         runtime.dispatch("chat.message")
         runtime.dispatch("file.transfer_complete")
         self.assertEqual(
             [request.event_id for request in assets.requests],
             ["chat.message", "file.transfer_complete"],
         )
+
+    def test_classic_pack_intentionally_silences_namespaced_events(self) -> None:
+        assets = FakeAssetPlayback()
+        runtime = ClassroomSoundRuntime(assets, SoundProfile())
+
+        dispatched = runtime.dispatch("classroom.join")
+        previewed = runtime.preview("chat.message")
+
+        self.assertTrue(dispatched.ok)
+        self.assertFalse(dispatched.delivered)
+        self.assertIsNone(dispatched.request)
+        self.assertTrue(previewed.ok)
+        self.assertFalse(previewed.delivered)
+        self.assertIsNone(previewed.request)
+        self.assertEqual([], assets.requests)
 
     def test_bare_chess_event_ids_are_rejected(self) -> None:
         runtime = ClassroomSoundRuntime(FakeAssetPlayback(), SoundProfile())
@@ -109,9 +124,10 @@ class ClassroomSoundRuntimeTests(unittest.TestCase):
 
     def test_adapter_failure_is_explicit_path_free_and_has_no_fallback(self) -> None:
         assets = PathLeakingPlayback()
-        result = ClassroomSoundRuntime(assets, SoundProfile()).dispatch(
-            "classroom.permission"
-        )
+        result = ClassroomSoundRuntime(
+            assets,
+            SoundProfile(pack_id="class.pack"),
+        ).dispatch("classroom.permission")
         self.assertFalse(result.ok)
         self.assertFalse(result.delivered)
         self.assertEqual(result.error_type, "FileNotFoundError")
@@ -119,9 +135,10 @@ class ClassroomSoundRuntimeTests(unittest.TestCase):
         self.assertNotIn("C:/Users/private", result.message)
         self.assertEqual(len(assets.requests), 1)
 
-        preview = ClassroomSoundRuntime(PathLeakingPlayback(), SoundProfile()).preview(
-            "classroom.permission"
-        )
+        preview = ClassroomSoundRuntime(
+            PathLeakingPlayback(),
+            SoundProfile(pack_id="class.pack"),
+        ).preview("classroom.permission")
         self.assertFalse(preview.ok)
         self.assertEqual(preview.message, "classroom sound adapter failed")
 
