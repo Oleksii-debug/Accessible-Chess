@@ -5,9 +5,35 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from acs.sound_profile_composition import create_local_sound_composition
+from acs.sound_profile_composition import (
+    _local_pack_resolver,
+    _playable_installed_packs,
+    _windows_pack_is_playable,
+    create_local_sound_composition,
+)
 from acs.sound_profile_store import SoundProfileWriteBlockedError
+from acs.sound_profiles import CORE_SOUND_EVENTS, SoundPackManifest
 from acs.sound_runtime import SoundAssetRequest
+
+
+def _pack_manifest(pack_id: str, suffix: str = ".wav") -> SoundPackManifest:
+    return SoundPackManifest(
+        pack_id=pack_id,
+        version="1.0.0",
+        title=pack_id,
+        license_id="CC0-1.0",
+        files={event: f"audio/{event}{suffix}" for event in CORE_SOUND_EVENTS},
+        author="Accessible Chess tests",
+        provenance="tests-only generated assets",
+    )
+
+
+class _InstalledStore:
+    def __init__(self, manifests):
+        self._manifests = {item.pack_id: item for item in manifests}
+
+    def installed(self):
+        return dict(self._manifests)
 
 
 class _Playback:
@@ -173,6 +199,29 @@ class LocalSoundCompositionTests(unittest.TestCase):
             with self.assertRaises(SoundProfileWriteBlockedError):
                 composition.settings.set_master(enabled=False)
             self.assertEqual(future, json.loads(path.read_text(encoding="utf-8")))
+
+    def test_windows_incompatible_installed_pack_is_never_resolved_or_exposed(self) -> None:
+        wav = _pack_manifest("local.wav")
+        ogg = _pack_manifest("local.ogg", ".ogg")
+        store = _InstalledStore([wav, ogg])
+
+        self.assertTrue(_windows_pack_is_playable(wav))
+        self.assertFalse(_windows_pack_is_playable(ogg))
+        self.assertEqual("local.wav", _local_pack_resolver(store)("local.wav"))
+        self.assertEqual("classic", _local_pack_resolver(store)("local.ogg"))
+        self.assertEqual({"local.wav": wav}, _playable_installed_packs(store))
+
+    def test_composition_binds_settings_to_filtered_local_pack_provider(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-local-pack-provider-") as raw:
+            root = Path(raw)
+            composition = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+            )
+            provider = composition.settings._installed_pack_provider
+            self.assertTrue(callable(provider))
+            self.assertEqual({}, provider())
 
     def test_composition_creates_dedicated_profile_pack_and_cache_roots(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-layout-") as raw:
