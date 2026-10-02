@@ -600,9 +600,7 @@ check(
   "unavailable collaboration must expose no stale actions"
 );
 
-Promise.resolve()
-  .then(() => Promise.resolve())
-  .then(() => {
+setImmediate(() => {
     check(
       bridgeFailureAnnouncements.includes("Action failed"),
       "contained synchronous host bridge failures must reach the fallback announcement"
@@ -619,8 +617,4 @@ Promise.resolve()
       "bridge rejection must re-enable chat without discarding the draft"
     );
     console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
-  })
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+});
