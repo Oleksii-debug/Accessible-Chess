@@ -221,6 +221,11 @@ class ChessClock:
             )
 
         tick = self._read_now(not_before=self._last_tick)
+        # Charge the mover through the exact switch instant. If the mover flags
+        # during this interval, no increment or side switch is permitted.
+        self._sync(at=tick)
+        if self._state is ClockState.FLAGGED:
+            return self.snapshot()
         self._remaining[moved_side] += self.control.increment_ms
         self._active = "b" if moved_side == "w" else "w"
         self._last_tick = tick
@@ -310,10 +315,12 @@ class ChessClock:
             self._last_tick = None
         return self.snapshot()
 
-    def _sync(self) -> None:
+    def _sync(self, *, at: float | None = None) -> None:
         if self._state != ClockState.RUNNING or self._active is None or self._last_tick is None:
             return
-        now = self._read_now(not_before=self._last_tick)
+        # The switch already validated its instant; do not sample time again
+        # while charging the previous mover.
+        now = self._read_now(not_before=self._last_tick) if at is None else at
         elapsed_ms = int((now - self._last_tick) * 1000)
         if elapsed_ms <= 0:
             return
