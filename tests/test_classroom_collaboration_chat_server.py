@@ -18,6 +18,7 @@ from acs.classroom_collaboration_chat_server import (
     ClassroomChatServerService,
     MAX_SERVER_HISTORY_MESSAGES,
 )
+from acs.classroom_domain import MAX_WIRE_INTEGER
 
 
 ROOM = "room-1"
@@ -473,6 +474,135 @@ class ClassroomChatServerTests(unittest.TestCase):
                         after_sequence=after,
                         limit=limit,
                     )
+
+    def test_history_and_state_cursors_reject_json_unsafe_integers(self) -> None:
+        over = MAX_WIRE_INTEGER + 1
+        calls = (
+            lambda: self.store.history_after(
+                room_id=ROOM,
+                after_sequence=over,
+                limit=1,
+            ),
+            lambda: self.service.history_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_sequence=over,
+                limit=1,
+            ),
+            lambda: self.store.state_updates_after(
+                room_id=ROOM,
+                after_revision=over,
+                limit=1,
+            ),
+            lambda: self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=over,
+                limit=1,
+            ),
+        )
+        for call in calls:
+            with self.subTest(call=call):
+                with self.assertRaises(ClassroomChatServerError) as raised:
+                    call()
+                self.assertIsNone(raised.exception.__cause__)
+
+        self.assertEqual(
+            (),
+            self.service.history_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_sequence=MAX_WIRE_INTEGER,
+                limit=1,
+            ),
+        )
+        self.assertEqual(
+            (),
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=MAX_WIRE_INTEGER,
+                limit=1,
+            ),
+        )
+
+    def test_server_sequence_exhaustion_fails_without_partial_insert(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "max-sequence",
+                    ROOM,
+                    STUDENT,
+                    MAX_WIRE_INTEGER,
+                    "Existing max sequence",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "sequence exhausted",
+        ):
+            self.send(self.draft("after-max"))
+
+        history = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )
+        self.assertEqual(("max-sequence",), tuple(item.message_id for item in history))
+
+    def test_moderation_revision_exhaustion_rolls_back_hide_and_operation(self) -> None:
+        sent = self.send(self.draft("revision-target"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, MAX_WIRE_INTEGER, "historical-max-revision"),
+            )
+        hide = self.moderation(
+            "hide-after-max-revision",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "revision exhausted",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(hide,),
+            )
+
+        current = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )[0]
+        self.assertFalse(current.hidden)
+
+        with closing(sqlite3.connect(self.path)) as db:
+            op = db.execute(
+                """
+                SELECT 1 FROM classroom_chat_server_moderation_ops
+                WHERE room_id=? AND operation_id=?
+                """,
+                (ROOM, hide.operation_id),
+            ).fetchone()
+        self.assertIsNone(op)
 
     def test_invalid_clock_is_rejected_without_persisting(self) -> None:
         for value in (True, -1, 253402300800000):
