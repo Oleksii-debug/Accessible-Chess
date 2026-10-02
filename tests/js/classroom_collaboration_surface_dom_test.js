@@ -602,6 +602,96 @@ check(
   "unavailable collaboration must expose no stale actions"
 );
 
+const pendingRoot = new FakeElement("div");
+let pendingSendResolve = null;
+let pendingInvokeCount = 0;
+window.AccessibleChessEducationSurface.render(
+  pendingRoot,
+  snapshot,
+  (command) => {
+    pendingInvokeCount += 1;
+    if (command !== "collaboration.chat.send") {
+      return Promise.resolve({ kind: "noop", payload: {} });
+    }
+    return new Promise((resolve) => {
+      pendingSendResolve = resolve;
+    });
+  },
+  () => {},
+  "",
+  "Action failed"
+);
+const pendingInitialInput = pendingRoot.querySelector("#collaboration-chat-input");
+pendingInitialInput.value = "Single flight across push";
+pendingInitialInput.setSelectionRange(3, 9);
+pendingInitialInput.focus();
+pendingRoot.querySelector("#collaboration-chat-form").listeners.submit({
+  preventDefault() {}
+});
+
+Promise.resolve().then(() => {
+  check(
+    typeof pendingSendResolve === "function" && pendingInvokeCount === 1,
+    "pending send precondition must reach the host exactly once"
+  );
+  window.AccessibleChessEducationSurface.apply(
+    pendingRoot,
+    {
+      kind: "collaboration.chat.synced",
+      payload: {
+        collaboration: collaboration([
+          {
+            dom_id: "collaboration-message-push",
+            sender: "Teacher",
+            body: "Push arrived while send is pending.",
+            unread: true
+          }
+        ], 1),
+        announcement: "Teacher: Push arrived while send is pending."
+      }
+    },
+    () => Promise.resolve({ kind: "noop", payload: {} }),
+    () => {},
+    "Action failed"
+  );
+
+  const pushedWrapper = pendingRoot.querySelector("#classroom-collaboration");
+  const pushedInput = pendingRoot.querySelector("#collaboration-chat-input");
+  const pushedForm = pendingRoot.querySelector("#collaboration-chat-form");
+  const pushedSend = pendingRoot.querySelector("#collaboration-chat-send");
+  check(
+    pushedWrapper.getAttribute("aria-busy") === "true" &&
+    pushedInput.readOnly &&
+    pushedForm.getAttribute("aria-busy") === "true" &&
+    pushedSend.getAttribute("aria-disabled") === "true" &&
+    pushedInput.value === "Single flight across push" &&
+    pushedInput.selectionStart === 3 &&
+    pushedInput.selectionEnd === 9,
+    "external collaboration redraw must preserve the in-flight send lock and draft"
+  );
+
+  pushedForm.listeners.submit({ preventDefault() {} });
+  check(
+    pendingInvokeCount === 1,
+    "external redraw must not reopen a second send while the first send is pending"
+  );
+
+  pendingSendResolve({
+    kind: "collaboration.chat.sent",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-local-sent",
+          sender: "Student",
+          body: "Single flight across push",
+          unread: false
+        }
+      ], 0),
+      focus_target: "collaboration-chat-input"
+    }
+  });
+});
+
 setImmediate(() => {
     check(
       bridgeFailureAnnouncements.includes("Action failed"),
@@ -618,6 +708,14 @@ setImmediate(() => {
       throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "false" &&
       throwingInput.value === "Keep this draft",
       "bridge rejection must re-enable chat without discarding the draft"
+    );
+    const settledWrapper = pendingRoot.querySelector("#classroom-collaboration");
+    const settledInput = pendingRoot.querySelector("#collaboration-chat-input");
+    check(
+      settledWrapper.getAttribute("aria-busy") !== "true" &&
+      !settledInput.readOnly &&
+      settledInput.value === "",
+      "settled send must release a busy state carried across an intervening push redraw"
     );
     console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
 });
