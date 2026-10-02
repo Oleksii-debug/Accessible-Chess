@@ -358,6 +358,25 @@ def save_prepared_position(
     )
 
 
+def ordered_prepared_positions(
+    workspace: EducationWorkspace,
+) -> tuple[PreparedPosition, ...]:
+    """Return prepared positions in one deterministic lesson-authoring order.
+
+    order_index is the explicit teacher-authored order. Stable position_id is
+    the tie breaker so two records with the same order never depend on storage,
+    migration, or insertion order.
+    """
+
+    workspace = _workspace(workspace)
+    return tuple(
+        sorted(
+            workspace.prepared_positions,
+            key=lambda item: (item.order_index, item.position_id),
+        )
+    )
+
+
 def get_prepared_position(
     workspace: EducationWorkspace,
     position_id: str,

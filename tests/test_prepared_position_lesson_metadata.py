@@ -172,6 +172,44 @@ class PreparedPositionLessonMetadataTests(unittest.TestCase):
         )
         self.assertEqual(new_record["title"], "legacy-prep")
 
+
+    def test_ordered_read_is_stable_by_order_index_then_position_id(self) -> None:
+        workspace = self.workspace
+        for position_id, order_index in (
+            ("prep-z", 2),
+            ("prep-b", 1),
+            ("prep-a", 1),
+        ):
+            workspace = ew.save_prepared_position(
+                workspace,
+                position_id=position_id,
+                source=self.source,
+                expected_position_revision=0,
+                title=position_id,
+                order_index=order_index,
+            )
+
+        self.assertEqual(
+            tuple(item.position_id for item in ew.ordered_prepared_positions(workspace)),
+            ("prep-a", "prep-b", "prep-z"),
+        )
+
+        current = ew.get_prepared_position(workspace, "prep-z")
+        workspace = ew.save_prepared_position(
+            workspace,
+            position_id="prep-z",
+            source=current.source,
+            expected_position_revision=current.revision,
+            order_index=0,
+        )
+        moved = ew.get_prepared_position(workspace, "prep-z")
+        self.assertEqual(moved.revision, 1)
+        self.assertEqual(
+            tuple(item.position_id for item in ew.ordered_prepared_positions(workspace)),
+            ("prep-z", "prep-a", "prep-b"),
+        )
+
+
     def test_store_reopen_preserves_metadata_and_teacher_notes(self) -> None:
         changed = self._save_named()
         with tempfile.TemporaryDirectory() as tmp:
