@@ -41,6 +41,7 @@ env:
   V2_ACCEPTED_STAGE1_UI_BLOB: 16e78af6219c8c36f0c4026942ef1d02875a370a
   V2_ACCEPTED_P0G_STAGE1_UI_BLOB: c8629e690a10fa8e10a2053fdc85284f635d2beb
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
+  V2_ACCEPTED_PGN_DOCUMENT_NEW_POSITION_BLOB: e967712503a2b96d5878f74b257da6fc4a852ad4
   V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB: 6ec93d183da623c80c15b542fb7095725b91af52
 
 jobs:
@@ -108,6 +109,13 @@ jobs:
           fi
 
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
+          if printf '%s\n' "$changed" | grep -Fxq 'acs/pgn_document.py'; then
+            actual_pgn_document_blob="$(git rev-parse HEAD:acs/pgn_document.py)"
+            if [ "$actual_pgn_document_blob" != "$V2_ACCEPTED_PGN_DOCUMENT_NEW_POSITION_BLOB" ]; then
+              echo "Unexpected PGN document successor blob: $actual_pgn_document_blob" >&2
+              exit 1
+            fi
+          fi
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui.py'; then
             actual_stage1_ui_blob="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
             case "$actual_stage1_ui_blob" in
@@ -136,7 +144,7 @@ jobs:
           git diff --quiet "$scope_base" HEAD -- \
             run_accessible_chess.py acs/release_app.py \
             acs/stage1_release_ui_core.py \
-            acs/chesscore.py acs/gametree.py acs/pgn_document.py \
+            acs/chesscore.py acs/gametree.py \
             acs/pgn_service.py \
             web/stage1_board_actions.js \
             tools/qa

@@ -1,0 +1,110 @@
+name: PGN Document New Game Position Integrity
+
+on:
+  pull_request:
+    paths:
+      - "acs/pgn_document.py"
+      - "tests/test_pgn_document.py"
+      - "tests/test_pgn_document_context_atomicity.py"
+      - "tests/test_pgn_document_setup_fen_integrity.py"
+      - "tests/test_pgn_document_new_game_position_integrity.py"
+      - ".github/workflows/pgn-document-new-game-position-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-document-new-game-position-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove direct scope or live authority ancestry
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          authority_branch="fix/pgn-new-game-position-tag-integrity-20260929"
+          if [[ "$EVENT_NAME" == "pull_request" && "$PR_HEAD_REF" == "$authority_branch" ]]; then
+            base_branch="$PR_BASE_REF"
+            test -n "$base_branch"
+            git fetch --no-tags origin \
+              "+refs/heads/${base_branch}:refs/remotes/origin/${base_branch}"
+            base="$(git rev-parse "refs/remotes/origin/${base_branch}")"
+            git merge-base --is-ancestor "$base" HEAD
+            BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["BASE"]
+          expected = {
+              ".github/workflows/pgn-document-new-game-position-integrity.yml",
+              "acs/pgn_document.py",
+              "tests/test_pgn_document_new_game_position_integrity.py",
+          }
+          changed = {
+              line
+              for line in subprocess.check_output(
+                  ["git", "diff", "--name-only", f"{base}...HEAD"],
+                  text=True,
+              ).splitlines()
+              if line
+          }
+          if changed != expected:
+              raise SystemExit(
+                  "unexpected direct scope: "
+                  + repr(sorted(changed))
+                  + " expected="
+                  + repr(sorted(expected))
+              )
+          PY
+            git diff --check "$base"...HEAD
+          else
+            git fetch --no-tags origin \
+              "+refs/heads/${authority_branch}:refs/remotes/origin/${authority_branch}"
+            authority="$(git rev-parse "refs/remotes/origin/${authority_branch}")"
+            git merge-base --is-ancestor "$authority" HEAD
+            git diff --check "$authority"...HEAD
+          fi
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/pgn_document.py
+          acs/chesscore.py
+          acs/position_editor.py
+          tests/test_pgn_document_new_game_position_integrity.py
+
+      - name: Run focused PGN document integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_setup_fen_integrity
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document
+          tests.test_dev2_fen_atomicity
+          tests.test_position_editor
