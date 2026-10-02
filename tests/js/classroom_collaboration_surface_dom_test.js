@@ -197,12 +197,19 @@ check(
   root.querySelector("#collaboration-message-one").tagName === "LI",
   "chat messages must remain selectable list text"
 );
-const isolatedBody = root.querySelector("#collaboration-message-one").querySelector("BDI");
+const messageItem = root.querySelector("#collaboration-message-one");
+const messageBidi = messageItem.querySelectorAll("BDI");
 check(
-  isolatedBody !== null &&
-  isolatedBody.textContent === "e4 is the target." &&
-  isolatedBody.getAttribute("dir") === "auto",
-  "chat message text must remain selectable while isolated from bidi spillover"
+  messageBidi.length >= 2 &&
+  messageBidi[0].textContent === "Teacher" &&
+  messageBidi[0].getAttribute("dir") === "auto" &&
+  messageBidi[1].textContent === "e4 is the target." &&
+  messageBidi[1].getAttribute("dir") === "auto",
+  "chat sender and message text must remain selectable while isolated from bidi spillover"
+);
+check(
+  root.querySelector("#collaboration-chat-input").getAttribute("dir") === "auto",
+  "chat composer must use automatic text direction for multilingual keyboard input"
 );
 const messageOne = root.querySelector("#collaboration-message-one");
 const timestampDisclosure = messageOne.querySelector("DETAILS");
@@ -228,6 +235,15 @@ check(
 
 const fileItem = root.querySelector("#collaboration-file-a");
 check(fileItem && fileItem.tagName === "LI", "file metadata must be a semantic list item");
+const fileBidi = fileItem.querySelectorAll("BDI");
+check(
+  fileBidi.length >= 2 &&
+  fileBidi[0].textContent === "lesson.pgn" &&
+  fileBidi[0].getAttribute("dir") === "auto" &&
+  fileBidi[1].textContent === "Teacher" &&
+  fileBidi[1].getAttribute("dir") === "auto",
+  "file name and sender must remain selectable while isolated from bidi spillover"
+);
 const buttons = fileItem.querySelectorAll("BUTTON");
 check(buttons.length === 2, "clean stored file must expose explicit Save and Open only");
 check(
