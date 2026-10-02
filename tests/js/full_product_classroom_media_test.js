@@ -62,6 +62,7 @@ class FakeElement {
   }
 
   focus() {
+    if (this.disabled) return;
     this.ownerDocument.activeElement = this;
   }
 
@@ -240,9 +241,11 @@ async function run() {
 
   const failureButton = root.querySelector("#" + failureButtonId);
   assert.ok(failureButton);
+  documentRef.activeElement = null;
   failureButton.click();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(failureButton.disabled, false);
+  assert.equal(documentRef.activeElement, failureButton);
   assert.deepEqual(failureAnnouncements, ["Could not change media state."]);
   assert.doesNotMatch(root.textContent, /provider detail must not escape/);
 
@@ -259,7 +262,13 @@ async function run() {
   surface.mount(
     root,
     malformedSnapshot,
-    () => Promise.resolve(null),
+    () => Promise.resolve({
+      kind: "error",
+      payload: {
+        message: "Media controls are temporarily unavailable.",
+        focus_target: malformedButtonId
+      }
+    }),
     (message) => malformedAnnouncements.push(String(message)),
     "en",
     { binding_active: true, recovery_required: false }
@@ -267,10 +276,12 @@ async function run() {
 
   const malformedButton = root.querySelector("#" + malformedButtonId);
   assert.ok(malformedButton);
+  documentRef.activeElement = null;
   malformedButton.click();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(malformedButton.disabled, false);
-  assert.deepEqual(malformedAnnouncements, ["Could not change media state."]);
+  assert.equal(documentRef.activeElement, malformedButton);
+  assert.deepEqual(malformedAnnouncements, ["Media controls are temporarily unavailable."]);
 
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
