@@ -399,12 +399,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         item = self.webview().snapshot()["files"]["items"][0]
         self.assertFalse(item["can_cancel"])
-
-        cancelled = self.webview().dispatch(
-            "collaboration.file.cancel",
-            {"file_key": item["file_key"]},
-        )
-        self.assertEqual("error", cancelled.kind)
+        self.assertFalse(item["can_retry"])
+        self.assertFalse(item["can_save"])
+        self.assertFalse(item["can_open"])
+        self.assertNotIn("file_key", item)
         self.assertEqual([], self.files.cancel_calls)
 
     def test_blocked_failed_file_never_exposes_retry_action(self) -> None:
