@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import unittest
 
 from acs.classroom_join_credentials import ClassroomJoinGrant
@@ -118,7 +119,7 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
         self.assertEqual(access.api_key, "api-key-123")
         self.assertEqual(access.api_secret, "super-secret-456")
         self.assertEqual(access.identity, "student-42")
-        self.assertEqual(access.ttl, timedelta(seconds=49))
+        self.assertEqual(access.ttl, timedelta(seconds=48))
         self.assertEqual(
             access.grants.kwargs,
             {
@@ -128,7 +129,7 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
                 "can_publish": True,
                 "can_subscribe": True,
                 "can_publish_data": False,
-                "can_publish_sources": ["camera", "microphone", "screen_share"],
+                "can_publish_sources": ["microphone", "camera", "screen_share"],
                 "can_update_own_metadata": False,
                 "hidden": False,
             },
@@ -146,7 +147,7 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
         self.issue(self.issuer(), issued=issued, expires=expires)
         self.assertEqual(
             FakeAccessToken.instances[0].ttl,
-            timedelta(seconds=19),
+            timedelta(seconds=18),
         )
 
     def test_rejects_expired_future_and_overlong_grants_before_sdk(self):
@@ -248,6 +249,19 @@ class LiveKitClassroomJoinTokenIssuerTests(unittest.TestCase):
                     "token output is invalid",
                 ):
                     self.issue(self.issuer())
+
+    def test_workflow_tests_current_base_merge_not_stale_head(self):
+        source = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "livekit-classroom-join-provider.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("PR_HEAD_SHA:", source)
+        self.assertIn('git rev-parse HEAD^1', source)
+        self.assertIn('git rev-parse HEAD^2', source)
+        self.assertIn('$PR_BASE_SHA...$PR_HEAD_SHA', source)
+        self.assertNotIn('merge-base --is-ancestor "$PR_BASE_SHA" HEAD', source)
 
     def test_reviewed_sdk_version_is_explicit(self):
         self.assertEqual(LIVEKIT_API_VERSION, "1.2.1")
