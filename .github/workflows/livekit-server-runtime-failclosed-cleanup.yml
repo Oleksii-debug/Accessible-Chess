@@ -1,0 +1,87 @@
+name: LiveKit Server Runtime Fail-Closed Cleanup
+
+on:
+  pull_request:
+    branches:
+      - feature/livekit-classroom-server-runtime-20261002
+    paths:
+      - 'acs/livekit_classroom_server_runtime.py'
+      - 'tests/test_livekit_classroom_server_runtime.py'
+      - '.github/workflows/livekit-server-runtime-failclosed-cleanup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livekit-server-runtime-failclosed-cleanup-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  failclosed-cleanup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact successor scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/livekit-classroom-server-runtime-20261002"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/livekit-server-runtime-failclosed-cleanup.yml' \
+            'acs/livekit_classroom_server_runtime.py' \
+            'tests/test_livekit_classroom_server_runtime.py' | sort)"
+          test "$changed" = "$allowed"
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile fail-closed runtime
+        run: >-
+          python -m py_compile
+          acs/livekit_classroom_server_runtime.py
+          tests/test_livekit_classroom_server_runtime.py
+
+      - name: Run lifecycle and provider-adapter contracts
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_classroom_server_runtime
+          tests.test_livekit_classroom_moderation_admin
+          tests.test_classroom_moderation_rpc
+          tests.test_classroom_realtime_media
+
+      - name: Prove close-race and cleanup quarantine remain distinct
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq '"_closing", "_cleanup_required"' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'self._cleanup_required = True' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'LiveKit server runtime is closing' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'LiveKit server runtime requires cleanup' acs/livekit_classroom_server_runtime.py
+          grep -Fq "state='closing'" tests/test_livekit_classroom_server_runtime.py
+          grep -Fq "state='cleanup_required'" tests/test_livekit_classroom_server_runtime.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
