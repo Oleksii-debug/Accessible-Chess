@@ -429,6 +429,43 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("error", retried.kind)
         self.assertEqual([], self.files.retry_calls)
 
+    def test_terminal_failed_results_never_announce_file_success(self) -> None:
+        self.selected_file = self.root / "terminal-failure.pgn"
+        self.selected_file.write_text(
+            '[Event "Terminal failure"]\n\n1. e4 e5 *\n',
+            encoding="utf-8",
+        )
+        view = self.webview()
+
+        def failed_result(prepared):
+            return replace(
+                prepared.metadata,
+                transfer_state="failed",
+                scan_state="pending",
+            )
+
+        with mock.patch.object(self.files, "upload", side_effect=failed_result):
+            uploaded = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("error", uploaded.kind)
+        self.assertNotIn("announcement", uploaded.payload)
+        failed_item = uploaded.payload["collaboration"]["files"]["items"][0]
+        self.assertTrue(failed_item["can_retry"])
+        self.assertEqual(1, len(view._prepared))
+
+        with mock.patch.object(self.files, "retry", side_effect=failed_result):
+            retried = view.dispatch(
+                "collaboration.file.retry",
+                {"file_key": failed_item["file_key"]},
+            )
+
+        self.assertEqual("error", retried.kind)
+        self.assertNotIn("announcement", retried.payload)
+        self.assertTrue(
+            retried.payload["collaboration"]["files"]["items"][0]["can_retry"]
+        )
+        self.assertEqual(1, len(view._prepared))
+
     def test_blocked_retry_result_drops_local_source_path(self) -> None:
         self.selected_file = self.root / "blocked-after-retry.pgn"
         self.selected_file.write_text(
@@ -452,7 +489,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                 {"file_key": item["file_key"]},
             )
 
-        self.assertEqual("collaboration.file.retried", retried.kind)
+        self.assertEqual("error", retried.kind)
         self.assertEqual({}, view._prepared)
         self.assertFalse(
             retried.payload["collaboration"]["files"]["items"][0]["can_retry"]
