@@ -478,12 +478,17 @@ class ClassroomMediaHostTransactions:
     ) -> MediaProviderEffect | None:
         return self._prepare(lambda: self._controller.recover_device(kind, device_id))
 
-    def provider_failed(self, transaction_id: str) -> None:
-        """Discard only a provider effect whose failure is known."""
+    def provider_not_started(self, transaction_id: str) -> None:
+        """Discard an effect only when the provider was provably never invoked."""
 
         with self._lock:
             self._require_pending(transaction_id)
             self._pending = None
+
+    def provider_failed(self, transaction_id: str) -> None:
+        """Latch recovery after a provider failure with potentially partial effects."""
+
+        self.provider_outcome_unknown(transaction_id)
 
     def provider_outcome_unknown(self, transaction_id: str) -> None:
         """Latch recovery when provider success/failure cannot be established."""
