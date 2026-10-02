@@ -310,7 +310,7 @@ class ClassroomModerationRpcService:
                 except Exception as error:
                     raise ClassroomModerationRpcError(
                         "moderation replay ledger read failed"
-                    ) from error
+                    ) from None
                 if state is None:
                     pending_commands.append((command, fingerprint))
                     continue
@@ -334,7 +334,7 @@ class ClassroomModerationRpcService:
                 except Exception as error:
                     raise ClassroomModerationRpcError(
                         "moderation request is not authorized"
-                    ) from error
+                    ) from None
 
                 # Reserve every effect before the first provider mutation.
                 # A cross-instance conflicting fingerprint therefore fails
@@ -351,7 +351,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation replay ledger reservation failed"
-                        ) from error
+                        ) from None
                     state = _validated_ledger_state(
                         state,
                         expected_fingerprint=fingerprint,
@@ -368,7 +368,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation provider operation failed"
-                        ) from error
+                        ) from None
                     try:
                         self._ledger.commit(
                             room_id=parsed.room_id,
@@ -378,7 +378,7 @@ class ClassroomModerationRpcService:
                     except Exception as error:
                         raise ClassroomModerationRpcError(
                             "moderation replay ledger commit failed"
-                        ) from error
+                        ) from None
 
             response = json.dumps(
                 {
