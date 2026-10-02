@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from unittest import mock
 
 from acs.sound_profile_store import SoundProfileManager
 from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
@@ -98,6 +99,33 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         self.assertEqual("classic", request.pack_id)
         self.assertEqual("move", request.event_id)
         self.assertEqual(50, request.volume)
+
+    def test_failed_profile_write_preserves_confirmed_state_and_snapshot(self) -> None:
+        api, manager, _ = _api()
+        before = manager.current
+        storage = manager._storage
+
+        with mock.patch.object(
+            storage,
+            "write_profile_atomically",
+            side_effect=OSError("disk full"),
+        ):
+            result = api.sound_settings_command(
+                "set_event",
+                {"event_id": "capture", "enabled": False, "volume_percent": 35},
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(before, manager.current)
+        snapshot_result = api.sound_settings_snapshot()
+        self.assertTrue(snapshot_result["ok"])
+        capture = next(
+            item
+            for item in snapshot_result["snapshot"]["events"]
+            if item["event_id"] == "capture"
+        )
+        self.assertTrue(capture["enabled"])
+        self.assertEqual(100, capture["volume_percent"])
 
     def test_invalid_browser_sound_command_fails_closed(self) -> None:
         api, manager, _ = _api()
