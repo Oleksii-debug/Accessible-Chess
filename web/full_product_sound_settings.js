@@ -254,6 +254,36 @@
     group.appendChild(volume);
     eventControls.push({control: volume, mutation: true});
 
+    const selectedSound = documentRef.createElement("p");
+    selectedSound.id = "sound-event-" + safeId + "-sound";
+    selectedSound.textContent = text("Звук: ", "Sound: ") +
+      String(item.sound_id || eventId);
+    group.appendChild(selectedSound);
+
+    const choices = Array.isArray(item.sound_choices) ? item.sound_choices : [];
+    if (choices.length > 1) {
+      const choiceLabel = documentRef.createElement("label");
+      choiceLabel.setAttribute("for", "sound-event-" + safeId + "-choice");
+      choiceLabel.textContent = text("Вибір звуку", "Sound choice");
+      const choice = documentRef.createElement("select");
+      choice.id = "sound-event-" + safeId + "-choice";
+      choices.forEach(function (soundId) {
+        const option = documentRef.createElement("option");
+        option.value = String(soundId);
+        option.textContent = String(soundId);
+        option.selected = String(soundId) === String(item.sound_id || eventId);
+        choice.appendChild(option);
+      });
+      choice.value = String(item.sound_id || eventId);
+      choice.disabled = writesBlocked || busy;
+      choice.addEventListener("change", function () {
+        invoke("set_event", {event_id: eventId, sound_id: choice.value});
+      });
+      group.appendChild(choiceLabel);
+      group.appendChild(choice);
+      eventControls.push({control: choice, mutation: true});
+    }
+
     const preview = documentRef.createElement("button");
     preview.type = "button";
     preview.id = "sound-event-" + safeId + "-preview";
