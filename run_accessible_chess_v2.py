@@ -191,6 +191,6 @@ else:
     if not install_pywebview_safe_local_server_port():
         raise SystemExit("Accessible WebView2 local server could not be initialized.")
 
-    from acs.version2_upgrade_status_release import main
+    from acs.version2_livekit_release import main
 
     main()
