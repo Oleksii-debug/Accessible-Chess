@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import traceback
 import unittest
+from unittest.mock import patch
 
 from acs.classroom_join_credentials import ClassroomJoinGrant
 from acs.classroom_livekit_server import (
@@ -68,11 +69,12 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         FakeAccessToken.instances.clear()
         ExplodingAccessToken.instances.clear()
 
-    def issuer(self, api_module=FakeApi):
+    def issuer(self, api_module=FakeApi, *, now=NOW):
         return LiveKitJoinTokenIssuer(
             api_key="api-key-17",
             api_secret="server-secret-17",
             api_module=api_module,
+            now=lambda: now,
         )
 
     def issue(self, grant, *, issued=NOW, expires=None, issuer=None):
@@ -100,7 +102,7 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         self.assertEqual(minted.api_key, "api-key-17")
         self.assertEqual(minted.api_secret, "server-secret-17")
         self.assertEqual(minted.identity, "student-1")
-        self.assertEqual(minted.ttl, timedelta(seconds=60))
+        self.assertEqual(minted.ttl, timedelta(seconds=59))
         self.assertTrue(minted.grants.room_join)
         self.assertEqual(minted.grants.room, "room-1")
         self.assertFalse(minted.grants.room_admin)
@@ -141,6 +143,71 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
             FakeAccessToken.instances[0].grants.can_publish_sources,
             ["screen_share"],
         )
+
+    def test_provider_ttl_tracks_remaining_canonical_lifetime(self):
+        grant = ClassroomJoinGrant(
+            "room-1",
+            "student-1",
+            (MediaSource.MICROPHONE,),
+        )
+        delayed = self.issuer(now=NOW + timedelta(seconds=20))
+
+        self.issue(
+            grant,
+            issued=NOW,
+            expires=NOW + timedelta(seconds=60),
+            issuer=delayed,
+        )
+
+        self.assertEqual(
+            FakeAccessToken.instances[0].ttl,
+            timedelta(seconds=39),
+        )
+
+    def test_expired_or_too_close_grant_fails_before_provider(self):
+        grant = ClassroomJoinGrant(
+            "room-1",
+            "student-1",
+            (MediaSource.MICROPHONE,),
+        )
+        for current, fragment in (
+            (NOW - timedelta(seconds=1), "precedes canonical issuance"),
+            (NOW + timedelta(seconds=59), "expires before safe token minting"),
+            (NOW + timedelta(seconds=60), "expires before safe token minting"),
+        ):
+            with self.subTest(current=current):
+                FakeAccessToken.instances.clear()
+                issuer = self.issuer(now=current)
+                with self.assertRaisesRegex(
+                    ClassroomLiveKitServerError,
+                    fragment,
+                ):
+                    self.issue(
+                        grant,
+                        issued=NOW,
+                        expires=NOW + timedelta(seconds=60),
+                        issuer=issuer,
+                    )
+                self.assertEqual(FakeAccessToken.instances, [])
+
+    def test_runtime_sdk_version_pin_is_enforced_without_injected_provider(self):
+        issuer = LiveKitJoinTokenIssuer(
+            api_key="api-key-17",
+            api_secret="server-secret-17",
+            api_module=None,
+            now=lambda: NOW,
+        )
+        grant = ClassroomJoinGrant("room-1", "student-1", ())
+        with patch(
+            "acs.classroom_livekit_server.metadata.version",
+            return_value="9.9.9",
+        ):
+            with self.assertRaisesRegex(
+                ClassroomLiveKitServerError,
+                "version is not approved",
+            ):
+                self.issue(grant, issuer=issuer)
+        self.assertEqual(FakeAccessToken.instances, [])
 
     def test_noncanonical_grant_and_invalid_ttl_fail_before_provider(self):
         with self.assertRaises(ClassroomLiveKitServerError):
@@ -198,12 +265,13 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
 
         api_key = "test-api-key"
         api_secret = "test-server-secret-with-enough-entropy"
+        issued = datetime.now(timezone.utc)
         issuer = LiveKitJoinTokenIssuer(
             api_key=api_key,
             api_secret=api_secret,
             api_module=api,
+            now=lambda: issued,
         )
-        issued = datetime.now(timezone.utc)
         grant = ClassroomJoinGrant(
             "room-livekit-contract",
             "participant-livekit-contract",
