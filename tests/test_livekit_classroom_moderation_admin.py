@@ -313,6 +313,10 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
                 sources=(FakeTrackSource.MICROPHONE, FakeTrackSource.SCREEN_SHARE_AUDIO),
                 can_publish=True,
             ),
+            participant(
+                sources=(FakeTrackSource.MICROPHONE,),
+                can_publish=False,
+            ),
         )
         for current in cases:
             with self.subTest(permission=current.permission.__dict__):
