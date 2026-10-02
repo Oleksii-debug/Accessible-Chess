@@ -98,4 +98,5 @@ jobs:
           tests.test_position_editor
           tests.test_move_entry
           tests.test_position_text_authority
+          tests.test_accessible_webui
           tests.test_stage1_release_composition_ui
