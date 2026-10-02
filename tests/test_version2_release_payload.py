@@ -222,9 +222,19 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         ):
             self._prepare(output)
 
-        self.assertEqual(copytree.call_count, 2)
+        top_level_copies = [
+            call
+            for call in copytree.call_args_list
+            if call.args
+            and Path(call.args[0]) in {self.standalone, self.sounds}
+        ]
+        self.assertEqual(len(top_level_copies), 2)
+        self.assertEqual(
+            {Path(call.args[0]) for call in top_level_copies},
+            {self.standalone, self.sounds},
+        )
         self.assertTrue(
-            all(call.kwargs.get("symlinks") is True for call in copytree.call_args_list)
+            all(call.kwargs.get("symlinks") is True for call in top_level_copies)
         )
         copied_labels = [
             call.kwargs.get("label")
