@@ -37,6 +37,7 @@ class FakeElement {
     this.parentNode = null;
   }
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
+  removeAttribute(name) { delete this.attributes[String(name)]; }
   getAttribute(name) {
     return Object.prototype.hasOwnProperty.call(this.attributes, name)
       ? this.attributes[name] : null;
@@ -274,9 +275,10 @@ check(
 );
 check(
   throwingInput.readOnly &&
-  throwingSend.disabled &&
-  throwingForm.getAttribute("aria-busy") === "true",
-  "pending chat send must be single-flight and expose bounded busy state"
+  throwingSend.getAttribute("aria-disabled") === "true" &&
+  throwingForm.getAttribute("aria-busy") === "true" &&
+  throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
+  "pending chat send must be single-flight and expose bounded busy state without blurring controls"
 );
 
 input.value = "Prepared reply";
@@ -611,8 +613,9 @@ setImmediate(() => {
     );
     check(
       !throwingInput.readOnly &&
-      !throwingSend.disabled &&
+      throwingSend.getAttribute("aria-disabled") === null &&
       throwingForm.getAttribute("aria-busy") === "false" &&
+      throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "false" &&
       throwingInput.value === "Keep this draft",
       "bridge rejection must re-enable chat without discarding the draft"
     );
