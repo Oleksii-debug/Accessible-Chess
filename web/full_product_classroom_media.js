@@ -70,7 +70,12 @@
   function renderParticipant(item, invoke, announce, root, language) {
     const row = node("li");
     const id = safeId(item && item.dom_id);
-    if (id) row.id = id;
+    if (id) {
+      row.id = id;
+      // Programmatic recovery target only; do not add every participant row
+      // to the normal Tab order.
+      row.tabIndex = -1;
+    }
     const heading = node("h3", item && item.label || "");
     row.appendChild(heading);
     row.appendChild(node("p", item && item.summary || ""));
