@@ -119,7 +119,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.store.integrity_check()
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(
-                1,
+                2,
                 db.execute(
                     "SELECT value FROM classroom_chat_server_meta "
                     "WHERE key='schema_version'"
@@ -136,6 +136,7 @@ class ClassroomChatServerTests(unittest.TestCase):
                 "classroom_chat_server_messages",
                 "classroom_chat_server_permissions",
                 "classroom_chat_server_moderation_ops",
+                "classroom_chat_server_state_updates",
             }.issubset(tables)
         )
 
@@ -297,6 +298,102 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.assertTrue(history[0].hidden)
         self.assertEqual(sent.sequence_no, history[0].sequence_no)
         self.assertEqual(sent.sent_at_unix_ms, history[0].sent_at_unix_ms)
+
+        updates = self.service.state_updates_after(
+            trusted_caller_identity=STUDENT,
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].message_id, sent.message_id)
+        self.assertEqual(updates[0].revision, 0)
+        self.assertTrue(updates[0].hidden)
+        self.assertEqual(
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=0,
+                limit=10,
+            ),
+            (),
+        )
+
+    def test_repeated_hide_with_new_operation_does_not_duplicate_state_event(self) -> None:
+        sent = self.send(self.draft("m-repeat-hide"))
+        first = self.moderation(
+            "hide-first",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        second = self.moderation(
+            "hide-second",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(first,),
+        )
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(second,),
+        )
+        updates = self.store.state_updates_after(
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].revision, 0)
+
+    def test_state_update_history_is_bounded_validated_and_authorized(self) -> None:
+        sent = self.send(self.draft("m-state-history"))
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(
+                self.moderation(
+                    "hide-state-history",
+                    target=None,
+                    action=ChatModerationAction.HIDE_MESSAGE,
+                    allowed=None,
+                    message_id=sent.message_id,
+                ),
+            ),
+        )
+        self.assertEqual(
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=None,
+                limit=1,
+            )[0].message_id,
+            sent.message_id,
+        )
+        for after, limit in ((True, 1), (-1, 1), (None, 0), (None, True)):
+            with self.subTest(after=after, limit=limit):
+                with self.assertRaises(ClassroomChatServerError):
+                    self.service.state_updates_after(
+                        trusted_caller_identity=STUDENT,
+                        room_id=ROOM,
+                        after_revision=after,
+                        limit=limit,
+                    )
+        self.auth.reject_history = True
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "state history is not authorized",
+        ):
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=None,
+                limit=1,
+            )
 
     def test_hide_unknown_message_rolls_back_operation_id_for_retry(self) -> None:
         hide = self.moderation(
