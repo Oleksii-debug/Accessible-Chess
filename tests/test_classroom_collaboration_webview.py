@@ -796,6 +796,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("error", retried.kind)
         self.assertEqual([], self.files.retry_calls)
+        self.assertEqual({}, view._prepared)
+        self.assertNotIn(str(self.selected_file), repr(retried.payload))
 
     def test_terminal_failed_results_never_announce_file_success(self) -> None:
         self.selected_file = self.root / "terminal-failure.pgn"
