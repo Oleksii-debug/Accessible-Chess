@@ -479,6 +479,18 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 (game,),
             )
 
+    def test_empty_model_cannot_serialize_to_strictly_invalid_empty_pgn(self):
+        self.assert_code(
+            PgnRoundTripErrorCode.EMPTY_PGN,
+            serialize_pgn_text,
+            (),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.EMPTY_PGN,
+            serialize_pgn_bytes,
+            (),
+        )
+
     def test_programmatic_model_must_store_symbolic_nag_separately_from_san(self):
         game = PgnGame(
             tags={"Result": "*"},
