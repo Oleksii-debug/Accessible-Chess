@@ -271,6 +271,72 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(len(api._engine_clock_history), 2)
         self.assertEqual(api._engine_clock_history[-1].flagged, "b")
 
+
+    def test_accepted_human_move_survives_immediate_engine_flag(self) -> None:
+        sounds = _RecordingGameSounds()
+        api, engine = self.make_api(game_sounds=sounds)
+        self.assertTrue(api.start_engine_game("white", 5, 1, 0)["ok"])
+        session = api._engine_session
+        clock = session._clock
+        now = _FakeTime(clock._last_tick)
+        clock._now = now
+        clock.set_remaining("b", 1)
+        original_switch = clock.switch_after_move
+
+        def expire_next_player(side):
+            switched = original_switch(side)
+            if side == "w":
+                now.advance(0.002)
+                return clock.snapshot()
+            return switched
+
+        clock.switch_after_move = expire_next_player
+        played = api.make_move("e4")
+
+        self.assertTrue(played["ok"], played)
+        self.assertEqual(played["historyLength"], 1)
+        self.assertEqual(api.sans, ["e4"])
+        self.assertEqual(api.board.turn, "b")
+        self.assertEqual(played["engineGame"]["phase"], "finished")
+        self.assertEqual(session.snapshot().lifecycle.outcome.result, "1-0")
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(len(sounds.move_events), 1)
+        self.assertEqual(sounds.end_events, 1)
+        self.assertEqual(api._engine_clock_history[-1].flagged, "b")
+
+    def test_accepted_engine_move_survives_immediate_human_flag(self) -> None:
+        sounds = _RecordingGameSounds()
+        api, engine = self.make_api(game_sounds=sounds)
+        self.assertTrue(api.start_engine_game("white", 5, 1, 0)["ok"])
+        session = api._engine_session
+        clock = session._clock
+        now = _FakeTime(clock._last_tick)
+        clock._now = now
+        original_switch = clock.switch_after_move
+
+        def expire_next_player(side):
+            if side == "b":
+                clock.set_remaining("w", 1)
+            switched = original_switch(side)
+            if side == "b":
+                now.advance(0.002)
+                return clock.snapshot()
+            return switched
+
+        clock.switch_after_move = expire_next_player
+        played = api.make_move("e4")
+
+        self.assertTrue(played["ok"], played)
+        self.assertEqual(played["historyLength"], 2)
+        self.assertEqual(len(api.sans), 2)
+        self.assertEqual(api.board.turn, "w")
+        self.assertEqual(played["engineGame"]["phase"], "finished")
+        self.assertEqual(session.snapshot().lifecycle.outcome.result, "0-1")
+        self.assertEqual(len(engine.calls), 1)
+        self.assertEqual(len(sounds.move_events), 2)
+        self.assertEqual(sounds.end_events, 1)
+        self.assertEqual(api._engine_clock_history[-1].flagged, "w")
+
     def test_engine_timeout_while_thinking_finishes_without_error_phase(self) -> None:
         sounds = _RecordingGameSounds()
         api, engine = self.make_api(game_sounds=sounds)

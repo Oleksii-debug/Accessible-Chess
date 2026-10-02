@@ -55,6 +55,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         return {
             "history": self.review_history.export_tree(),
             "board_fen": self.board.fen(),
+            "moved_side": moved_side,
             "sans_len": len(self.sans),
             "move_sides_len": len(self.move_sides),
             "redo_meta": tuple(self.redo_meta),
@@ -222,6 +223,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             after_move.lifecycle.status is GameStatus.FINISHED
             and outcome is not None
             and outcome.reason is EndReason.TIMEOUT
+            and after_move.clock.flagged == moved_side
         ):
             if not self._rollback_expired_committed_move(context):
                 self._engine_game_phase = "error"
@@ -337,6 +339,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                 after_move.lifecycle.status is GameStatus.FINISHED
                 and outcome is not None
                 and outcome.reason is EndReason.TIMEOUT
+                and after_move.clock.flagged == context["moved_side"]
             ):
                 if not self._rollback_expired_committed_move(context):
                     self._engine_game_phase = "error"

@@ -309,6 +309,30 @@ class EngineGameSessionTests(unittest.TestCase):
         self.assertIsNone(after.lifecycle.outcome.winner)
         self.assertEqual(after.clock.flagged, "w")
 
+
+    def test_next_player_flag_does_not_reject_accepted_engine_move(self):
+        now = FakeTime()
+        session, _snap, state, engine, _analysis, _review = self.make_session(
+            engine_side="white", move="e2e4",
+            time_control=TimeControl(1_000), now=now, opponent_can_mate=True,
+        )
+        original_switch = session._clock.switch_after_move
+
+        def flag_opponent_after_switch(side):
+            original_switch(side)
+            now.advance(2)
+            return session._clock.snapshot()
+
+        session._clock.switch_after_move = flag_opponent_after_switch
+        accepted = session.request_engine_move(timeout_opponent_can_mate=False)
+
+        self.assertEqual(accepted.move, "e2e4")
+        self.assertEqual(state["moves"], ["e2e4"])
+        after = session.snapshot()
+        self.assertEqual(after.clock.flagged, "b")
+        self.assertEqual(after.lifecycle.outcome.result, "1-0")
+        self.assertEqual(len(engine.calls), 1)
+
     def test_no_legal_engine_move_uses_neutral_terminal_resolution(self):
         handoffs = []
 

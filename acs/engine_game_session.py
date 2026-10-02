@@ -436,7 +436,7 @@ class EngineGameSessionCoordinator:
         switched = self._clock.switch_after_move(moved_side)
         self._lifecycle.on_move_committed()
         if (
-            switched.flagged is not None
+            switched.flagged == moved_side
             and timeout_opponent_can_mate is not None
             and self._lifecycle.snapshot().status is GameStatus.ACTIVE
         ):
@@ -486,7 +486,7 @@ class EngineGameSessionCoordinator:
         switched = self._clock.switch_after_move(moved_side)
         self._lifecycle.on_move_committed()
         if (
-            switched.flagged is not None
+            switched.flagged == moved_side
             and timeout_opponent_can_mate is not None
             and self._lifecycle.snapshot().status is GameStatus.ACTIVE
         ):
