@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import tempfile
 import unittest
 import wave
+from unittest.mock import patch
 
 from scripts.build_user_sound_pack import (
     DEFAULT_EVENT_FILES,
@@ -40,7 +42,21 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             for index in range(filler_count):
                 self._write_wave(source / "ArchiveExtra" / f"extra-{index:03d}.wav")
 
-            report = build_sound_pack(Path(td) / "input", destination)
+            fingerprint_rows = []
+            for path in sorted(
+                (item for item in source.rglob("*") if item.is_file() and item.suffix.lower() == ".wav"),
+                key=lambda item: item.as_posix().casefold(),
+            ):
+                relative = path.relative_to(source).as_posix()
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                fingerprint_rows.append(f"{relative}\\0{digest}\\n".encode("utf-8"))
+            expected = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+
+            with patch(
+                "scripts.build_user_sound_pack.EXPECTED_SOURCE_INVENTORY_SHA256",
+                expected,
+            ):
+                report = build_sound_pack(Path(td) / "input", destination)
 
             self.assertEqual(report["file_count"], 330)
             self.assertEqual(
