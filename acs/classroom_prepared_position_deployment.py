@@ -444,7 +444,16 @@ def _position_mapping(value: object) -> dict[str, str]:
 
 
 def _assignment_id(batch_id: str, student_id: str) -> str:
-    digest = hashlib.sha256(f"{batch_id}:{student_id}".encode("utf-8")).hexdigest()[:24]
+    # Both canonical ids may contain ":", so delimiter concatenation is
+    # ambiguous (for example "a:b"+"c" vs "a"+"b:c"). NUL is outside the
+    # canonical id alphabet and therefore provides one unambiguous framing.
+    preimage = (
+        b"accessible-chess:prepared-position-assignment:v1\0"
+        + batch_id.encode("ascii")
+        + b"\0"
+        + student_id.encode("ascii")
+    )
+    digest = hashlib.sha256(preimage).hexdigest()[:24]
     return f"deploy-{digest}"
 
 
