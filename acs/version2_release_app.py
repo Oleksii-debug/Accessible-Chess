@@ -19,10 +19,9 @@ from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
-from .release_app import _sound_cache_dir, _user_root
+from .release_app import _user_root
 from .settings import Settings
-from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
-from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
+from .sound_profile_composition import create_local_sound_composition
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
@@ -408,26 +407,22 @@ def create_version2_release_application(
             language = UILanguage(language_value)
         except (TypeError, ValueError):
             language = UILanguage.UA
-        playback = sound_playback
-        if playback is None:
-            playback = WindowsSoundPlaybackAdapter(
-                PackagedSoundAssetResolver(app_dir),
-                cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
-            )
-        sound_runtime = SoundRuntime(
-            playback,
-            settings=lambda: SoundRuntimeSettings.from_mapping(settings.data),
+        sound = create_local_sound_composition(
+            application_dir=app_dir,
+            data_root=layout.root,
+            legacy_settings=settings.data,
+            asset_playback=sound_playback,
         )
-        game_sounds = GameSoundRuntime(sound_runtime)
 
         api = Version2ReleaseAccessibleChessAPI(
             continuous_analysis=continuous,
-            game_sounds=game_sounds,
-            sound_runtime=sound_runtime,
+            game_sounds=sound.game_runtime,
+            sound_runtime=sound.profiled_runtime,
             settings=settings,
             engine_play_service=engine_play,
             lang=language.value,
         )
+        api.bind_sound_settings_application(sound.settings)
     except Exception:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
