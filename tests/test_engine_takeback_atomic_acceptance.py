@@ -427,6 +427,71 @@ class TakebackRestoreFailureQaTests(unittest.TestCase):
         # Board/history is safe or claim the failed takeback succeeded.
         self.assertNotEqual(self.state_tuple(state)[0], ("e2e4",))
 
+    def test_unrecoverable_active_takeback_disables_all_moves_and_retries(self):
+        api = self.make_stage1()
+        session = api._engine_session
+        original_factory = session._takeback_transaction
+
+        def unsafe_transaction():
+            original = original_factory()
+            def failed_rollback():
+                raise RuntimeError("injected Board compensation failure")
+            return TakebackTransaction(original.undo, failed_rollback, original.commit)
+
+        session._takeback_transaction = unsafe_transaction
+        def failed_provider():
+            raise RuntimeError("injected post-undo clock lookup failure")
+        session._clock_restore_provider = failed_provider
+        rejected = api.engine_takeback()
+        self.assertFalse(rejected["ok"], rejected)
+        self.assertTrue(api._engine_takeback_unsafe)
+        projection = api._engine_game_projection()
+        self.assertFalse(projection["canRetry"], projection)
+        self.assertFalse(projection["canTakeback"], projection)
+        self.assertTrue(projection["canStop"], projection)
+        self.assertEqual(projection["status"], api._engine_game_error)
+
+        unsafe_board = api.board.fen()
+        for rejected_action in (
+            lambda: api.retry_engine_move(),
+            lambda: api.engine_takeback(),
+            lambda: api.make_move("e4"),
+            lambda: api.undo(),
+            lambda: api.redo(),
+            lambda: api.activate_square("e2"),
+        ):
+            self.assertFalse(rejected_action()["ok"])
+            self.assertEqual(api.board.fen(), unsafe_board)
+
+        self.assertTrue(api.stop_engine_game()["ok"])
+        self.assertFalse(api.make_move("e4")["ok"])
+        self.assertTrue(api._engine_takeback_unsafe)
+        self.assertTrue(api.new_game()["ok"])
+        self.assertFalse(api._engine_takeback_unsafe)
+        self.assertTrue(api.make_move("e4")["ok"])
+
+    def test_unrecoverable_finished_reset_keeps_safe_lock_and_stop(self):
+        api = self.make_stage1()
+        self.assertTrue(api.resign_engine_game()["ok"])
+        session = api._engine_session
+        with patch.object(session, "reset", side_effect=RuntimeError("reset failed after undo")):
+            with patch.object(
+                api, "_restore_engine_takeback_state",
+                side_effect=RuntimeError("Board recovery refused"),
+            ):
+                rejected = api.engine_takeback()
+
+        self.assertFalse(rejected["ok"], rejected)
+        self.assertTrue(api._engine_takeback_unsafe)
+        projection = api._engine_game_projection()
+        self.assertFalse(projection["canRetry"], projection)
+        self.assertFalse(projection["canTakeback"], projection)
+        self.assertTrue(projection["canStop"], projection)
+        self.assertFalse(api.engine_takeback()["ok"])
+        self.assertTrue(api.stop_engine_game()["ok"])
+        self.assertTrue(api.new_game()["ok"])
+        self.assertFalse(api._engine_takeback_unsafe)
+
     def test_stage1_second_undo_failure_then_clean_retry(self):
         api = self.make_stage1()
         original = self.stage1_state(api)
