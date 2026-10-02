@@ -99,35 +99,62 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
             ):
                 source_sources = shipping_release.final_product_resource_sources()
             source_labels = [label for label, _source in source_sources]
-            self.assertNotIn("V2 Classroom LiveKit SDK", source_labels)
+            self.assertNotIn("LiveKit browser SDK", source_labels)
             self.assertIn("V2 Classroom LiveKit adapter", source_labels)
 
             sdk_path = web / "vendor" / "livekit" / "livekit-client.umd.js"
             sdk_path.parent.mkdir(parents=True, exist_ok=True)
+            with patch.object(
+                education_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK not found",
+                ):
+                    shipping_release.final_product_resource_sources()
+
             sdk_source = "globalThis.LivekitClient = { Room: function Room() {} };\n"
             sdk_path.write_text(sdk_source, encoding="utf-8")
-
             with patch.object(
                 education_release._release_ui,
                 "_asset_root",
                 return_value=root,
             ):
                 packaged_sources = shipping_release.final_product_resource_sources()
+
             packaged_labels = [label for label, _source in packaged_sources]
-            sdk_index = packaged_labels.index("V2 Classroom LiveKit SDK")
-            self.assertEqual(
-                packaged_labels[sdk_index : sdk_index + 4],
-                [
-                    "V2 Classroom LiveKit SDK",
-                    "V2 Classroom LiveKit adapter",
-                    "V2 Classroom media surface",
-                    "V2 final-product bootstrap",
-                ],
+            sdk_index = packaged_labels.index("LiveKit browser SDK")
+            adapter_index = packaged_labels.index("Classroom LiveKit media adapter")
+            self.assertEqual(adapter_index, sdk_index + 1)
+            self.assertLess(
+                adapter_index,
+                packaged_labels.index("V2 Teacher surface"),
             )
+            self.assertNotIn("V2 Classroom LiveKit adapter", packaged_labels)
             self.assertEqual(
-                dict(packaged_sources)["V2 Classroom LiveKit SDK"],
+                dict(packaged_sources)["LiveKit browser SDK"],
                 sdk_source,
             )
+
+    def test_present_invalid_livekit_vendor_root_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            livekit_root = root / "web" / "vendor" / "livekit"
+            livekit_root.parent.mkdir(parents=True, exist_ok=True)
+            livekit_root.write_text("not a directory", encoding="utf-8")
+            with patch.object(
+                education_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "LiveKit browser SDK resource root is invalid",
+                ):
+                    shipping_release.final_product_resource_sources()
+
 
     def test_retained_gate_accepts_exact_classroom_media_successor_identities(self) -> None:
         workflow = P0G_WORKFLOW.read_text(encoding="utf-8")
