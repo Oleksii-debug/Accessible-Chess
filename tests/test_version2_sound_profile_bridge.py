@@ -190,6 +190,36 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
                 self.assertEqual(before, manager.current)
                 self.assertEqual([], playback.requests)
 
+    def test_partial_pack_failure_returns_current_authoritative_snapshot(self) -> None:
+        api, manager, _ = _api()
+        sound = api._sound_settings_application
+        self.assertIsNotNone(sound)
+
+        def partially_applied_uninstall(pack_id: str, *, language: str = "uk"):
+            self.assertEqual("soft", pack_id)
+            manager.set_pack("classic")
+            raise OSError("asset deletion failed after fallback persistence")
+
+        manager._current = manager.current.__class__(
+            pack_id="soft",
+            master_enabled=manager.current.master_enabled,
+            master_volume_percent=manager.current.master_volume_percent,
+            events=manager.current.events,
+        )
+        with mock.patch.object(sound, "uninstall_pack", side_effect=partially_applied_uninstall):
+            result = api.sound_settings_command("uninstall_pack", {"pack_id": "soft"})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual("classic", manager.current.pack_id)
+        self.assertEqual("classic", result["snapshot"]["active_pack_id"])
+        self.assertIn("refreshed", result["message"].lower())
+
+    def test_invalid_browser_command_error_includes_current_snapshot_when_readable(self) -> None:
+        api, manager, _ = _api()
+        result = api.sound_settings_command("set_master", {"enabled": None})
+        self.assertFalse(result["ok"])
+        self.assertEqual(manager.current.pack_id, result["snapshot"]["active_pack_id"])
+
     def test_invalid_browser_sound_command_fails_closed(self) -> None:
         api, manager, _ = _api()
         before = manager.current
