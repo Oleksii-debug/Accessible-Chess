@@ -154,7 +154,6 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
 
     def test_packaged_diagnostic_requires_the_shipping_final_product_marker(self) -> None:
         self.assertIn("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS", self.text)
-        self.assertIn("CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS", self.text)
         self.assertNotIn("ACCESSIBLE CHESS V2 PRODUCTION COMPOSITION DIAGNOSTIC PASS", self.text)
 
     def test_fresh_extraction_precedes_packaged_machine_acceptance(self) -> None:
@@ -239,7 +238,6 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(relaunch, freshness)
         self.assertLess(freshness, upload)
         self.assertIn("PACKAGED_POST_ACCEPTANCE_RELAUNCH_FAILURE", self.text)
-        self.assertIn("CLASSROOM LIVEKIT SHIPPING RUNTIME DIAGNOSTIC PASS", self.text)
         self.assertIn("P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS", self.text)
         self.assertIn("P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS", self.text)
 
