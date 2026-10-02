@@ -755,6 +755,11 @@ def _measure_line(
 
 
 def _measure_games(games: tuple[PgnGame, ...]) -> None:
+    if not games:
+        raise PgnRoundTripError(
+            "PGN serialization requires at least one game",
+            code=PgnRoundTripErrorCode.EMPTY_PGN,
+        )
     if len(games) > MAX_PGN_GAMES:
         _raise_limit(
             "PGN contains too many games",
