@@ -309,6 +309,30 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 (overflow,),
             )
 
+    def test_serialization_requires_explicit_matching_root_result(self):
+        missing_movetext_result = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(moves=[MoveNode("e4", move_number="1.")]),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (missing_movetext_result,),
+        )
+
+        mismatched_result = PgnGame(
+            tags={"Result": "1-0"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (mismatched_result,),
+        )
+
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
         game = PgnGame(
             tags={"Result": "*"},
