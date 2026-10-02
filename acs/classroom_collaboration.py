@@ -283,7 +283,7 @@ class ClassroomCollaborationController:
     ) -> tuple[str, ...]:
         if type(allowed) is not bool:
             raise CollaborationError("chat send permission must be boolean")
-        actor = _id(actor_id, "actor id")
+        actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
         targets = tuple(sorted(
             participant
@@ -316,7 +316,7 @@ class ClassroomCollaborationController:
         message_id: str,
         operation_id: str,
     ) -> ChatMessageMetadata:
-        actor = _id(actor_id, "actor id")
+        actor = self._local_moderation_actor(actor_id)
         self._require_moderator(actor)
         command = ChatModerationCommand(
             operation_id=operation_id,
@@ -557,7 +557,7 @@ class ClassroomCollaborationController:
             raise CollaborationError("chat transport omitted authoritative send timestamp")
 
     def _moderation_pair(self, actor_id: str, target_id: str) -> tuple[str, str]:
-        actor = _id(actor_id, "actor id")
+        actor = self._local_moderation_actor(actor_id)
         target = _id(target_id, "target id")
         if actor == target:
             raise CollaborationError("participant cannot moderate own chat permission")
@@ -572,6 +572,15 @@ class ClassroomCollaborationController:
         if actor_role is ClassroomRole.TEACHER and target_role is ClassroomRole.TEACHER:
             raise CollaborationError("teacher cannot moderate another teacher")
         return actor, target
+
+    def _local_moderation_actor(self, actor_id: str) -> str:
+        actor = _id(actor_id, "actor id")
+        if actor != self.local_participant_id:
+            raise CollaborationError(
+                "moderation actor must be the local participant"
+            )
+        self._require_member(actor)
+        return actor
 
     def _require_moderator(self, participant_id: str) -> None:
         role = self._role(participant_id)
