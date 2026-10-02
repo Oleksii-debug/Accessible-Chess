@@ -398,10 +398,19 @@ class ClassroomCollaborationController:
             )
         except CollaborationSequenceGapError:
             self.sync_files()
-            return self._store.register_attachment(
-                attachment,
-                max_room_bytes=self._quota.max_room_bytes,
-            )
+            try:
+                return self._store.register_attachment(
+                    attachment,
+                    max_room_bytes=self._quota.max_room_bytes,
+                )
+            except CollaborationStorageError as error:
+                raise CollaborationError(
+                    "live attachment sequence gap remains after recovery"
+                ) from error
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "remote attachment could not be reconciled"
+            ) from error
 
     def sync_files(self) -> tuple[AttachmentMetadata, ...]:
         self._require_member(self.local_participant_id)

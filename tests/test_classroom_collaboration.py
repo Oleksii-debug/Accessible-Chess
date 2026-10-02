@@ -1094,6 +1094,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             "clean",
         )
 
+    def test_live_file_gap_fails_closed_when_history_cannot_recover_prefix(self):
+        controller = self.controller("teacher-1")
+        late = AttachmentMetadata(
+            "late-live",
+            "room-1",
+            "student-2",
+            2,
+            "late.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room-1/late-live",
+            "stored",
+            "persistent",
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live attachment sequence gap remains after recovery",
+        ):
+            controller.receive_file(late)
+
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
     def test_file_history_gap_fails_without_persisting_valid_prefix(self):
         controller = self.controller("teacher-1")
         first = AttachmentMetadata(
