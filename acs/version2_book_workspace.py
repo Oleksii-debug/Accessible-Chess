@@ -28,12 +28,14 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 
 
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
+_MAX_BOOK_SEMANTIC_TAGS = 4_096
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
         "moves": "Ходи та варіанти",
         "players": "Гравці",
         "result": "Результат",
+        "metadata": "Дані партії",
         "comments": "Коментарі",
         "intro_comments": "Коментарі перед ходами",
         "outro_comments": "Коментарі після ходів",
@@ -48,6 +50,7 @@ _SEMANTIC_TREE_LABELS = {
         "moves": "Moves and variations",
         "players": "Players",
         "result": "Result",
+        "metadata": "Game metadata",
         "comments": "Comments",
         "intro_comments": "Comments before moves",
         "outro_comments": "Comments after moves",
@@ -105,6 +108,21 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return text
 
         labels = _SEMANTIC_TREE_LABELS[self.language]
+        if len(view.tags) > _MAX_BOOK_SEMANTIC_TAGS:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree exceeds the metadata tag limit"
+            )
+        metadata: list[dict[str, str]] = []
+        for raw_name, raw_value in view.tags:
+            if raw_name in {"White", "Black", "Result"}:
+                continue
+            name = safe(raw_name)
+            if not name:
+                raise _BookSemanticTreeError(
+                    "book semantic metadata tag name is empty"
+                )
+            metadata.append({"name": name, "value": safe(raw_value)})
+
         intro_comments = tuple(
             comment
             for comment in (safe(raw.text) for raw in game.line.leading_comments)
@@ -201,6 +219,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "players": players,
             "result_label": labels["result"],
             "result": safe(view.result),
+            "metadata_label": labels["metadata"],
+            "metadata": tuple(metadata),
             "comments_label": labels["comments"],
             "intro_comments_label": labels["intro_comments"],
             "intro_comments": intro_comments,
