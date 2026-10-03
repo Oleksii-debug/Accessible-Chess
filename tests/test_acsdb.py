@@ -263,7 +263,20 @@ class AcsDatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.store_game(object(), 0)
 
+        for bad_fen in (None, True, 1.0):
+            with self.subTest(api="position_key", value=repr(bad_fen)):
+                with self.assertRaises(TypeError):
+                    self.db.position_key(bad_fen)
+
+        class TextSubclass(str):
+            pass
+
+        with self.assertRaises(TypeError):
+            self.db.position_key(TextSubclass('8/8/8/8/8/8/8/8 w - - 0 1'))
+
         fen = '8/8/8/8/8/8/8/8 w - - 0 1'
+        with self.assertRaises(TypeError):
+            self.db.record_position(game_id, 0, None)
         with self.assertRaises(TypeError):
             self.db.record_position(True, 0, fen)
         with self.assertRaises(ValueError):
