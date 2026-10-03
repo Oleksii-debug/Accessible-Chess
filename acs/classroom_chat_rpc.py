@@ -23,7 +23,7 @@ from .classroom_collaboration_storage import (
     ChatMessageMetadata,
     ChatMessageStateUpdate,
 )
-from .classroom_domain import MAX_RECORDS_PER_COLLECTION
+from .classroom_domain import MAX_RECORDS_PER_COLLECTION, MAX_WIRE_INTEGER
 
 
 RPC_VERSION = 1
@@ -676,8 +676,10 @@ def _opaque_id(value: object, label: str) -> str:
 def _optional_sequence(value: object) -> int | None:
     if value is None:
         return None
-    if type(value) is not int or value < 0:
-        raise ClassroomChatRpcError("after_sequence must be null or non-negative integer")
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
+        raise ClassroomChatRpcError(
+            "after_sequence must be null or bounded non-negative integer"
+        )
     return value
 
 
@@ -690,9 +692,9 @@ def _history_limit(value: object) -> int:
 def _optional_revision(value: object) -> int | None:
     if value is None:
         return None
-    if type(value) is not int or value < 0:
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
         raise ClassroomChatRpcError(
-            "after_revision must be null or non-negative integer"
+            "after_revision must be null or bounded non-negative integer"
         )
     return value
 
