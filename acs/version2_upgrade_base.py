@@ -2930,9 +2930,12 @@ class Version2UpgradeCoordinator:
     def _verify(self, backup: Path, manifest: Mapping[str, object]) -> int:
         if self.layout.settings_path.exists():
             try:
-                raw = json.loads(
-                    self.layout.settings_path.read_text(encoding="utf-8")
+                settings_payload = _read_exact_regular_bytes(
+                    self.layout.settings_path,
+                    label="migrated settings readback",
+                    max_bytes=_MAX_RECOVERY_JSON_BYTES,
                 )
+                raw = json.loads(settings_payload.decode("utf-8"))
                 if (
                     not isinstance(raw, dict)
                     or raw.get("schema_version") != SETTINGS_SCHEMA_VERSION
