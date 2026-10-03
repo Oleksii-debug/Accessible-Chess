@@ -208,11 +208,21 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         )
         progress_before = reader.snapshot()
 
-        with patch(
-            "acs.version2_book_workspace._MAX_BOOK_SEMANTIC_ITEMS",
-            1,
+        with (
+            patch(
+                "acs.version2_book_workspace._MAX_BOOK_SEMANTIC_ITEMS",
+                1,
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "oversized semantic content must fail before presenter allocation"
+                ),
+            ) as presenter,
         ):
             snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
 
         self.assertNotIn("semantic_tree", snapshot["block"])
         self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())

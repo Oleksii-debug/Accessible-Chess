@@ -75,6 +75,34 @@ class _BookSemanticTreeError(ValueError):
     """Known fail-closed presentation error for otherwise canonical GameTree data."""
 
 
+def _semantic_item_count_within_limit(line: object, limit: int) -> bool:
+    """Bound Book semantic materialization before shared presenter allocation.
+
+    BookBoardWorkflow.semantic_game_snapshot has already returned a detached,
+    serialized/legality-validated canonical GameTree. Count only the presentation
+    nodes Books will create: every move plus one wrapper for each non-root RAV.
+    The traversal is iterative so this preflight adds no recursion pressure.
+    """
+    if type(limit) is not int or limit < 0:
+        raise ValueError("book semantic item limit is invalid")
+    count = 0
+    stack: list[tuple[object, bool]] = [(line, False)]
+    while stack:
+        current, include_variation = stack.pop()
+        if include_variation:
+            count += 1
+            if count > limit:
+                return False
+        moves = getattr(current, "moves", ())
+        for move in moves:
+            count += 1
+            if count > limit:
+                return False
+            for variation in getattr(move, "variations", ()):
+                stack.append((variation, True))
+    return True
+
+
 class Version2BookReaderPresenter(BookReaderPresenter):
     """V2 presentation reuses the canonical BookReader semantic block projection."""
 
@@ -96,6 +124,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if not _semantic_item_count_within_limit(
+            game.line,
+            _MAX_BOOK_SEMANTIC_ITEMS,
+        ):
+            raise _BookSemanticTreeError("book semantic GameTree item limit exceeded")
         view = PgnTreePresenter((game,), language=self.language).view()
         if view.game_index != 0:
             raise _BookSemanticTreeError("book semantic GameTree projection is unavailable")
