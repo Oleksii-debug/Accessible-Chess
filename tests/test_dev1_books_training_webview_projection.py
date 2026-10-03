@@ -77,6 +77,37 @@ class BookProjectionTests(unittest.TestCase):
                 replace(block, kind="Position", role="group", position_fen=None)
             )
 
+    def test_snapshot_rejects_heading_and_navigation_contract_drift(self) -> None:
+        paragraph = self.presenter.next_block()
+        with self.assertRaisesRegex(ValueError, "non-heading"):
+            self.projection._snapshot_from_block(replace(paragraph, heading_level=2))
+
+        with patch.object(
+            self.presenter,
+            "navigation_availability",
+            return_value={"previous": True},
+        ):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.snapshot()
+
+        invalid_flags = {
+            "previous": False,
+            "next": True,
+            "previous_heading": False,
+            "next_heading": True,
+            "previous_position": False,
+            "next_position": True,
+            "previous_game": False,
+            "next_game": 1,
+        }
+        with patch.object(
+            self.presenter,
+            "navigation_availability",
+            return_value=invalid_flags,
+        ):
+            with self.assertRaisesRegex(ValueError, "navigation availability flags"):
+                self.projection.snapshot()
+
     def test_open_position_keeps_fen_inside_python_dispatch_boundary(self) -> None:
         self.projection.next_position()
         event = self.projection.open_position()
