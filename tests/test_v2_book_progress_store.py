@@ -1611,6 +1611,27 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
         self.assertFalse(self.path.exists())
 
+    def test_observed_empty_lock_waits_for_creator_marker_without_mutation(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"")
+        completed = False
+
+        def complete_creator(_delay: float) -> None:
+            nonlocal completed
+            if not completed:
+                self.store._lock_path.write_bytes(b"\0")
+                completed = True
+
+        with mock.patch(
+            "acs.book_progress_store.time.sleep",
+            side_effect=complete_creator,
+        ):
+            self.assertFalse(self.store.has("book:one"))
+
+        self.assertTrue(completed)
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+        self.assertFalse(self.path.exists())
+
     def test_new_lock_fsync_failure_is_stable_and_retryable(self) -> None:
         with mock.patch(
             "acs.book_progress_store.os.fsync",
@@ -1690,8 +1711,12 @@ class BookProgressStoreTests(unittest.TestCase):
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"")
 
-        with self.assertRaises(BookProgressStoreError) as caught:
-            self.store.has("book:one")
+        with mock.patch(
+            "acs.book_progress_store.time.sleep",
+            return_value=None,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
 
         self.assertEqual(
             caught.exception.code,
@@ -2006,9 +2031,15 @@ class BookProgressStoreTests(unittest.TestCase):
             if os.fspath(path) == os.fspath(self.path):
                 path_checks += 1
                 if path_checks == 3:
-                    alias = mock.Mock(wraps=current)
-                    alias.st_ctime_ns = getattr(current, "st_ctime_ns", 0) + 1
-                    return alias
+                    class StatAlias:
+                        def __init__(self, base):
+                            self._base = base
+                            self.st_ctime_ns = getattr(base, "st_ctime_ns", 0) + 1
+
+                        def __getattr__(self, name):
+                            return getattr(self._base, name)
+
+                    return StatAlias(current)
             return current
 
         with (
