@@ -33,22 +33,38 @@ jobs:
 
       - name: Prove exact candidate and live base ancestry
         shell: bash
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected"
 
-          base_branch='${{ github.event.pull_request.base.ref }}'
-          if [ -z "$base_branch" ]; then
-            base_branch="$PRODUCT_BRANCH"
+          qualification_base=""
+          if test -n "${PR_HEAD_REF:-}" && test "$PR_HEAD_REF" = "$PRODUCT_BRANCH"; then
+            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+            live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+            test "$live_product" = "$actual"
+            qualification_base="$(git rev-parse HEAD^)"
+          elif test -n "${PR_BASE_REF:-}"; then
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
+            live_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+            git merge-base --is-ancestor "$live_base" HEAD
+            qualification_base="$live_base"
+          else
+            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+            live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+            git merge-base --is-ancestor "$live_product" HEAD
+            qualification_base="$live_product"
           fi
-          git fetch --no-tags origin "$base_branch"
-          live_base="$(git rev-parse "origin/$base_branch")"
-          git cat-file -e "$live_base^{commit}"
-          git merge-base --is-ancestor "$live_base" HEAD
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base" HEAD
+
+          test -n "$qualification_base"
+          git cat-file -e "$qualification_base^{commit}"
+          git merge-base --is-ancestor "$qualification_base" HEAD
+          test "$(git merge-base "$qualification_base" HEAD)" = "$qualification_base"
+          git diff --check "$qualification_base" HEAD
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
