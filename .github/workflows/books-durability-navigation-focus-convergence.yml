@@ -6,6 +6,8 @@ on:
       - 'fix/v2-release-navigation-schema-focus-20261003'
     paths:
       - '.github/workflows/books-durability-navigation-focus-convergence.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
       - 'acs/full_product_ui_shell.py'
       - 'acs/training_webview_projection.py'
       - 'acs/version2_application.py'
