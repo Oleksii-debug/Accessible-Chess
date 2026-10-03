@@ -539,6 +539,79 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertTrue(removed.ok)
         self.assertEqual(["legacy.ogg"], pack_storage.uninstalled)
 
+    def test_exact_catalog_incompatibility_reconciles_active_installed_pack_to_classic(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        entry = _entry(installed, compatible=False)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        reconciled = app.reconcile_active_profile()
+
+        self.assertEqual("classic", reconciled.pack_id)
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertFalse(item["compatible"])
+        self.assertFalse(item["installed_compatible"])
+
+    def test_incompatible_newer_catalog_version_does_not_disable_playable_installed_version(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        available = _manifest("soft", "2.0.0")
+        entry = _entry(available, compatible=False)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        reconciled = app.reconcile_active_profile()
+        selected = app.select_pack("soft", language="en")
+
+        self.assertEqual("soft", reconciled.pack_id)
+        self.assertTrue(selected.ok)
+        item = selected.snapshot["packs"][0]
+        self.assertFalse(item["compatible"])
+        self.assertTrue(item["installed_compatible"])
+        self.assertEqual("1.0.0", item["installed_version"])
+        self.assertFalse(item["can_install"])
+
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
         storage = _PackStorage([classic])
