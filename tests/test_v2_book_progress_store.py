@@ -2025,6 +2025,59 @@ class BookProgressStoreTests(unittest.TestCase):
 
         self.assertEqual(path_checks, 3)
 
+    def test_windows_descriptor_read_rejects_same_metadata_byte_drift(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        raw = b'{"schema_version":1,"entries":{}}'
+        drifted = raw[:-1] + b" "
+        self.assertEqual(len(raw), len(drifted))
+        self.path.write_bytes(raw)
+        real_fdopen = os.fdopen
+        read_calls = 0
+
+        class DriftingDescriptorStream:
+            def __init__(self, stream):
+                self._stream = stream
+
+            def __enter__(self):
+                self._stream.__enter__()
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                return self._stream.__exit__(exc_type, exc_value, traceback)
+
+            def read(self, limit):
+                nonlocal read_calls
+                read_calls += 1
+                return raw if read_calls == 1 else drifted
+
+            def seek(self, offset, whence=os.SEEK_SET):
+                return self._stream.seek(offset, whence)
+
+        def drifting_fdopen(descriptor, mode, closefd=True):
+            return DriftingDescriptorStream(
+                real_fdopen(descriptor, mode, closefd=closefd)
+            )
+
+        with (
+            mock.patch(
+                "acs.book_progress_store.os.fdopen",
+                side_effect=drifting_fdopen,
+            ),
+            mock.patch("acs.book_progress_store.os.name", "nt"),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store._read_raw_file_unlocked(
+                    self.path,
+                    missing_ok=False,
+                )
+
+        self.assertEqual(read_calls, 2)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_reads_do_not_reopen_path_after_file_identity_validation(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
