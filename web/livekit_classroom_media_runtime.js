@@ -181,6 +181,33 @@
     return invoke;
   }
 
+  function isCleanDisconnectedSnapshot(value) {
+    try {
+      exactKeys(
+        value,
+        [
+          "connected",
+          "cleanup_required",
+          "room_id",
+          "participant_id",
+          "microphone_enabled",
+          "camera_enabled",
+          "screen_share_enabled"
+        ],
+        "media transport snapshot"
+      );
+    } catch (_error) {
+      return false;
+    }
+    return value.connected === false &&
+      value.cleanup_required === false &&
+      value.room_id === null &&
+      value.participant_id === null &&
+      value.microphone_enabled === false &&
+      value.camera_enabled === false &&
+      value.screen_share_enabled === false;
+  }
+
   class ClassroomMediaProviderRuntime {
     constructor() {
       this._adapter = null;
@@ -462,8 +489,26 @@
     }
 
     async _deliverTransportLoss(invoke) {
-      const snapshot = this._transportLossSnapshot;
+      let snapshot = this._transportLossSnapshot;
       if (snapshot === null) return null;
+
+      // Provider-side room moves can leave a still-live Room that is no longer
+      // canonical. Retry only teardown until the adapter proves a clean
+      // disconnected state; never publish a false clean loss to Python.
+      if (snapshot.cleanup_required === true) {
+        if (this._adapter === null || typeof this._adapter.disconnect !== "function") {
+          return null;
+        }
+        try {
+          await this._adapter.disconnect();
+          snapshot = this._adapter.snapshot();
+          this._transportLossSnapshot = snapshot;
+        } catch (_error) {
+          return null;
+        }
+      }
+      if (!isCleanDisconnectedSnapshot(snapshot)) return null;
+
       let result;
       try {
         result = await invoke("media.provider_transport_lost", { snapshot });
