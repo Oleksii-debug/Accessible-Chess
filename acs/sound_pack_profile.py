@@ -113,6 +113,11 @@ class SoundPackProfileCoordinator:
         trusted, the already-persisted default-safe profile remains authoritative.
         """
 
+        # Reject known-ineligible candidates before touching persisted profile
+        # preferences. The manager repeats this preflight inside install() to
+        # close races that occur after this pure check.
+        self._packs.preflight_install(entry)
+
         original_profile = self._profiles.current
         profile = original_profile
         prepared_before_install = False
