@@ -152,20 +152,24 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("settings", self.app.shell.current_route.route_id)
         self.assertEqual((), self.app.drain_events())
 
-    def test_book_return_from_board_commits_progress_exactly_once(self):
+    def test_book_return_from_board_is_read_only_and_storage_independent(self):
         self._open_exercise_book()
         self.app._board_position_projector = lambda _fen: {"ok": True}
 
+        origin = self.app.reader.snapshot()
         opened = self.app.browser_command("books", "book.open_position", {})
         self.assertEqual("delegated", opened["kind"])
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.snapshot())
         self.app.drain_events()
 
         with patch.object(
             self.progress_store,
             "save",
-            wraps=self.progress_store.save,
+            side_effect=AssertionError(
+                "read-only Book Board return must not write progress"
+            ),
         ) as save:
             returned = self.app.browser_command(
                 "books",
@@ -174,9 +178,10 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
             )
 
         self.assertEqual("render", returned["kind"])
-        save.assert_called_once()
+        save.assert_not_called()
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.snapshot())
 
     def test_whitespace_training_continue_uses_outer_book_persistence_transaction(self):
         self._open_exercise_book()
