@@ -581,6 +581,33 @@ class SoundPackCatalogTests(unittest.TestCase):
             SoundEventPreference(False, 44),
         )
 
+    def test_conditional_uninstall_preserves_concurrent_replacement(self):
+        classic = make_manifest("classic")
+        planned = make_manifest("soft.wood", "1.0.0")
+        replacement = make_manifest("soft.wood", "2.0.0")
+        storage = FakeStorage({"classic": classic, "soft.wood": planned})
+        manager = SoundPackManager(
+            FakeDownloader(make_download(make_entry(planned))),
+            storage,
+        )
+        profile = SoundProfile(pack_id="soft.wood")
+
+        plan = manager.prepare_uninstall(
+            "soft.wood",
+            active_profile=profile,
+        )
+        self.assertEqual(planned, plan.expected_manifest)
+
+        storage.items["soft.wood"] = replacement
+
+        with self.assertRaisesRegex(
+            SoundPackInstallError,
+            "changed before conditional uninstall",
+        ):
+            manager.commit_uninstall(plan)
+
+        self.assertEqual(replacement, storage.items["soft.wood"])
+
     def test_external_fallback_allows_provider_storage_without_classic_manifest(self):
         active = make_manifest("soft.wood")
         storage = FakeStorage({"soft.wood": active})
