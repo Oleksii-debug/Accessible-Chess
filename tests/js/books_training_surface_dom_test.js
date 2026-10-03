@@ -34,6 +34,17 @@ class FakeElement {
     this.attributes[String(name)] = String(value);
   }
 
+  removeAttribute(name) {
+    delete this.attributes[String(name)];
+  }
+
+  getAttribute(name) {
+    const key = String(name);
+    return Object.prototype.hasOwnProperty.call(this.attributes, key)
+      ? this.attributes[key]
+      : null;
+  }
+
   addEventListener(name, listener) {
     this.listeners[String(name)] = listener;
   }
@@ -272,6 +283,10 @@ async function run() {
     announcements.slice(beforeThrowAnnouncements).includes("Transport failed"),
     "synchronous host failure was not announced accessibly"
   );
+  check(
+    throwingRoot.getAttribute("aria-busy") === null,
+    "synchronous host failure left the Book surface busy"
+  );
 
   const pendingRoot = new FakeElement("div");
   let pendingCalls = 0;
@@ -302,6 +317,10 @@ async function run() {
   );
   const pendingButton = find(pendingRoot, "BUTTON", "Next");
   pendingButton.listeners.click();
+  check(
+    pendingRoot.getAttribute("aria-busy") === "true",
+    "pending Book action did not expose aria-busy"
+  );
   pendingButton.listeners.click();
   check(pendingCalls === 1, "overlapping book action escaped the one-flight guard");
   check(typeof resolveFirstPending === "function", "pending host action was not captured");
@@ -315,9 +334,66 @@ async function run() {
   });
   await flushPromises();
   await flushPromises();
+  check(
+    pendingRoot.getAttribute("aria-busy") === null,
+    "completed Book action left the surface busy"
+  );
   find(pendingRoot, "BUTTON", "Next").listeners.click();
   check(pendingCalls === 2, "one-flight guard was not released after completion");
   await flushPromises();
+
+  const staleRoot = new FakeElement("div");
+  let resolveStale = null;
+  const staleInvoke = () => new Promise((resolve) => {
+    resolveStale = resolve;
+  });
+  window.AccessibleChessBookSurface.render(
+    staleRoot,
+    bookSnapshot(8, "Before external refresh"),
+    staleInvoke,
+    announce,
+    "book-block-8",
+    "Action failed"
+  );
+  find(staleRoot, "BUTTON", "Next").listeners.click();
+  check(
+    staleRoot.getAttribute("aria-busy") === "true",
+    "stale-result probe did not enter busy state"
+  );
+  window.AccessibleChessBookSurface.render(
+    staleRoot,
+    bookSnapshot(9, "Newer external refresh"),
+    staleInvoke,
+    announce,
+    "book-block-9",
+    "Action failed"
+  );
+  check(
+    document.activeElement === staleRoot.querySelector("#book-block-9"),
+    "external rerender did not publish the newer reading focus"
+  );
+  resolveStale({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(10, "Stale async result"),
+      focus_target: "book-block-10",
+      announcement: ""
+    }
+  });
+  await flushPromises();
+  await flushPromises();
+  check(
+    staleRoot.querySelector("#book-block-9") !== null,
+    "stale async result replaced the newer Book render"
+  );
+  check(
+    staleRoot.querySelector("#book-block-10") === null,
+    "stale async result escaped the render-epoch guard"
+  );
+  check(
+    staleRoot.getAttribute("aria-busy") === null,
+    "discarded stale result left the Book surface busy"
+  );
 
   const listSnapshot = bookSnapshot(4, "List");
   listSnapshot.block.role = "group";
