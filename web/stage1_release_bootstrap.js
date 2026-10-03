@@ -617,7 +617,7 @@ function installClockSoundPulse() {
 const soundLabels = {
     uk: {
         legend: 'Звуки', enabled: 'Увімкнути звуки', newGameAnimation: 'Анімація нової партії', volume: 'Гучність',
-        previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
+        previewEvent: 'Звук для налаштування', eventEnabled: 'Увімкнути цей звук', eventVolume: 'Гучність цього звуку', variant: 'Варіант звуку', preview: 'Прослухати',
         tickPolicy: 'Коли звучить годинник',
         tickLastSeconds: 'Останні секунд (0 — увесь час)',
         lowTimePolicy: 'Кому попереджати про малий час',
@@ -628,7 +628,7 @@ const soundLabels = {
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
-        previewEvent: 'Sound to preview', variant: 'Sound variant', preview: 'Preview',
+        previewEvent: 'Sound to configure', eventEnabled: 'Enable this sound', eventVolume: 'This sound volume', variant: 'Sound variant', preview: 'Preview',
         tickPolicy: 'When the clock sounds',
         tickLastSeconds: 'Last seconds (0 — whole game)',
         lowTimePolicy: 'Whose low time triggers a warning',
@@ -657,6 +657,19 @@ function renderSoundVariants() {
     const selected = currentSoundState && currentSoundState.selectedVariants
         ? currentSoundState.selectedVariants[eventId]
         : '1';
+    const eventEnabled = byId('sound-event-enabled');
+    const eventVolume = byId('sound-event-volume');
+    if (eventEnabled) {
+        eventEnabled.checked = !currentSoundState
+            || !currentSoundState.eventEnabled
+            || currentSoundState.eventEnabled[eventId] !== false;
+    }
+    if (eventVolume) {
+        const configured = currentSoundState && currentSoundState.eventVolumes
+            ? currentSoundState.eventVolumes[eventId]
+            : 100;
+        eventVolume.value = String(Number.isInteger(configured) ? configured : 100);
+    }
     variantSelect.textContent = '';
     const language = document.documentElement.lang === 'en' ? 'en' : 'uk';
     (Array.isArray(variants) && variants.length
@@ -678,6 +691,8 @@ async function loadSoundState() {
     const enabled = byId('sound-enabled');
     const newGameAnimation = byId('sound-newgame-animation');
     const volume = byId('sound-volume');
+    const eventEnabled = byId('sound-event-enabled');
+    const eventVolume = byId('sound-event-volume');
     const variant = byId('sound-variant');
     const tickPolicy = byId('sound-tick-policy');
     const tickLastSeconds = byId('sound-tick-last-seconds');
@@ -689,6 +704,8 @@ async function loadSoundState() {
         if (enabled) enabled.disabled = true;
         if (newGameAnimation) newGameAnimation.disabled = true;
         if (volume) volume.disabled = true;
+        if (eventEnabled) eventEnabled.disabled = true;
+        if (eventVolume) eventVolume.disabled = true;
         if (variant) variant.disabled = true;
         if (tickPolicy) tickPolicy.disabled = true;
         if (tickLastSeconds) tickLastSeconds.disabled = true;
@@ -720,6 +737,8 @@ function applySoundLanguage() {
     const newGameAnimationLabel = byId('sound-newgame-animation-label');
     const volumeLabel = byId('sound-volume-label');
     const eventLabel = byId('sound-preview-event-label');
+    const eventEnabledLabel = byId('sound-event-enabled-label');
+    const eventVolumeLabel = byId('sound-event-volume-label');
     const variantLabel = byId('sound-variant-label');
     const tickPolicyLabel = byId('sound-tick-policy-label');
     const tickLastSecondsLabel = byId('sound-tick-last-seconds-label');
@@ -731,6 +750,8 @@ function applySoundLanguage() {
     if (newGameAnimationLabel) newGameAnimationLabel.textContent = t.newGameAnimation;
     if (volumeLabel) volumeLabel.textContent = t.volume;
     if (eventLabel) eventLabel.textContent = t.previewEvent;
+    if (eventEnabledLabel) eventEnabledLabel.textContent = t.eventEnabled;
+    if (eventVolumeLabel) eventVolumeLabel.textContent = t.eventVolume;
     if (variantLabel) variantLabel.textContent = t.variant;
     if (tickPolicyLabel) tickPolicyLabel.textContent = t.tickPolicy;
     if (tickLastSecondsLabel) tickLastSecondsLabel.textContent = t.tickLastSeconds;
@@ -879,6 +900,32 @@ function installSoundSettings() {
     previewRow.append(eventLabel, eventSelect);
     fieldset.appendChild(previewRow);
 
+    const eventEnabledRow = document.createElement('div');
+    eventEnabledRow.className = 'row';
+    const eventEnabled = document.createElement('input');
+    eventEnabled.type = 'checkbox';
+    eventEnabled.id = 'sound-event-enabled';
+    const eventEnabledLabel = document.createElement('label');
+    eventEnabledLabel.id = 'sound-event-enabled-label';
+    eventEnabledLabel.htmlFor = eventEnabled.id;
+    eventEnabledRow.append(eventEnabled, eventEnabledLabel);
+    fieldset.appendChild(eventEnabledRow);
+
+    const eventVolumeRow = document.createElement('div');
+    eventVolumeRow.className = 'row';
+    const eventVolumeLabel = document.createElement('label');
+    eventVolumeLabel.id = 'sound-event-volume-label';
+    eventVolumeLabel.htmlFor = 'sound-event-volume';
+    const eventVolume = document.createElement('input');
+    eventVolume.id = 'sound-event-volume';
+    eventVolume.type = 'number';
+    eventVolume.min = '0';
+    eventVolume.max = '100';
+    eventVolume.step = '5';
+    eventVolume.inputMode = 'numeric';
+    eventVolumeRow.append(eventVolumeLabel, eventVolume);
+    fieldset.appendChild(eventVolumeRow);
+
     const variantRow = document.createElement('div');
     variantRow.className = 'row';
     const variantLabel = document.createElement('label');
@@ -1016,6 +1063,43 @@ function installSoundSettings() {
 
     eventSelect.addEventListener('change', () => {
         renderSoundVariants();
+    });
+
+    eventEnabled.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_sound_event_enabled !== 'function') return;
+        try {
+            const result = await a.set_sound_event_enabled(
+                eventSelect.value,
+                !!eventEnabled.checked
+            );
+            currentSoundState = result;
+            renderSoundVariants();
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    eventVolume.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_sound_event_volume !== 'function') return;
+        const value = Number(eventVolume.value);
+        try {
+            const result = await a.set_sound_event_volume(
+                eventSelect.value,
+                Number.isInteger(value) ? value : -1
+            );
+            currentSoundState = result;
+            renderSoundVariants();
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
     });
 
     variantSelect.addEventListener('change', async () => {
