@@ -164,10 +164,21 @@ class ChatTransportPort(Protocol):
 
 
 class FileTransferPort(Protocol):
-    """Server-authoritative file metadata plus opaque-byte transfer boundary."""
+    """Server-authoritative file metadata plus opaque-byte transfer boundary.
+
+    The transport owns authoritative room-quota enforcement. It must atomically
+    reject a new upload with CollaborationQuotaError when accepting that
+    attachment would exceed its server-configured room quota. Client-side quota
+    checks are advisory safety only and must not be trusted as room authority.
+    Retry of the same attachment must not double-count already stored bytes.
+
+    attachment_id is a server idempotency key: immutable identity (room, sender,
+    display name, media type, size, hash, object key and retention) must never be
+    replaced by a different payload under the same ID.
+    """
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        """Upload bytes and return authoritative metadata, including room sequence."""
+        """Upload bytes, enforce server policy, and return authoritative metadata."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
@@ -610,6 +621,14 @@ class ClassroomCollaborationController:
         try:
             result = self._files.upload(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                uploading.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 uploading.attachment_id,
@@ -646,6 +665,14 @@ class ClassroomCollaborationController:
         try:
             result = self._files.retry(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                current.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 current.attachment_id,
@@ -800,11 +827,9 @@ class ClassroomCollaborationController:
                 "attachment state response is invalid or too large"
             )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
-        # State updates are not attachment-discovery authority. Only metadata
-        # already proven authoritative locally, or metadata present in this
-        # authoritative history page, may be targeted. In particular, a stranded
-        # local pending/uploading/failed row must never be promoted to stored by
-        # the mutable state stream without its immutable server history record.
+        # Mutable state is never attachment-discovery authority. Only
+        # immutable server history already proven authoritative locally, or the
+        # authoritative history page being reconciled now, may be targeted.
         known_attachment_ids = {
             item.attachment_id
             for item in authoritative
@@ -970,10 +995,9 @@ class ClassroomCollaborationController:
         self,
         result: AttachmentMetadata,
     ) -> AttachmentMetadata:
-        # A successful upload can legitimately receive a later room sequence
-        # when other clients published files concurrently. Never publish that
-        # later row into a locally gapped history: first reconcile the missing
-        # authoritative prefix from the provider.
+        # Other clients may have claimed earlier authoritative room sequences
+        # while this upload was in flight. Reconcile that immutable history
+        # prefix before publishing our later server-assigned sequence locally.
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
