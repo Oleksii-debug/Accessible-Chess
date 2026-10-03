@@ -648,9 +648,20 @@ class BookProgressStore:
                 self._cleanup_stale_temps_unlocked()
                 yield
             finally:
+                # The protected body is the transaction authority. A save can
+                # already have atomically published primary progress bytes when
+                # lock-release cleanup runs. Cleanup failure cannot undo that
+                # publication, so do not turn committed state into a false
+                # save failure or mask an earlier body exception.
                 if acquired:
-                    self._unlock_file_descriptor(descriptor)
-                os.close(descriptor)
+                    try:
+                        self._unlock_file_descriptor(descriptor)
+                    except Exception:
+                        pass
+                try:
+                    os.close(descriptor)
+                except Exception:
+                    pass
 
     def _atomic_publish_bytes_unlocked(self, target: Path, encoded: bytes) -> None:
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
