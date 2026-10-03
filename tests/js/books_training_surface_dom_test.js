@@ -97,6 +97,22 @@ function find(root, tagName, text) {
   }) || null;
 }
 
+function findRole(root, role) {
+  return root.descendants().find(function (item) {
+    return item.getAttribute("role") === role;
+  }) || null;
+}
+
+function pressKey(target, container, key) {
+  let prevented = false;
+  container.listeners.keydown({
+    key: key,
+    target: target,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
+
 function trainingSnapshot() {
   return {
     document: { lang: "en", landmark: "main" },
@@ -235,6 +251,50 @@ async function run() {
   const firstAnswer = trainingRoot.querySelector("#training-answer");
   check(firstAnswer !== null, "training answer input missing");
   check(document.activeElement === firstAnswer, "initial training focus missing");
+  const trainingToolbar = findRole(trainingRoot, "toolbar");
+  check(trainingToolbar !== null, "training toolbar missing");
+  const trainingToolbarButtons = trainingToolbar.children.filter(function (item) {
+    return item.tagName === "BUTTON";
+  });
+  check(
+    trainingToolbarButtons[0].tabIndex === 0,
+    "first enabled training toolbar action must be tabbable"
+  );
+  check(trainingToolbarButtons[3].disabled, "training continue fixture must stay disabled");
+  check(
+    trainingToolbarButtons[3].tabIndex === -1,
+    "disabled training toolbar action must not enter roving order"
+  );
+  trainingToolbarButtons[0].focus();
+  check(
+    pressKey(trainingToolbarButtons[0], trainingToolbar, "ArrowRight"),
+    "training toolbar ArrowRight must be handled"
+  );
+  check(
+    document.activeElement === trainingToolbarButtons[1],
+    "training toolbar ArrowRight did not move focus"
+  );
+  check(
+    trainingToolbarButtons[1].tabIndex === 0 &&
+      trainingToolbarButtons[0].tabIndex === -1,
+    "training toolbar roving tab stop did not follow focus"
+  );
+  check(
+    pressKey(trainingToolbarButtons[1], trainingToolbar, "End"),
+    "training toolbar End must be handled"
+  );
+  check(
+    document.activeElement === trainingToolbarButtons[4],
+    "training toolbar End did not skip disabled action and reach last enabled action"
+  );
+  check(
+    pressKey(trainingToolbarButtons[4], trainingToolbar, "ArrowRight"),
+    "training toolbar wrap key must be handled"
+  );
+  check(
+    document.activeElement === trainingToolbarButtons[0],
+    "training toolbar did not wrap to first enabled action"
+  );
   firstAnswer.value = "d4";
   const firstForm = find(trainingRoot, "FORM");
   firstForm.listeners.submit({ preventDefault: () => {} });
@@ -358,6 +418,37 @@ async function run() {
   check(bookMain !== null, "book main landmark missing");
   check(bookMain.attributes.lang === "en", "book document language missing");
   check(document.activeElement === bookRoot.querySelector("#book-block-2"), "book focus missing");
+  const bookToolbar = findRole(bookRoot, "toolbar");
+  check(bookToolbar !== null, "book toolbar missing");
+  const bookToolbarButtons = bookToolbar.children.filter(function (item) {
+    return item.tagName === "BUTTON";
+  });
+  check(bookToolbarButtons[0].disabled, "book previous fixture must stay disabled");
+  check(
+    bookToolbarButtons[0].tabIndex === -1,
+    "disabled book action must not enter roving order"
+  );
+  check(
+    bookToolbarButtons[1].tabIndex === 0,
+    "first enabled book action must be the toolbar tab stop"
+  );
+  bookToolbarButtons[1].focus();
+  check(
+    pressKey(bookToolbarButtons[1], bookToolbar, "ArrowLeft"),
+    "book toolbar ArrowLeft must be handled"
+  );
+  check(
+    document.activeElement === bookToolbarButtons[10],
+    "book toolbar ArrowLeft did not wrap to last enabled action"
+  );
+  check(
+    pressKey(bookToolbarButtons[10], bookToolbar, "Home"),
+    "book toolbar Home must be handled"
+  );
+  check(
+    document.activeElement === bookToolbarButtons[1],
+    "book toolbar Home did not return to first enabled action"
+  );
   find(bookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
