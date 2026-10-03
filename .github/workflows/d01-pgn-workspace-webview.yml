@@ -20,6 +20,7 @@ on:
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
       - 'tests/test_v2_board_analysis_hotkey_feedback.py'
+      - 'tests/test_d01_current_stage1_core_gate.py'
       - 'web/full_product_pgn.js'
       - 'web/index.html'
       - 'run_accessible_chess.py'
@@ -156,14 +157,18 @@ jobs:
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # Stage1 core is frozen on Product, except the exact independently-qualified
-          # takeback-recovery successor admitted only on the canonical integration lane.
+          # Stage1 core may be the frozen Product blob or the exact
+          # independently-qualified takeback-recovery successor. Blob identity,
+          # not a transient branch name, is the fail-closed authority.
           stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
-            test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
-          else
-            test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
-          fi
+          case "$stage1_core_actual" in
+            b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|b579ca0f59ba20f6b69b3a4b7d89589256d54852)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/stage1_release_ui_core.py actual=%s\n' "$stage1_core_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # The shared semantic document may be the pre-P0-G Product blob,
           # either reviewed event-aware P0-G predecessor, the exact current
@@ -275,6 +280,7 @@ jobs:
           tests.test_whole_product_user_journey
           tests.test_keybindings
           tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_d01_current_stage1_core_gate
 
       - name: Prove exact current PgnWorkspace to one D01 action path
         shell: bash
