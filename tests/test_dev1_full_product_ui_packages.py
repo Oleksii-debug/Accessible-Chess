@@ -55,7 +55,7 @@ class FullProductActionTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592|b0b92c755f23df170fe90cb2380baa10796028cd",
+            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592|b0b92c755f23df170fe90cb2380baa10796028cd|2ffd5d89988c82f5347d04144dd5575ed0700827",
             source,
         )
         self.assertIn(

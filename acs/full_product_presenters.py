@@ -52,8 +52,8 @@ class PgnTreeItem:
     parent_id: str | None
     san: str | None = None
     comments: tuple[str, ...] = ()
-    trailing_comments: tuple[str, ...] = ()
     nags: tuple[str, ...] = ()
+    trailing_comments: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
