@@ -652,6 +652,7 @@
         const parsed = providerInstruction(current);
         return this._providerFailed(invoke, parsed.transaction);
       } finally {
+        this._activeTransaction = null;
         this._busy = false;
       }
     }
