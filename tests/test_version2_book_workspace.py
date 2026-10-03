@@ -42,7 +42,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
     def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
         cases = (
             Game(
-                pgn='[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
+                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
                 title="Annotated game",
                 block_id="game",
             ),
@@ -66,6 +66,17 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(tree["result"], "*")
                 self.assertIn(" — ", tree["players"])
                 self.assertNotIn("?", tree["players"])
+                if isinstance(semantic, Game):
+                    details = {
+                        item["label"]: item["value"]
+                        for item in tree["details"]
+                    }
+                    self.assertEqual(details["Подія"], "Accessible Cup")
+                    self.assertEqual(details["Дата"], "2026.10.03")
+                    self.assertEqual(details["Тур"], "3")
+                    self.assertNotIn("private", json.dumps(tree["details"]).casefold())
+                else:
+                    self.assertEqual(tree["details"], ())
                 self.assertEqual(len(tree["intro_comments"]), 1)
                 self.assertIn("Intro", tree["intro_comments"][0])
                 self.assertEqual(len(tree["outro_comments"]), 1)
@@ -95,6 +106,11 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertIn("$1", tree["items"][2]["label"])
                 self.assertEqual(tree["items"][-1]["depth"], 0)
                 self.assertIsNone(tree["items"][-1]["parent_index"])
+                for item in tree["items"]:
+                    if item["kind"] == "move":
+                        self.assertEqual(item["depth"] % 2, 0)
+                    else:
+                        self.assertEqual(item["depth"] % 2, 1)
                 serialized = json.dumps(tree, ensure_ascii=False)
                 self.assertNotIn("[Result", serialized)
                 self.assertNotIn("private", serialized.casefold())

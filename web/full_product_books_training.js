@@ -3,6 +3,7 @@
 
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
+  const MAX_BOOK_SEMANTIC_DETAILS = 4;
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -62,6 +63,39 @@
     });
   }
 
+  function semanticDetails(value, budget) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new TypeError("book semantic details must be an array");
+    if (value.length > MAX_BOOK_SEMANTIC_DETAILS) {
+      throw new TypeError("book semantic details limit exceeded");
+    }
+    return value.map(function (item) {
+      if (!item || typeof item !== "object") {
+        throw new TypeError("book semantic detail must be an object");
+      }
+      const label = semanticText(item.label, "book semantic detail label", budget);
+      const detailValue = semanticText(item.value, "book semantic detail value", budget);
+      if (!label.trim() || !detailValue.trim()) {
+        throw new TypeError("book semantic detail must contain visible text");
+      }
+      return { label: label, value: detailValue };
+    });
+  }
+
+  function appendSemanticDetails(container, label, items, headingId) {
+    if (!items.length) return;
+    const heading = node("h4", label);
+    heading.id = headingId;
+    const list = node("dl");
+    list.setAttribute("aria-labelledby", heading.id);
+    items.forEach(function (item) {
+      list.appendChild(node("dt", item.label));
+      list.appendChild(node("dd", item.value));
+    });
+    container.appendChild(heading);
+    container.appendChild(list);
+  }
+
   function appendSemanticTextList(container, label, items, headingId) {
     if (!items.length) return;
     const heading = node("h4", label || "");
@@ -90,6 +124,9 @@
     );
     const resultLabel = semanticOptionalText(
       semantic.result_label, "book semantic result label", budget, "Result"
+    );
+    const detailsLabel = semanticOptionalText(
+      semantic.details_label, "book semantic details label", budget, "Game details"
     );
     const commentsLabel = semanticOptionalText(
       semantic.comments_label, "book semantic comments label", budget, ""
@@ -126,6 +163,13 @@
     if (result) {
       container.appendChild(node("p", resultLabel + ": " + result));
     }
+
+    appendSemanticDetails(
+      container,
+      detailsLabel,
+      semanticDetails(semantic.details, budget),
+      String(block.dom_id || "") + "-semantic-details-heading"
+    );
 
     appendSemanticTextList(
       container,
@@ -169,6 +213,12 @@
       if (!Number.isSafeInteger(depth) || depth < 0) {
         throw new TypeError("book semantic item depth is invalid");
       }
+      if (
+        (item.kind === "move" && depth % 2 !== 0) ||
+        (item.kind === "variation" && depth % 2 !== 1)
+      ) {
+        throw new TypeError("book semantic item kind/depth alternation is invalid");
+      }
       if ((index === 0 && depth !== 0) || (index > 0 && depth > previousDepth + 1)) {
         throw new TypeError("book semantic item depth is not contiguous");
       }
@@ -186,6 +236,13 @@
           activeAncestorIndices[depth - 1] !== parentIndex
         ) {
           throw new TypeError("book semantic parent index is invalid");
+        }
+        const parentKind = items[parentIndex].kind;
+        if (
+          (item.kind === "variation" && parentKind !== "move") ||
+          (item.kind === "move" && parentKind !== "variation")
+        ) {
+          throw new TypeError("book semantic parent kind is invalid");
         }
       }
       while (lists.length > depth + 1) lists.pop();

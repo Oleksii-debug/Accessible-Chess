@@ -160,6 +160,11 @@ function semanticGameSnapshot() {
     players: "Alpha — Beta",
     result_label: "Result",
     result: "*",
+    details_label: "Game details",
+    details: [
+      { label: "Event", value: "Accessible Cup" },
+      { label: "Date", value: "2026.10.03" }
+    ],
     comments_label: "Comments",
     intro_comments_label: "Comments before moves",
     intro_comments: ["Opening <script>bad()</script>"],
@@ -388,6 +393,13 @@ async function run() {
     "semantic Game focus target lacks an accessible name");
   check(find(semanticBlock, "P", "Players: Alpha — Beta") !== null,
     "semantic Game player identity is missing");
+  const detailsHeading = find(semanticBlock, "H4", "Game details");
+  check(detailsHeading !== null, "semantic Game details heading is missing");
+  const detailsList = find(semanticBlock, "DL");
+  check(detailsList !== null && detailsList.attributes["aria-labelledby"] === detailsHeading.id,
+    "semantic Game metadata lacks native definition-list naming");
+  check(find(detailsList, "DT", "Event") !== null && find(detailsList, "DD", "Accessible Cup") !== null,
+    "semantic Game event metadata is missing");
   check(find(semanticBlock, "H4", "Moves and variations") !== null,
     "semantic move heading is missing");
   check(find(semanticBlock, "SPAN", "1. e4") !== null,
@@ -544,6 +556,48 @@ async function run() {
     "malformed after-move comments must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed after-move comments must not steal reading focus");
+
+  const malformedAlternation = semanticGameSnapshot();
+  malformedAlternation.block.semantic_tree.items[1].kind = "move";
+  let malformedAlternationRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedAlternation,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedAlternationRejected = true;
+  }
+  check(malformedAlternationRejected, "invalid move/variation alternation must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "invalid semantic alternation must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "invalid semantic alternation must not steal reading focus");
+
+  const malformedDetails = semanticGameSnapshot();
+  malformedDetails.block.semantic_tree.details = [{ label: "Event", value: { text: "bad" } }];
+  let malformedDetailsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedDetails,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedDetailsRejected = true;
+  }
+  check(malformedDetailsRejected, "malformed semantic metadata must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed semantic metadata must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed semantic metadata must not steal reading focus");
 
   const malformedParent = semanticGameSnapshot();
   malformedParent.block.semantic_tree.items[2].parent_index = 0;

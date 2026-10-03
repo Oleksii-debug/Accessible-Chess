@@ -125,6 +125,10 @@ class Version2ApplicationTests(unittest.TestCase):
 
         self.assertIsInstance(tree, dict)
         self.assertEqual(tree["players"], "Петренко — Smith")
+        self.assertIn(
+            {"label": "Подія", "value": "Україна"},
+            tree["details"],
+        )
         self.assertEqual(len(tree["intro_comments"]), 1)
         self.assertIn("Intro", tree["intro_comments"][0])
         self.assertEqual(len(tree["outro_comments"]), 1)

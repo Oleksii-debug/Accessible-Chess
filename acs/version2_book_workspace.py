@@ -34,6 +34,11 @@ _SEMANTIC_TREE_LABELS = {
         "moves": "Ходи та варіанти",
         "players": "Гравці",
         "result": "Результат",
+        "details": "Відомості про партію",
+        "event": "Подія",
+        "site": "Місце",
+        "date": "Дата",
+        "round": "Тур",
         "comments": "Коментарі",
         "intro_comments": "Коментарі перед ходами",
         "outro_comments": "Коментарі після ходів",
@@ -48,6 +53,11 @@ _SEMANTIC_TREE_LABELS = {
         "moves": "Moves and variations",
         "players": "Players",
         "result": "Result",
+        "details": "Game details",
+        "event": "Event",
+        "site": "Site",
+        "date": "Date",
+        "round": "Round",
         "comments": "Comments",
         "intro_comments": "Comments before moves",
         "outro_comments": "Comments after moves",
@@ -125,6 +135,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticTreeError("book semantic GameTree item kind is invalid")
             if type(item.depth) is not int or item.depth < 0:
                 raise _BookSemanticTreeError("book semantic GameTree depth is invalid")
+            if (
+                (item.kind == "move" and item.depth % 2 != 0)
+                or (item.kind == "variation" and item.depth % 2 != 1)
+            ):
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree kind/depth alternation is invalid"
+                )
             if position == 0 and item.depth != 0:
                 raise _BookSemanticTreeError("book semantic GameTree root depth is invalid")
             if position > 0 and item.depth > previous_depth + 1:
@@ -153,6 +170,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 ):
                     raise _BookSemanticTreeError(
                         "book semantic GameTree parent does not match active ancestry"
+                    )
+                parent_kind = rendered_items[parent_index]["kind"]
+                expected_parent_kind = "move" if item.kind == "variation" else "variation"
+                if parent_kind != expected_parent_kind:
+                    raise _BookSemanticTreeError(
+                        "book semantic GameTree parent kind is invalid"
                     )
 
             label = safe(item.label)
@@ -214,6 +237,21 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if players == "? — ?":
             players = ""
 
+        details: list[dict[str, str]] = []
+        for tag_name, label_key in (
+            ("Event", "event"),
+            ("Site", "site"),
+            ("Date", "date"),
+            ("Round", "round"),
+        ):
+            raw_value = game.tags.get(tag_name)
+            if raw_value is None:
+                continue
+            value = safe(raw_value)
+            if not value or value == "?":
+                continue
+            details.append({"label": labels[label_key], "value": value})
+
         return {
             "kind": mode.value,
             "label": labels["moves"],
@@ -221,6 +259,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "players": players,
             "result_label": labels["result"],
             "result": safe(view.result),
+            "details_label": labels["details"],
+            "details": tuple(details),
             "comments_label": labels["comments"],
             "intro_comments_label": labels["intro_comments"],
             "intro_comments": intro_comments,
