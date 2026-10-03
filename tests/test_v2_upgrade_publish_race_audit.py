@@ -465,6 +465,83 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             finally:
                 visible.close()
 
+    def test_upgrade_decision_rejects_settings_inode_swap_on_open(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            payload = b'{"language":"en","volume":10}\n'
+            settings.write_bytes(payload)
+            replacement = root / "replacement-settings.json"
+            replacement.write_bytes(payload)
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            real_open = upgrade_base_module.os.open
+            injected = False
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if candidate == settings and not injected:
+                    os.replace(replacement, settings)
+                    injected = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "open",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "settings validation failed",
+                ):
+                    coordinator._settings_need()
+
+            self.assertTrue(injected)
+            self.assertEqual(payload, settings.read_bytes())
+
+    def test_upgrade_decision_rejects_library_inode_swap_on_connect(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            replacement = root / "replacement.acsdb"
+            for path in (library, replacement):
+                connection = sqlite3.connect(path)
+                try:
+                    connection.execute("PRAGMA user_version=1")
+                    connection.commit()
+                finally:
+                    connection.close()
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._validate_library_schema = lambda connection: int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            )
+            real_connect = upgrade_base_module.sqlite3.connect
+            injected = False
+
+            def swap_before_connect(database, *args, **kwargs):
+                nonlocal injected
+                raw = os.fspath(database)
+                if raw.startswith("file:") and not injected:
+                    os.replace(replacement, library)
+                    injected = True
+                return real_connect(database, *args, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module.sqlite3,
+                "connect",
+                side_effect=swap_before_connect,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "library file changed during validation",
+                ):
+                    coordinator._library_schema()
+
+            self.assertTrue(injected)
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
