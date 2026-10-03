@@ -122,6 +122,28 @@ function snapshot() {
   };
 }
 
+function unavailableSnapshot() {
+  return {
+    status: "unavailable",
+    error_message: "The action could not be completed.",
+    unavailable_message: "The PGN view changed and could not be refreshed safely. Refresh the view.",
+    refresh_label: "Refresh PGN view",
+    focus_target: "pgn-refresh-view",
+    game: {},
+    tree: [],
+    actions: [],
+    comment_editor: {
+      enabled: false,
+      value: "",
+      title: "PGN comment",
+      label: "Comment text",
+      save_label: "Save",
+      cancel_label: "Cancel",
+      message: ""
+    }
+  };
+}
+
 function press(target, key) {
   let prevented = false;
   target.listeners.keydown({
@@ -293,6 +315,72 @@ async function runCommentFlightRaceRegression() {
   check(document.activeElement === finalItems[3], "stale comment rejection stole focus from the newer PGN context");
 }
 
+async function runUnavailableRecoveryRegression() {
+  const calls = [];
+  const announcements = [];
+  const root = new FakeElement("div");
+  const invoke = (command, payload) => {
+    calls.push([command, payload || {}]);
+    if (command === "pgn.refresh") {
+      return {
+        kind: "selection",
+        payload: {
+          snapshot: snapshot(),
+          focus_target: "pgn-root",
+          announcement: ""
+        }
+      };
+    }
+    return { kind: "error", payload: { message: "unexpected" } };
+  };
+
+  window.AccessibleChessPgnSurface.render(
+    root,
+    snapshot(),
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-root"
+  );
+  check(
+    root.querySelectorAll('[role="treeitem"]').length === 4,
+    "recovery fixture did not begin with a canonical tree"
+  );
+
+  window.AccessibleChessPgnSurface.render(
+    root,
+    unavailableSnapshot(),
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-refresh-view"
+  );
+  check(
+    root.querySelectorAll('[role="treeitem"]').length === 0,
+    "unavailable render retained stale PGN treeitems"
+  );
+  const refresh = root.descendants().find(function (item) {
+    return item.id === "pgn-refresh-view";
+  });
+  check(refresh && refresh.tagName === "BUTTON", "unavailable render missing refresh button");
+  check(document.activeElement === refresh, "unavailable render did not focus recovery control");
+  const message = root.descendants().find(function (item) {
+    return item.tagName === "P" && item.textContent.indexOf("could not be refreshed safely") >= 0;
+  });
+  check(message, "unavailable render omitted the safe recovery explanation");
+
+  refresh.listeners.click();
+  await flush();
+  await flush();
+  check(calls.length === 1, "refresh control dispatched more than one command");
+  check(calls[0][0] === "pgn.refresh", "refresh control bypassed the read-only PGN refresh command");
+  const recovered = root.querySelectorAll('[role="treeitem"]');
+  check(recovered.length === 4, "refresh did not restore canonical PGN tree");
+  check(
+    recovered[0].getAttribute("aria-selected") === "true",
+    "refresh restored the wrong canonical selection"
+  );
+  check(document.activeElement === recovered[0], "refresh did not restore canonical tree focus");
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
@@ -385,6 +473,7 @@ async function run() {
 
   await runFlightRaceRegression();
   await runCommentFlightRaceRegression();
+  await runUnavailableRecoveryRegression();
   console.log("PGN tree keyboard contract PASS");
 }
 

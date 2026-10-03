@@ -79,6 +79,9 @@ class PgnWebViewBridge:
                 raise ValueError("PGN browser command is invalid")
             data = self._payload(payload)
 
+            if command_id == "pgn.refresh":
+                self._exact_fields(data, set())
+                return self._projection.refresh_view()
             if command_id == "pgn.select":
                 self._exact_fields(data, {"node_id"})
                 node_id = self._text(data["node_id"], name="node id", limit=4096)

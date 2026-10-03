@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_actions import FullProductActionRouter
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.gametree import parse_games
 from acs.gametree_navigation import GameTreeCursor, VariationStep
+from acs.pgn_document import PgnDocumentSession
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
+from acs.version2_pgn_commands import Version2PgnCommands
 
 
 DOCUMENT = '''[Event "One"]
@@ -202,6 +205,116 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
             ["pgn.next_game", "pgn.previous_game"],
             [action for action, _ in self.calls[-2:]],
         )
+
+    def test_committed_navigation_refresh_failure_replaces_stale_view_and_recovers(self) -> None:
+        before = self.projection.snapshot()
+        self.assertEqual(0, before["game"]["index"])
+
+        real_capture = self.projection._capture_presenter
+        capture_calls = {"count": 0}
+
+        def fail_only_after_preflight(language):
+            capture_calls["count"] += 1
+            if capture_calls["count"] == 1:
+                return real_capture(language)
+            raise ValueError("C:/Users/private/refresh-secret.pgn")
+
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=fail_only_after_preflight,
+        ):
+            event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual("selection", event.kind)
+        unavailable = event.payload["snapshot"]
+        self.assertEqual("unavailable", unavailable["status"])
+        self.assertEqual("pgn-refresh-view", unavailable["focus_target"])
+        self.assertEqual((), unavailable["tree"])
+        self.assertEqual((), unavailable["actions"])
+        self.assertNotIn("refresh-secret", repr(event.payload))
+        self.assertNotIn("C:/Users/private", repr(event.payload))
+
+        recovered = self.bridge.dispatch("pgn.refresh", {})
+        self.assertEqual("selection", recovered.kind)
+        self.assertEqual("ready", recovered.payload["snapshot"]["status"])
+        self.assertEqual(1, recovered.payload["snapshot"]["game"]["index"])
+
+    def test_real_comment_commit_survives_presentation_failure_and_refreshes_truthfully(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        commands = Version2PgnCommands(lambda: session)
+        router = FullProductActionRouter(
+            AccessibleShellState(language=UILanguage.EN),
+            commands,
+        )
+        projection = PgnWorkspaceWebViewProjection(
+            session.workspace,
+            router,
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+
+        first = projection.snapshot()["tree"][0]
+        selected = bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+        self.assertEqual("selection", selected.kind)
+        before_revision = session.workspace.content_revision
+        real_capture = projection._capture_presenter
+
+        with patch.object(
+            projection,
+            "_capture_presenter",
+            side_effect=ValueError("presentation failed after canonical edit"),
+        ):
+            unavailable = bridge.dispatch(
+                "pgn.comment_edit",
+                {"text": "Durable canonical note"},
+            )
+
+        self.assertEqual(before_revision + 1, session.workspace.content_revision)
+        self.assertIn("Durable canonical note", session.workspace.to_text())
+        self.assertEqual("selection", unavailable.kind)
+        self.assertEqual("unavailable", unavailable.payload["snapshot"]["status"])
+
+        with patch.object(
+            projection,
+            "_capture_presenter",
+            side_effect=real_capture,
+        ):
+            recovered = bridge.dispatch("pgn.refresh", {})
+
+        self.assertEqual("selection", recovered.kind)
+        self.assertEqual("ready", recovered.payload["snapshot"]["status"])
+        self.assertEqual(
+            "Durable canonical note",
+            recovered.payload["snapshot"]["comment_editor"]["value"],
+        )
+
+    def test_pre_action_refresh_failure_never_mutates_from_stale_browser_state(self) -> None:
+        before = self.workspace.cursor
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=ValueError("concurrent presentation drift"),
+        ):
+            event = self.bridge.dispatch("pgn.move", {"delta": 1})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual("unavailable", event.payload["snapshot"]["status"])
+        self.assertEqual(before, self.workspace.cursor)
+        self.assertEqual([], self.workspace.set_cursor_calls)
+
+    def test_rejected_domain_navigation_keeps_last_truthful_view(self) -> None:
+        accepted = self.bridge.dispatch("pgn.next_game", {})
+        self.assertEqual("selection", accepted.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+
+        rejected = self.bridge.dispatch("pgn.next_game", {})
+        self.assertEqual("error", rejected.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        current = self.projection.snapshot()
+        self.assertEqual("ready", current["status"])
+        self.assertEqual(1, current["game"]["index"])
 
     def test_forged_browser_node_fails_closed_without_cursor_mutation(self) -> None:
         before = self.workspace.cursor
