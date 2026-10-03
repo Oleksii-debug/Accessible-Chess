@@ -104,7 +104,7 @@ class Version2ApplicationTests(unittest.TestCase):
             '[Black "Smith"]\n'
             '[Result "*"]\n\n'
             '{Intro C:\\\\private\\\\root.txt} '
-            '1. e4 {before} (1. d4 $1 d5) e5 * '
+            '1. e4 {before} (1. d4 $1 d5 *) e5 * '
             '{Outro /home/private/tail.txt}\n'
         )
         book.write_text(
@@ -139,6 +139,8 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(tree["items"][1]["kind"], "variation")
         self.assertEqual(tree["items"][1]["depth"], 1)
         self.assertEqual(tree["items"][1]["parent_index"], 0)
+        self.assertEqual(tree["items"][1]["result"], "*")
+        self.assertEqual(tree["items"][0]["result"], "")
         self.assertIn("d4", tree["items"][2]["label"])
         self.assertEqual(tree["items"][2]["parent_index"], 1)
         self.assertIn("$1", tree["items"][2]["label"])
