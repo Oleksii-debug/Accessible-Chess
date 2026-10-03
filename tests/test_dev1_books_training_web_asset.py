@@ -167,6 +167,17 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('block.dom_id !== "book-block-" + String(block.index)', text)
         self.assertIn('catalogue.items.length !== catalogue.booklet_count + 1', text)
 
+    def test_starter_material_actions_reuse_the_canonical_book_root(self) -> None:
+        text = self.text
+        self.assertIn(
+            'applyBookEvent(root, result, invoke, announce, fallbackMessage)',
+            text,
+        )
+        self.assertNotIn(
+            'applyBookEvent(main.parentNode, result, invoke, announce, fallbackMessage)',
+            text,
+        )
+
     def test_book_position_path_has_no_browser_fen_or_direct_board_mutation(self) -> None:
         text = self.text
         self.assertNotIn("position_fen", text)
