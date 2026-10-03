@@ -236,6 +236,32 @@ class AcsDatabaseTests(unittest.TestCase):
         self.assertIsNotNone(self.db.get_source(report.source_id))
         self.assertIsNotNone(self.db.get_import_attempt(report.attempt_id))
 
+        attempt_before = self.db.get_import_attempt(report.attempt_id)
+        with self.assertRaises(TypeError):
+            self.db._finish_import_attempt(True, status="failed")
+        with self.assertRaises(TypeError):
+            self.db._finish_import_attempt(
+                report.attempt_id,
+                status="failed",
+                source_id=True,
+            )
+        with self.assertRaises(TypeError):
+            self.db._finish_import_attempt(
+                report.attempt_id,
+                status="failed",
+                game_count=1.0,
+            )
+        with self.assertRaises(TypeError):
+            self.db._finish_import_attempt(
+                report.attempt_id,
+                status="failed",
+                warning_count=True,
+            )
+        self.assertEqual(
+            self.db.get_import_attempt(report.attempt_id),
+            attempt_before,
+        )
+
         for bad in (True, False, 1.0, "1"):
             with self.subTest(api="get_game", value=repr(bad)):
                 with self.assertRaises(TypeError):
