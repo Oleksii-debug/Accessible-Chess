@@ -197,7 +197,14 @@ class V2UpgradeTrackedWriterConflictTests(unittest.TestCase):
                 library.lstat()
             )
             replacement = root / "same-state-library.acsdb"
-            replacement.write_bytes(library.read_bytes())
+            source_connection = sqlite3.connect(library)
+            replacement_connection = sqlite3.connect(replacement)
+            try:
+                source_connection.backup(replacement_connection)
+                replacement_connection.commit()
+            finally:
+                replacement_connection.close()
+                source_connection.close()
             replacement_identity = upgrade_base_module._stat_identity(
                 replacement.lstat()
             )
