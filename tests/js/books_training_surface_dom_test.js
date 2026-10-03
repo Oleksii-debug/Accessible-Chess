@@ -102,6 +102,7 @@ function trainingSnapshot() {
     document: { lang: "en", landmark: "main" },
     heading: "Training",
     title: "Opening line",
+    status: "ready",
     progress: {
       step_label: "Step",
       step: 1,
@@ -141,10 +142,17 @@ function bookSnapshot(index, text) {
     block: {
       dom_id: "book-block-" + String(index),
       index: index,
+      kind: "paragraph",
       role: "paragraph",
+      title: "",
       text: text,
+      list: null,
+      heading_level: null,
+      has_position: false,
       heading_path: [],
+      heading_path_label: "Heading path",
       source_anchor: "",
+      source_label: "Source",
       warning: ""
     },
     actions: [
@@ -753,6 +761,175 @@ async function run() {
     inconsistentListAnnouncements.length === 1 &&
       inconsistentListAnnouncements[0] === "Book list failed",
     "inconsistent Book list metadata did not fail closed accessibly"
+  );
+
+  const focusHijackRoot = new FakeElement("div");
+  const focusHijackAnnouncements = [];
+  window.AccessibleChessBookSurface.render(
+    focusHijackRoot,
+    bookSnapshot(20, "Stable before focus hijack"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: bookSnapshot(21, "Malformed focus target"),
+        focus_target: "book-bookmark-name"
+      }
+    }),
+    (message) => focusHijackAnnouncements.push(String(message)),
+    "book-block-20",
+    "Book focus failed"
+  );
+  const focusHijackBefore = focusHijackRoot.querySelector("#book-block-20");
+  find(focusHijackRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    focusHijackRoot.querySelector("#book-block-20") === focusHijackBefore,
+    "noncanonical Book focus target replaced the stable render"
+  );
+  check(
+    focusHijackAnnouncements.length === 1 &&
+      focusHijackAnnouncements[0] === "Book focus failed",
+    "noncanonical Book focus target did not fail closed accessibly"
+  );
+
+  const malformedIdentityRoot = new FakeElement("div");
+  const malformedIdentityAnnouncements = [];
+  const malformedIdentitySnapshot = bookSnapshot(22, "Malformed identity");
+  malformedIdentitySnapshot.block.dom_id = "book-block-999";
+  window.AccessibleChessBookSurface.render(
+    malformedIdentityRoot,
+    bookSnapshot(22, "Stable identity"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: malformedIdentitySnapshot,
+        focus_target: "book-block-999"
+      }
+    }),
+    (message) => malformedIdentityAnnouncements.push(String(message)),
+    "book-block-22",
+    "Book identity failed"
+  );
+  const malformedIdentityBefore = malformedIdentityRoot.querySelector("#book-block-22");
+  find(malformedIdentityRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedIdentityRoot.querySelector("#book-block-22") === malformedIdentityBefore,
+    "noncanonical Book DOM identity replaced the stable render"
+  );
+  check(
+    malformedIdentityAnnouncements.length === 1 &&
+      malformedIdentityAnnouncements[0] === "Book identity failed",
+    "noncanonical Book DOM identity did not fail closed accessibly"
+  );
+
+  const reorderedActionsRoot = new FakeElement("div");
+  const reorderedActionsAnnouncements = [];
+  const reorderedActionsSnapshot = bookSnapshot(23, "Reordered actions");
+  const firstAction = reorderedActionsSnapshot.actions[0];
+  reorderedActionsSnapshot.actions[0] = reorderedActionsSnapshot.actions[1];
+  reorderedActionsSnapshot.actions[1] = firstAction;
+  window.AccessibleChessBookSurface.render(
+    reorderedActionsRoot,
+    bookSnapshot(23, "Stable action order"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: reorderedActionsSnapshot,
+        focus_target: "book-block-23"
+      }
+    }),
+    (message) => reorderedActionsAnnouncements.push(String(message)),
+    "book-block-23",
+    "Book action order failed"
+  );
+  const reorderedActionsBefore = reorderedActionsRoot.querySelector("#book-block-23");
+  find(reorderedActionsRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    reorderedActionsRoot.querySelector("#book-block-23") === reorderedActionsBefore,
+    "reordered Book actions replaced the stable render"
+  );
+  check(
+    reorderedActionsAnnouncements.length === 1 &&
+      reorderedActionsAnnouncements[0] === "Book action order failed",
+    "reordered Book actions did not fail closed accessibly"
+  );
+
+  const malformedStarterRoot = new FakeElement("div");
+  const malformedStarterAnnouncements = [];
+  const malformedStarterSnapshot = withStarterMaterials(
+    bookSnapshot(24, "Malformed starter catalogue"),
+    "starter-course"
+  );
+  malformedStarterSnapshot.starter_materials.items[2].material_id = "starter-booklet-01";
+  window.AccessibleChessBookSurface.render(
+    malformedStarterRoot,
+    withStarterMaterials(bookSnapshot(24, "Stable starter catalogue"), "starter-course"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: malformedStarterSnapshot,
+        focus_target: "book-block-24"
+      }
+    }),
+    (message) => malformedStarterAnnouncements.push(String(message)),
+    "book-block-24",
+    "Starter catalogue failed"
+  );
+  const malformedStarterBefore = malformedStarterRoot.querySelector("#book-block-24");
+  find(malformedStarterRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedStarterRoot.querySelector("#book-block-24") === malformedStarterBefore,
+    "duplicate starter material identity replaced the stable render"
+  );
+  check(
+    malformedStarterAnnouncements.length === 1 &&
+      malformedStarterAnnouncements[0] === "Starter catalogue failed",
+    "duplicate starter material identity did not fail closed accessibly"
+  );
+
+  const inconsistentTrainingRoot = new FakeElement("div");
+  const inconsistentTrainingAnnouncements = [];
+  const inconsistentTrainingSnapshot = trainingSnapshot();
+  inconsistentTrainingSnapshot.progress.attempts = 1;
+  inconsistentTrainingSnapshot.progress.mistakes = 2;
+  window.AccessibleChessTrainingSurface.render(
+    inconsistentTrainingRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: inconsistentTrainingSnapshot,
+        focus_target: "training-answer",
+        clear_answer: false,
+        solution: []
+      }
+    }),
+    (message) => inconsistentTrainingAnnouncements.push(String(message)),
+    "training-answer",
+    "Training progress failed",
+    []
+  );
+  const inconsistentTrainingBefore = inconsistentTrainingRoot.querySelector("#training-answer");
+  inconsistentTrainingBefore.value = "d4";
+  find(inconsistentTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    inconsistentTrainingRoot.querySelector("#training-answer") === inconsistentTrainingBefore &&
+      inconsistentTrainingBefore.value === "d4",
+    "inconsistent Training progress mutated pending answer state"
+  );
+  check(
+    inconsistentTrainingAnnouncements.length === 1 &&
+      inconsistentTrainingAnnouncements[0] === "Training progress failed",
+    "inconsistent Training progress did not fail closed accessibly"
   );
 
   const listSnapshot = bookSnapshot(4, "List");
