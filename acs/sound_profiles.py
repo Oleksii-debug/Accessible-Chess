@@ -36,6 +36,11 @@ CORE_SOUND_EVENTS = (
     )
 )
 
+OPTIONAL_OWNER_SOUND_EVENTS = (
+    "mate",
+    "draw",
+)
+
 OPTIONAL_CLASSROOM_SOUND_EVENTS = (
     "classroom.join",
     "classroom.leave",
