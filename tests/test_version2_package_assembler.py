@@ -9,6 +9,7 @@ from unittest.mock import patch
 import wave
 import zipfile
 
+from acs import version2_package_preflight as package_preflight
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from acs.sound_events import SoundEvent
@@ -59,6 +60,21 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _livekit_fixture_bundle() -> bytes:
+    return (
+        b"/* fixture */ LivekitClient Room "
+        + b"".join(
+            hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
+            for index in range(4000)
+        )
+    )
+
+
+_LIVEKIT_FIXTURE_BUNDLE_SHA256 = hashlib.sha256(
+    _livekit_fixture_bundle()
+).hexdigest()
+
+
 def _minimal_windows_pe() -> bytes:
     data = bytearray(512)
     data[0:2] = b"MZ"
@@ -76,6 +92,15 @@ def _minimal_windows_pe() -> bytes:
 
 
 class Version2PackageAssemblerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        pin = patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+        )
+        pin.start()
+        self.addCleanup(pin.stop)
+
     def _sources(self, root: Path) -> tuple[Path, Path]:
         product = root / "prepared-product"
         notices = root / "third-party-notices"
@@ -92,13 +117,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
 
         livekit = web / "vendor" / "livekit"
         livekit.mkdir(parents=True)
-        livekit_bundle = (
-            b"/* fixture */ LivekitClient Room "
-            + b"".join(
-                hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
-                for index in range(4000)
-            )
-        )
+        livekit_bundle = _livekit_fixture_bundle()
         livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
         livekit_notice = (
             b"Copyright 2021 LiveKit, Inc.\n"
