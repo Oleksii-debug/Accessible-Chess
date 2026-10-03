@@ -208,6 +208,30 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+    def test_engine_first_move_does_not_interrupt_long_newgame_sound(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                started = api.start_engine_game("black", 5, 1, 0)
+                self.assertTrue(started["ok"], started)
+                events = [event for event, _volume in playback.calls]
+                self.assertEqual(events.count(SoundEvent.START), 1)
+                self.assertEqual(events.count(SoundEvent.MOVE), 0)
+
+                protected = api.clock_sound_pulse()
+                self.assertTrue(protected["ok"], protected)
+                self.assertFalse(protected["played"], protected)
+
+                api._clock_sound_not_before = 0.0
+                after_start = api.clock_sound_pulse()
+                self.assertTrue(after_start["ok"], after_start)
+                self.assertTrue(after_start["played"], after_start)
+                self.assertEqual(playback.calls[-1], (SoundEvent.TICK, 80))
+            finally:
+                api.close_analysis()
+                runtime.close()
+
     def test_live_clock_sound_uses_long_tick_segment_and_policy(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
