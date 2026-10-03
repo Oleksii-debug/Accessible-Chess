@@ -33,6 +33,7 @@ _CONTROL_NAMES = {
     "profile.json.lock",
     "gametree-resume.json.lock",
     "book-progress.json.lock",
+    ".education-workspace.json.lock",
     "sound-profile.json.lock",
     "sound-packs.lock",
 }
@@ -769,6 +770,12 @@ class Version2UpgradeCoordinator:
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
+                # Control/coordination paths are not preservation-backed, but
+                # the exact root object must still be authenticated. A
+                # symlink/reparse alias must not bypass the upgrader's
+                # fail-closed filesystem boundary merely because it uses a
+                # canonical control filename.
+                _safe_stat(path, "user-data control entry")
                 continue
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
