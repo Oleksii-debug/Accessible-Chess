@@ -884,6 +884,7 @@ class ClassroomChatServerService:
         store: ClassroomChatServerSQLiteStore,
         authorization: ClassroomChatAuthorizationPort,
         clock_unix_ms: Callable[[], int],
+        retention_policy: Callable[[str], str] | None = None,
     ) -> None:
         if not isinstance(store, ClassroomChatServerSQLiteStore):
             raise TypeError("store must be ClassroomChatServerSQLiteStore")
@@ -891,9 +892,30 @@ class ClassroomChatServerService:
             raise TypeError("authorization port is required")
         if not callable(clock_unix_ms):
             raise TypeError("clock_unix_ms must be callable")
+        if retention_policy is not None and not callable(retention_policy):
+            raise TypeError("retention_policy must be callable or None")
         self._store = store
         self._authorization = authorization
         self._clock_unix_ms = clock_unix_ms
+        self._retention_policy = retention_policy
+
+    def _room_retention(self, room_id: str) -> str:
+        if self._retention_policy is None:
+            return "session"
+        try:
+            retention = self._retention_policy(room_id)
+        except Exception:
+            raise ClassroomChatServerError(
+                "chat retention policy lookup failed"
+            ) from None
+        if (
+            type(retention) is not str
+            or retention not in {"transient", "session", "persistent"}
+        ):
+            raise ClassroomChatServerError(
+                "chat retention policy is invalid"
+            )
+        return retention
 
     def send_message(
         self,
@@ -919,6 +941,10 @@ class ClassroomChatServerService:
         existing = self._store.existing_for_draft(draft)
         if existing is not None:
             return existing
+        if draft.retention != self._room_retention(draft.room_id):
+            raise ClassroomChatServerError(
+                "chat retention does not match server policy"
+            )
         try:
             timestamp = _clock_value(self._clock_unix_ms())
         except ClassroomChatServerError:

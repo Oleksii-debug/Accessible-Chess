@@ -1479,6 +1479,122 @@ class ClassroomChatServerTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNone(op)
 
+    def test_default_server_retention_rejects_client_persistence_escalation(self) -> None:
+        draft = ChatDraft(
+            "retention-escalation",
+            ROOM,
+            STUDENT,
+            "Do not persist me",
+            retention="persistent",
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "retention does not match server policy",
+        ):
+            self.service.send_message(
+                trusted_caller_identity=STUDENT,
+                draft=draft,
+            )
+
+        self.assertEqual(0, self.clock.calls)
+        self.assertEqual(
+            (),
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            ),
+        )
+
+    def test_trusted_room_retention_policy_can_select_transient_storage(self) -> None:
+        service = ClassroomChatServerService(
+            store=self.store,
+            authorization=self.auth,
+            clock_unix_ms=self.clock,
+            retention_policy=lambda room_id: (
+                "transient" if room_id == ROOM else "session"
+            ),
+        )
+        draft = ChatDraft(
+            "transient-message",
+            ROOM,
+            STUDENT,
+            "Transient by trusted policy",
+            retention="transient",
+        )
+
+        delivered = service.send_message(
+            trusted_caller_identity=STUDENT,
+            draft=draft,
+        )
+
+        self.assertEqual("transient", delivered.retention)
+        self.assertEqual(1, self.clock.calls)
+
+    def test_exact_resend_survives_later_retention_policy_change(self) -> None:
+        persistent_clock = Clock()
+        persistent = ClassroomChatServerService(
+            store=self.store,
+            authorization=self.auth,
+            clock_unix_ms=persistent_clock,
+            retention_policy=lambda _room_id: "persistent",
+        )
+        draft = ChatDraft(
+            "persistent-before-policy-change",
+            ROOM,
+            STUDENT,
+            "Already accepted",
+            retention="persistent",
+        )
+        first = persistent.send_message(
+            trusted_caller_identity=STUDENT,
+            draft=draft,
+        )
+        replacement_clock = Clock(1800000000000)
+        session_only = ClassroomChatServerService(
+            store=self.store,
+            authorization=self.auth,
+            clock_unix_ms=replacement_clock,
+        )
+
+        recovered = session_only.send_message(
+            trusted_caller_identity=STUDENT,
+            draft=draft,
+        )
+
+        self.assertEqual(first, recovered)
+        self.assertEqual(0, replacement_clock.calls)
+
+    def test_retention_policy_failure_is_sanitized_before_storage(self) -> None:
+        def broken_policy(_room_id):
+            raise RuntimeError("sensitive deployment policy detail")
+
+        service = ClassroomChatServerService(
+            store=self.store,
+            authorization=self.auth,
+            clock_unix_ms=self.clock,
+            retention_policy=broken_policy,
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "retention policy lookup failed",
+        ) as raised:
+            service.send_message(
+                trusted_caller_identity=STUDENT,
+                draft=self.draft("retention-policy-failure"),
+            )
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(0, self.clock.calls)
+        self.assertEqual(
+            (),
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            ),
+        )
+
     def test_invalid_clock_is_rejected_without_persisting(self) -> None:
         for value in (True, -1, 253402300800000):
             service = ClassroomChatServerService(
