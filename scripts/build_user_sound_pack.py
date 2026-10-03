@@ -293,6 +293,16 @@ def _safe_relative(path: Path, root: Path) -> PurePosixPath:
     relative = PurePosixPath(path.relative_to(root).as_posix())
     if relative.is_absolute() or ".." in relative.parts:
         raise SoundPackBuildError("unsafe source sound path")
+    for part in relative.parts:
+        if (
+            not part
+            or part in {".", ".."}
+            or ":" in part
+            or part.rstrip(" .") != part
+            or any(ord(character) < 32 or ord(character) == 127 for character in part)
+            or part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES
+        ):
+            raise SoundPackBuildError("source sound path is not Windows-portable")
     return relative
 
 
@@ -349,11 +359,11 @@ def _build_sound_pack_unchecked(
     _source_archive_bytes: int | None = None,
 ) -> dict[str, object]:
     source = Path(source)
+    if source.is_symlink():
+        raise SoundPackBuildError("sound-pack source cannot be a symlink")
     if source.is_file():
         if source.suffix.casefold() != ".zip":
             raise SoundPackBuildError("sound-pack source file must be ZIP")
-        if source.is_symlink():
-            raise SoundPackBuildError("sound-pack ZIP source cannot be a symlink")
         with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
             snapshot_root = Path(temp_dir)
             archive_snapshot = snapshot_root / "source.zip"
@@ -401,6 +411,8 @@ def _build_sound_pack_unchecked(
         source_fingerprint_rows: list[bytes] = []
         seen_casefold: set[str] = set()
         for source_path in sorted(sounds.rglob("*"), key=lambda item: item.as_posix().casefold()):
+            if source_path.is_symlink():
+                raise SoundPackBuildError("sound-pack source tree cannot contain symlinks")
             if not source_path.is_file():
                 continue
             relative = _safe_relative(source_path, sounds)
