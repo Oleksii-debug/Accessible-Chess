@@ -103,7 +103,10 @@ let trainingAvailable = false;
 let eventQueue = [];
 let intervalCallback = null;
 let snapshotCalls = 0;
+let nextSnapshotOverride = null;
 let libraryApplyCalls = 0;
+let failNextBookRender = false;
+let failNextTrainingRender = false;
 let stage1RefreshCalls = 0;
 let drainCalls = 0;
 let holdNextDrain = false;
@@ -115,19 +118,40 @@ const recordedFocus = [];
 function snapshot(route) {
   const focus = {
     board: "move-input",
+    analysis: "",
     pgn: "pgn-game-list",
     library: "library-search-player",
     books: "book-reader",
-    training: "training-answer"
+    training: "training-prompt",
+    teacher: "",
+    classes: "",
+    settings: "",
+    help: ""
   }[route] || "";
   const headings = {
     board: "Board",
+    analysis: "Analysis",
     pgn: "PGN",
     library: "Library",
     books: "Books",
-    training: "Training"
+    training: "Training",
+    teacher: "Teacher mode",
+    classes: "Classes and students",
+    settings: "Settings",
+    help: "Help"
   };
-  const navigation = ["board", "pgn", "library", "books", "training"].map((routeId) => ({
+  const navigation = [
+    "board",
+    "analysis",
+    "pgn",
+    "library",
+    "books",
+    "training",
+    "teacher",
+    "classes",
+    "settings",
+    "help"
+  ].map((routeId) => ({
     route_id: routeId,
     label: headings[routeId],
     action_id: "screen." + routeId,
@@ -165,7 +189,9 @@ const windowObject = {
     api: {
       v2_snapshot: () => {
         snapshotCalls += 1;
-        return Promise.resolve(snapshot(currentRoute));
+        const value = nextSnapshotOverride || snapshot(currentRoute);
+        nextSnapshotOverride = null;
+        return Promise.resolve(value);
       },
       v2_browser_command: (area, command, payload) => {
         if (area !== "shell" || payload == null || Object.keys(payload).length !== 0) {
@@ -209,6 +235,10 @@ const windowObject = {
   },
   AccessibleChessBookSurface: {
     render: (root) => {
+      if (failNextBookRender) {
+        failNextBookRender = false;
+        throw new TypeError("malformed Book product snapshot");
+      }
       const block = new FakeElement("section");
       block.id = "book-block-1";
       root.replaceChildren(block);
@@ -216,6 +246,10 @@ const windowObject = {
   },
   AccessibleChessTrainingSurface: {
     render: (root) => {
+      if (failNextTrainingRender) {
+        failNextTrainingRender = false;
+        throw new TypeError("malformed Training product snapshot");
+      }
       const answer = new FakeElement("input");
       answer.id = "training-answer";
       root.replaceChildren(answer);
@@ -253,6 +287,92 @@ async function clickRoute(routeId) {
   check(workspace.hidden === true, "V2 workspace should be hidden on initial Board route");
   check(originalMain.hidden === false, "Stage 1 main should remain visible on Board route");
   check(documentRef.activeElement === moveInput, "initial V2 snapshot did not focus the move input");
+
+  const boardNavBeforeMalformedProduct = documentRef.getElementById("v2-nav-board");
+  check(
+    boardNavBeforeMalformedProduct !== null &&
+      boardNavBeforeMalformedProduct.attributes["aria-current"] === "page",
+    "initial Board navigation state is not canonical"
+  );
+  booksAvailable = true;
+  failNextBookRender = true;
+  await clickRoute("books");
+  check(
+    originalMain.hidden === false,
+    "malformed Books render hid the usable Stage 1 main before commit"
+  );
+  check(
+    workspace.hidden === true,
+    "malformed Books render exposed an uncommitted product workspace"
+  );
+  check(
+    documentRef.getElementById("v2-nav-board") === boardNavBeforeMalformedProduct,
+    "malformed Books render replaced committed navigation"
+  );
+  check(
+    boardNavBeforeMalformedProduct.attributes["aria-current"] === "page",
+    "malformed Books render advanced aria-current away from Board"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "malformed Books render disturbed canonical Board focus"
+  );
+  check(
+    live.textContent === "Could not open the section.",
+    "malformed Books render did not announce route failure"
+  );
+
+  // Recover canonical host route through the still-usable committed navigation.
+  await clickRoute("board");
+  check(originalMain.hidden === false, "Board recovery after malformed Books failed");
+  check(documentRef.activeElement === moveInput, "Board recovery focus after malformed Books failed");
+
+  await clickRoute("books");
+  const committedBookBlock = documentRef.getElementById("book-block-1");
+  const committedBooksNav = documentRef.getElementById("v2-nav-books");
+  check(committedBookBlock !== null, "valid Books route did not render a reading block");
+  check(
+    documentRef.activeElement === committedBookBlock,
+    "valid Books route did not focus its canonical reading block"
+  );
+  check(
+    committedBooksNav !== null &&
+      committedBooksNav.attributes["aria-current"] === "page",
+    "valid Books route did not commit Books navigation"
+  );
+
+  trainingAvailable = true;
+  failNextTrainingRender = true;
+  await clickRoute("training");
+  check(
+    originalMain.hidden === true && workspace.hidden === false,
+    "malformed Training render changed committed Books visibility"
+  );
+  check(
+    documentRef.getElementById("book-block-1") === committedBookBlock,
+    "malformed Training render replaced the committed Book DOM"
+  );
+  check(
+    documentRef.getElementById("v2-nav-books") === committedBooksNav &&
+      committedBooksNav.attributes["aria-current"] === "page",
+    "malformed Training render advanced navigation away from committed Books"
+  );
+  check(
+    documentRef.activeElement === committedBookBlock,
+    "malformed Training render stranded keyboard focus away from the Book block"
+  );
+
+  await clickRoute("board");
+  booksAvailable = false;
+  trainingAvailable = false;
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "Board recovery after malformed Training failed"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "Board focus recovery after malformed Training failed"
+  );
 
   await clickRoute("pgn");
   const pgnStatus = documentRef.getElementById("v2-pgn-empty-status");
@@ -292,19 +412,6 @@ async function clickRoute(routeId) {
   await clickRoute("library");
   const libraryInput = documentRef.getElementById("library-search-player");
   check(documentRef.activeElement === libraryInput, "Library route did not restore its real search focus");
-  trainingAvailable = true;
-  await clickRoute("training");
-  const trainingAnswer = documentRef.getElementById("training-answer");
-  check(trainingAnswer !== null, "Training route did not render its real answer control");
-  check(
-    documentRef.activeElement === trainingAnswer,
-    "Training route did not restore canonical answer-input focus"
-  );
-  await clickRoute("library");
-  check(
-    documentRef.activeElement === libraryInput,
-    "return from Training did not restore Library route-local focus"
-  );
   const beforeImportSnapshotCalls = snapshotCalls;
   eventQueue = [
     { kind: "render-import", payload: { import: {}, focus_target: "", announcement: "1 of 4" } },
@@ -597,6 +704,65 @@ async function clickRoute(routeId) {
   check(documentRef.getElementById("training-answer") === null, "stale Training answer remained in the DOM after Book rollback refresh");
   check(documentRef.activeElement === restoredBookBlock, "Book rollback refresh did not focus the restored canonical book block");
   check(live.textContent === genericBookError, "Book rollback refresh erased the generic failure announcement");
+
+  await clickRoute("teacher");
+  const teacherNav = documentRef.getElementById("v2-nav-teacher");
+  check(originalMain.hidden === false, "Teacher route unexpectedly hid the Stage 1 main");
+  check(documentRef.activeElement === teacherNav, "Teacher route did not fall back to its current navigation button");
+
+  await clickRoute("classes");
+  const classesNav = documentRef.getElementById("v2-nav-classes");
+  check(originalMain.hidden === false, "Classes route unexpectedly hid the Stage 1 main");
+  check(documentRef.activeElement === classesNav, "Classes route did not fall back to its current navigation button");
+
+  await clickRoute("board");
+  check(documentRef.activeElement === moveInput, "Board focus was not restored after Teacher/Classes fallback routes");
+
+  let coercionTouched = false;
+  const hostileRoute = {
+    toString() {
+      coercionTouched = true;
+      return "board";
+    }
+  };
+  const malformedNavigationSnapshot = snapshot("board");
+  malformedNavigationSnapshot.navigation = malformedNavigationSnapshot.navigation.slice();
+  malformedNavigationSnapshot.navigation[0] = {
+    ...malformedNavigationSnapshot.navigation[0],
+    route_id: hostileRoute
+  };
+  nextSnapshotOverride = malformedNavigationSnapshot;
+  await clickRoute("board");
+  check(!coercionTouched, "malformed navigation route id reached String coercion");
+  check(documentRef.activeElement === moveInput, "malformed navigation snapshot disturbed canonical Board focus");
+  check(live.textContent === "Could not open the section.", "malformed navigation refresh was not contained");
+
+  const malformedScreenSnapshot = snapshot("board");
+  malformedScreenSnapshot.screen = {
+    ...malformedScreenSnapshot.screen,
+    route_id: hostileRoute
+  };
+  nextSnapshotOverride = malformedScreenSnapshot;
+  await clickRoute("board");
+  check(!coercionTouched, "malformed screen route id reached String coercion");
+  check(documentRef.activeElement === moveInput, "malformed screen snapshot disturbed canonical Board focus");
+
+  let announcementCoercionTouched = false;
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: {
+        toString() {
+          announcementCoercionTouched = true;
+          return "hostile announcement";
+        }
+      }
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(!announcementCoercionTouched, "native announcement object reached String coercion");
 
   await clickRoute("board");
   const beforeStage1ActionSnapshots = snapshotCalls;
