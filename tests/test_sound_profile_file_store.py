@@ -312,6 +312,33 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             self.assertTrue(swapped)
 
     @unittest.skipIf(os.name == "nt", "ordinary Windows test runners cannot create symlinks")
+    def test_redirected_ancestor_is_rejected_before_missing_child_directory_is_created(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            outside = root / "outside"
+            outside.mkdir()
+            redirected = root / "redirected"
+            redirected.symlink_to(outside, target_is_directory=True)
+            outside_nested = outside / "must-not-be-created"
+            storage = JsonSoundProfileStorage(
+                redirected / outside_nested.name / "sound-profile.json"
+            )
+
+            with self.assertRaisesRegex(
+                SoundProfileFileError,
+                "redirected or invalid",
+            ):
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            self.assertFalse(
+                outside_nested.exists(),
+                "redirect validation must happen before mkdir can escape the intended root",
+            )
+            self.assertFalse(
+                (outside / (outside_nested.name + ".lock")).exists(),
+            )
+
+    @unittest.skipIf(os.name == "nt", "ordinary Windows test runners cannot create symlinks")
     def test_symlinked_profile_directory_ancestor_is_rejected_without_following(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
