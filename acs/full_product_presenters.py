@@ -658,29 +658,110 @@ class TrainingView:
 class TrainingPresenter:
     """Explicit-action feedback over the canonical :class:`ExerciseSession`."""
 
+    _PRESENTATION_MESSAGES = {
+        "completed": ("Вправу завершено.", "Exercise completed."),
+        "accepted": ("Правильно. Наступний крок.", "Correct. Next step."),
+        "retry": ("Спробуйте ще раз.", "Try again."),
+        "no_hint": (
+            "Підказки для цього кроку немає.",
+            "No hint is available for this step.",
+        ),
+        "revealed": ("Розв’язок показано.", "Solution revealed."),
+    }
+
     def __init__(
         self,
         session: ExerciseSession,
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
+        message_key: str | None = None,
     ) -> None:
+        if not isinstance(session, ExerciseSession):
+            raise TypeError("training presenter session must be ExerciseSession")
+        if not isinstance(language, UILanguage):
+            raise TypeError("training presenter language must be UILanguage")
+        self._validate_message(message)
+        self._validate_message_key(message_key)
         self._session = session
         self._language = language
         self._message = ""
+        self._message_key: str | None = None
+        self._restore_message(message=message, message_key=message_key)
 
     @property
     def session(self) -> ExerciseSession:
         return self._session
 
+    @property
+    def message(self) -> str:
+        return self._message
+
+    @property
+    def message_key(self) -> str | None:
+        return self._message_key
+
+    @staticmethod
+    def _validate_message(message: object) -> None:
+        if type(message) is not str:
+            raise TypeError("training presenter message must be text")
+        if len(message) > 4096:
+            raise ValueError("training presenter message is too long")
+
+    @classmethod
+    def _validate_message_key(cls, message_key: object) -> None:
+        if message_key is None:
+            return
+        if type(message_key) is not str:
+            raise TypeError("training presenter message key must be text or None")
+        if message_key not in cls._PRESENTATION_MESSAGES:
+            raise ValueError("training presenter message key is invalid")
+
+    def _set_presentation_message(self, key: str) -> None:
+        self._validate_message_key(key)
+        uk, en = self._PRESENTATION_MESSAGES[key]
+        self._message_key = key
+        self._message = _localized(self._language, uk, en)
+
+    def _set_authored_message(self, message: str) -> None:
+        self._validate_message(message)
+        self._message_key = None
+        self._message = message
+
+    def _restore_message(self, *, message: str, message_key: str | None) -> None:
+        self._validate_message(message)
+        self._validate_message_key(message_key)
+        if message_key is None:
+            self._set_authored_message(message)
+        else:
+            self._set_presentation_message(message_key)
+
+    def restore_state(
+        self,
+        snapshot: Mapping[str, object],
+        *,
+        message: str,
+        message_key: str | None = None,
+    ) -> None:
+        self._validate_message(message)
+        self._validate_message_key(message_key)
+        self._session.restore_state(snapshot)
+        self._restore_message(message=message, message_key=message_key)
+
     def set_language(self, language: UILanguage) -> None:
+        if not isinstance(language, UILanguage):
+            raise TypeError("training presenter language must be UILanguage")
         self._language = language
+        if self._message_key is not None:
+            self._set_presentation_message(self._message_key)
 
     def view(self) -> TrainingView:
-        total = len(self._session.definition.steps)
+        definition = self._session.canonical_definition
+        total = len(definition.steps)
         visible_step = min(self._session.step_index + 1, total)
         return TrainingView(
             status=self._session.status,
-            title=self._session.definition.title,
+            title=definition.title,
             step_number=visible_step,
             total_steps=total,
             attempts=self._session.attempts,
@@ -693,56 +774,39 @@ class TrainingPresenter:
     def submit(self, answer: str) -> tuple[ExerciseResult, TrainingView]:
         result = self._session.submit(answer)
         if result.completed:
-            self._message = _localized(
-                self._language,
-                "Вправу завершено.",
-                "Exercise completed.",
-            )
+            self._set_presentation_message("completed")
         elif result.accepted:
-            self._message = result.explanation or _localized(
-                self._language,
-                "Правильно. Наступний крок.",
-                "Correct. Next step.",
-            )
+            if result.explanation:
+                self._set_authored_message(result.explanation)
+            else:
+                self._set_presentation_message("accepted")
         else:
-            self._message = _localized(
-                self._language,
-                "Спробуйте ще раз.",
-                "Try again.",
-            )
+            self._set_presentation_message("retry")
         return result, self.view()
 
     def request_hint(self) -> tuple[HintResult, TrainingView]:
         hint = self._session.request_hint()
         if hint.available:
-            self._message = hint.hint or ""
+            self._set_authored_message(hint.hint or "")
         else:
-            self._message = _localized(
-                self._language,
-                "Підказки для цього кроку немає.",
-                "No hint is available for this step.",
-            )
+            self._set_presentation_message("no_hint")
         return hint, self.view()
 
     def reveal_solution(self) -> tuple[str, ...]:
         step = self._session.current_step()
         if step is None:
             return ()
-        self._message = _localized(
-            self._language,
-            "Розв’язок показано.",
-            "Solution revealed.",
-        )
+        self._set_presentation_message("revealed")
         return tuple(sorted(step.accepted_moves))
 
     def retry(self) -> TrainingView:
         """Clear transient UI feedback without changing canonical progress."""
-        self._message = ""
+        self._set_authored_message("")
         return self.view()
 
     def reset(self) -> TrainingView:
         self._session.reset()
-        self._message = ""
+        self._set_authored_message("")
         return self.view()
 
     def snapshot(self) -> dict[str, object]:
@@ -755,5 +819,12 @@ class TrainingPresenter:
         snapshot: Mapping[str, object],
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
+        message_key: str | None = None,
     ) -> "TrainingPresenter":
-        return cls(ExerciseSession.restore(definition, snapshot), language=language)
+        return cls(
+            ExerciseSession.restore(definition, snapshot),
+            language=language,
+            message=message,
+            message_key=message_key,
+        )
