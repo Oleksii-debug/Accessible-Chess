@@ -31,7 +31,7 @@ DEFAULT_SOUND_LAYERS_MANIFEST = "layers.json"
 SOUND_LAYERS_SCHEMA_VERSION = 1
 REQUIRED_SOUND_EVENTS = tuple(SoundEvent)
 SCALED_SOUND_CACHE_FORMAT_VERSION = 1
-ASYNC_SOUND_EVENTS = frozenset({SoundEvent.START, SoundEvent.TICK})
+ASYNC_SOUND_EVENTS = frozenset({SoundEvent.START, SoundEvent.TICK, SoundEvent.LOW_TIME})
 
 
 @dataclass(frozen=True)
