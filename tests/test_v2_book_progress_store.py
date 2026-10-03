@@ -431,6 +431,24 @@ class BookProgressStoreTests(unittest.TestCase):
             b"directory-user-data",
         )
 
+    def test_stale_temp_cleanup_preserves_hardlinked_exact_name(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        peer = self.path.parent / "user-owned-temp-peer.bin"
+        peer.write_bytes(b"user-owned-hardlink-bytes")
+        candidate = self.path.parent / ".book-progress.json.abcd_123.tmp"
+        try:
+            os.link(peer, candidate)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard-link creation is unavailable on this runner")
+
+        with self.store._exclusive_access():
+            pass
+
+        self.assertTrue(candidate.exists())
+        self.assertEqual(candidate.read_bytes(), b"user-owned-hardlink-bytes")
+        self.assertEqual(peer.read_bytes(), b"user-owned-hardlink-bytes")
+        self.assertEqual(os.lstat(peer).st_nlink, 2)
+
     def test_stale_temp_cleanup_preserves_similar_backup_user_files(self) -> None:
         self.path.parent.mkdir(parents=True)
         canonical = self.path.parent / ".book-progress.json.bak.a1_b2c3d.tmp"
