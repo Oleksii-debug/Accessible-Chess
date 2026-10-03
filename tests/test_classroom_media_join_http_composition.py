@@ -11,7 +11,7 @@ from acs.classroom_join_http_client import (
     ClassroomJoinHttpClientError,
 )
 from acs.classroom_media_webview_projection import ClassroomMediaWebViewEvent
-from acs.classroom_realtime_media import JoinCredential
+from acs.classroom_realtime_media import ClassroomMediaError, JoinCredential
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_final_product_application import Version2FinalProductApplication
 
@@ -200,7 +200,10 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             return_value=issued,
         ):
-            with self.assertRaises(Exception) as error:
+            with self.assertRaisesRegex(
+                ClassroomMediaError,
+                "join credential is not currently valid",
+            ) as error:
                 application.prepare_classroom_media_join_http("room-1")
 
         self.assertNotIn(TOKEN, repr(error.exception))
