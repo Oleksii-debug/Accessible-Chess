@@ -190,15 +190,27 @@
     const recoveryRequired = availability &&
       typeof availability === "object" &&
       availability.recovery_required === true;
-    if (!snapshot || typeof snapshot !== "object" || recoveryRequired) {
+    const transactionActive = availability &&
+      typeof availability === "object" &&
+      availability.transaction_active === true;
+    if (
+      !snapshot ||
+      typeof snapshot !== "object" ||
+      recoveryRequired ||
+      transactionActive
+    ) {
       section.appendChild(node("p", uiText(
         language,
-        recoveryRequired
-          ? "Керування медіа тимчасово недоступне. Шахова дошка й дані заняття залишаються доступними без відео."
-          : "Медіазв’язок ще не налаштовано для цієї збірки. Шахова дошка й дані заняття залишаються доступними без відео.",
-        recoveryRequired
-          ? "Media controls are temporarily unavailable. The chess board and lesson data remain available without video."
-          : "Realtime media is not configured for this build yet. The chess board and lesson data remain available without video."
+        transactionActive
+          ? "Оновлення медіа виконується. Керування тимчасово недоступне до завершення операції."
+          : recoveryRequired
+            ? "Керування медіа тимчасово недоступне. Шахова дошка й дані заняття залишаються доступними без відео."
+            : "Медіазв’язок ще не налаштовано для цієї збірки. Шахова дошка й дані заняття залишаються доступними без відео.",
+        transactionActive
+          ? "A media update is in progress. Controls are temporarily unavailable until it completes."
+          : recoveryRequired
+            ? "Media controls are temporarily unavailable. The chess board and lesson data remain available without video."
+            : "Realtime media is not configured for this build yet. The chess board and lesson data remain available without video."
       )));
       return section;
     }
