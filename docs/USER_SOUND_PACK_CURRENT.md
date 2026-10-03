@@ -31,7 +31,7 @@ Variant 1 is the default for every semantic sound event.
 - checkmate default: Server/Gong.WAV; optional Russian/Notation/Mate.wav
 - draw default: Server/Gong.WAV; optional English/Draw.wav and Russian/Draw.wav
 - clock tick: Board/Tick.wav
-- low-time warning default: Board/coach.wav; optional Board/failhigh.wav
+- low-time warning default: Server/aooga.wav; optional Server/ping.wav. Board/coach.wav and Board/failhigh.wav remain preserved for their original chess-analysis roles.
 
 Distinct Board/Board3d alternatives and numbered move/capture alternatives are exposed through the persisted per-event sound variant settings. Byte-identical duplicates are not presented twice.
 
