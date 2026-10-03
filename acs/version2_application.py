@@ -12,6 +12,7 @@ import threading
 
 from .acsdb import AcsDatabase
 from .book_board_workflow import BookBoardWorkflow
+from .book_docx_import import import_docx_book, MAX_DOCX_SOURCE_BYTES
 from .book_epub_import import import_epub_book, MAX_EPUB_SOURCE_BYTES
 from .book_html_import import import_html_book, MAX_HTML_SOURCE_BYTES
 from .book_text_import import import_text_book, BookTextFormat, MAX_TEXT_SOURCE_BYTES
@@ -145,9 +146,11 @@ class Version2Application:
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before opening another source")
         suffix = source.suffix.casefold()
-        if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
+        if suffix not in {".docx", ".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
             raise ValueError("unsupported book source")
-        if suffix == ".epub":
+        if suffix == ".docx":
+            limit = MAX_DOCX_SOURCE_BYTES
+        elif suffix == ".epub":
             limit = MAX_EPUB_SOURCE_BYTES
         elif suffix in {".html", ".htm", ".xhtml"}:
             limit = MAX_HTML_SOURCE_BYTES
@@ -155,7 +158,9 @@ class Version2Application:
             limit = MAX_TEXT_SOURCE_BYTES
         with source.open("rb") as handle: raw = handle.read(limit + 1)
         if len(raw) > limit: raise ValueError("book source exceeds the supported limit")
-        if suffix == ".epub":
+        if suffix == ".docx":
+            imported = import_docx_book(raw, source_name=report_safe_name(source))
+        elif suffix == ".epub":
             imported = import_epub_book(raw, source_name=report_safe_name(source))
         elif suffix in {".html", ".htm", ".xhtml"}:
             imported = import_html_book(raw, source_name=report_safe_name(source), available_assets=())
