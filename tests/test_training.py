@@ -221,14 +221,31 @@ class ExerciseSessionTests(unittest.TestCase):
         session = ExerciseSession(definition)
         before = session.snapshot()
 
+        # Construction snapshots the caller-owned mapping.
         source_metadata["difficulty"] = "mutated"
         self.assertEqual("starter", definition.metadata["difficulty"])
-        with self.assertRaises(TypeError):
-            definition.metadata["difficulty"] = "mutated"  # type: ignore[index]
 
+        # Retain plain-dict compatibility, but do not let later mutation rebind
+        # an already-running session's persistence identity.
+        definition.metadata["difficulty"] = "mutated"
         after = session.snapshot()
         self.assertEqual(before["definition_digest"], after["definition_digest"])
-        self.assertEqual(before, ExerciseSession.restore(definition, before).snapshot())
+
+        pristine = ExerciseDefinition(
+            base.exercise_id,
+            base.start_fen,
+            base.steps,
+            title=base.title,
+            tags=base.tags,
+            source_id=base.source_id,
+            metadata={"difficulty": "starter", "locale": "en"},
+        )
+        self.assertEqual(
+            after,
+            ExerciseSession.restore(pristine, after).snapshot(),
+        )
+        with self.assertRaisesRegex(ValueError, "different exercise revision"):
+            ExerciseSession.restore(definition, after)
 
     def test_definition_metadata_is_snapshotted_once_before_validation(self):
         class OneGoodReadThenBad(Mapping):
