@@ -124,6 +124,15 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
             source,
         )
 
+    def test_recovery_failure_reuses_primary_focus_policy(self) -> None:
+        source = self.source
+        self.assertIn("function focusProfilePrimaryAction()", source)
+        self.assertIn("global.setTimeout(focusProfilePrimaryAction, 0);", source)
+        repair = source.split('profileRepair.addEventListener("click"', 1)[1]
+        repair = repair.split('profileClose.addEventListener("click"', 1)[0]
+        self.assertGreaterEqual(repair.count("focusProfilePrimaryAction();"), 3)
+        self.assertNotIn("profileName.focus();", repair)
+
     def test_recovery_required_state_routes_rename_to_repair(self) -> None:
         source = self.source
         self.assertIn(
