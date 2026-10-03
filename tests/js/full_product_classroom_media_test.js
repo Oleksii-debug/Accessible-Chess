@@ -164,6 +164,26 @@ async function run() {
   );
   assert.match(root.textContent, /Media controls are temporarily unavailable/);
 
+  const staleKey = "b".repeat(64);
+  const staleButtonId = "media-participant-" + staleKey + "-soft-mute";
+  surface.mount(
+    root,
+    mediaSnapshot([
+      {
+        id: staleButtonId,
+        command: "media.soft_mute",
+        label: "Soft mute microphone",
+        payload: { participant_key: staleKey, muted: true }
+      }
+    ]),
+    () => Promise.reject(new Error("must not invoke stale recovery control")),
+    () => {},
+    "en",
+    { binding_active: true, recovery_required: true }
+  );
+  assert.equal(root.querySelector("#" + staleButtonId), null);
+  assert.match(root.textContent, /Media controls are temporarily unavailable/);
+
   const key = "a".repeat(64);
   const rowId = "media-participant-" + key;
   const buttonId = rowId + "-block";
