@@ -103,6 +103,54 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             session.snapshot()
         self.assertFalse(HostileDict.touched)
 
+    def test_canonical_definition_is_detached_from_live_authority(self) -> None:
+        session = ExerciseSession(self.definition())
+        detached = session.canonical_definition
+        self.assertIsNot(detached, session.definition)
+        self.assertIsNot(detached.steps[0], session.definition.steps[0])
+
+        object.__setattr__(detached.steps[0], "accepted_moves", frozenset({"d4"}))
+
+        self.assertEqual(frozenset({"e4"}), session.current_step().accepted_moves)
+        self.assertTrue(session.submit("e4").accepted)
+
+    def test_session_restore_state_is_atomic_on_bounded_mapping_failure(self) -> None:
+        class InfiniteKeys(UserDict):
+            yielded = 0
+
+            def __len__(self):
+                raise AssertionError("restore_state must not trust Mapping.__len__")
+
+            def __iter__(self):
+                type(self).yielded = 0
+                while True:
+                    type(self).yielded += 1
+                    yield f"field_{type(self).yielded}"
+
+        session = ExerciseSession(self.definition())
+        session.submit("e4")
+        before = session.snapshot()
+        authority = session.definition
+
+        with self.assertRaisesRegex(ValueError, "field count"):
+            session.restore_state(InfiniteKeys(before))
+
+        self.assertEqual(11, InfiniteKeys.yielded)
+        self.assertIs(authority, session.definition)
+        self.assertEqual(before, session.snapshot())
+
+    def test_session_restore_state_valid_commit_preserves_authority_identity(self) -> None:
+        session = ExerciseSession(self.definition())
+        authority = session.definition
+        baseline = session.snapshot()
+        session.submit("e4")
+        self.assertNotEqual(baseline, session.snapshot())
+
+        session.restore_state(baseline)
+
+        self.assertIs(authority, session.definition)
+        self.assertEqual(baseline, session.snapshot())
+
     def test_snapshot_non_text_key_fails_deterministically(self) -> None:
         session = ExerciseSession(self.definition())
         snapshot = session.snapshot()
