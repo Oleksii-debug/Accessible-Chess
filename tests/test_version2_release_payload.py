@@ -229,7 +229,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
 
         manifest = PackagedSoundAssetResolver(result.product_dir).load_manifest()
         self.assertEqual(set(manifest.files), set(SoundEvent))
-        self.assertEqual(len(set(manifest.files.values())), 9)
+        self.assertEqual(len(set(manifest.files.values())), len(SoundEvent))
         for wav in manifest.files.values():
             with wave.open(str(wav), "rb") as reader:
                 self.assertEqual(reader.getcomptype(), "NONE")
