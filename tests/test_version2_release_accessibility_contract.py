@@ -11,6 +11,7 @@ SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
 PGN_PROJECTION = (ROOT / "acs" / "pgn_webview_projection.py").read_text(encoding="utf-8")
 BOOK_PROJECTION = (ROOT / "acs" / "book_webview_projection.py").read_text(encoding="utf-8")
 TRAINING_SURFACE = (ROOT / "web" / "full_product_books_training.js").read_text(encoding="utf-8")
+TRAINING_PROJECTION = (ROOT / "acs" / "training_webview_projection.py").read_text(encoding="utf-8")
 WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-composition.yml").read_text(encoding="utf-8")
 
 
@@ -78,12 +79,24 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
 
-    def test_training_shell_focus_names_the_real_answer_control(self) -> None:
+    def test_training_shell_focus_uses_canonical_rendered_targets(self) -> None:
         self.assertIn('default_focus_id="training-answer"', SHELL)
         self.assertNotIn('default_focus_id="training-prompt"', SHELL)
+        self.assertIn('"focus_target": canonical_focus', TRAINING_PROJECTION)
         self.assertIn('input.id = "training-answer";', TRAINING_SURFACE)
+        self.assertIn('button.id = String(action.focus_target || "");', TRAINING_SURFACE)
+        self.assertIn('solutionSection.id = "training-solution";', TRAINING_SURFACE)
+        self.assertIn('solutionSection.tabIndex = -1;', TRAINING_SURFACE)
         self.assertIn(
-            'const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;',
+            'return validFocusId(snapshot.training.focus_target)',
+            BOOTSTRAP,
+        )
+        self.assertIn(
+            'const canonicalFocus = productSurfaceFocusTarget(snapshot, routeId) || "training-answer";',
+            BOOTSTRAP,
+        )
+        self.assertIn(
+            'const focus = requestedFocus === "training-prompt" ? canonicalFocus : requestedFocus;',
             BOOTSTRAP,
         )
 
