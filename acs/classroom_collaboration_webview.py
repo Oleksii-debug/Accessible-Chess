@@ -353,6 +353,11 @@ class ClassroomCollaborationWebView:
     def set_language(self, language: UILanguage) -> None:
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
+        if language is not self._language and self._file_progress is not None:
+            # Progress revision orders the complete browser projection, not just
+            # byte counters. A language change therefore supersedes any delayed
+            # event carrying the old localized label/text for the same transfer.
+            self._file_progress_revision += 1
         self._language = language
 
     def set_file_progress_event_sink(
