@@ -455,6 +455,67 @@ class D06GameTreeResumeDiscardGuardTests(unittest.TestCase):
         self.assertEqual(first_guard.read_bytes(), first_bytes)
         self.assertEqual(second_guard.read_bytes(), second_bytes)
 
+    def test_concurrent_guard_appearing_during_empty_cleanup_fails_closed(self) -> None:
+        self.guard_dir.mkdir()
+        newcomer = self.guard_dir / f"{'d' * 64}.guard"
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+        original_iterdir = Path.iterdir
+        guard_dir_reads = 0
+
+        def iterdir_with_race(path: Path):
+            nonlocal guard_dir_reads
+            if path == self.guard_dir:
+                guard_dir_reads += 1
+                if guard_dir_reads == 2:
+                    newcomer.write_bytes(b"concurrent-control-state")
+            return original_iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", new=iterdir_with_race):
+            self.assertFalse(coordinator.restore(application))
+
+        self.assertEqual(guard_dir_reads, 2)
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.STALE_WRITER,
+        )
+        self.assertEqual(newcomer.read_bytes(), b"concurrent-control-state")
+
+    def test_concurrent_guard_appearing_after_claimed_guard_removal_fails_closed(self) -> None:
+        state = GameTreeResumeStore(self.resume_path).save(
+            self.game,
+            GameTreeCursor((), 1),
+        )
+        self.guard_dir.mkdir()
+        claimed_guard = self.guard_dir / f"{state.token}.guard"
+        os.replace(self.resume_path, claimed_guard)
+        newcomer = self.guard_dir / f"{'e' * 64}.guard"
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+        original_iterdir = Path.iterdir
+        guard_dir_reads = 0
+
+        def iterdir_with_race(path: Path):
+            nonlocal guard_dir_reads
+            if path == self.guard_dir:
+                guard_dir_reads += 1
+                if guard_dir_reads == 2:
+                    newcomer.write_bytes(b"new-control-state")
+            return original_iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", new=iterdir_with_race):
+            self.assertFalse(coordinator.restore(application))
+
+        self.assertEqual(guard_dir_reads, 2)
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.STALE_WRITER,
+        )
+        self.assertFalse(claimed_guard.exists())
+        self.assertEqual(newcomer.read_bytes(), b"new-control-state")
+
     def test_empty_guard_directory_is_cleaned_without_creating_resume(self) -> None:
         self.guard_dir.mkdir()
         application = _Application()
