@@ -19,6 +19,7 @@ from .classroom_domain import MAX_WIRE_INTEGER
 from .classroom_collaboration import (
     MAX_DOWNLOAD_TOKEN_CHARS,
     MAX_SYNC_ATTACHMENTS,
+    AttachmentHistoryPage,
     FileQuotaPolicy,
     FileTransferProgress,
     PreparedFile,
@@ -846,7 +847,7 @@ class ClassroomFileServerSQLiteStore:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         room = _server_id(room_id, "room id")
         after = _bounded_cursor(after_sequence, "attachment sequence cursor")
         count = _bounded_limit(limit)
@@ -861,7 +862,22 @@ class ClassroomFileServerSQLiteStore:
         query += "ORDER BY sequence_no LIMIT ?"
         args.append(count)
         with closing(self._connect()) as db:
-            rows = db.execute(query, tuple(args)).fetchall()
+            try:
+                db.execute("BEGIN")
+                rows = db.execute(query, tuple(args)).fetchall()
+                revision_stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count,
+                           MAX(revision) AS last_revision
+                    FROM classroom_file_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
         items = tuple(self._terminal_from_row(row) for row in rows)
         expected_sequence = 0 if after is None else after + 1
         for item in items:
@@ -870,7 +886,29 @@ class ClassroomFileServerSQLiteStore:
                     "authoritative file history has a sequence gap"
                 )
             expected_sequence += 1
-        return items
+        revision_count = revision_stats["item_count"]
+        last_revision = revision_stats["last_revision"]
+        if type(revision_count) is not int or revision_count < 0:
+            raise ClassroomFileServerError(
+                "attachment state revision count is corrupt"
+            )
+        if last_revision is None:
+            if revision_count != 0:
+                raise ClassroomFileServerError(
+                    "attachment state revision has a gap"
+                )
+            watermark = None
+        elif (
+            type(last_revision) is int
+            and 0 <= last_revision <= MAX_WIRE_INTEGER
+            and last_revision + 1 == revision_count
+        ):
+            watermark = last_revision
+        else:
+            raise ClassroomFileServerError(
+                "attachment state revision has a gap"
+            )
+        return AttachmentHistoryPage(items, watermark)
 
     def state_updates_after(
         self,
@@ -1350,7 +1388,7 @@ class ClassroomFileServerService:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         caller = _server_id(trusted_caller_identity, "trusted caller identity")
         room = _server_id(room_id, "room id")
         self._authorize(caller=caller, room_id=room, action="history")
@@ -1633,7 +1671,7 @@ class ClassroomFileServerClient:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         return self._service.history_after(
             trusted_caller_identity=self._caller,
             room_id=room_id,
