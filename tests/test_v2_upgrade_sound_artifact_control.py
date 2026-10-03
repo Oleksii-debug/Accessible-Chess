@@ -29,7 +29,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             for path in coordinator._files()
         }
 
-    def test_sound_locks_are_control_state_but_durable_sound_data_is_preserved(self):
+    def test_runtime_locks_are_control_state_but_durable_sound_and_resume_data_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
@@ -38,7 +38,9 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             )
             (root / "sound-profile.json.lock").write_bytes(b"live-profile-lock")
             (root / "SOUND-PACKS.LOCK").write_bytes(b"live-pack-lock")
+            (root / "gametree-resume.json.lock").write_bytes(b"live-resume-lock")
             (root / "sound-profile.json").write_bytes(b'{"profile":"quiet"}\n')
+            (root / "gametree-resume.json").write_bytes(b'{"resume":"durable"}\n')
             pack = root / "sound-packs" / "classic" / "move.wav"
             pack.parent.mkdir(parents=True)
             pack.write_bytes(b"durable-pack-bytes")
@@ -49,20 +51,29 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
 
             self.assertNotIn("sound-profile.json.lock", files)
             self.assertNotIn("SOUND-PACKS.LOCK", files)
+            self.assertNotIn("gametree-resume.json.lock", files)
             self.assertIn("sound-profile.json", files)
+            self.assertIn("gametree-resume.json", files)
             self.assertIn("sound-packs/classic/move.wav", files)
 
             backup, manifest = coordinator._create_backup("sound-lock-controls")
             paths = {str(item["path"]) for item in manifest["entries"]}
             self.assertNotIn("sound-profile.json.lock", paths)
             self.assertNotIn("SOUND-PACKS.LOCK", paths)
+            self.assertNotIn("gametree-resume.json.lock", paths)
             self.assertIn("sound-profile.json", paths)
+            self.assertIn("gametree-resume.json", paths)
             self.assertIn("sound-packs/classic/move.wav", paths)
             self.assertFalse((backup / "data" / "sound-profile.json.lock").exists())
             self.assertFalse((backup / "data" / "SOUND-PACKS.LOCK").exists())
+            self.assertFalse((backup / "data" / "gametree-resume.json.lock").exists())
             self.assertEqual(
                 (backup / "data" / "sound-profile.json").read_bytes(),
                 b'{"profile":"quiet"}\n',
+            )
+            self.assertEqual(
+                (backup / "data" / "gametree-resume.json").read_bytes(),
+                b'{"resume":"durable"}\n',
             )
             self.assertEqual(
                 (backup / "data" / "sound-packs" / "classic" / "move.wav").read_bytes(),
@@ -118,6 +129,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             for name, payload in (
                 ("sound-profile.json.lock", b"profile-directory-data"),
                 ("sound-packs.lock", b"packs-directory-data"),
+                ("gametree-resume.json.lock", b"resume-directory-data"),
             ):
                 directory = root / name
                 directory.mkdir()
@@ -129,10 +141,12 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
 
             self.assertIn("sound-profile.json.lock/keep.bin", files)
             self.assertIn("sound-packs.lock/keep.bin", files)
+            self.assertIn("gametree-resume.json.lock/keep.bin", files)
             backup, manifest = coordinator._create_backup("sound-lock-directories")
             paths = {str(item["path"]) for item in manifest["entries"]}
             self.assertIn("sound-profile.json.lock/keep.bin", paths)
             self.assertIn("sound-packs.lock/keep.bin", paths)
+            self.assertIn("gametree-resume.json.lock/keep.bin", paths)
             self.assertEqual(
                 (backup / "data" / "sound-profile.json.lock" / "keep.bin").read_bytes(),
                 b"profile-directory-data",
@@ -140,6 +154,10 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertEqual(
                 (backup / "data" / "sound-packs.lock" / "keep.bin").read_bytes(),
                 b"packs-directory-data",
+            )
+            self.assertEqual(
+                (backup / "data" / "gametree-resume.json.lock" / "keep.bin").read_bytes(),
+                b"resume-directory-data",
             )
 
     @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
@@ -180,7 +198,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 b"user-owned-regular-file",
             )
 
-    def test_interrupted_recovery_never_replays_sound_locks_or_cache(self):
+    def test_interrupted_recovery_never_replays_runtime_locks_or_sound_cache(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
@@ -189,9 +207,11 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             )
             profile_lock = root / "sound-profile.json.lock"
             packs_lock = root / "sound-packs.lock"
+            resume_lock = root / "gametree-resume.json.lock"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
             profile_lock.write_bytes(b"old-profile-lock")
             packs_lock.write_bytes(b"old-packs-lock")
+            resume_lock.write_bytes(b"old-resume-lock")
             cache_file.parent.mkdir(parents=True)
             cache_file.write_bytes(b"old-cache")
 
@@ -206,6 +226,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
 
             profile_lock.write_bytes(b"new-live-profile-lock")
             packs_lock.write_bytes(b"new-live-packs-lock")
+            resume_lock.write_bytes(b"new-live-resume-lock")
             cache_file.write_bytes(b"new-live-cache")
 
             recovered = Version2UpgradeCoordinator(UserDataLayout(root)).run()
@@ -213,6 +234,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertTrue(recovered.recovered_interrupted_upgrade)
             self.assertEqual(profile_lock.read_bytes(), b"new-live-profile-lock")
             self.assertEqual(packs_lock.read_bytes(), b"new-live-packs-lock")
+            self.assertEqual(resume_lock.read_bytes(), b"new-live-resume-lock")
             self.assertEqual(cache_file.read_bytes(), b"new-live-cache")
 
             backup = (
@@ -223,6 +245,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             )
             self.assertFalse((backup / "sound-profile.json.lock").exists())
             self.assertFalse((backup / "sound-packs.lock").exists())
+            self.assertFalse((backup / "gametree-resume.json.lock").exists())
             self.assertFalse((backup / "sound-cache").exists())
 
     def test_recovery_accepts_legacy_backup_entries_without_replaying_sound_artifacts(self):
@@ -234,10 +257,12 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             )
             profile_lock = root / "sound-profile.json.lock"
             packs_lock = root / "sound-packs.lock"
+            resume_lock = root / "gametree-resume.json.lock"
             cache_lock = root / "sound-cache" / ".playback.lock"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
             profile_lock.write_bytes(b"legacy-profile-lock")
             packs_lock.write_bytes(b"legacy-packs-lock")
+            resume_lock.write_bytes(b"legacy-resume-lock")
             cache_file.parent.mkdir(parents=True)
             cache_lock.write_bytes(b"legacy-cache-lock")
             cache_file.write_bytes(b"legacy-cache")
@@ -281,11 +306,13 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             )
             self.assertTrue((backup_data / "sound-profile.json.lock").exists())
             self.assertTrue((backup_data / "sound-packs.lock").exists())
+            self.assertTrue((backup_data / "gametree-resume.json.lock").exists())
             self.assertTrue((backup_data / "sound-cache" / ".playback.lock").exists())
             self.assertTrue((backup_data / "sound-cache" / "scaled" / "move.wav").exists())
 
             profile_lock.write_bytes(b"new-profile-lock")
             packs_lock.write_bytes(b"new-packs-lock")
+            resume_lock.write_bytes(b"new-resume-lock")
             cache_lock.write_bytes(b"new-cache-lock")
             cache_file.write_bytes(b"new-cache")
 
@@ -296,6 +323,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertTrue(recovered)
             self.assertEqual(profile_lock.read_bytes(), b"new-profile-lock")
             self.assertEqual(packs_lock.read_bytes(), b"new-packs-lock")
+            self.assertEqual(resume_lock.read_bytes(), b"new-resume-lock")
             self.assertEqual(cache_lock.read_bytes(), b"new-cache-lock")
             self.assertEqual(cache_file.read_bytes(), b"new-cache")
 
