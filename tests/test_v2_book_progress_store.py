@@ -1398,6 +1398,51 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
         self.assertFalse(self.path.exists())
 
+    def test_descriptor_read_oserror_is_stable_storage_error(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+
+        with mock.patch(
+            "acs.book_progress_store.os.fstat",
+            side_effect=OSError("simulated descriptor metadata failure"),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store._read_raw_file_unlocked(self.path, missing_ok=False)
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+
+    def test_read_detects_same_inode_change_after_final_descriptor_check(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+        real_lstat = os.lstat
+        path_checks = 0
+
+        def mutate_on_final_path_check(path: object) -> os.stat_result:
+            nonlocal path_checks
+            if os.fspath(path) == os.fspath(self.path):
+                path_checks += 1
+                if path_checks == 3:
+                    with self.path.open("ab") as stream:
+                        stream.write(b" ")
+            return real_lstat(path)
+
+        with mock.patch(
+            "acs.book_progress_store.os.lstat",
+            side_effect=mutate_on_final_path_check,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store._read_raw_file_unlocked(self.path, missing_ok=False)
+
+        self.assertEqual(path_checks, 3)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+
     def test_reads_do_not_reopen_path_after_file_identity_validation(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
