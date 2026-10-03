@@ -460,7 +460,13 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _dispatch_training_surface_command(self, command, payload=None):
-        command_id = command.strip() if isinstance(command, str) else command
+        command_id = (
+            command.strip()
+            if type(command) is str and len(command) <= 64
+            else command
+        )
+        classifiable_command = type(command_id) is str and len(command_id) <= 64
+        is_continue = classifiable_command and command_id == "training.continue"
         if self.shell.current_route.route_id != "training":
             raise ValueError(self._training_error_message())
         if self.shell.active_dialog_id is not None:
@@ -471,7 +477,7 @@ class Version2Application:
         language = bookmark_name = training_language = None
         training_message = ""
         training_message_key = None
-        if command_id == "training.continue":
+        if is_continue:
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
@@ -481,7 +487,7 @@ class Version2Application:
         try:
             result = self.training_workspace.dispatch(command_id, payload)
         except Exception:
-            if command_id == "training.continue":
+            if is_continue:
                 # The strict Training bridge normally sanitizes callback/render
                 # failures into an error event. If even that error projection
                 # fails after continuation moved the canonical BookReader, keep
@@ -504,7 +510,7 @@ class Version2Application:
                     )
             raise
         self.training = self.training_workspace.bridge
-        if command_id == "training.continue":
+        if is_continue:
             if result.kind == "error":
                 # The continuation callback can fail after moving the canonical
                 # BookReader and swapping the Training model (for example while
@@ -558,10 +564,25 @@ class Version2Application:
 
     def _dispatch_book_surface_command(self, command, payload=None):
         """Publish mutating Book commands only after durable progress succeeds."""
-        command_id = command.strip() if isinstance(command, str) else command
+        command_id = (
+            command.strip()
+            if type(command) is str and len(command) <= 64
+            else command
+        )
+        classifiable_command = type(command_id) is str and len(command_id) <= 64
+        is_language = classifiable_command and command_id == "book.language"
+        is_board_open = (
+            classifiable_command and command_id in self._BOOK_BOARD_OPEN_COMMANDS
+        )
+        is_return_from_board = (
+            classifiable_command and command_id == "book.return_from_board"
+        )
+        is_progress = (
+            classifiable_command and command_id in self._BOOK_PROGRESS_COMMANDS
+        )
         if self.books is None or self.reader is None:
             raise ValueError("no book is open")
-        if command_id == "book.language":
+        if is_language:
             # Language is presentation-only, but the Book-local WebView must still
             # own the visible route/focus before it may mutate projection state.
             if (
@@ -570,7 +591,7 @@ class Version2Application:
             ):
                 return self.books.projection.generic_error()
             return self.books.dispatch(command_id, payload)
-        if command_id in self._BOOK_BOARD_OPEN_COMMANDS:
+        if is_board_open:
             # Native menu actions are globally reachable even though Book Board
             # opening belongs to the visible Book Reader. Never open a hidden
             # Book position/game from Library, PGN, Settings, or another route.
@@ -589,13 +610,13 @@ class Version2Application:
             # Book WebView dispatches its open through that same delegate, and a
             # second write would advance BookProgress twice for one transition.
             return self.books.dispatch(command_id, payload)
-        if command_id == "book.return_from_board":
+        if is_return_from_board:
             # The canonical workflow unwinds through the shared router delegate,
             # which re-publishes the exact Book origin once after safe Return.
             # Keeping persistence in that one owner also makes browser/native
             # failure behavior identical.
             return self.books.dispatch(command_id, payload)
-        if command_id in self._BOOK_PROGRESS_COMMANDS:
+        if is_progress:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
             # hidden reading cursor from Library/PGN/Settings or another route.
@@ -901,16 +922,39 @@ class Version2Application:
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
         try:
-            if area == "review":
+            # Browser surface names and shell/review envelopes are authority
+            # inputs. Validate exact bounded JSON-shaped values before equality,
+            # hashing, prefix scans or payload truthiness can run subclass hooks.
+            if type(area) is not str or len(area) > 16:
+                raise ValueError("invalid browser surface")
+            area_id = area
+            empty_authority_payload = payload is None or (
+                type(payload) is dict and len(payload) == 0
+            )
+            if area_id == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
-                if command not in allowed or payload: raise ValueError("invalid review command")
+                if (
+                    type(command) is not str
+                    or len(command) > 64
+                    or command not in allowed
+                    or not empty_authority_payload
+                ):
+                    raise ValueError("invalid review command")
                 result = self.router.dispatch(command).value
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
-            if area == "shell":
-                if payload: raise ValueError("shell accepts no authority payload")
-                if type(command) is not str or not (command.startswith("screen.") or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}):
+            if area_id == "shell":
+                if not empty_authority_payload:
+                    raise ValueError("shell accepts no authority payload")
+                if (
+                    type(command) is not str
+                    or len(command) > 64
+                    or not (
+                        command.startswith("screen.")
+                        or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}
+                    )
+                ):
                     raise ValueError("unsupported shell command")
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
@@ -937,7 +981,7 @@ class Version2Application:
                             if isinstance(projected_screen, dict):
                                 projected_screen["focus_target"] = self._focus
                 return projected
-            if area == "training":
+            if area_id == "training":
                 try:
                     return asdict(self._dispatch_training_surface_command(command, payload))
                 except Exception:
@@ -945,10 +989,10 @@ class Version2Application:
                         "kind": "error",
                         "payload": {"message": self._training_error_message()},
                     }
-            if area == "books":
+            if area_id == "books":
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)
-            bridge = {"pgn": self.pgn, "library": self.library}.get(area)
+            bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             value = bridge.dispatch(command, payload)
             return asdict(value)

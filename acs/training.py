@@ -249,6 +249,11 @@ class ExerciseSession:
         self._status = ExerciseStatus.READY
 
     @property
+    def canonical_definition(self) -> ExerciseDefinition:
+        """Return a detached canonical copy of the live definition authority."""
+        return self._bound_definition()
+
+    @property
     def status(self) -> ExerciseStatus:
         return self._status
 
@@ -394,6 +399,24 @@ class ExerciseSession:
             "hints_used": self._hints_used,
             "status": self._status.value,
         }
+
+    def restore_state(self, snapshot: Mapping[str, object]) -> None:
+        """Atomically restore trusted progress without replacing this session.
+
+        All durable-field validation, bounded key discovery and canonical chess
+        replay complete on a detached candidate first. Live progress is mutated
+        only after that candidate is fully valid, preserving both the active
+        ExerciseSession identity and its bound definition authority.
+        """
+        definition = self._bound_definition()
+        restored = ExerciseSession.restore(definition, snapshot)
+        self._board = restored._board
+        self._accepted_path = list(restored._accepted_path)
+        self._step_index = restored._step_index
+        self._attempts = restored._attempts
+        self._mistakes = restored._mistakes
+        self._hints_used = restored._hints_used
+        self._status = restored._status
 
     def _bound_definition(self) -> ExerciseDefinition:
         if self.definition is not self._definition_authority:

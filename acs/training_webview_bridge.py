@@ -28,7 +28,9 @@ class TrainingWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping):
+        # PyWebView JSON objects arrive as built-in dicts. Reject Mapping/dict
+        # subclasses before len()/items() can execute hostile Python hooks.
+        if type(value) is not dict:
             raise TypeError("training browser payload must be a mapping")
         if len(value) > 2:
             raise ValueError("training browser payload has too many fields")
