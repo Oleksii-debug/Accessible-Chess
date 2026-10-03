@@ -159,12 +159,9 @@ class Version2BookTrainingWorkspace:
         if self.material is None or self.bridge is None or self._store is None:
             raise RuntimeError("no Training exercise is active")
         snapshot = self.session.snapshot()
-        if (
-            self._revision is not None
-            and self._persisted_snapshot is not None
-            and snapshot == self._persisted_snapshot
-        ):
-            return self._revision
+        # The store owns compare-and-swap authority even for byte-identical
+        # snapshots. It can elide the physical rewrite only after confirming
+        # under its peer lock that the expected durable revision still exists.
         revision = self._store.save(self.session, expected_revision=self._revision)
         self._revision = revision
         self._persisted_snapshot = snapshot
