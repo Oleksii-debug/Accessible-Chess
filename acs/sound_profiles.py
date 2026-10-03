@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath, PureWindowsPath
 import re
+from types import MappingProxyType
 from typing import Mapping
 
 
@@ -155,7 +156,7 @@ class SoundPackManifest:
         object.__setattr__(self, "license_id", license_id)
         object.__setattr__(self, "author", author)
         object.__setattr__(self, "provenance", provenance)
-        object.__setattr__(self, "files", files)
+        object.__setattr__(self, "files", MappingProxyType(files))
 
     def sound_path(self, sound_id: str) -> str:
         key = _stable_id(sound_id, allow_dot=True)
@@ -238,7 +239,7 @@ class SoundProfile:
                 raise TypeError("events must contain SoundEventPreference values")
             normalized[key] = preference
         object.__setattr__(self, "pack_id", pack_id)
-        object.__setattr__(self, "events", normalized)
+        object.__setattr__(self, "events", MappingProxyType(normalized))
 
     def preference_for(self, event_id: str) -> SoundEventPreference:
         event_id = _stable_id(event_id, allow_dot=True)
