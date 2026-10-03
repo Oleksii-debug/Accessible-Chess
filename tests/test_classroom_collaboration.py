@@ -1870,6 +1870,67 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             fresh_store.attachment_snapshot_state_revision(current.attachment_id)
         )
 
+    def test_history_watermark_is_scoped_to_each_snapshot_attachment(self):
+        local = AttachmentMetadata(
+            "local-before-page", "room-1", "teacher-1", 0, "local.pgn",
+            "application/x-chess-pgn", 8, "d" * 64,
+            "rooms/room-1/local-before-page", "stored", "persistent", "pending",
+        )
+        incoming = AttachmentMetadata(
+            "incoming-page", "room-1", "student-2", 1, "incoming.pgn",
+            "application/x-chess-pgn", 8, "e" * 64,
+            "rooms/room-1/incoming-page", "stored", "persistent", "clean",
+        )
+        self.store.register_attachment(local)
+        self.files.ordered = [local, incoming]
+        self.files.attachments = {
+            local.attachment_id: local,
+            incoming.attachment_id: incoming,
+        }
+        self.files.state_updates = [
+            AttachmentStateUpdate(
+                "room-1", local.attachment_id, 0, "stored", "clean"
+            ),
+            AttachmentStateUpdate(
+                "room-1", incoming.attachment_id, 1, "stored", "clean"
+            ),
+        ]
+        controller = self.controller("teacher-1")
+
+        discovered = controller.sync_files()
+
+        self.assertEqual(discovered, (incoming,))
+        current = {
+            item.attachment_id: item
+            for item in self.store.room_attachments("room-1")
+        }
+        self.assertEqual(current[local.attachment_id].scan_state, "clean")
+        self.assertEqual(current[incoming.attachment_id].scan_state, "clean")
+        self.assertIsNone(
+            self.store.attachment_snapshot_state_revision(local.attachment_id)
+        )
+        self.assertEqual(
+            self.store.attachment_snapshot_state_revision(incoming.attachment_id),
+            1,
+        )
+        self.assertEqual(self.store.attachment_state_revision("room-1"), 1)
+
+    def test_attachment_history_page_rejects_invalid_watermark_shape(self):
+        safe = AttachmentMetadata(
+            "page-shape", "room-1", "teacher-1", 0, "safe.bin", None, 1,
+            "f" * 64, "rooms/room-1/page-shape", "stored", "persistent", "clean",
+        )
+        self.assertEqual(
+            AttachmentHistoryPage((safe,), None).attachments,
+            (safe,),
+        )
+        for revision in (True, -1, MAX_WIRE_INTEGER + 1):
+            with self.subTest(revision=revision):
+                with self.assertRaises(CollaborationError):
+                    AttachmentHistoryPage((safe,), revision)
+        with self.assertRaises(CollaborationError):
+            AttachmentHistoryPage([safe], None)
+
     def test_history_watermark_prevents_tombstone_resurrection(self):
         tombstone = AttachmentMetadata(
             "watermarked-deleted", "room-1", "teacher-1", 0, "deleted.pgn",
