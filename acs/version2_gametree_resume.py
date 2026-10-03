@@ -64,15 +64,218 @@ class Version2GameTreeResumeCoordinator:
         self._disabled = True
         setattr(application, "_gametree_resume_error", error)
 
+    @property
+    def _discard_guard_directory(self) -> Path:
+        return self.store.path.parent / _DISCARD_GUARD_DIRECTORY
+
+    @staticmethod
+    def _discard_guard_token(path: Path) -> str:
+        name = path.name
+        if not name.endswith(_DISCARD_GUARD_SUFFIX):
+            raise GameTreeResumeError(
+                "resume discard guard name is invalid",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        token = name[: -len(_DISCARD_GUARD_SUFFIX)]
+        if (
+            len(token) != 64
+            or any(character not in "0123456789abcdef" for character in token)
+        ):
+            raise GameTreeResumeError(
+                "resume discard guard token is invalid",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        return token
+
+    def _require_discard_guard_directory(self, *, create: bool) -> Path | None:
+        directory = self._discard_guard_directory
+        try:
+            metadata = directory.lstat()
+        except FileNotFoundError:
+            if not create:
+                return None
+            try:
+                directory.mkdir()
+            except FileExistsError:
+                pass
+            except OSError as error:
+                raise GameTreeResumeError(
+                    "resume discard guard directory could not be created",
+                    code=GameTreeResumeCode.IO_FAILURE,
+                ) from error
+            try:
+                metadata = directory.lstat()
+            except OSError as error:
+                raise GameTreeResumeError(
+                    "resume discard guard directory could not be verified",
+                    code=GameTreeResumeCode.IO_FAILURE,
+                ) from error
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard directory could not be inspected",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise GameTreeResumeError(
+                "resume discard guard root must be a real directory",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        return directory
+
+    def _discard_guard_entries_locked(self) -> tuple[Path, ...]:
+        directory = self._require_discard_guard_directory(create=False)
+        if directory is None:
+            return ()
+        try:
+            before = directory.lstat()
+            entries = tuple(sorted(directory.iterdir(), key=lambda item: item.name))
+            after = directory.lstat()
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard directory changed while being inspected",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+        if (
+            stat.S_ISLNK(after.st_mode)
+            or _is_reparse_point(after)
+            or not stat.S_ISDIR(after.st_mode)
+            or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+        ):
+            raise GameTreeResumeError(
+                "resume discard guard directory changed while being inspected",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        if len(entries) > 1:
+            raise GameTreeResumeError(
+                "multiple resume discard guards are ambiguous",
+                code=GameTreeResumeCode.STALE_WRITER,
+            )
+        if entries:
+            self._discard_guard_token(entries[0])
+        return entries
+
+    def _cleanup_discard_guard_directory_locked(self) -> None:
+        directory = self._require_discard_guard_directory(create=False)
+        if directory is None:
+            return
+        try:
+            if any(directory.iterdir()):
+                return
+            directory.rmdir()
+            _fsync_directory(directory.parent)
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard directory could not be cleaned up",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+
+    def _remove_discard_guard_locked(self, guard: Path) -> None:
+        _validate_regular_path(guard, allow_missing=False)
+        try:
+            guard.unlink()
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard could not be removed",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+        _fsync_directory(guard.parent)
+        self._cleanup_discard_guard_directory_locked()
+
+    def _restore_guard_to_canonical_locked(
+        self,
+        guard: Path,
+        *,
+        expected_token: str,
+    ) -> None:
+        path = self.store.path
+        try:
+            os.link(guard, path)
+        except FileExistsError as error:
+            raise GameTreeResumeError(
+                "resume discard recovery found a competing canonical state",
+                code=GameTreeResumeCode.STALE_WRITER,
+            ) from error
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard recovery could not restore the raced state",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+
+        _fsync_directory(path.parent)
+        try:
+            canonical_token = _token_for_bytes(_read_store_bytes(path))
+            guard_token = _token_for_bytes(_read_store_bytes(guard))
+        except GameTreeResumeError:
+            raise
+        if canonical_token != expected_token or guard_token != expected_token:
+            raise GameTreeResumeError(
+                "resume discard recovery readback mismatch",
+                code=GameTreeResumeCode.STALE_WRITER,
+            )
+        self._remove_discard_guard_locked(guard)
+
+    def _reconcile_discard_guard_locked(self) -> None:
+        entries = self._discard_guard_entries_locked()
+        if not entries:
+            self._cleanup_discard_guard_directory_locked()
+            return
+
+        guard = entries[0]
+        intended_token = self._discard_guard_token(guard)
+        guard_token = _token_for_bytes(_read_store_bytes(guard))
+        path = self.store.path
+        canonical_exists = _validate_regular_path(path, allow_missing=True)
+
+        if guard_token == intended_token:
+            # The exact state whose Discard was already confirmed reached the
+            # guard. Completing its deletion is restart-safe and cannot remove a
+            # newer canonical publication.
+            self._remove_discard_guard_locked(guard)
+            return
+
+        if not canonical_exists:
+            # The atomic move captured a raced newer state. Restore that exact
+            # state to the canonical name without clobbering a concurrent writer.
+            self._restore_guard_to_canonical_locked(
+                guard,
+                expected_token=guard_token,
+            )
+            return
+
+        canonical_token = _token_for_bytes(_read_store_bytes(path))
+        if canonical_token == guard_token:
+            # Crash after no-clobber restoration but before guard cleanup.
+            self._remove_discard_guard_locked(guard)
+            return
+
+        # Two different valid pathnames are safer than choosing a winner. Leave
+        # both byte sets intact and disable resume until the ambiguity is resolved.
+        raise GameTreeResumeError(
+            "resume discard recovery found divergent durable states",
+            code=GameTreeResumeCode.STALE_WRITER,
+        )
+
+    def _reconcile_discard_guard(self) -> None:
+        path = self.store.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _exclusive_store_lock(path):
+            self._reconcile_discard_guard_locked()
+
     def restore(self, application: object) -> bool:
         """Restore a valid prior selected game/cursor into a fresh V2 application."""
 
         if self._disabled:
             return False
         path = self.store.path
-        if not path.exists():
-            return False
         try:
+            self._reconcile_discard_guard()
+            if not _validate_regular_path(path, allow_missing=True):
+                return False
             state = self.store.load()
         except GameTreeResumeError as error:
             self._disable(application, error)
@@ -97,6 +300,7 @@ class Version2GameTreeResumeCoordinator:
         path = self.store.path
         path.parent.mkdir(parents=True, exist_ok=True)
         with _exclusive_store_lock(path):
+            self._reconcile_discard_guard_locked()
             exists = _validate_regular_path(path, allow_missing=True)
             if not exists:
                 if self._token is not None:
@@ -108,20 +312,58 @@ class Version2GameTreeResumeCoordinator:
 
             payload = _read_store_bytes(path)
             current_token = _token_for_bytes(payload)
-            if self._token is None or current_token != self._token:
+            claimed_token = self._token
+            if claimed_token is None or current_token != claimed_token:
                 raise GameTreeResumeError(
                     "resume store changed before discard publication",
                     code=GameTreeResumeCode.STALE_WRITER,
                 )
+
+            directory = self._require_discard_guard_directory(create=True)
+            assert directory is not None
+            guard = directory / f"{claimed_token}{_DISCARD_GUARD_SUFFIX}"
+            if guard.exists() or guard.is_symlink():
+                raise GameTreeResumeError(
+                    "resume discard guard already exists",
+                    code=GameTreeResumeCode.STALE_WRITER,
+                )
             try:
-                path.unlink()
+                os.replace(path, guard)
             except OSError as error:
                 raise GameTreeResumeError(
-                    "resume store could not be removed after confirmed discard",
+                    "resume store could not enter discard guard",
                     code=GameTreeResumeCode.IO_FAILURE,
                 ) from error
             _fsync_directory(path.parent)
+            _fsync_directory(directory)
+
+            moved_token = _token_for_bytes(_read_store_bytes(guard))
+            if moved_token != claimed_token:
+                # The canonical pathname changed after authentication but before
+                # the atomic move. Never discard those newer bytes.
+                if not _validate_regular_path(path, allow_missing=True):
+                    self._restore_guard_to_canonical_locked(
+                        guard,
+                        expected_token=moved_token,
+                    )
+                else:
+                    canonical_token = _token_for_bytes(_read_store_bytes(path))
+                    if canonical_token == moved_token:
+                        self._remove_discard_guard_locked(guard)
+                raise GameTreeResumeError(
+                    "resume store changed during discard publication",
+                    code=GameTreeResumeCode.STALE_WRITER,
+                )
+
+            # Only the exact claimed bytes are now in the reserved guard. Their
+            # deletion cannot target a concurrently recreated canonical pathname.
+            self._remove_discard_guard_locked(guard)
             self._token = None
+            if _validate_regular_path(path, allow_missing=True):
+                raise GameTreeResumeError(
+                    "a newer resume store appeared during discard publication",
+                    code=GameTreeResumeCode.STALE_WRITER,
+                )
             return True
 
     def prepare_shutdown(self, application: object) -> None:
