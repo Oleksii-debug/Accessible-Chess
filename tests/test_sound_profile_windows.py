@@ -372,7 +372,11 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             )
             original_mtime = source.stat().st_mtime_ns
 
-            with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(source)):
+            with mock.patch.object(
+                store,
+                "read_asset_snapshot",
+                side_effect=lambda _pack, _sound: _asset_snapshot(source),
+            ):
                 first = self._play(adapter, request)
                 first_cache = Path(first.calls[0][0])
 
