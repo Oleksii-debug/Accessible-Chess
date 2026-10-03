@@ -63,8 +63,19 @@ class Version2BookTrainingWorkspace:
     def _store_for(self, material: BookTrainingMaterial) -> TrainingProgressStore:
         return TrainingProgressStore(self.progress_root / self._exercise_filename(material))
 
-    def _bridge_for(self, session: ExerciseSession) -> TrainingWebViewBridge:
-        presenter = TrainingPresenter(session, language=self.language)
+    def _bridge_for(
+        self,
+        session: ExerciseSession,
+        *,
+        message: str = "",
+        message_key: str | None = None,
+    ) -> TrainingWebViewBridge:
+        presenter = TrainingPresenter(
+            session,
+            language=self.language,
+            message=message,
+            message_key=message_key,
+        )
         projection = TrainingWebViewProjection(
             presenter,
             language=self.language,
@@ -78,12 +89,20 @@ class Version2BookTrainingWorkspace:
     def _prepare(
         self,
         material: BookTrainingMaterial,
+        *,
+        message: str = "",
+        message_key: str | None = None,
     ) -> tuple[ExerciseSession, TrainingWebViewBridge, TrainingProgressStore, str | None]:
         store = self._store_for(material)
         loaded = store.load(material.definition)
         session = ExerciseSession(material.definition) if loaded is None else loaded.session
         revision = None if loaded is None else loaded.revision
-        return session, self._bridge_for(session), store, revision
+        return (
+            session,
+            self._bridge_for(session, message=message, message_key=message_key),
+            store,
+            revision,
+        )
 
     @property
     def session(self) -> ExerciseSession:
@@ -91,9 +110,45 @@ class Version2BookTrainingWorkspace:
             raise RuntimeError("no Training exercise is active")
         return self._session
 
-    def start_current(self) -> TrainingWebViewBridge:
-        material = build_current_book_training_material(self.reader)
-        session, bridge, store, revision = self._prepare(material)
+    @property
+    def presenter_message(self) -> str:
+        if self.bridge is None:
+            raise RuntimeError("no Training exercise is active")
+        return self.bridge.projection.presenter_message
+
+    @property
+    def presenter_message_key(self) -> str | None:
+        if self.bridge is None:
+            raise RuntimeError("no Training exercise is active")
+        return self.bridge.projection.presenter_message_key
+
+    def start_current(
+        self,
+        *,
+        message: str = "",
+        message_key: str | None = None,
+    ) -> TrainingWebViewBridge:
+        location = self.reader.location()
+        try:
+            material = build_current_book_training_material(self.reader)
+        except Exception:
+            # If mutable authoring drift caused material derivation to fail, expose
+            # only the canonical revision boundary. If the indexed revision is
+            # still valid, preserve the original domain/programming exception.
+            self.reader.block_snapshot(location.index)
+            raise
+        # BookReader is bound to one immutable indexed revision. Revalidate the
+        # live authoring document after Training material derivation so a mutable
+        # BookDocument cannot change between the reader check and publication.
+        self.reader.block_snapshot(location.index)
+        session, bridge, store, revision = self._prepare(
+            material,
+            message=message,
+            message_key=message_key,
+        )
+        # Durable Training load is an external I/O boundary. Revalidate once more
+        # immediately before publishing the prepared session/bridge.
+        self.reader.block_snapshot(location.index)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
         return bridge
@@ -109,17 +164,49 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if material is None:
             raise RuntimeError("no Training exercise is active")
-        current = resolve_book_training_origin(self.reader.document, material.origin)
-        for index in range(current.index + 1, len(self.reader.document.blocks)):
-            if not isinstance(self.reader.document.blocks[index], Exercise):
+        # Fail closed through BookReader before provenance code touches the mutable
+        # live BookDocument. Authoring can temporarily make blocks malformed; that
+        # must surface as canonical revision drift, never as an internal parser/
+        # attribute exception on the Training/NVDA path.
+        self.reader.block_snapshot(self.reader.index)
+        try:
+            current = resolve_book_training_origin(self.reader.document, material.origin)
+        except Exception:
+            # Provenance resolution reads the mutable authoring document. If it
+            # failed because that document changed mid-call, normalize the failure
+            # to BookReader's canonical revision-drift boundary.
+            self.reader.block_snapshot(self.reader.index)
+            raise
+        # resolve_book_training_origin() operates on BookDocument for provenance
+        # compatibility. Cross-check again because the live document may change
+        # while semantic provenance is being resolved.
+        self.reader.block_snapshot(current.index)
+        upper_bound = len(self.reader.document.blocks)
+        for index in range(current.index + 1, upper_bound):
+            block = self.reader.block_snapshot(index)
+            if not isinstance(block, Exercise):
                 continue
             try:
                 candidate = build_book_training_material(self.reader.document, index)
             except BookTrainingError:
-                # Keep malformed authored chess content readable as a Book block,
-                # but never advertise or fabricate it as a Training exercise.
+                # Distinguish stable malformed authored chess content from a live
+                # revision that changed during derivation. The former stays a
+                # readable Book block; the latter must fail closed.
+                self.reader.block_snapshot(index)
                 continue
+            except Exception:
+                # Never leak implementation exceptions caused by concurrent
+                # malformed authoring state before checking revision authority.
+                self.reader.block_snapshot(index)
+                raise
+            # The material builder consumes the mutable BookDocument. Revalidate
+            # the whole indexed revision after derivation so a concurrent/in-place
+            # authoring mutation cannot become the next Training publication.
+            self.reader.block_snapshot(index)
             return index, candidate
+        # Also validate an empty/exhausted scan: the live list could have changed
+        # after upper_bound was read and otherwise be misreported as "no next".
+        self.reader.block_snapshot(current.index)
         raise LookupError("no next valid Training exercise")
 
     def has_next(self) -> bool:
@@ -132,11 +219,12 @@ class Version2BookTrainingWorkspace:
     def continue_next(self) -> TrainingWebViewEvent:
         if not self.session.completed:
             raise ValueError("current Training exercise is not complete")
-        self.save()
         next_index, material = self._next_exercise_material()
-        # Validate the next semantic exercise and its durable state before moving
-        # the BookReader or replacing the active Training surface.
+        # Validate the successor and its durable state before any persistence or
+        # reader mutation. A stale/malformed next exercise must not rewrite the
+        # already-durable completed origin merely because Continue was attempted.
         session, bridge, store, revision = self._prepare(material)
+        self.save()
         self.reader.go_to(next_index)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
@@ -151,21 +239,107 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
+        if command == "training.continue" and not (
+            self.session.completed and self.has_next()
+        ):
+            # Continue is disabled unless a completed exercise has a validated
+            # successor. Enforce that same authority before the callback can save
+            # current progress, so stale/forged WebView activation of a disabled
+            # Continue control cannot perform durable I/O.
+            return bridge.projection.generic_error()
+        if (
+            self.session.completed
+            and command in ("training.hint", "training.reveal", "training.retry")
+        ):
+            # These controls are explicitly disabled in the canonical snapshot
+            # after completion. Enforce the same boundary server-side so stale
+            # DOM/native-menu activation cannot mutate transient feedback or
+            # trigger a needless persistence write behind a disabled control.
+            return bridge.projection.generic_error()
         before = self.session.snapshot()
         revision = self._revision
-        event = bridge.dispatch(command, payload)
-        if event.kind == "error" or command == "training.continue":
+        before_session = self._session
+        before_store = self._store
+        before_reader_index = self.reader.index
+        before_language = bridge.projection.language
+        before_message = bridge.projection.presenter_message
+        before_message_key = bridge.projection.presenter_message_key
+
+        def restore_continue_state() -> None:
+            # Continue can move the canonical BookReader and replace every active
+            # Training object before the next surface renders. Keep the workspace
+            # independently atomic; callers must not need Version2Application to
+            # repair a failed render/callback.
+            if self.reader.index != before_reader_index:
+                self.reader.go_to(before_reader_index)
+            self.material = material
+            self._session = before_session
+            self.bridge = bridge
+            self._store = before_store
+            self._revision = revision
+            self.language = before_language
+
+        try:
+            event = bridge.dispatch(command, payload)
+        except Exception:
+            if command == "training.continue":
+                restore_continue_state()
+            else:
+                # The bridge normally sanitizes projection failures. If the
+                # sanitizing error projection itself raises after a presenter or
+                # session mutation, restore the exact pre-command Training state
+                # before allowing the outer application boundary to sanitize it.
+                restored = ExerciseSession.restore(material.definition, before)
+                self._session = restored
+                self.language = before_language
+                self.bridge = self._bridge_for(
+                    restored,
+                    message=before_message,
+                    message_key=before_message_key,
+                )
+                self._revision = revision
+            raise
+        if command == "training.continue":
+            if event.kind == "error":
+                restore_continue_state()
             return event
+        if event.kind == "error":
+            # Projection/render failures can happen after submit/hint/reset or
+            # transient presenter state has already mutated. The bridge deliberately
+            # converts those exceptions to a generic error, so restore the complete
+            # pre-command Training surface instead of leaving memory ahead of disk.
+            restored = ExerciseSession.restore(material.definition, before)
+            self._session = restored
+            self.language = before_language
+            self.bridge = self._bridge_for(
+                    restored,
+                    message=before_message,
+                    message_key=before_message_key,
+                )
+            self._revision = revision
+            # The bridge can construct its generic error after partially mutating
+            # presentation state (notably a rejected language switch). We have
+            # just restored the authoritative pre-command projection, so never
+            # return an error localized from the rejected transient state.
+            return self.bridge.projection.generic_error()
         try:
             self.save()
         except Exception:
             # A stale/busy durable write must not leave in-memory progress ahead
-            # of disk truth. Restore the exact pre-command canonical session.
+            # of disk truth. Restore the exact pre-command canonical session and
+            # presentation language.
             restored = ExerciseSession.restore(material.definition, before)
             self._session = restored
-            self.bridge = self._bridge_for(restored)
+            self.language = before_language
+            self.bridge = self._bridge_for(
+                    restored,
+                    message=before_message,
+                    message_key=before_message_key,
+                )
             self._revision = revision
             raise
+        if command == "training.language":
+            self.language = self.bridge.projection.language
         return event
 
     def snapshot(self) -> dict[str, object] | None:
