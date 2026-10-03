@@ -163,7 +163,9 @@ function semanticGameSnapshot() {
     details_label: "Game details",
     details: [
       { label: "Event", value: "Accessible Cup" },
-      { label: "Date", value: "2026.10.03" }
+      { label: "Date", value: "2026.10.03" },
+      { label: "ECO", value: "C20" },
+      { label: "Annotator", value: "" }
     ],
     comments_label: "Comments",
     intro_comments_label: "Comments before moves",
@@ -401,6 +403,14 @@ async function run() {
     "semantic Game metadata lacks native definition-list naming");
   check(find(detailsList, "DT", "Event") !== null && find(detailsList, "DD", "Accessible Cup") !== null,
     "semantic Game event metadata is missing");
+  check(find(detailsList, "DT", "ECO") !== null && find(detailsList, "DD", "C20") !== null,
+    "semantic Game custom metadata is missing");
+  check(detailsList.children.length === 8
+      && detailsList.children[6].tagName === "DT"
+      && detailsList.children[6].textContent === "Annotator"
+      && detailsList.children[7].tagName === "DD"
+      && detailsList.children[7].textContent === "",
+    "semantic Game empty authored metadata value must be preserved");
   check(find(semanticBlock, "H4", "Moves and variations") !== null,
     "semantic move heading is missing");
   check(find(semanticBlock, "SPAN", "1. e4") !== null,
@@ -993,6 +1003,29 @@ async function run() {
     "invalid semantic alternation must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "invalid semantic alternation must not steal reading focus");
+
+  const excessiveDetails = semanticGameSnapshot();
+  excessiveDetails.block.semantic_tree.details = new Array(4097).fill(null).map(function (_, index) {
+    return { label: "Tag" + String(index), value: "Value" };
+  });
+  let excessiveDetailsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveDetails,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveDetailsRejected = true;
+  }
+  check(excessiveDetailsRejected, "excessive semantic metadata must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic metadata must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic metadata must not steal reading focus");
 
   const malformedDetails = semanticGameSnapshot();
   malformedDetails.block.semantic_tree.details = [{ label: "Event", value: { text: "bad" } }];
