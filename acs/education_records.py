@@ -220,7 +220,7 @@ class EducationLedger:
 
     def to_json(self) -> str:
         text = _canonical_json(self.to_record())
-        if _utf8_size(text) > MAX_SNAPSHOT_BYTES:
+        if _utf8_size_exceeds_limit(text, MAX_SNAPSHOT_BYTES):
             raise EducationRecordsError(
                 "education records snapshot exceeds size limit"
             )
@@ -243,12 +243,12 @@ class EducationLedger:
         supplied_digest = _digest_text(
             data["digest"], "education records digest"
         )
-        body = {key: data[key] for key in expected if key != "digest"}
-        if _digest(body) != supplied_digest:
-            raise EducationRecordsError(
-                "education records snapshot digest mismatch"
-            )
-        return cls(
+
+        # Decode and bound attacker-controlled collections before hashing the
+        # record body.  The decoded canonical object is the digest authority,
+        # so a direct from_record() caller cannot force an unbounded JSON
+        # materialization merely to reach the later collection validators.
+        ledger = cls(
             version=data["version"],
             classroom_digest=data["classroom_digest"],
             revision=data["revision"],
@@ -265,6 +265,11 @@ class EducationLedger:
                 limit=MAX_OPERATION_RECEIPTS,
             ),
         )
+        if ledger.digest != supplied_digest:
+            raise EducationRecordsError(
+                "education records snapshot digest mismatch"
+            )
+        return ledger
 
     @classmethod
     def from_json(cls, text: str) -> "EducationLedger":
@@ -272,7 +277,7 @@ class EducationLedger:
             raise EducationRecordsError(
                 "education records JSON must be exact text"
             )
-        if _utf8_size(text) > MAX_SNAPSHOT_BYTES:
+        if _utf8_size_exceeds_limit(text, MAX_SNAPSHOT_BYTES):
             raise EducationRecordsError(
                 "education records snapshot exceeds size limit"
             )
@@ -898,13 +903,29 @@ def _digest(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _utf8_size(value: str) -> int:
-    try:
-        return len(value.encode("utf-8"))
-    except UnicodeEncodeError as exc:
-        raise EducationRecordsError(
-            "education records contain an invalid Unicode scalar value"
-        ) from exc
+def _utf8_size_exceeds_limit(value: str, limit: int) -> bool:
+    if type(value) is not str:
+        raise EducationRecordsError("education records JSON must be exact text")
+    if type(limit) is not int or limit < 0:
+        raise ValueError("UTF-8 size limit must be a non-negative integer")
+    total = 0
+    for character in value:
+        codepoint = ord(character)
+        if codepoint <= 0x7F:
+            total += 1
+        elif codepoint <= 0x7FF:
+            total += 2
+        elif 0xD800 <= codepoint <= 0xDFFF:
+            raise EducationRecordsError(
+                "education records contain an invalid Unicode scalar value"
+            )
+        elif codepoint <= 0xFFFF:
+            total += 3
+        else:
+            total += 4
+        if total > limit:
+            return True
+    return False
 
 
 def _parse_wire_integer(value: str) -> int:

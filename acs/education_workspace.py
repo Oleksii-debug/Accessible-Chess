@@ -200,7 +200,7 @@ class EducationWorkspace:
 
     def to_json(self) -> str:
         text = _canonical_json(self.to_record())
-        if _utf8_size(text) > MAX_WORKSPACE_JSON_BYTES:
+        if _utf8_size_exceeds_limit(text, MAX_WORKSPACE_JSON_BYTES):
             raise EducationWorkspaceError("education workspace exceeds size limit")
         return text
 
@@ -211,15 +211,15 @@ class EducationWorkspace:
         if actual_fields not in {_WORKSPACE_FIELDS_LEGACY, _WORKSPACE_FIELDS}:
             raise EducationWorkspaceError("education workspace schema mismatch")
         supplied_digest = _digest_text(data["digest"], "workspace digest")
-        body_keys = tuple(key for key in data if key != "digest")
-        body = {key: data[key] for key in body_keys}
-        if _digest(body) != supplied_digest:
-            raise EducationWorkspaceError("education workspace digest mismatch")
         version = data["version"]
         if type(version) is not int or version != EDUCATION_WORKSPACE_VERSION:
             raise EducationWorkspaceError(
                 f"unsupported education workspace version: {version!r}"
             )
+
+        # Validate nested authorities and prepared-position bounds before the
+        # outer digest is materialized.  ClassroomSnapshot already validates
+        # bounded records before its digest; EducationLedger does the same.
         raw_classroom = _mapping(data["classroom"], "workspace classroom")
         raw_ledger = _mapping(data["ledger"], "workspace ledger")
         try:
@@ -241,18 +241,31 @@ class EducationWorkspace:
             prepared_positions = tuple(
                 _prepared_position_from_record(item) for item in raw_positions
             )
-        return cls(
+
+        workspace = cls(
             classroom=classroom,
             ledger=ledger,
             version=version,
             prepared_positions=prepared_positions,
         )
 
+        # All nested authorities and prepared-position fields are bounded and
+        # semantically validated above.  Integrity must still bind to the exact
+        # accepted wire body, not to the normalized reconstruction: legacy
+        # prepared-position records intentionally migrate to current defaults,
+        # and hashing the migrated object would reject their valid legacy
+        # digest after successful validation.
+        bounded_body = {key: data[key] for key in data if key != "digest"}
+        actual_digest = _digest(bounded_body)
+        if actual_digest != supplied_digest:
+            raise EducationWorkspaceError("education workspace digest mismatch")
+        return workspace
+
     @classmethod
     def from_json(cls, text: str) -> "EducationWorkspace":
         if type(text) is not str:
             raise EducationWorkspaceError("education workspace JSON must be exact text")
-        if _utf8_size(text) > MAX_WORKSPACE_JSON_BYTES:
+        if _utf8_size_exceeds_limit(text, MAX_WORKSPACE_JSON_BYTES):
             raise EducationWorkspaceError("education workspace exceeds size limit")
         try:
             raw = json.loads(
@@ -960,13 +973,29 @@ def _digest(value: object) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _utf8_size(value: str) -> int:
-    try:
-        return len(value.encode("utf-8"))
-    except UnicodeEncodeError as exc:
-        raise EducationWorkspaceError(
-            "education workspace contains invalid Unicode"
-        ) from exc
+def _utf8_size_exceeds_limit(value: str, limit: int) -> bool:
+    if type(value) is not str:
+        raise EducationWorkspaceError("education workspace JSON must be exact text")
+    if type(limit) is not int or limit < 0:
+        raise ValueError("UTF-8 size limit must be a non-negative integer")
+    total = 0
+    for character in value:
+        codepoint = ord(character)
+        if codepoint <= 0x7F:
+            total += 1
+        elif codepoint <= 0x7FF:
+            total += 2
+        elif 0xD800 <= codepoint <= 0xDFFF:
+            raise EducationWorkspaceError(
+                "education workspace contains invalid Unicode"
+            )
+        elif codepoint <= 0xFFFF:
+            total += 3
+        else:
+            total += 4
+        if total > limit:
+            return True
+    return False
 
 
 def _parse_wire_integer(value: str) -> int:
