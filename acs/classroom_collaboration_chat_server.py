@@ -249,6 +249,7 @@ class ClassroomChatServerSQLiteStore:
     ) -> None:
         expected_sequence: dict[str, int] = {}
         message_keys: set[tuple[str, str]] = set()
+        hidden_message_keys: set[tuple[str, str]] = set()
         hidden_messages: list[ChatMessageMetadata] = []
         for stored in db.execute(
             """
@@ -266,6 +267,7 @@ class ClassroomChatServerSQLiteStore:
             key = (message.room_id, message.message_id)
             message_keys.add(key)
             if message.hidden:
+                hidden_message_keys.add(key)
                 hidden_messages.append(message)
 
         next_revision: dict[str, int] = {}
@@ -306,6 +308,10 @@ class ClassroomChatServerSQLiteStore:
             if key not in message_keys:
                 raise ClassroomChatServerError(
                     "legacy moderation state references unknown message"
+                )
+            if key not in hidden_message_keys:
+                raise ClassroomChatServerError(
+                    "legacy moderation state references visible message"
                 )
             if key in state_message_keys:
                 raise ClassroomChatServerError(

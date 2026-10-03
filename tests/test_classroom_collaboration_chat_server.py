@@ -942,6 +942,60 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_version_two_upgrade_rejects_state_for_visible_message(self) -> None:
+        path = Path(self.tmp.name) / "schema-v2-visible-state.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "visible-v2-message",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Still visible",
+                    "session",
+                    1700000000000,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "visible-v2-message"),
+            )
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=2
+                WHERE key='schema_version'
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "legacy moderation state references visible message",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
+                2,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+
     def test_version_two_upgrade_rejects_inconsistent_existing_state(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-inconsistent-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
