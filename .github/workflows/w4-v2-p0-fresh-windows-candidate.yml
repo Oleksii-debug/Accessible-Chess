@@ -265,6 +265,13 @@ jobs:
               'library/Russian/Draw.wav',
           } - draw_files:
               raise SystemExit('USER_SOUND_PACK_DRAW_VOICES_MISSING')
+          if manifest['files'].get('low_time') != 'library/Board/coach.wav':
+              raise SystemExit('USER_SOUND_PACK_LOW_TIME_DEFAULT_INVALID')
+          low_time_files = {
+              item.get('file') for item in variants['events'].get('low_time', [])
+          }
+          if 'library/Board/failhigh.wav' not in low_time_files:
+              raise SystemExit('USER_SOUND_PACK_LOW_TIME_ALTERNATIVE_MISSING')
           if impacts.get('schema_version') != 2:
               raise SystemExit('USER_SOUND_PACK_NEWGAME_TIMING_INVALID')
           if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
