@@ -428,6 +428,93 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual(coordinator.current_profile.to_mapping(), profile_storage.raw)
 
+    def test_successful_active_update_reconciles_to_concurrent_newer_storage_winner(self):
+        operations = []
+        coordinator, pack_manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        old = pack_storage.items["soft.wood"]
+        old_files = dict(old.files)
+        old_files["quiet.move"] = "audio/quiet-move.wav"
+        pack_storage.items["soft.wood"] = SoundPackManifest(
+            pack_id=old.pack_id,
+            version=old.version,
+            title=old.title,
+            license_id=old.license_id,
+            files=old_files,
+            author=old.author,
+            provenance=old.provenance,
+        )
+        current = SoundProfile(
+            pack_id="soft.wood",
+            events={"move": SoundEventPreference(False, 44, "quiet.move")},
+        )
+        coordinator._profiles._current = current
+        profile_storage.raw = current.to_mapping()
+
+        candidate_base = manifest("soft.wood", version="2.0.0")
+        candidate_files = dict(candidate_base.files)
+        candidate_files["quiet.move"] = "audio/quiet-move-v2.wav"
+        candidate = SoundPackManifest(
+            pack_id=candidate_base.pack_id,
+            version=candidate_base.version,
+            title=candidate_base.title,
+            license_id=candidate_base.license_id,
+            files=candidate_files,
+            author=candidate_base.author,
+            provenance=candidate_base.provenance,
+        )
+        candidate_entry, downloaded = entry_for(candidate)
+        pack_manager._downloader = Downloader(downloaded)
+
+        winner = manifest("soft.wood", version="3.0.0")
+        real_install = pack_manager.install
+
+        def install_then_advance(entry):
+            committed = real_install(entry)
+            pack_storage.items["soft.wood"] = winner
+            return committed
+
+        with mock.patch.object(
+            pack_manager,
+            "install",
+            side_effect=install_then_advance,
+        ):
+            result = coordinator.install(candidate_entry)
+
+        self.assertEqual(winner, result.manifest)
+        self.assertEqual("3.0.0", pack_storage.items["soft.wood"].version)
+        self.assertEqual(
+            SoundEventPreference(False, 44),
+            result.profile.preference_for("move"),
+        )
+        self.assertEqual(result.profile.to_mapping(), profile_storage.raw)
+
+    def test_successful_install_does_not_claim_success_if_pack_disappears_before_readback(self):
+        coordinator, pack_manager, pack_storage, _profile_storage = make_stack()
+        candidate = manifest("soft.wood", version="2.0.0")
+        candidate_entry, downloaded = entry_for(candidate)
+        pack_manager._downloader = Downloader(downloaded)
+        real_install = pack_manager.install
+
+        def install_then_remove(entry):
+            committed = real_install(entry)
+            pack_storage.items.pop("soft.wood", None)
+            return committed
+
+        with mock.patch.object(
+            pack_manager,
+            "install",
+            side_effect=install_then_remove,
+        ), self.assertRaisesRegex(
+            SoundPackInstallError,
+            "changed after installation",
+        ):
+            coordinator.install(candidate_entry, activate=True)
+
+        self.assertEqual("classic", coordinator.current_profile.pack_id)
+
     def test_install_without_activation_does_not_rewrite_profile(self):
         operations = []
         coordinator, pack_manager, pack_storage, _ = make_stack(operations=operations)
