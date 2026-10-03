@@ -816,8 +816,10 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertEqual(before, self.presenter.snapshot())
 
     def test_failed_submit_render_restores_progress_message_and_session_identity(self) -> None:
+        self.projection.submit("e3")
         before = self.presenter.snapshot()
         before_message = self.presenter.message
+        before_message_key = self.presenter.message_key
         retained_session = self.presenter.session
 
         with patch.object(
@@ -831,10 +833,12 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertIs(retained_session, self.presenter.session)
         self.assertEqual(before, self.presenter.snapshot())
         self.assertEqual(before_message, self.presenter.message)
+        self.assertEqual(before_message_key, self.presenter.message_key)
 
     def test_failed_hint_render_restores_hint_counter_and_message(self) -> None:
         before = self.presenter.snapshot()
         before_message = self.presenter.message
+        before_message_key = self.presenter.message_key
 
         with patch.object(
             self.projection,
@@ -846,12 +850,14 @@ class TrainingProjectionTests(unittest.TestCase):
 
         self.assertEqual(before, self.presenter.snapshot())
         self.assertEqual(before_message, self.presenter.message)
+        self.assertEqual(before_message_key, self.presenter.message_key)
 
     def test_failed_reset_render_restores_exact_progress(self) -> None:
         self.projection.submit("e3")
         self.projection.submit("e4")
         before = self.presenter.snapshot()
         before_message = self.presenter.message
+        before_message_key = self.presenter.message_key
         retained_session = self.presenter.session
 
         with patch.object(
@@ -865,11 +871,13 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertIs(retained_session, self.presenter.session)
         self.assertEqual(before, self.presenter.snapshot())
         self.assertEqual(before_message, self.presenter.message)
+        self.assertEqual(before_message_key, self.presenter.message_key)
 
     def test_failed_reveal_and_retry_render_restore_transient_message(self) -> None:
         self.projection.hint()
         before = self.presenter.snapshot()
         before_message = self.presenter.message
+        before_message_key = self.presenter.message_key
 
         with patch.object(
             self.projection,
@@ -881,6 +889,7 @@ class TrainingProjectionTests(unittest.TestCase):
 
         self.assertEqual(before, self.presenter.snapshot())
         self.assertEqual(before_message, self.presenter.message)
+        self.assertEqual(before_message_key, self.presenter.message_key)
 
         with patch.object(
             self.projection,
@@ -892,6 +901,7 @@ class TrainingProjectionTests(unittest.TestCase):
 
         self.assertEqual(before, self.presenter.snapshot())
         self.assertEqual(before_message, self.presenter.message)
+        self.assertEqual(before_message_key, self.presenter.message_key)
 
     def test_reset_requires_exact_true_and_resets_canonical_session(self) -> None:
         self.projection.submit("e3")
@@ -905,6 +915,51 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertEqual(0, reset.payload["snapshot"]["progress"]["attempts"])
         self.assertEqual("ready", reset.payload["snapshot"]["status"])
         self.assertTrue(reset.payload["clear_answer"])
+
+    def test_presentation_message_relocalizes_from_provenance(self) -> None:
+        wrong = self.projection.submit("e3")
+        self.assertIn("Try again", wrong.payload["announcement"])
+        self.assertEqual("retry", self.presenter.message_key)
+
+        switched = self.projection.set_language(UILanguage.UA)
+        self.assertEqual("retry", self.presenter.message_key)
+        self.assertEqual("Спробуйте ще раз.", self.presenter.message)
+        self.assertEqual("Спробуйте ще раз.", switched.payload["snapshot"]["message"])
+
+    def test_authored_message_survives_language_switch_without_translation(self) -> None:
+        hinted = self.projection.hint()
+        authored = hinted.payload["announcement"]
+        self.assertEqual("Move the pawn two squares.", authored)
+        self.assertIsNone(self.presenter.message_key)
+
+        switched = self.projection.set_language(UILanguage.UA)
+        self.assertIsNone(self.presenter.message_key)
+        self.assertEqual(authored, self.presenter.message)
+        self.assertEqual(authored, switched.payload["snapshot"]["message"])
+
+    def test_presenter_restore_state_validates_message_key_before_progress_replay(self) -> None:
+        before = self.presenter.snapshot()
+        self.projection.submit("e4")
+        progressed = self.presenter.snapshot()
+
+        with self.assertRaisesRegex(ValueError, "message key is invalid"):
+            self.presenter.restore_state(
+                before,
+                message="stale",
+                message_key="unknown-key",
+            )
+
+        self.assertEqual(progressed, self.presenter.snapshot())
+
+    def test_presenter_reconstruction_localizes_owned_message_for_active_locale(self) -> None:
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.UA,
+            message="Try again.",
+            message_key="retry",
+        )
+        self.assertEqual("retry", presenter.message_key)
+        self.assertEqual("Спробуйте ще раз.", presenter.message)
 
     def test_language_switch_preserves_progress_identity(self) -> None:
         self.projection.submit("e4")
