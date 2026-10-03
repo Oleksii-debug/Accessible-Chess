@@ -546,7 +546,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
 
         with (
             patch(
-                "acs.pgn_roundtrip.canonical_round_trip_text",
+                "acs.pgn_roundtrip._canonicalize_parsed_games",
                 return_value=CanonicalResult(),
             ),
             patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
@@ -554,7 +554,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
             self.assert_code(
                 PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
                 canonical_round_trip_bytes,
-                b"",
+                b'[Result "*"]\n\n*\n',
             )
 
     def test_serialization_preflight_rejects_oversized_models_before_building_payload(self):
@@ -607,6 +607,73 @@ class D06PgnRoundTripTests(unittest.TestCase):
         )
         self.assertIn("requires PgnGame values", str(error))
         self.assertEqual(observed, ["invalid"])
+
+    def test_canonical_model_validation_fails_before_generator_read_ahead(self):
+        valid_second = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        invalid_games = (
+            PgnGame(
+                tags={"Bad Tag": "x", "Result": "*"},
+                line=VariationLine(result="*"),
+            ),
+            PgnGame(
+                tags={"Result": "*"},
+                line=VariationLine(
+                    moves=[MoveNode("e4", move_number="not-a-number")],
+                    result="*",
+                ),
+            ),
+            PgnGame(
+                tags={"Result": "*"},
+                line=VariationLine(
+                    moves=[MoveNode("e4", move_number="1.", nags=["$999"])],
+                    result="*",
+                ),
+            ),
+            PgnGame(
+                tags={"Result": "*"},
+                line=VariationLine(
+                    moves=[
+                        MoveNode(
+                            "e4",
+                            move_number="1.",
+                            comments_after=[Comment("bad } brace")],
+                        )
+                    ],
+                    result="*",
+                ),
+            ),
+        )
+
+        for invalid in invalid_games:
+            observed = []
+
+            def source():
+                observed.append("invalid")
+                yield invalid
+                observed.append("second")
+                yield valid_second
+
+            with self.subTest(invalid=repr(invalid)):
+                self.assert_code(
+                    PgnRoundTripErrorCode.INVALID_MODEL,
+                    serialize_pgn_text,
+                    source(),
+                )
+                self.assertEqual(observed, ["invalid"])
+
+    def test_roundtrip_module_has_one_complete_codec_tail(self):
+        source = (Path(__file__).parents[1] / "acs" / "pgn_roundtrip.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(source.count("def parse_pgn_text("), 1)
+        self.assertEqual(source.count("def canonical_round_trip_bytes("), 1)
+        self.assertTrue(source.rstrip().endswith("return encoded, result.games"))
 
     def test_recovery_warning_state_cannot_be_silently_serialized(self):
         damaged = parse_pgn_text(
