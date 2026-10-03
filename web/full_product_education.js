@@ -559,7 +559,10 @@
         previousCollaboration.replaceWith(
           renderCollaboration(collaborationSnapshot, invoke, announce, fallbackMessage)
         );
-        if (result.kind !== "collaboration.chat.sent") {
+        if (
+          result.kind !== "collaboration.chat.sent" &&
+          payload.clear_chat_draft !== true
+        ) {
           restoreCollaborationDraft(root, previousDraft);
         }
         restoreCollaborationOpenDisclosures(root, previousOpenDisclosures);
