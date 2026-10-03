@@ -1,0 +1,110 @@
+name: Integrated Owner Delivery Ukrainian Docs
+
+on:
+  push:
+    branches:
+      - release/integration-owner-delivery-uk-docs-20261004
+  pull_request:
+    branches:
+      - fix/integration-library-browser-contract-successor-20261004
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt'
+      - 'web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt'
+      - 'tests/test_owner_delivery_uk_docs.py'
+      - '.github/workflows/owner-delivery-uk-docs.yml'
+      - 'web/keybindings.json'
+      - 'web/index.html'
+      - 'web/full_product_pgn.js'
+      - 'web/full_product_library.js'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_assembler.py'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integrated-owner-delivery-uk-docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact parent, source and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          parent='6513e7e2c632ba38a3c68d6c987d6df7742fa444'
+          source='7ad8a68826e926ba46ec381ec8620f0ae0e180f8'
+          git cat-file -e "$parent^{commit}"
+          git cat-file -e "$source^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/owner-delivery-uk-docs.yml' \
+            'tests/test_owner_delivery_uk_docs.py' \
+            'web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt' \
+            'web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt' | sort)"
+          test "$changed" = "$expected_paths"
+
+          test "$(git rev-parse HEAD:tests/test_owner_delivery_uk_docs.py)" = 'e0331eb50541e24075205e1cecd5bee5fdf0e3cc'
+          test "$(git rev-parse HEAD:web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt)" = 'be8bfc1935c13a440748408157f9a14f076b93d4'
+          test "$(git rev-parse HEAD:web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt)" = '19bc974275a7470f1756dd0a3262422e8ca5b7a7'
+
+          # The documentation contract is still bound to the exact current product surfaces.
+          test "$(git rev-parse HEAD:web/keybindings.json)" = '012f6eb19cd46998aa5a72945c254a9935028305'
+          test "$(git rev-parse HEAD:web/index.html)" = '9bbf9eb537de9d572e91d482494b0da7ec52928f'
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = 'c80c2c7177b01ab6bee8acb2945f6f56d67a097e'
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = 'e102301b75e211b718462ce15ade749742dd0a30'
+          test "$(git rev-parse HEAD:acs/version2_release_payload.py)" = 'e26a265210639a50457db364926c16363097e3cd'
+          test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = '5224ed4516fb1a09d9ac6465b6d72d6ff575a229'
+          test "$(git rev-parse HEAD:.github/workflows/w4-v2-p0-fresh-windows-candidate.yml)" = 'bd04cee9f38b2e43dc10e393f0900df528afc541'
+
+          echo 'INTEGRATED_OWNER_DELIVERY_DOCS_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile documentation contract
+        run: python -m py_compile tests/test_owner_delivery_uk_docs.py
+
+      - name: Run documentation, keyboard and accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_owner_delivery_uk_docs
+          tests.test_accessible_webui
+          tests.test_v2_board_analysis_hotkey_feedback
+
+      - name: Verify release payload and package-copy path
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_payload
+          tests.test_version2_package_assembler
+
+      - name: Exact repository selftest
+        run: python -m acs.selftest
+
+      - name: Exact whitespace check
+        shell: bash
+        run: git diff --check
