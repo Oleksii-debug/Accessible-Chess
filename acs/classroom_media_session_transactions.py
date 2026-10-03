@@ -111,6 +111,18 @@ class _CapturedSessionCall:
     credential: JoinCredential | None = field(repr=False, default=None)
 
 
+class _SecretCredentialPayload(dict[str, str]):
+    """JSON-compatible one-shot credential mapping with redacted formatting."""
+
+    def __repr__(self) -> str:
+        return (
+            "{'room_id': '<redacted>', 'participant_id': '<redacted>', "
+            "'token': '<redacted>'}"
+        )
+
+    __str__ = __repr__
+
+
 class _PreparedSessionEffect(Exception):
     def __init__(self, captured: _CapturedSessionCall) -> None:
         super().__init__("session provider effect prepared")
@@ -498,18 +510,19 @@ class ClassroomMediaSessionHostTransactions:
             try:
                 credential.assert_usable(current)
             except Exception:
-                # No secret has crossed the provider boundary yet. Retire this
-                # already-exposed transaction id, drop the private credential and
-                # allow the trusted host to request a fresh short-lived token.
+                # No secret has crossed the provider boundary yet. Drop the
+                # private credential and do not retain its traceback/cause.
                 self._pending = None
                 self._activity_gate.release(self)
-                raise
+                raise MediaHostTransactionError(
+                    "media session credential expired before browser handoff"
+                ) from None
             self._pending = replace(pending, credential_handed_off=True)
-            return {
-                "room_id": credential.room_id,
-                "participant_id": credential.participant_id,
-                "token": credential.token,
-            }
+            return _SecretCredentialPayload(
+                room_id=credential.room_id,
+                participant_id=credential.participant_id,
+                token=credential.token,
+            )
 
     def provider_not_started(self, transaction_id: str) -> None:
         """Discard only before a secret has crossed into the browser provider host."""
@@ -525,6 +538,37 @@ class ClassroomMediaSessionHostTransactions:
                 raise MediaHostRecoveryRequired(
                     "media session credential already crossed the provider boundary"
                 )
+            self._pending = None
+            self._activity_gate.release(self)
+
+    def provider_connection_failed_clean(
+        self,
+        transaction_id: str,
+        provider_snapshot: Mapping[str, object],
+    ) -> None:
+        """Retire failed connect/reconnect only after exact clean teardown proof."""
+
+        self._assert_owner_thread()
+        with self._lock:
+            pending = self._require_pending(transaction_id)
+            if pending.captured.effect.kind not in {
+                MediaSessionEffectKind.CONNECT,
+                MediaSessionEffectKind.RECONNECT,
+            }:
+                raise MediaHostTransactionError(
+                    "verified clean failure applies only to connect or reconnect"
+                )
+            if not pending.credential_handed_off:
+                raise MediaHostTransactionError(
+                    "verified clean failure requires credential handoff"
+                )
+            try:
+                self._validate_clean_disconnected_snapshot(provider_snapshot)
+            except Exception:
+                self._enter_recovery(pending, provider_outcome_unknown=True)
+                raise MediaHostRecoveryRequired(
+                    "media session adapter has not proven clean teardown"
+                ) from None
             self._pending = None
             self._activity_gate.release(self)
 
@@ -609,6 +653,26 @@ class ClassroomMediaSessionHostTransactions:
             credential_handed_off=pending.credential_handed_off,
         )
 
+    def _validate_clean_disconnected_snapshot(
+        self,
+        value: Mapping[str, object],
+    ) -> None:
+        if type(value) is not dict or set(value) != _PROVIDER_SNAPSHOT_KEYS:
+            raise MediaHostTransactionError("media session provider snapshot is invalid")
+        expected = {
+            "connected": False,
+            "cleanup_required": False,
+            "room_id": None,
+            "participant_id": None,
+            "microphone_enabled": False,
+            "camera_enabled": False,
+            "screen_share_enabled": False,
+        }
+        if value != expected:
+            raise MediaHostTransactionError(
+                "media session provider snapshot does not confirm clean teardown"
+            )
+
     def _validate_provider_snapshot(
         self,
         pending: _PendingSessionTransaction,
@@ -631,19 +695,7 @@ class ClassroomMediaSessionHostTransactions:
         effect = pending.captured.effect
         credential = pending.captured.credential
         if effect.kind is MediaSessionEffectKind.DISCONNECT:
-            expected = {
-                "connected": False,
-                "cleanup_required": False,
-                "room_id": None,
-                "participant_id": None,
-                "microphone_enabled": False,
-                "camera_enabled": False,
-                "screen_share_enabled": False,
-            }
-            if value != expected:
-                raise MediaHostTransactionError(
-                    "media session disconnect snapshot does not confirm teardown"
-                )
+            self._validate_clean_disconnected_snapshot(value)
             return
 
         if credential is None:
