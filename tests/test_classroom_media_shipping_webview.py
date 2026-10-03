@@ -497,6 +497,33 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertLess(runtime, surface)
         self.assertLess(surface, bootstrap)
 
+    def test_v2_launcher_uses_loopback_http_server_path_before_webview_media(self):
+        root = Path(__file__).resolve().parents[1]
+        launcher = (root / "run_accessible_chess_v2.py").read_text(encoding="utf-8")
+        release_ui = (root / "acs" / "version2_release_ui.py").read_text(
+            encoding="utf-8"
+        )
+        safe_server = (root / "acs" / "webview_safe_server.py").read_text(
+            encoding="utf-8"
+        )
+
+        install_call = "install_pywebview_safe_local_server_port()"
+        main_import = "from acs.version2_upgrade_status_release import main"
+        self.assertIn(install_call, launcher)
+        self.assertIn(main_import, launcher)
+        self.assertLess(launcher.index(install_call), launcher.index(main_import))
+
+        # The V2 host passes a local file path as the URL so pywebview serves it
+        # through its loopback HTTP server. Do not regress to an HTML-string /
+        # about:blank navigation, which would remove the media-capable origin.
+        self.assertIn('url=str(html)', release_ui)
+        self.assertNotIn('html=str(html)', release_ui)
+        self.assertNotIn('html=html', release_ui)
+        self.assertIn('webview_module.start(gui="edgechromium", private_mode=True)', release_ui)
+
+        self.assertIn('probe.bind(("127.0.0.1", port))', safe_server)
+        self.assertIn('rewritten["http_port"] = safe_port', safe_server)
+
     def test_bootstrap_routes_actions_and_queued_sessions_through_one_runtime(self):
         source = (
             Path(__file__).resolve().parents[1]
