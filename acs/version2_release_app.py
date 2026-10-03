@@ -371,6 +371,7 @@ def create_version2_release_application(
     settings_path: str | Path | None = None,
     data_root: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
+    application_configure: Callable[[Any], None] | None = None,
     defer_ui: bool = False,
 ):
     """Compose one engine provider plus the persistent V2 application state.
@@ -381,8 +382,15 @@ def create_version2_release_application(
     With ``defer_ui=True`` the second return value is a one-shot application
     factory, invoked by the window's synchronous before_show event on its native
     STA thread. Diagnostics can keep the eager, calling-thread composition.
+
+    ``application_configure`` is a trusted pre-publication composition seam. It
+    runs after persistent recovery but before the candidate is bound to the
+    browser API, on the same owner thread as construction. A failing hook aborts
+    startup instead of publishing a partially configured application.
     """
 
+    if application_configure is not None and not callable(application_configure):
+        raise TypeError("application_configure must be callable")
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
     layout = _prepare_version2_user_data(
         data_root=data_root,
@@ -456,6 +464,8 @@ def create_version2_release_application(
             )
             resume_coordinator.restore(candidate)
             _share_v2_action_registry(api, candidate)
+            if application_configure is not None:
+                application_configure(candidate)
             api.bind_version2_application(candidate)
             application = candidate
             return candidate
