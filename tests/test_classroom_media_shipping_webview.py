@@ -566,6 +566,33 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNone(binder.active_lease)
         self.assertIsNone(binder.recovery_status)
 
+    def test_transport_loss_rejects_numeric_boolean_lookalikes(self):
+        flag_names = (
+            "connected",
+            "cleanup_required",
+            "microphone_enabled",
+            "camera_enabled",
+            "screen_share_enabled",
+        )
+        for flag_name in flag_names:
+            with self.subTest(flag=flag_name):
+                controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
+                connect(controller, roster, transactions)
+                before = controller.state
+                malformed = snapshot(None, connected=False)
+                malformed[flag_name] = 0
+
+                result = transactions.dispatch_provider(
+                    "media.provider_transport_lost",
+                    {"snapshot": malformed},
+                )
+
+                self.assertEqual(result.kind, "error")
+                self.assertEqual(controller.state, before)
+                self.assertTrue(controller.state.connected)
+                self.assertIsNone(binder.active_lease)
+                self.assertIsNone(binder.recovery_status)
+
     def test_browser_provider_config_is_nonsecret_and_secure(self):
         _controller, _roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
         result = transactions.dispatch_provider("media.provider_config", {})
