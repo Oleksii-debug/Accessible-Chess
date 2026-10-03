@@ -340,7 +340,7 @@ class ClassroomCollaborationWebView:
         self._prepared: dict[str, PreparedFile] = {}
         # Ephemeral presentation state only. Durable transfer truth remains in the
         # canonical collaboration store/provider; this merely survives DOM redraws.
-        self._file_progress: tuple[str, int, int, bool] | None = None
+        self._file_progress: tuple[str, str, int, int, bool] | None = None
 
     @property
     def language(self) -> UILanguage:
@@ -871,7 +871,7 @@ class ClassroomCollaborationWebView:
         progress = self._file_progress
         if progress is None:
             return None
-        name, transferred_bytes, total_bytes, complete = progress
+        _attachment_id, name, transferred_bytes, total_bytes, complete = progress
         labels = _LABELS[self._language]
         return {
             "name": name,
@@ -902,6 +902,7 @@ class ClassroomCollaborationWebView:
         if attachment is None or attachment.size_bytes != sample.total_bytes:
             raise RuntimeError("file transfer progress no longer matches local metadata")
         self._file_progress = (
+            attachment.attachment_id,
             attachment.display_name,
             sample.transferred_bytes,
             sample.total_bytes,
@@ -1246,6 +1247,7 @@ class ClassroomCollaborationWebView:
             )
         if not isinstance(selected, Path):
             raise TypeError("file picker must return pathlib.Path or None")
+        self._file_progress = None
         attachments = self._store.room_attachments(self._controller.room_id)
         sequence = 0 if not attachments else max(item.sequence_no for item in attachments) + 1
         prepared = self._controller.prepare_file(
@@ -1368,6 +1370,7 @@ class ClassroomCollaborationWebView:
         prepared = self._prepared.get(attachment.attachment_id)
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
+        self._file_progress = None
         try:
             retried = self._controller.retry_file(
                 prepared,
@@ -1408,7 +1411,7 @@ class ClassroomCollaborationWebView:
                 )
             )
         self._prepared.pop(attachment.attachment_id, None)
-        if self._file_progress is not None and self._file_progress[0] == attachment.display_name:
+        if self._file_progress is not None and self._file_progress[0] == attachment.attachment_id:
             self._file_progress = None
         return self._event(
             "collaboration.file.cancelled",
