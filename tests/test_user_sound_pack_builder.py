@@ -38,6 +38,8 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             )
             for relative in required:
                 self._write_wave(sounds / relative)
+            self._write_wave_8bit(sounds / "Server" / "aooga.wav")
+            self._write_wave_8bit(sounds / "Server" / "ping.wav")
             for index in range(330 - len(required)):
                 self._write_wave(sounds / "ArchiveExtra" / f"extra-{index:03d}.wav")
 
@@ -157,6 +159,15 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             writer.setframerate(22050)
             writer.writeframes(b"\x00\x00" * 16)
 
+    @staticmethod
+    def _write_wave_8bit(path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(1)
+            writer.setframerate(22050)
+            writer.writeframes(bytes([0, 64, 128, 192, 255] * 4))
+
     def test_supplied_archive_build_retains_all_330_wavs_and_default_variant_one(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / "input" / "звуки" / "Sounds"
@@ -175,6 +186,8 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             )
             for relative in required:
                 self._write_wave(source / relative)
+            self._write_wave_8bit(source / "Server" / "aooga.wav")
+            self._write_wave_8bit(source / "Server" / "ping.wav")
 
             filler_count = 330 - len(required)
             for index in range(filler_count):
@@ -272,6 +285,18 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             self.assertEqual(
                 variants["events"]["low_time"][1]["file"],
                 "library/Server/ping.wav",
+            )
+            inventory_by_file = {
+                item["file"]: item
+                for item in report["files"]
+            }
+            self.assertEqual(
+                inventory_by_file["library/Server/aooga.wav"]["sample_width_bytes"],
+                1,
+            )
+            self.assertEqual(
+                inventory_by_file["library/Server/ping.wav"]["sample_width_bytes"],
+                1,
             )
             self.assertEqual(
                 layers["events"]["move"]["1"],
