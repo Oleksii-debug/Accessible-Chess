@@ -551,9 +551,10 @@
       !snapshot.document ||
       typeof snapshot.document !== "object" ||
       Array.isArray(snapshot.document) ||
-      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk")
+      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk") ||
+      snapshot.document.landmark !== "main"
     ) {
-      throw new TypeError("Book document language is invalid");
+      throw new TypeError("Book document contract is invalid");
     }
     return snapshot.document.lang;
   }
@@ -566,9 +567,10 @@
       !snapshot.document ||
       typeof snapshot.document !== "object" ||
       Array.isArray(snapshot.document) ||
-      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk")
+      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk") ||
+      snapshot.document.landmark !== "main"
     ) {
-      throw new TypeError("Training document language is invalid");
+      throw new TypeError("Training document contract is invalid");
     }
     requiredUiText(snapshot.heading, "Training heading", 360);
     requiredUiText(snapshot.title, "Training title", 360);
