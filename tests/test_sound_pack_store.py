@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from pathlib import Path
 import tempfile
 import threading
@@ -164,14 +165,55 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 / "rights.json"
             )
             rights_path.write_text(
-                '{"schema_version":1,"license_id":"MIT",'
-                '"license_uri":"https://example.invalid/license",'
-                '"source_uri":"https://example.invalid/source"}\n',
+                '{"schema_version":1,"license_id":"CC0-1.0",'
+                '"license_uri":"https://creativecommons.org/publicdomain/zero/1.0/",'
+                '"source_uri":"https://example.invalid/tampered-source"}\n',
                 encoding="utf-8",
             )
 
             self.assertNotIn(manifest.pack_id, store.installed())
             self.assertIsNone(store.rights_evidence(manifest.pack_id))
+
+    def test_legacy_unbound_rights_remain_playable_but_are_not_audited(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            downloaded = _with_rights(downloaded)
+            store.install_atomically(downloaded)
+
+            version_dir = (
+                store.root
+                / manifest.pack_id
+                / "versions"
+                / manifest.version
+            )
+            legacy_integrity = {
+                "schema_version": 1,
+                "assets": {
+                    path: {
+                        "size_bytes": digest.size_bytes,
+                        "sha256": digest.sha256,
+                    }
+                    for path, digest in sorted(downloaded.assets.items())
+                },
+            }
+            (version_dir / "integrity.json").write_text(
+                json.dumps(
+                    legacy_integrity,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            reopened = FilesystemSoundPackStore(store.root)
+            self.assertEqual(manifest, reopened.installed()[manifest.pack_id])
+            self.assertIsNone(reopened.rights_evidence(manifest.pack_id))
+            self.assertIsNotNone(reopened.resolve_asset(manifest.pack_id, "move"))
 
     def test_new_pack_directory_chain_is_durably_linked_parent_first(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
