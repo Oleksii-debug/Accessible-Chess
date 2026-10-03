@@ -779,8 +779,17 @@
     main.appendChild(section);
   }
 
-  function applySnapshotLanguage(element, language) {
-    element.setAttribute("lang", language);
+  function applySnapshotLanguage(element, snapshot) {
+    if (
+      !snapshot ||
+      !snapshot.document ||
+      typeof snapshot.document !== "object" ||
+      Array.isArray(snapshot.document) ||
+      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk")
+    ) {
+      throw new TypeError("snapshot document language is invalid");
+    }
+    element.setAttribute("lang", snapshot.document.lang);
   }
 
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
@@ -792,7 +801,7 @@
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
       throw new TypeError("Book snapshot is required");
     }
-    const language = validateBookLanguage(snapshot);
+    validateBookLanguage(snapshot);
     const expectedBlockId = validateBookBlock(snapshot.block);
     if (requestedFocus && requestedFocus !== expectedBlockId) {
       throw new TypeError("Book focus target does not match the rendered block");
@@ -803,7 +812,7 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
-    applySnapshotLanguage(main, language);
+    applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(main, starterCatalogue, invoke, announce, fallbackMessage);
     const block = snapshot.block;
