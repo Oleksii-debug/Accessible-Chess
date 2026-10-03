@@ -992,6 +992,47 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             2,
         )
 
+    def test_policy_and_effect_lock_paths_share_canonical_spelling(self):
+        aliased = self.path.parent / "unused-segment" / ".." / self.path.name
+        authority = self.authority(path=aliased)
+        canonical = self.path.resolve(strict=False)
+
+        self.assertEqual(authority._path, canonical)
+        self.assertEqual(
+            authority._effect_lock_path,
+            canonical.with_name(canonical.name + ".provider-effect-lock.sqlite3"),
+        )
+        self.assertTrue(authority._effect_lock_path.exists())
+
+    def test_failed_effect_lock_setup_closes_opened_sqlite_handle(self):
+        class FailingPragmaConnection:
+            def __init__(self):
+                self.closed = False
+
+            def execute(self, statement):
+                if statement == "PRAGMA synchronous=FULL":
+                    raise sqlite3.OperationalError("private effect-lock pragma failure")
+                return self
+
+            def close(self):
+                self.closed = True
+
+        authority = self.authority()
+        failing = FailingPragmaConnection()
+        with patch(
+            "acs.classroom_media_policy_authority.sqlite3.connect",
+            return_value=failing,
+        ):
+            with self.assertRaisesRegex(
+                ClassroomMediaPolicyError,
+                "^moderation effect serialization storage is unavailable$",
+            ) as caught:
+                authority._connect_effect_lock()
+
+        self.assertTrue(failing.closed)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn("private effect-lock pragma failure", str(caught.exception))
+
     def test_failed_connection_setup_closes_opened_sqlite_handle(self):
         class FailingPragmaConnection:
             def __init__(self):
