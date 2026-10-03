@@ -291,6 +291,25 @@ class MalformedAndResourceBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
             session.reset()
 
+    def test_session_rejects_postconstruction_container_substitution_before_hooks(self):
+        definition = ExerciseDefinition(
+            "container-authority",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+            tags=("opening",),
+            metadata={"kind": "test"},
+        )
+        session = ExerciseSession(definition)
+
+        object.__setattr__(session.definition, "tags", _BombTuple(("changed",)))
+        with self.assertRaisesRegex(TypeError, "tags must be an exact tuple"):
+            session.snapshot()
+
+        object.__setattr__(session.definition, "tags", ("opening",))
+        object.__setattr__(session.definition, "metadata", _BombDict({"kind": "changed"}))
+        with self.assertRaisesRegex(TypeError, "metadata must be an exact dict"):
+            session.snapshot()
+
     def test_session_detaches_from_caller_definition_mutation(self):
         definition = ExerciseDefinition(
             "detached-authority",
