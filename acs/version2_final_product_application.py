@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,10 @@ from .version2_final_product_profile import (
     build_final_product_shell,
     build_final_product_webview_adapter,
 )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Version2FinalProductApplication(Version2Application):
@@ -95,6 +99,7 @@ class Version2FinalProductApplication(Version2Application):
         self.media: ClassroomMediaWebViewBridge | None = None
         self.media_transactions: ClassroomMediaTransactionalWebView | None = None
         self._media_join_http: ClassroomJoinHttpClient | None = None
+        self._media_join_now_provider: Callable[[], datetime] | None = None
         self._teacher_state_provider: Callable[[], TeachingSessionState] | None = None
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
@@ -357,6 +362,7 @@ class Version2FinalProductApplication(Version2Application):
         self.media = None
         self.media_transactions = None
         self._media_join_http = None
+        self._media_join_now_provider = None
 
     def configure_classroom_media_join_http(
         self,
@@ -365,6 +371,7 @@ class Version2FinalProductApplication(Version2Application):
         bearer_token_provider: Callable[[], str],
         timeout_seconds: float = 15.0,
         allow_insecure_loopback: bool = False,
+        now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         """Bind trusted desktop join-credential transport to transactional media.
 
@@ -380,11 +387,17 @@ class Version2FinalProductApplication(Version2Application):
             )
         if getattr(self, "_media_join_http", None) is not None:
             raise RuntimeError("Classroom media join HTTP is already configured")
-        self._media_join_http = ClassroomJoinHttpClient(
+        if now_provider is not None and not callable(now_provider):
+            raise TypeError("classroom media join clock must be callable")
+        client = ClassroomJoinHttpClient(
             endpoint_url=endpoint_url,
             bearer_token_provider=bearer_token_provider,
             timeout_seconds=timeout_seconds,
             allow_insecure_loopback=allow_insecure_loopback,
+        )
+        self._media_join_http = client
+        self._media_join_now_provider = (
+            _utc_now if now_provider is None else now_provider
         )
 
     def _classroom_media_join_http_context(
@@ -396,13 +409,15 @@ class Version2FinalProductApplication(Version2Application):
         ClassroomMediaController,
         str | None,
         str,
+        Callable[[], datetime],
     ]:
         transactions = self.media_transactions
         media = self.media
         client = getattr(self, "_media_join_http", None)
+        now_provider = getattr(self, "_media_join_now_provider", None)
         if transactions is None or media is None:
             raise RuntimeError("Transactional classroom media is not bound")
-        if client is None:
+        if client is None or now_provider is None:
             raise RuntimeError("Classroom media join HTTP is not configured")
         if (
             transactions.binder.active_lease is not None
@@ -423,35 +438,38 @@ class Version2FinalProductApplication(Version2Application):
         policy = controller.participant_policy(state.participant_id)
         if policy.removed or policy.blocked:
             raise RuntimeError("Participant is not allowed to join classroom media")
-        return client, controller, state.room_id, state.participant_id
+        return (
+            client,
+            controller,
+            state.room_id,
+            state.participant_id,
+            now_provider,
+        )
 
     def prepare_classroom_media_join_http(
         self,
         room_id: str,
-        *,
-        now: datetime,
     ) -> dict[str, object]:
         """Fetch one short-lived credential and enqueue the canonical media join."""
 
         self._assert_thread()
-        client, _controller, _current_room, participant_id = (
+        client, _controller, _current_room, participant_id, now_provider = (
             self._classroom_media_join_http_context(reconnect=False)
         )
         credential = client.issue(
             room_id=room_id,
             participant_id=participant_id,
         )
+        now = now_provider()
         return self.prepare_classroom_media_join(credential, now=now)
 
     def prepare_classroom_media_reconnect_http(
         self,
-        *,
-        now: datetime,
     ) -> dict[str, object]:
         """Refresh the retained room credential and enqueue canonical reconnect."""
 
         self._assert_thread()
-        client, _controller, room_id, participant_id = (
+        client, _controller, room_id, participant_id, now_provider = (
             self._classroom_media_join_http_context(reconnect=True)
         )
         if room_id is None:
@@ -460,6 +478,7 @@ class Version2FinalProductApplication(Version2Application):
             room_id=room_id,
             participant_id=participant_id,
         )
+        now = now_provider()
         return self.prepare_classroom_media_reconnect(credential, now=now)
 
     def prepare_classroom_media_join(
