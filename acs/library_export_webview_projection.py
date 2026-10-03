@@ -142,15 +142,24 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         return LibraryWebViewEvent(event.kind, payload)
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
-        # A changed result identity clears old export checks atomically. If the
-        # canonical search fails, restore the prior presentation selection.
+        # A changed result identity clears old export checks atomically. The
+        # presenter may report backend failure as a transient error render rather
+        # than raising, so both exception and error-view paths must restore the
+        # previous export selection.
         previous = set(self._export_game_ids)
         self._export_game_ids.clear()
         try:
-            return super().search(query)
+            event = super().search(query)
         except Exception:
             self._export_game_ids = previous
             raise
+        snapshot = event.payload.get("snapshot")
+        if not isinstance(snapshot, Mapping):
+            self._export_game_ids = previous
+            raise ValueError("Library export search render is missing its snapshot")
+        if snapshot.get("status") == "error":
+            self._export_game_ids = previous
+        return event
 
     def request_export_selected(self) -> LibraryWebViewEvent:
         request = LibraryExportRequest.selected(self.export_game_ids)
