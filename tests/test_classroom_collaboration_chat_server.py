@@ -196,6 +196,91 @@ class ClassroomChatServerTests(unittest.TestCase):
             }.issubset(tables)
         )
 
+    def test_semantic_integrity_rejects_message_sequence_gap(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "gapped-message",
+                    ROOM,
+                    STUDENT,
+                    1,
+                    "Gap",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "message sequence is not contiguous",
+        ):
+            self.store.integrity_check()
+
+    def test_semantic_integrity_rejects_orphan_moderation_state(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "unknown-message"),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "moderation state references unknown message",
+        ):
+            self.store.integrity_check()
+
+    def test_semantic_integrity_rejects_hidden_message_without_state_event(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "hidden-without-event",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Hidden without state event",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "hidden message state is inconsistent",
+        ):
+            self.store.integrity_check()
+
+    def test_semantic_integrity_accepts_atomic_hide_state(self) -> None:
+        sent = self.send(self.draft("integrity-hide-message"))
+        hide = self.moderation(
+            "integrity-hide-operation",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(hide,),
+        )
+
+        self.store.integrity_check()
+
     def test_corrupt_persisted_message_and_permission_flags_fail_closed(self) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("PRAGMA ignore_check_constraints=ON")

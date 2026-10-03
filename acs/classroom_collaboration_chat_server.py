@@ -667,6 +667,125 @@ class ClassroomChatServerSQLiteStore:
                     raise ClassroomChatServerError(
                         "classroom chat server database failed integrity check"
                     )
+
+                expected_sequence: dict[str, int] = {}
+                message_keys: set[tuple[str, str]] = set()
+                hidden_message_keys: set[tuple[str, str]] = set()
+                for stored in db.execute(
+                    """
+                    SELECT * FROM classroom_chat_server_messages
+                    ORDER BY room_id, sequence_no
+                    """
+                ):
+                    message = self._row_message(stored)
+                    expected = expected_sequence.get(message.room_id, 0)
+                    if message.sequence_no != expected:
+                        raise ClassroomChatServerError(
+                            "server message sequence is not contiguous"
+                        )
+                    expected_sequence[message.room_id] = expected + 1
+                    key = (message.room_id, message.message_id)
+                    message_keys.add(key)
+                    if message.hidden:
+                        hidden_message_keys.add(key)
+
+                for stored in db.execute(
+                    """
+                    SELECT room_id, target_id, allowed
+                    FROM classroom_chat_server_permissions
+                    """
+                ):
+                    _identifier(
+                        stored["room_id"],
+                        "stored chat permission room id",
+                    )
+                    _identifier(
+                        stored["target_id"],
+                        "stored chat permission target id",
+                    )
+                    _stored_bool(
+                        stored["allowed"],
+                        "chat permission flag",
+                    )
+
+                for stored in db.execute(
+                    """
+                    SELECT room_id, operation_id, fingerprint
+                    FROM classroom_chat_server_moderation_ops
+                    """
+                ):
+                    _identifier(
+                        stored["room_id"],
+                        "stored moderation room id",
+                    )
+                    _identifier(
+                        stored["operation_id"],
+                        "stored moderation operation id",
+                    )
+                    fingerprint = stored["fingerprint"]
+                    if (
+                        type(fingerprint) is not str
+                        or len(fingerprint) != 64
+                        or any(
+                            ch not in "0123456789abcdef"
+                            for ch in fingerprint
+                        )
+                    ):
+                        raise ClassroomChatServerError(
+                            "stored moderation fingerprint is invalid"
+                        )
+
+                expected_revision: dict[str, int] = {}
+                state_message_keys: set[tuple[str, str]] = set()
+                for stored in db.execute(
+                    """
+                    SELECT room_id, revision, message_id, hidden
+                    FROM classroom_chat_server_state_updates
+                    ORDER BY room_id, revision
+                    """
+                ):
+                    room = _identifier(
+                        stored["room_id"],
+                        "stored moderation state room id",
+                    )
+                    message_id = _identifier(
+                        stored["message_id"],
+                        "stored moderation state message id",
+                    )
+                    revision = _stored_nonnegative_integer(
+                        stored["revision"],
+                        "moderation revision",
+                        maximum=MAX_WIRE_INTEGER,
+                    )
+                    if revision != expected_revision.get(room, 0):
+                        raise ClassroomChatServerError(
+                            "server moderation revision is not contiguous"
+                        )
+                    expected_revision[room] = revision + 1
+                    if not _stored_bool(
+                        stored["hidden"],
+                        "moderation hidden flag",
+                    ):
+                        raise ClassroomChatServerError(
+                            "stored moderation state is not hidden"
+                        )
+                    key = (room, message_id)
+                    if key not in message_keys:
+                        raise ClassroomChatServerError(
+                            "moderation state references unknown message"
+                        )
+                    if key in state_message_keys:
+                        raise ClassroomChatServerError(
+                            "moderation state duplicates hidden message"
+                        )
+                    state_message_keys.add(key)
+
+                if state_message_keys != hidden_message_keys:
+                    raise ClassroomChatServerError(
+                        "hidden message state is inconsistent"
+                    )
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server integrity check failed"
