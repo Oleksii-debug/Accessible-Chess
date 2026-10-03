@@ -350,7 +350,7 @@ class SoundSettingsApplication:
                         "installed_version": status.installed_version,
                         "state": status.state.value,
                         "active": profile.pack_id == manifest.pack_id,
-                        "can_install": rights is not None
+                        "can_install": catalog_rights is not None
                         and status.state
                         in {SoundPackState.NOT_INSTALLED, SoundPackState.DIFFERENT_VERSION},
                         "can_uninstall": status.installed_version is not None
