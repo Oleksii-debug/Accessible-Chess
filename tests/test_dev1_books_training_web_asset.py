@@ -165,6 +165,18 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('throw new TypeError("Training completion state is inconsistent")', text)
         self.assertIn('throw new TypeError("Training render focus target is invalid")', text)
         self.assertIn('throw new TypeError("Training solution payload is invalid")', text)
+        self.assertIn(
+            'requireBoundedText(action.label, surface + " snapshot action label", false, 120)',
+            text,
+        )
+        self.assertIn(
+            'requireBoundedText(payload.message, "Book error message", false, 1000)',
+            text,
+        )
+        self.assertIn(
+            'requireBoundedText(payload.message, "Training error message", false, 1200)',
+            text,
+        )
         self.assertIn('action.command !== commands[index]', text)
         self.assertIn('block.dom_id !== "book-block-" + String(block.index)', text)
         self.assertIn('catalogue.items.length !== catalogue.booklet_count + 1', text)
