@@ -223,6 +223,8 @@ jobs:
           shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
           if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ]; then
             test "$shell_actual" = 4607b6621146a6d4c75627c4dc753d62557f88e9
+          elif [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
+            test "$shell_actual" = 7bb116ea0587de51a191560cd39070aac9ead014
           else
             case "$shell_actual" in
               4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)
