@@ -134,6 +134,7 @@ class FakeFiles:
         self.cancel_calls = []
         self.fail_upload = False
         self.fail_retry = False
+        self.raise_after_cancel_once = False
         self.scan_state = "pending"
         self.attachments = {}
         self.ordered = []
@@ -241,6 +242,9 @@ class FakeFiles:
                 attachment_id,
                 transfer_state="deleted",
             )
+        if self.raise_after_cancel_once:
+            self.raise_after_cancel_once = False
+            raise RuntimeError("file cancellation acknowledgement was lost")
 
     def history_after(self, *, room_id, after_sequence, limit):
         if self.history_override is not None:
@@ -2487,6 +2491,36 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(stored.scan_state, "clean")
         self.assertEqual(stored.sha256, prepared.metadata.sha256)
         self.assertEqual(len(self.files.retry_calls), 1)
+
+    def test_ambiguous_file_cancel_retries_same_identity_idempotently(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="cancel-ambiguous",
+            local_path=self.make_file("cancel-ambiguous.bin", b"cancel me"),
+            sequence_no=71,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.files.raise_after_cancel_once = True
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "cancellation acknowledgement was lost",
+        ):
+            controller.cancel_file(prepared.metadata.attachment_id)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (prepared.metadata,),
+        )
+        cancelled = controller.cancel_file(prepared.metadata.attachment_id)
+
+        self.assertEqual(cancelled.transfer_state, "deleted")
+        self.assertEqual(
+            self.files.cancel_calls,
+            ["cancel-ambiguous", "cancel-ambiguous"],
+        )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
 
     def test_retry_resets_failed_scan_to_pending_before_clean_rescan(self):
         controller = self.controller()
