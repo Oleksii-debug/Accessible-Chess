@@ -842,6 +842,81 @@ async function run() {
     "inconsistent Book list metadata did not fail closed accessibly"
   );
 
+  const inactiveBoardRoot = new FakeElement("div");
+  const inactiveBoardSnapshot = bookSnapshot(26, "Inactive board state");
+  inactiveBoardSnapshot.board_active = false;
+  inactiveBoardSnapshot.actions[10].enabled = false;
+  window.AccessibleChessBookSurface.render(
+    inactiveBoardRoot,
+    inactiveBoardSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-26",
+    "Inactive board state failed"
+  );
+  check(
+    find(inactiveBoardRoot, "BUTTON", "Return to book").disabled === true,
+    "inactive V2 Book snapshot exposed Return to book"
+  );
+
+  const activeGameRoot = new FakeElement("div");
+  const activeGameSnapshot = bookSnapshot(27, "Active game board state");
+  activeGameSnapshot.block.kind = "Game";
+  activeGameSnapshot.block.role = "group";
+  activeGameSnapshot.board_active = true;
+  activeGameSnapshot.actions[9].enabled = false;
+  activeGameSnapshot.actions[10].enabled = true;
+  window.AccessibleChessBookSurface.render(
+    activeGameRoot,
+    activeGameSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-27",
+    "Active board state failed"
+  );
+  check(
+    find(activeGameRoot, "BUTTON", "Open game").disabled === true,
+    "active V2 Book snapshot exposed a competing Game handoff"
+  );
+  check(
+    find(activeGameRoot, "BUTTON", "Return to book").disabled === false,
+    "active V2 Book snapshot hid Return to book"
+  );
+
+  const malformedBoardStateRoot = new FakeElement("div");
+  const malformedBoardStateAnnouncements = [];
+  const malformedBoardStateSnapshot = bookSnapshot(25, "Malformed board state");
+  malformedBoardStateSnapshot.board_active = "false";
+  window.AccessibleChessBookSurface.render(
+    malformedBoardStateRoot,
+    bookSnapshot(25, "Stable board state"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: malformedBoardStateSnapshot,
+        focus_target: "book-block-25"
+      }
+    }),
+    (message) => malformedBoardStateAnnouncements.push(String(message)),
+    "book-block-25",
+    "Board state failed"
+  );
+  const malformedBoardStateBefore =
+    malformedBoardStateRoot.querySelector("#book-block-25");
+  find(malformedBoardStateRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedBoardStateRoot.querySelector("#book-block-25") ===
+      malformedBoardStateBefore,
+    "malformed V2 board state replaced the stable Book render"
+  );
+  check(
+    malformedBoardStateAnnouncements.length === 1 &&
+      malformedBoardStateAnnouncements[0] === "Board state failed",
+    "malformed V2 board state did not fail closed accessibly"
+  );
+
   const delegatedRoot = new FakeElement("div");
   const delegatedAnnouncements = [];
   const delegatedSnapshot = bookSnapshot(28, "Position handoff");
