@@ -10,6 +10,8 @@ and browser presentation remain in their existing canonical owners.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+import ntpath
+import sys
 from typing import cast
 
 from .classroom_chat_http_endpoint import ClassroomChatHttpRpcCall
@@ -17,6 +19,10 @@ from .classroom_chat_rpc import ClassroomChatRpcClient
 from .classroom_collaboration import (
     ClassroomCollaborationController,
     FileQuotaPolicy,
+)
+from .classroom_collaboration_outbox import (
+    DurableChatDraftOutbox,
+    DurableOutboxClassroomCollaborationController,
 )
 from .classroom_collaboration_storage import ClassroomCollaborationSQLiteStore
 from .classroom_collaboration_webview import (
@@ -27,6 +33,7 @@ from .classroom_file_http_transport import ClassroomFileHttpRpcCall
 from .classroom_file_rpc import ClassroomFileRpcClient, MAX_RPC_UPLOAD_BYTES
 from .classroom_realtime_media import ClassroomMediaController, ClassroomRosterPort
 from .full_product_ui_shell import UILanguage
+from .secret_store import SecretStore, WindowsDpapiSecretStore
 
 
 class _DeferredCollaborationStore:
@@ -69,6 +76,7 @@ class ClassroomCollaborationRuntime:
     webview: ClassroomCollaborationWebView = field(repr=False)
     chat_client: ClassroomChatRpcClient = field(repr=False)
     file_client: ClassroomFileRpcClient = field(repr=False)
+    chat_outbox: DurableChatDraftOutbox | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         return "ClassroomCollaborationRuntime(<bound>)"
@@ -97,6 +105,7 @@ def build_classroom_collaboration_http_runtime(
     chat_retention: str = "session",
     file_retention: str = "session",
     local_quota: FileQuotaPolicy | None = None,
+    chat_outbox_secret_store: SecretStore | None = None,
     chat_timeout_seconds: float = 15.0,
     file_timeout_seconds: float = 30.0,
     allow_insecure_loopback: bool = False,
@@ -159,6 +168,11 @@ def build_classroom_collaboration_http_runtime(
         raise TypeError("allow_insecure_loopback must be bool")
     if local_quota is not None and not isinstance(local_quota, FileQuotaPolicy):
         raise TypeError("local_quota must be FileQuotaPolicy")
+    if chat_outbox_secret_store is not None and not isinstance(
+        chat_outbox_secret_store,
+        SecretStore,
+    ):
+        raise TypeError("chat_outbox_secret_store must implement SecretStore")
     quota = local_quota or FileQuotaPolicy()
     if quota.max_file_bytes > MAX_RPC_UPLOAD_BYTES:
         raise ValueError(
@@ -212,16 +226,56 @@ def build_classroom_collaboration_http_runtime(
     # Reuse the canonical controller constructor as the sole roster/member
     # authority, but keep its store side-effect free until that validation passes.
     deferred_store = _DeferredCollaborationStore()
-    controller = ClassroomCollaborationController(
-        room_id=room_id,
-        local_participant_id=participant_id,
-        roster=roster,
-        chat=chat_client,
-        files=file_client,
-        store=cast(ClassroomCollaborationSQLiteStore, deferred_store),
-        file_store=file_client,
-        quota=quota,
-    )
+
+    selected_secret_store = chat_outbox_secret_store
+    if selected_secret_store is None and sys.platform == "win32":
+        selected_secret_store = WindowsDpapiSecretStore.for_current_user()
+
+    chat_outbox: DurableChatDraftOutbox | None = None
+    if selected_secret_store is not None:
+        def lookup_local_message(message_id: str):
+            for item in deferred_store.room_messages(
+                room_id,
+                include_hidden=True,
+            ):
+                if item.message_id == message_id:
+                    return item
+            return None
+
+        storage_scope = (
+            ntpath.normcase(str(path))
+            if sys.platform == "win32"
+            else str(path)
+        )
+        chat_outbox = DurableChatDraftOutbox(
+            secret_store=selected_secret_store,
+            room_id=room_id,
+            participant_id=participant_id,
+            storage_scope=storage_scope,
+            lock_path=path.with_name(f".{path.name}.chat-outbox.lock"),
+            message_lookup=lookup_local_message,
+        )
+
+    controller_kwargs = {
+        "room_id": room_id,
+        "local_participant_id": participant_id,
+        "roster": roster,
+        "chat": chat_client,
+        "files": file_client,
+        "store": cast(ClassroomCollaborationSQLiteStore, deferred_store),
+        "file_store": file_client,
+        "quota": quota,
+    }
+    controller: ClassroomCollaborationController
+    if chat_outbox is None:
+        # Preserve the exact canonical controller on platforms/configurations
+        # that have no approved durable secret authority.
+        controller = ClassroomCollaborationController(**controller_kwargs)
+    else:
+        controller = DurableOutboxClassroomCollaborationController(
+            chat_outbox=chat_outbox,
+            **controller_kwargs,
+        )
 
     store = ClassroomCollaborationSQLiteStore(str(path))
     deferred_store.bind(store)
@@ -245,6 +299,7 @@ def build_classroom_collaboration_http_runtime(
         webview=webview,
         chat_client=chat_client,
         file_client=file_client,
+        chat_outbox=chat_outbox,
     )
 
 
