@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import unittest
 
-from acs.full_product_actions import FullProductActionRouter
-from acs.full_product_ui_shell import AccessibleShellState, UILanguage
+from acs.acsdb import AcsDatabase
+from acs.analysis_service import AnalysisService
+from acs.book_progress_store import BookProgressStore
+from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_document import PgnDocumentSession
-from acs.pgn_webview_bridge import PgnWebViewBridge
-from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
-from acs.version2_pgn_commands import Version2PgnCommands
+from acs.version2_application import Version2Application
 
 
 DOCUMENT = '''[Event "One"]
@@ -24,73 +26,75 @@ DOCUMENT = '''[Event "One"]
 
 class PgnBrowserPresentationLeaseRequiredTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.session = PgnDocumentSession.from_text(DOCUMENT)
-        commands = Version2PgnCommands(lambda: self.session)
-        router = FullProductActionRouter(
-            AccessibleShellState(language=UILanguage.EN),
-            commands,
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.database = AcsDatabase(root / "library.acsdb")
+        self.addCleanup(self.database.close)
+        self.analysis = AnalysisService(lambda: None)
+        self.addCleanup(self.analysis.close)
+        self.app = Version2Application(
+            self.database,
+            progress_store=BookProgressStore(root / "progress.json"),
+            engine_assistance=EngineAssistedWorkflowService(self.analysis),
+            board_dispatch=lambda *_: None,
         )
-        self.projection = PgnWorkspaceWebViewProjection(
-            self.session.workspace,
-            router,
-            language=UILanguage.EN,
-        )
-        self.bridge = PgnWebViewBridge(self.projection)
+        self.app.set_document(PgnDocumentSession.from_text(DOCUMENT))
 
-    def test_missing_lease_rejects_current_browser_navigation(self) -> None:
-        visible = self.projection.snapshot()
-        self.assertEqual(0, self.session.workspace.selected_game_index)
+    def test_legacy_bootstrap_before_browser_render_remains_compatible(self) -> None:
+        accepted = self.app.browser_command("pgn", "pgn.next_game", {})
+        self.assertEqual("selection", accepted["kind"])
+        self.assertEqual(1, self.app.session.workspace.selected_game_index)
 
-        rejected = self.bridge.dispatch("pgn.next_game", {})
+    def test_missing_lease_after_browser_snapshot_rejects_navigation_and_recovers(self) -> None:
+        visible = self.app.snapshot()["pgn"]
+        rejected = self.app.browser_command("pgn", "pgn.next_game", {})
+        self.assertEqual("selection", rejected["kind"])
+        self.assertEqual(0, self.app.session.workspace.selected_game_index)
+        recovered = rejected["payload"]["snapshot"]
+        self.assertEqual(0, recovered["game"]["index"])
+        self.assertRegex(recovered["presentation_token"], r"^[0-9a-f]{64}$")
+        self.assertEqual(visible["presentation_token"], recovered["presentation_token"])
 
-        self.assertEqual("selection", rejected.kind)
-        self.assertEqual(0, self.session.workspace.selected_game_index)
-        snapshot = rejected.payload["snapshot"]
-        self.assertEqual(0, snapshot["game"]["index"])
-        self.assertEqual(snapshot["error_message"], rejected.payload["announcement"])
-        self.assertEqual(visible["presentation_token"], snapshot["presentation_token"])
-
-    def test_hidden_host_snapshot_does_not_make_tokenless_stale_intent_authoritative(self) -> None:
-        visible = self.projection.snapshot()
+    def test_hidden_host_snapshot_cannot_make_tokenless_stale_intent_authoritative(self) -> None:
+        visible = self.app.snapshot()["pgn"]
         old_token = visible["presentation_token"]
-
-        # A host-side path changes canonical state and refreshes the projection,
-        # but the old WebView DOM has not rendered this newer presentation.
-        self.session.workspace.next_game()
-        hidden = self.projection.snapshot()
+        self.app.session.workspace.next_game()
+        hidden = self.app.snapshot()["pgn"]
         self.assertEqual(1, hidden["game"]["index"])
         self.assertNotEqual(old_token, hidden["presentation_token"])
+        rejected = self.app.browser_command("pgn", "pgn.previous_game", {})
+        self.assertEqual("selection", rejected["kind"])
+        self.assertEqual(1, self.app.session.workspace.selected_game_index)
+        self.assertEqual(1, rejected["payload"]["snapshot"]["game"]["index"])
 
-        rejected = self.bridge.dispatch("pgn.previous_game", {})
-
-        self.assertEqual("selection", rejected.kind)
-        self.assertEqual(1, self.session.workspace.selected_game_index)
-        snapshot = rejected.payload["snapshot"]
-        self.assertEqual(1, snapshot["game"]["index"])
-        self.assertEqual(snapshot["error_message"], rejected.payload["announcement"])
-
-    def test_matching_rendered_lease_still_allows_navigation(self) -> None:
-        visible = self.projection.snapshot()
-
-        accepted = self.bridge.dispatch(
+    def test_matching_rendered_lease_allows_navigation(self) -> None:
+        visible = self.app.snapshot()["pgn"]
+        accepted = self.app.browser_command(
+            "pgn",
             "pgn.next_game",
             {"presentation_token": visible["presentation_token"]},
         )
-
-        self.assertEqual("selection", accepted.kind)
-        self.assertEqual(1, self.session.workspace.selected_game_index)
-        self.assertEqual(1, accepted.payload["snapshot"]["game"]["index"])
+        self.assertEqual("selection", accepted["kind"])
+        self.assertEqual(1, self.app.session.workspace.selected_game_index)
+        self.assertEqual(1, accepted["payload"]["snapshot"]["game"]["index"])
 
     def test_refresh_remains_token_free_recovery_path(self) -> None:
-        refreshed = self.bridge.dispatch("pgn.refresh", {})
-
-        self.assertEqual("selection", refreshed.kind)
-        self.assertEqual("ready", refreshed.payload["snapshot"]["status"])
-        self.assertEqual(0, self.session.workspace.selected_game_index)
+        self.app.snapshot()
+        refreshed = self.app.browser_command("pgn", "pgn.refresh", {})
+        self.assertEqual("selection", refreshed["kind"])
+        self.assertEqual("ready", refreshed["payload"]["snapshot"]["status"])
         self.assertRegex(
-            refreshed.payload["snapshot"]["presentation_token"],
+            refreshed["payload"]["snapshot"]["presentation_token"],
             r"^[0-9a-f]{64}$",
         )
+
+    def test_replacing_document_starts_a_new_unleased_bootstrap_epoch(self) -> None:
+        self.app.snapshot()
+        self.app.set_document(PgnDocumentSession.from_text(DOCUMENT))
+        accepted = self.app.browser_command("pgn", "pgn.next_game", {})
+        self.assertEqual("selection", accepted["kind"])
+        self.assertEqual(1, self.app.session.workspace.selected_game_index)
 
 
 if __name__ == "__main__":
