@@ -42,6 +42,28 @@ from .classroom_realtime_media import (
 )
 
 
+class _FrozenSecretCredential(dict[str, str]):
+    """JSON-compatible credential copy that cannot be mutated or rendered."""
+
+    @staticmethod
+    def _immutable(*_args, **_kwargs):
+        raise TypeError("media session credential handoff is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+    def __repr__(self) -> str:
+        return "<redacted media session credential>"
+
+    __str__ = __repr__
+
+
 class ClassroomMediaProviderBinder:
     """Bind both media coordinators to one exact provider-execution authority."""
 
@@ -342,8 +364,14 @@ class ClassroomMediaProviderBinder:
                 self._arbiter.release_without_provider(lease.lease_id)
                 self._session_credential_handed_off = False
             raise
+        # Taking the one-shot credential is already a provider-capability
+        # boundary. A stale browser callback may use the credential even if the
+        # normal executor later reports that dispatch never started, so the
+        # global serialization gate must become fail-closed before the secret is
+        # returned to the browser host.
+        self._arbiter.mark_provider_boundary_crossed(lease.lease_id)
         self._session_credential_handed_off = True
-        return value
+        return _FrozenSecretCredential(value)
 
     def mark_provider_dispatched(
         self,
@@ -370,11 +398,26 @@ class ClassroomMediaProviderBinder:
                 raise MediaProviderExecutionError(
                     "media effect transaction is not pending for provider dispatch"
                 )
+        # Connect/reconnect crossed the provider-capability boundary when the
+        # one-shot credential was handed to the browser. The later executor
+        # dispatch acknowledgement is therefore intentionally idempotent for
+        # that exact session transaction; non-secret effects and disconnect
+        # still cross here immediately before provider invocation.
+        if (
+            lease.owner is MediaProviderExecutionOwner.SESSION
+            and self._session_credential_handed_off
+            and lease.provider_boundary_crossed
+        ):
+            return lease
         return self._arbiter.mark_provider_boundary_crossed(lease.lease_id)
 
     def provider_not_started(self, transaction_id: str) -> None:
         lease = self._require_active(transaction_id)
-        if lease.provider_boundary_crossed:
+        credential_exposed = (
+            lease.owner is MediaProviderExecutionOwner.SESSION
+            and self._session_credential_handed_off
+        )
+        if lease.provider_boundary_crossed and not credential_exposed:
             raise MediaProviderExecutionError(
                 "provider-not-started cannot follow provider dispatch"
             )
@@ -384,13 +427,17 @@ class ClassroomMediaProviderBinder:
             else:
                 self._sessions.provider_not_started(transaction_id)
         except MediaHostRecoveryRequired:
-            # Session credential handoff can require local recovery even when the
-            # provider invocation was provably not dispatched. The global arbiter
-            # records that provider outcome itself is known, while still blocking
-            # both owners until trusted reconciliation.
+            # A handed-off session credential is an ambiguous provider
+            # capability even when the normal executor says it never invoked
+            # LiveKit: a stale callback may still use that token. Preserve the
+            # session coordinator's exact uncertainty in the shared recovery
+            # latch so neither transaction owner can proceed.
+            status = self._sessions.recovery_status
             self._arbiter.require_recovery(
                 lease.lease_id,
-                provider_outcome_unknown=False,
+                provider_outcome_unknown=(
+                    True if status is None else status.provider_outcome_unknown
+                ),
             )
             self._session_credential_handed_off = False
             raise
