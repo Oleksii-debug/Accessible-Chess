@@ -203,6 +203,20 @@ class ClassroomChatServerSQLiteStore:
                         raise ClassroomChatServerError(
                             "unsupported classroom chat server schema"
                         )
+                    required_tables = {
+                        "classroom_chat_server_meta",
+                        "classroom_chat_server_messages",
+                        "classroom_chat_server_permissions",
+                        "classroom_chat_server_moderation_ops",
+                    }
+                    if version >= 2:
+                        required_tables.add(
+                            "classroom_chat_server_state_updates"
+                        )
+                    if not required_tables.issubset(namespace_objects):
+                        raise ClassroomChatServerError(
+                            "classroom chat server schema is incomplete"
+                        )
                 elif namespace_objects:
                     raise ClassroomChatServerError(
                         "classroom chat server schema metadata is missing"

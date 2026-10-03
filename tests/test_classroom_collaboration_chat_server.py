@@ -681,6 +681,92 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_current_schema_does_not_recreate_missing_authority_table(self) -> None:
+        path = Path(self.tmp.name) / "schema-incomplete-current.sqlite3"
+        store = ClassroomChatServerSQLiteStore(path)
+        store.apply_moderation(
+            (
+                self.moderation(
+                    "persisted-send-lock",
+                    allowed=False,
+                ),
+            )
+        )
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP TABLE classroom_chat_server_permissions")
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema is incomplete",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='classroom_chat_server_permissions'
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(
+                2,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+
+    def test_version_one_migration_may_create_only_version_two_state_table(self) -> None:
+        path = Path(self.tmp.name) / "schema-v1-migration.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
+            db.execute("DROP TABLE classroom_chat_server_state_updates")
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=1
+                WHERE key='schema_version'
+                """
+            )
+
+        migrated = ClassroomChatServerSQLiteStore(path)
+        migrated.integrity_check()
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
+                2,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='classroom_chat_server_state_updates'
+                    """
+                ).fetchone()
+            )
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='index'
+                      AND name='idx_classroom_chat_server_state_updates_message'
+                    """
+                ).fetchone()
+            )
+
     def test_two_client_controller_composition_reconnects_and_reconciles_hide(self) -> None:
         roster = SharedRoster()
         teacher_store = ClassroomCollaborationSQLiteStore(
