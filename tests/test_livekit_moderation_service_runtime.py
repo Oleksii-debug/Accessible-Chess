@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 import traceback
 from types import SimpleNamespace
 import unittest
@@ -17,6 +18,13 @@ from acs.livekit_moderation_service_runtime import (
     MAX_MODERATION_SERVICE_TOKEN_CHARS,
 )
 
+
+MODERATION_RUNTIME_WORKFLOW = (
+    Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "livekit-moderation-service-runtime.yml"
+)
 
 ROOM = "room-1"
 SERVICE_ID = "moderation-service"
@@ -623,6 +631,22 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(entered, runtime)
             self.assertTrue(entered.ready)
         self.assertTrue(runtime.closed)
+
+    def test_workflow_scope_uses_immutable_pull_request_base(self):
+        workflow = MODERATION_RUNTIME_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", workflow)
 
     def test_missing_room_api_fails_before_room_construction(self):
         class BadRtc:
