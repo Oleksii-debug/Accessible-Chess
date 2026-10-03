@@ -183,6 +183,117 @@ class ClassroomChatServerTests(unittest.TestCase):
             draft=draft,
         )
 
+    def _downgrade_to_legacy_schema(
+        self,
+        path: Path,
+        *,
+        version: int,
+        keep_state_table: bool,
+    ) -> None:
+        """Build a real pre-v4 table shape instead of relabelling v4 metadata."""
+
+        if version not in {1, 2, 3}:
+            raise AssertionError("legacy fixture version must be 1, 2 or 3")
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP INDEX IF EXISTS idx_classroom_chat_server_messages_room")
+            db.execute(
+                "ALTER TABLE classroom_chat_server_messages "
+                "RENAME TO classroom_chat_server_messages_v4"
+            )
+            db.execute(
+                """
+                CREATE TABLE classroom_chat_server_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
+                    sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0),
+                    UNIQUE(room_id, sequence_no)
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                )
+                SELECT
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                FROM classroom_chat_server_messages_v4
+                """
+            )
+            db.execute("DROP TABLE classroom_chat_server_messages_v4")
+            db.execute(
+                """
+                CREATE INDEX idx_classroom_chat_server_messages_room
+                ON classroom_chat_server_messages(room_id, sequence_no)
+                """
+            )
+
+            db.execute(
+                "DROP INDEX IF EXISTS "
+                "idx_classroom_chat_server_state_updates_message"
+            )
+            if keep_state_table:
+                db.execute(
+                    "ALTER TABLE classroom_chat_server_state_updates "
+                    "RENAME TO classroom_chat_server_state_updates_v4"
+                )
+                redaction_rows = db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM classroom_chat_server_state_updates_v4
+                    WHERE redacted != 0
+                    """
+                ).fetchone()[0]
+                if redaction_rows:
+                    raise AssertionError(
+                        "cannot downgrade fixture containing redaction state"
+                    )
+                db.execute(
+                    """
+                    CREATE TABLE classroom_chat_server_state_updates(
+                        room_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL CHECK(revision >= 0),
+                        message_id TEXT NOT NULL,
+                        hidden INTEGER NOT NULL CHECK(hidden = 1),
+                        PRIMARY KEY(room_id, revision)
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    INSERT INTO classroom_chat_server_state_updates(
+                        room_id, revision, message_id, hidden
+                    )
+                    SELECT room_id, revision, message_id, hidden
+                    FROM classroom_chat_server_state_updates_v4
+                    """
+                )
+                db.execute("DROP TABLE classroom_chat_server_state_updates_v4")
+                db.execute(
+                    """
+                    CREATE INDEX idx_classroom_chat_server_state_updates_message
+                    ON classroom_chat_server_state_updates(room_id, message_id)
+                    """
+                )
+            else:
+                db.execute("DROP TABLE classroom_chat_server_state_updates")
+
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=?
+                WHERE key='schema_version'
+                """,
+                (version,),
+            )
+
     def test_store_rejects_ephemeral_database_targets(self) -> None:
         for target in ("", ":memory:"):
             with self.subTest(target=target):
