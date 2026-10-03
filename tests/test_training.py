@@ -2,6 +2,9 @@ import hashlib
 import json
 import unittest
 from collections.abc import Mapping
+from unittest.mock import patch
+
+import acs.training as training_module
 
 from acs.chesscore import Board
 from acs.training import (
@@ -283,6 +286,56 @@ class ExerciseSessionTests(unittest.TestCase):
             snapshot,
             ExerciseSession.restore(definition, snapshot).snapshot(),
         )
+
+    def test_restore_fails_closed_if_definition_identity_changes_during_replay(self):
+        for schema_version in (4, 3, 2):
+            with self.subTest(schema_version=schema_version):
+                definition = self.make_definition()
+                source = ExerciseSession(definition)
+                source.submit("e4")
+                snapshot = source.snapshot()
+                if schema_version in {2, 3}:
+                    legacy_payload = {
+                        "start_fen": definition.start_fen,
+                        "steps": [
+                            sorted(step.accepted_moves)
+                            for step in definition.steps
+                        ],
+                    }
+                    snapshot["schema_version"] = schema_version
+                    snapshot["definition_digest"] = hashlib.sha256(
+                        json.dumps(
+                            legacy_payload,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                if schema_version == 2:
+                    snapshot.pop("accepted_path")
+                    snapshot.pop("position_fen")
+
+                original = training_module._resolved_accepted_moves
+                mutated = False
+
+                def mutate_during_replay(step, board):
+                    nonlocal mutated
+                    resolved = original(step, board)
+                    if not mutated:
+                        definition.metadata["difficulty"] = "mutated"
+                        mutated = True
+                    return resolved
+
+                with patch.object(
+                    training_module,
+                    "_resolved_accepted_moves",
+                    side_effect=mutate_during_replay,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "definition changed while restoring progress",
+                    ):
+                        ExerciseSession.restore(definition, snapshot)
 
     def test_schema_v3_snapshot_remains_readable_and_upgrades_to_v4(self):
         definition = self.make_definition()
