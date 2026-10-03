@@ -107,6 +107,27 @@ def _bounded_limit(value: object) -> int:
     return value
 
 
+def _expiring_retentions(value: object) -> tuple[str, ...]:
+    """Validate trusted lifecycle cleanup scope.
+
+    Persistent classroom files require an explicit user/policy deletion path and
+    can never be swept by transient/session lifecycle cleanup.
+    """
+
+    if type(value) is not tuple or not value or len(value) > 2:
+        raise ClassroomFileServerError("invalid retention cleanup scope")
+    if any(type(item) is not str for item in value):
+        raise ClassroomFileServerError("invalid retention cleanup scope")
+    if len(set(value)) != len(value):
+        raise ClassroomFileServerError("invalid retention cleanup scope")
+    allowed = {"transient", "session"}
+    if not set(value).issubset(allowed):
+        raise ClassroomFileServerError(
+            "retention cleanup cannot delete persistent files"
+        )
+    return tuple(item for item in ("transient", "session") if item in value)
+
+
 class ClassroomFileServerSQLiteStore:
     """Durable authoritative file metadata, sequencing and deletion recovery."""
 
@@ -988,6 +1009,149 @@ class ClassroomFileServerSQLiteStore:
                 db.rollback()
                 raise
 
+    def queue_retention_deletions(
+        self,
+        *,
+        room_id: str,
+        retentions: tuple[str, ...],
+    ) -> tuple[tuple[str, str], ...]:
+        """Atomically retire non-persistent room files before byte deletion.
+
+        This is a trusted quiescent lifecycle primitive, not a client action.
+        Callers must stop room file requests before invoking it. Terminal stored
+        items become durable tombstones with monotonic state revisions; ambiguous
+        in-flight reservations become durable cancelled cleanup records. Physical
+        object deletion happens only after this transaction commits.
+        """
+
+        room = _server_id(room_id, "room id")
+        selected = _expiring_retentions(retentions)
+        placeholders = ",".join("?" for _ in selected)
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                rows = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    f"WHERE room_id=? AND retention IN ({placeholders}) "
+                    "ORDER BY CASE WHEN sequence_no IS NULL THEN 1 ELSE 0 END, "
+                    "sequence_no, attachment_id",
+                    (room, *selected),
+                ).fetchall()
+
+                revision_stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count,
+                           MAX(revision) AS last_revision
+                    FROM classroom_file_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                revision_count = revision_stats["item_count"]
+                last_revision = revision_stats["last_revision"]
+                if type(revision_count) is not int or revision_count < 0:
+                    raise ClassroomFileServerError(
+                        "attachment state revision count is corrupt"
+                    )
+                if last_revision is None:
+                    if revision_count != 0:
+                        raise ClassroomFileServerError(
+                            "attachment state revision has a gap"
+                        )
+                    next_revision = 0
+                elif (
+                    type(last_revision) is int
+                    and 0 <= last_revision <= MAX_WIRE_INTEGER
+                    and last_revision + 1 == revision_count
+                ):
+                    next_revision = last_revision + 1
+                else:
+                    raise ClassroomFileServerError(
+                        "attachment state revision has a gap"
+                    )
+
+                pending: list[tuple[str, str]] = []
+                for row in rows:
+                    object_key = self._canonical_row_object_key(row)
+                    state = row["transfer_state"]
+                    delete_completed = row["delete_completed"]
+                    if type(delete_completed) is not int or delete_completed not in {0, 1}:
+                        raise ClassroomFileServerError(
+                            "stored deletion completion flag is invalid"
+                        )
+
+                    if state == "stored":
+                        if next_revision > MAX_WIRE_INTEGER:
+                            raise ClassroomFileServerError(
+                                "attachment state revision is exhausted"
+                            )
+                        db.execute(
+                            """
+                            UPDATE classroom_file_server_attachments
+                            SET transfer_state='deleted', delete_completed=0
+                            WHERE attachment_id=? AND transfer_state='stored'
+                            """,
+                            (row["attachment_id"],),
+                        )
+                        db.execute(
+                            """
+                            INSERT INTO classroom_file_server_state_updates(
+                                room_id, revision, attachment_id,
+                                transfer_state, scan_state
+                            ) VALUES(?,?,?,?,?)
+                            """,
+                            (
+                                room,
+                                next_revision,
+                                row["attachment_id"],
+                                "deleted",
+                                row["scan_state"],
+                            ),
+                        )
+                        next_revision += 1
+                        pending.append((row["attachment_id"], object_key))
+                        continue
+
+                    if state == "uploading":
+                        if row["sequence_no"] is not None or delete_completed != 1:
+                            raise ClassroomFileServerError(
+                                "provisional cleanup state is inconsistent"
+                            )
+                        db.execute(
+                            """
+                            UPDATE classroom_file_server_attachments
+                            SET transfer_state='cancelled', delete_completed=0
+                            WHERE attachment_id=? AND transfer_state='uploading'
+                            """,
+                            (row["attachment_id"],),
+                        )
+                        pending.append((row["attachment_id"], object_key))
+                        continue
+
+                    if state == "cancelled":
+                        if row["sequence_no"] is not None or delete_completed != 0:
+                            raise ClassroomFileServerError(
+                                "provisional cleanup state is inconsistent"
+                            )
+                        pending.append((row["attachment_id"], object_key))
+                        continue
+
+                    if state == "deleted":
+                        self._terminal_from_row(row)
+                        if delete_completed == 0:
+                            pending.append((row["attachment_id"], object_key))
+                        continue
+
+                    raise ClassroomFileServerError(
+                        "attachment has invalid retention cleanup state"
+                    )
+
+                db.commit()
+                return tuple(pending)
+            except Exception:
+                db.rollback()
+                raise
+
     def pending_deletions(self) -> tuple[tuple[str, str], ...]:
         with closing(self._connect()) as db:
             rows = db.execute(
@@ -1577,6 +1741,41 @@ class ClassroomFileServerService:
         if incomplete:
             raise ClassroomFileServerError(
                 "durable upload rollback incomplete"
+            )
+        return completed
+
+    def expire_room_retention(
+        self,
+        *,
+        room_id: str,
+        retentions: tuple[str, ...],
+    ) -> int:
+        """Execute explicit transient/session retention at quiescent room lifecycle.
+
+        This trusted server/operator path deliberately bypasses participant
+        authorization because room teardown can outlive every participant token.
+        It cannot target persistent retention. Metadata tombstones/cancelled
+        recovery state commit before any object-store deletion, so a provider
+        failure is recoverable through drain_pending_deletions.
+        """
+
+        pending = self._store.queue_retention_deletions(
+            room_id=room_id,
+            retentions=retentions,
+        )
+        completed = 0
+        incomplete = False
+        for attachment_id, object_key in pending:
+            try:
+                self._object_store.delete(object_key=object_key)
+            except Exception:
+                incomplete = True
+                continue
+            self._store.complete_deletion(attachment_id)
+            completed += 1
+        if incomplete:
+            raise ClassroomFileServerError(
+                "room retention cleanup incomplete"
             )
         return completed
 
