@@ -864,16 +864,14 @@ def _validate_required_runtime_resources(
     if set(mapping) != expected_events:
         _fail("packaged sound manifest must declare every semantic sound event exactly once")
 
-    seen_sound_paths: set[str] = set()
     for event in SoundEvent:
         value = mapping.get(event.value)
         if not isinstance(value, str) or not value:
             _fail(f"packaged sound manifest entry is invalid: {event.value}")
         token = _relative_token(value, label="sound asset path")
-        folded_token = token.casefold()
-        if folded_token in seen_sound_paths:
-            _fail("packaged sound events must use distinct WAV assets")
-        seen_sound_paths.add(folded_token)
+        # Multiple semantic outcomes may intentionally share one neutral WAV.
+        # Provenance remains event-specific and is verified below against the
+        # selected manifest path and bytes, so aliases cannot bypass integrity.
         if PurePosixPath(token).suffix.casefold() != ".wav":
             _fail(f"packaged sound asset is not WAV: {event.value}")
         relative = (_REQUIRED_SOUND_ROOT / PurePosixPath(token)).as_posix()
