@@ -20,17 +20,24 @@ class Version2BookBoardRefreshFocusOrderEvidenceTests(unittest.TestCase):
             self.skipTest("Node.js is required for the Version 2 DOM evidence oracle")
 
         source = HARNESS.read_text(encoding="utf-8")
-        refresh_definition = '''  refreshState: () => {\n    stage1RefreshCalls += 1;\n    return Promise.resolve();\n  },\n'''
-        held_refresh_definition = '''  refreshState: () => {\n    stage1RefreshCalls += 1;\n    if (holdStage1Refresh) {\n      return new Promise((resolve) => { releaseHeldStage1Refresh = resolve; });\n    }\n    return Promise.resolve();\n  },\n'''
-        self.assertIn(refresh_definition, source, "W4 Stage1 refresh stub changed; re-audit ordering oracle")
-        source = source.replace(
-            "let stage1RefreshCalls = 0;\n",
-            "let stage1RefreshCalls = 0;\nlet holdStage1Refresh = false;\nlet releaseHeldStage1Refresh = null;\n",
-            1,
-        ).replace(refresh_definition, held_refresh_definition, 1)
+        # The canonical DOM harness now owns a controllable one-shot Stage1
+        # repaint barrier. Reuse that real barrier instead of rewriting the
+        # refresh stub, so this oracle cannot silently drift from production
+        # event-drain serialization semantics.
+        for required in (
+            "let holdNextStage1Refresh = false;\n",
+            "let heldStage1RefreshResolve = null;\n",
+            "if (holdNextStage1Refresh) {\n",
+            "heldStage1RefreshResolve = () => {\n",
+        ):
+            self.assertIn(
+                required,
+                source,
+                "W4 Stage1 refresh barrier changed; re-audit Book->Board focus ordering oracle",
+            )
 
         original_block = '''  currentRoute = "board";\n  eventQueue = [\n    { kind: "book-board", payload: { focus_target: "board-launcher" } },\n    { kind: "delegated", payload: { action_id: "book.open_position" } }\n  ];\n  intervalCallback();\n  await flush();\n  await flush();\n  check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");\n  check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");\n  check(documentRef.activeElement === boardLauncher, "trailing delegated event erased the Book-to-Board focus target");\n'''
-        ordered_block = '''  currentRoute = "board";\n  const beforeBookBoardRefreshes = stage1RefreshCalls;\n  holdStage1Refresh = true;\n  releaseHeldStage1Refresh = null;\n  eventQueue = [\n    { kind: "book-board", payload: { focus_target: "board-launcher" } },\n    { kind: "delegated", payload: { action_id: "book.open_position" } }\n  ];\n  intervalCallback();\n  await flush();\n  await flush();\n  check(stage1RefreshCalls === beforeBookBoardRefreshes + 1, "Book-to-Board did not start the canonical Stage 1 refresh");\n  check(typeof releaseHeldStage1Refresh === "function", "Book-to-Board did not awaitable-start the Stage 1 refresh");\n  check(documentRef.activeElement !== boardLauncher, "Book-to-Board restored final Board focus before Stage 1 repaint completed");\n  releaseHeldStage1Refresh();\n  holdStage1Refresh = false;\n  await flush();\n  await flush();\n  await flush();\n  check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");\n  check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");\n  check(documentRef.activeElement === boardLauncher, "Book-to-Board did not restore Board focus after Stage 1 repaint completed");\n'''
+        ordered_block = '''  currentRoute = "board";\n  holdNextStage1Refresh = true;\n  heldStage1RefreshResolve = null;\n  eventQueue = [\n    { kind: "book-board", payload: { focus_target: "board-launcher" } },\n    { kind: "delegated", payload: { action_id: "book.open_position" } }\n  ];\n  intervalCallback();\n  await flush();\n  check(\n    typeof heldStage1RefreshResolve === "function",\n    "Book-to-Board did not awaitably start the canonical Stage 1 refresh"\n  );\n  check(\n    documentRef.activeElement !== boardLauncher,\n    "Book-to-Board restored final Board focus before Stage 1 repaint completed"\n  );\n  heldStage1RefreshResolve();\n  await flush();\n  await flush();\n  await flush();\n  check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");\n  check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");\n  check(documentRef.activeElement === boardLauncher, "Book-to-Board did not restore Board focus after Stage 1 repaint completed");\n'''
         self.assertIn(original_block, source, "W4 Book->Board scenario changed; re-audit ordering oracle")
         source = source.replace(original_block, ordered_block, 1)
 
