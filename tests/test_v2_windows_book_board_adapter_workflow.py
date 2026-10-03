@@ -30,7 +30,7 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
         self.assertNotIn("work/v2-windows-book-board-adapter-20260831", self.workflow)
         self.assertNotIn("work/v2-book-board-workflow-20260831", self.workflow)
 
-    def test_historical_fixed_base_is_removed(self) -> None:
+    def test_live_product_geometry_replaces_stale_event_base_authority(self) -> None:
         legacy_base_keys = [
             line
             for line in self.workflow.splitlines()
@@ -39,13 +39,37 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
         self.assertEqual(legacy_base_keys, [])
         self.assertNotIn("f4594e48a7689ca5cc6c5a9ca467adbbc98c95f3", self.workflow)
         self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", self.workflow)
-        self.assertIn('base="${PR_BASE_SHA:-}"'.replace("\\$", "$"), self.workflow)
-        self.assertIn('git merge-base --is-ancestor "$base" HEAD', self.workflow)
-        self.assertIn('test "$(git merge-base "$base" HEAD)" = "$base"', self.workflow)
-        self.assertIn('git diff --check "$base" HEAD', self.workflow)
+        self.assertIn(
+            "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
+            self.workflow,
+        )
+        self.assertIn('event_base="${PR_BASE_SHA:-}"', self.workflow)
+        self.assertIn('git cat-file -e "$event_base^{commit}"', self.workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
+            self.workflow,
+        )
+        self.assertIn(
+            'live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"',
+            self.workflow,
+        )
+        self.assertIn('git cat-file -e "$live_product^{commit}"', self.workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$live_product"',
+            self.workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$live_product" HEAD', self.workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_product" HEAD)" = "$live_product"',
+            self.workflow,
+        )
+        self.assertIn('git diff --check "$live_product" HEAD', self.workflow)
+        self.assertNotIn('git merge-base --is-ancestor "$event_base" HEAD', self.workflow)
+        self.assertNotIn('git diff --check "$event_base" HEAD', self.workflow)
 
     def test_trigger_covers_adapter_and_inherited_application_seams(self) -> None:
         required = (
+            "run_accessible_chess_v2.py",
             "acs/version2_windows_book_board_adapter.py",
             "acs/book_board_workflow.py",
             "acs/book_webview_projection.py",
@@ -69,6 +93,7 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
         self.assertIn("python -m pytest -q tests", self.workflow)
         self.assertIn("python -m acs.selftest", self.workflow)
         self.assertIn("python run_accessible_chess.py --diagnostic", self.workflow)
+        self.assertIn("python run_accessible_chess_v2.py --diagnostic", self.workflow)
         self.assertIn("tests.test_v2_windows_book_board_adapter_workflow", self.workflow)
         self.assertIn("tests.test_v2_windows_book_board_adapter", self.workflow)
         self.assertIn("tests.test_v2_book_board_workflow", self.workflow)
