@@ -50,6 +50,16 @@ class SoundPackStoreError(ValueError):
 class InstalledSoundPack:
     manifest: SoundPackManifest
     version_dir: Path
+    digests: Mapping[str, SoundAssetDigest]
+
+
+@dataclass(frozen=True, slots=True)
+class SoundPackAssetSnapshot:
+    pack_id: str
+    version: str
+    sound_id: str
+    relative_path: str
+    content: bytes
 
 
 def _is_reparse_point(metadata: os.stat_result) -> bool:
@@ -225,6 +235,84 @@ def _scan_exact_tree(root: Path, label: str) -> tuple[set[str], set[str]]:
     except OSError as exc:
         raise SoundPackStoreError(f"{label} could not be inspected") from exc
     return files, directories
+
+
+def _regular_identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
+    return (
+        int(getattr(metadata, "st_dev", 0)),
+        int(getattr(metadata, "st_ino", 0)),
+        int(metadata.st_size),
+        int(getattr(metadata, "st_mtime_ns", 0)),
+    )
+
+
+def _read_verified_asset_bytes(
+    path: Path,
+    digest: SoundAssetDigest,
+) -> bytes:
+    """Read one exact installed asset without trusting a verified pathname later."""
+
+    before = _require_regular_file(path, "installed sound asset")
+    if before.st_size != digest.size_bytes:
+        raise SoundPackStoreError("installed sound asset size mismatch")
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise SoundPackStoreError("installed sound asset could not be opened safely") from exc
+
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            stat.S_ISLNK(opened.st_mode)
+            or _is_reparse_point(opened)
+            or not stat.S_ISREG(opened.st_mode)
+        ):
+            raise SoundPackStoreError("installed sound asset is not a regular file")
+        if _regular_identity(opened) != _regular_identity(before):
+            raise SoundPackStoreError("installed sound asset changed before secure read")
+        if opened.st_size != digest.size_bytes:
+            raise SoundPackStoreError("installed sound asset size mismatch")
+
+        chunks: list[bytes] = []
+        remaining = digest.size_bytes
+        sha = hashlib.sha256()
+        prefix = bytearray()
+        while remaining:
+            try:
+                chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            except OSError as exc:
+                raise SoundPackStoreError(
+                    "installed sound asset could not be read"
+                ) from exc
+            if not chunk:
+                raise SoundPackStoreError("installed sound asset was truncated")
+            remaining -= len(chunk)
+            sha.update(chunk)
+            chunks.append(chunk)
+            if len(prefix) < 16:
+                prefix.extend(chunk[: 16 - len(prefix)])
+
+        try:
+            extra = os.read(descriptor, 1)
+        except OSError as exc:
+            raise SoundPackStoreError("installed sound asset could not be read") from exc
+        if extra:
+            raise SoundPackStoreError("installed sound asset exceeds declared size")
+        after = os.fstat(descriptor)
+        if _regular_identity(after) != _regular_identity(opened):
+            raise SoundPackStoreError("installed sound asset changed during secure read")
+        if sha.hexdigest() != digest.sha256:
+            raise SoundPackStoreError("installed sound asset checksum mismatch")
+        _validate_audio_header(digest.path, bytes(prefix))
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 def _validate_audio_header(path: str, prefix: bytes) -> None:
@@ -836,7 +924,7 @@ class FilesystemSoundPackStore:
                 "sound pack active pointer id does not match directory"
             )
         version_dir = self._version_dir(identity, version)
-        manifest, _ = self._verify_version(
+        manifest, digests = self._verify_version(
             version_dir,
             expected_pack_id=identity,
             expected_version=version,
@@ -844,6 +932,7 @@ class FilesystemSoundPackStore:
         return InstalledSoundPack(
             manifest=manifest,
             version_dir=version_dir,
+            digests=digests,
         )
 
     def installed(self) -> Mapping[str, SoundPackManifest]:
@@ -917,6 +1006,40 @@ class FilesystemSoundPackStore:
             valid.append(version)
 
         return tuple(sorted(valid, key=_semantic_version_key))
+
+    def read_asset_snapshot(
+        self,
+        pack_id: str,
+        sound_id: str,
+    ) -> SoundPackAssetSnapshot | None:
+        """Return integrity-verified bytes from one active installed-pack snapshot."""
+
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            return None
+        try:
+            requested_sound = _stable_id(sound_id, allow_dot=True)
+            installed = self._installed_disk_pack(identity)
+            relative = installed.manifest.sound_path(requested_sound)
+            digest = installed.digests[relative]
+            content = _read_verified_asset_bytes(
+                installed.version_dir / relative,
+                digest,
+            )
+            return SoundPackAssetSnapshot(
+                pack_id=identity,
+                version=installed.manifest.version,
+                sound_id=requested_sound,
+                relative_path=relative,
+                content=content,
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            SoundPackStoreError,
+        ):
+            return None
 
     def resolve_asset(
         self,
