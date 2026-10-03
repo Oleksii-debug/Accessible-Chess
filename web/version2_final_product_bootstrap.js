@@ -535,16 +535,55 @@
     });
   }
 
+  function queuedMediaTransactionId(event) {
+    const payload = event && typeof event === "object" &&
+      event.payload && typeof event.payload === "object"
+      ? event.payload
+      : {};
+    const value = payload.transaction_id;
+    return typeof value === "string" &&
+      /^(?:host|session)-[0-9a-f]{32}$/.test(value)
+      ? value
+      : "";
+  }
+
+  function retireUnavailableQueuedMedia(event) {
+    const transactionId = queuedMediaTransactionId(event);
+    const invoke = areaInvoke("media");
+    if (!transactionId) {
+      return Promise.reject(new Error("queued media transaction is invalid"));
+    }
+    return Promise.resolve().then(function () {
+      return invoke(
+        "media.provider_not_started",
+        { transaction_id: transactionId }
+      );
+    });
+  }
+
   function applyQueuedEvent(event, orderedStage1Refreshes) {
     if (!event || typeof event !== "object") return false;
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
     if (event.kind === "provider-dispatch") {
       const mediaSurface = global.AccessibleChessClassroomMediaSurface;
       if (!mediaSurface || typeof mediaSurface.executeProvider !== "function") {
-        announce(uiText(
-          "Керування медіа тимчасово недоступне.",
-          "Media controls are temporarily unavailable."
-        ));
+        const retirement = retireUnavailableQueuedMedia(event).then(
+          function (terminal) {
+            const finalPayload = terminal && terminal.payload &&
+              typeof terminal.payload === "object" ? terminal.payload : {};
+            if (finalPayload.announcement) announce(finalPayload.announcement);
+            if (terminal && terminal.kind === "error" && finalPayload.message) {
+              announce(finalPayload.message);
+            }
+          },
+          function () {
+            announce(uiText(
+              "Керування медіа тимчасово недоступне.",
+              "Media controls are temporarily unavailable."
+            ));
+          }
+        );
+        orderedStage1Refreshes.push(retirement);
         return true;
       }
       const work = Promise.resolve().then(function () {
