@@ -289,6 +289,65 @@
     return true;
   }
 
+  function validCollaborationFileProgress(progressInfo) {
+    if (!progressInfo || typeof progressInfo !== "object") return false;
+    const transferKey = progressInfo.transfer_key;
+    const transferred = progressInfo.transferred_bytes;
+    const total = progressInfo.total_bytes;
+    const complete = progressInfo.complete;
+    return (
+      typeof transferKey === "string" &&
+      /^[0-9a-f]{64}$/.test(transferKey) &&
+      typeof transferred === "number" &&
+      typeof total === "number" &&
+      typeof complete === "boolean" &&
+      Number.isSafeInteger(transferred) &&
+      Number.isSafeInteger(total) &&
+      transferred >= 0 &&
+      total >= 0 &&
+      transferred <= total &&
+      (!complete || transferred === total) &&
+      typeof progressInfo.label === "string" &&
+      typeof progressInfo.name === "string" &&
+      typeof progressInfo.text === "string"
+    );
+  }
+
+  function paintCollaborationFileProgress(container, progressInfo, sessionKey) {
+    if (
+      !container ||
+      typeof container.replaceChildren !== "function" ||
+      typeof sessionKey !== "string" ||
+      !sessionKey ||
+      !validCollaborationFileProgress(progressInfo)
+    ) {
+      return false;
+    }
+    const transferred = progressInfo.transferred_bytes;
+    const total = progressInfo.total_bytes;
+    const complete = progressInfo.complete;
+    const meter = node("progress");
+    meter.id = "collaboration-file-transfer-meter";
+    const semanticMax = total === 0 ? 1 : total;
+    const semanticValue = total === 0 && complete ? 1 : transferred;
+    meter.setAttribute("max", String(semanticMax));
+    meter.setAttribute("value", String(semanticValue));
+    const label = progressInfo.label || "File transfer progress";
+    const name = progressInfo.name;
+    meter.setAttribute("aria-label", name ? (label + ": " + name) : label);
+    const text = node("span", progressInfo.text);
+    text.id = "collaboration-file-transfer-text";
+    text.setAttribute("aria-live", "off");
+    if (text.textContent) meter.setAttribute("aria-valuetext", text.textContent);
+    container.setAttribute("data-progress-session", sessionKey);
+    container.setAttribute("data-progress-key", progressInfo.transfer_key);
+    container.setAttribute("data-progress-transferred", String(transferred));
+    container.setAttribute("data-progress-total", String(total));
+    container.setAttribute("data-progress-complete", complete ? "true" : "false");
+    container.replaceChildren(meter, document.createTextNode(" "), text);
+    return true;
+  }
+
   function applyCollaborationFileProgress(root, progressInfo) {
     if (
       !root ||
@@ -304,12 +363,43 @@
     if (
       typeof sessionKey !== "string" ||
       !sessionKey ||
-      wrapper.getAttribute("data-collaboration-session") !== sessionKey
+      wrapper.getAttribute("data-collaboration-session") !== sessionKey ||
+      !validCollaborationFileProgress(progressInfo)
     ) {
       return false;
     }
     const container = wrapper.querySelector("#collaboration-file-transfer-progress");
-    return renderCollaborationFileProgress(container, sessionKey, progressInfo);
+    if (!container || typeof container.replaceChildren !== "function") return false;
+    const previousSession = container.getAttribute("data-progress-session");
+    const previousKey = container.getAttribute("data-progress-key");
+    if (
+      previousSession === sessionKey &&
+      previousKey === progressInfo.transfer_key
+    ) {
+      const previousTransferred = Number(
+        container.getAttribute("data-progress-transferred")
+      );
+      const previousTotal = Number(container.getAttribute("data-progress-total"));
+      const previousComplete = (
+        container.getAttribute("data-progress-complete") === "true"
+      );
+      if (
+        !Number.isSafeInteger(previousTransferred) ||
+        !Number.isSafeInteger(previousTotal) ||
+        previousTransferred < 0 ||
+        previousTotal < 0 ||
+        progressInfo.total_bytes !== previousTotal ||
+        progressInfo.transferred_bytes < previousTransferred ||
+        (
+          previousComplete &&
+          (!progressInfo.complete ||
+            progressInfo.transferred_bytes !== previousTransferred)
+        )
+      ) {
+        return false;
+      }
+    }
+    return paintCollaborationFileProgress(container, progressInfo, sessionKey);
   }
 
   function applyEducationEvent(
@@ -1017,6 +1107,13 @@
       "aria-label",
       files.progress_label || "File transfer progress"
     );
+    if (files.transfer_progress && typeof files.transfer_progress === "object") {
+      paintCollaborationFileProgress(
+        transferProgress,
+        files.transfer_progress,
+        String(snapshot.session_key || "")
+      );
+    }
     fileSection.appendChild(transferProgress);
     if (
       files.transfer_progress &&
