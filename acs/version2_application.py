@@ -254,6 +254,9 @@ class Version2Application:
         training_message_key = (
             None if workspace is None else workspace.presenter_message_key
         )
+        book_board_was_active = (
+            self.book_workflow is not None and self.book_workflow.active
+        )
         if reader is not None and books is not None and key is not None:
             language = books.projection.language
             bookmark_name = books.projection.bookmark_name
@@ -268,6 +271,18 @@ class Version2Application:
                     training_message=training_message,
                     training_message_key=training_message_key,
                 )
+                # Book Board is transient state over the replaced reader/workflow
+                # and is not represented by the durable BookReader snapshot.
+                # Never leave keyboard/NVDA focus on a visible Board route whose
+                # canonical owner was discarded by ambiguity recovery.
+                if (
+                    book_board_was_active
+                    and self.shell.current_route.route_id == "board"
+                ):
+                    self._focus = self.shell.open_route("books")
+                    self._events.append(
+                        {"kind": "route", "payload": {"route_id": "books"}}
+                    )
                 return
             except Exception:
                 pass
@@ -282,7 +297,10 @@ class Version2Application:
         self.books = None
         self.training_workspace = None
         self.training = None
-        if self.shell.current_route.route_id in {"books", "training"}:
+        current_route = self.shell.current_route.route_id
+        if current_route in {"books", "training"} or (
+            current_route == "board" and book_board_was_active
+        ):
             self._focus = self.shell.open_route("library")
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "library"}}
