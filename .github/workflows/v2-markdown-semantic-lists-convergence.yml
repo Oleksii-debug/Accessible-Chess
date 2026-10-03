@@ -82,9 +82,9 @@ jobs:
           source_owner="$(git rev-parse "$markdown_owner:acs/book_text_import.py")"
           importer_test_owner="$(git rev-parse "$markdown_owner:tests/test_v2_book_text_import.py")"
           semantic_list_owner="$(git rev-parse "$markdown_owner:tests/test_v2_markdown_semantic_lists.py")"
-          successor="d30917d46c2fa54821e2f90df9750220e60d48e3"
-          successor_source="27a8880246fed5d5c35292aab95a349a86a2440c"
-          successor_importer_test="323438ce3249696b2fa0ce59839e5849984aa1ec"
+          successor="300fa757e447b849bc97582fe0c8a9d6cacc9418"
+          successor_source="d3b410e7e2087f29a6f4d381e8a619db11060c18"
+          successor_importer_test="84a601ad6a105b6813fcafa0af1ed69459e1e31b"
 
           test "$semantic_list_actual" = "$semantic_list_owner" || {
             printf 'Markdown semantic-list oracle drift: owner=%s actual=%s\n' "$semantic_list_owner" "$semantic_list_actual" >&2
