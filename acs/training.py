@@ -212,11 +212,23 @@ class ExerciseSession:
     def __init__(self, definition: ExerciseDefinition) -> None:
         if not isinstance(definition, ExerciseDefinition):
             raise TypeError("definition must be an ExerciseDefinition")
-        self._definition = definition
-        # Persistence identity is immutable for this session even if a caller
-        # later mutates the plain metadata dict retained for compatibility.
-        self._definition_digest = _definition_digest(definition)
-        self._board = Board(definition.start_fen)
+        # Bind the session to its own validated definition snapshot.  The
+        # public ExerciseDefinition keeps plain-dict metadata for compatibility,
+        # so a caller may mutate its original object after construction.  Re-enter
+        # the canonical constructor here to prevent those mutations from bypassing
+        # identity/resource validation or changing session semantics.
+        bound_definition = ExerciseDefinition(
+            definition.exercise_id,
+            definition.start_fen,
+            definition.steps,
+            title=definition.title,
+            tags=definition.tags,
+            source_id=definition.source_id,
+            metadata=definition.metadata,
+        )
+        self._definition = bound_definition
+        self._definition_digest = _definition_digest(bound_definition)
+        self._board = Board(bound_definition.start_fen)
         self._accepted_path: list[str] = []
         self._step_index = 0
         self._attempts = 0
