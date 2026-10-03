@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from io import BytesIO
+import stat
 import unittest
 import warnings
 import zipfile
@@ -285,6 +286,38 @@ class BookEpubImportTests(unittest.TestCase):
         with self.assertRaises(BookEpubImportError) as raised:
             import_epub_book(raw, source_name="unsafe.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
+
+    def test_special_or_contradictory_zip_entry_types_fail_closed(self) -> None:
+        cases = (
+            ("OEBPS/fifo", stat.S_IFIFO | 0o644),
+            ("OEBPS/device", stat.S_IFCHR | 0o600),
+            ("OEBPS/socket", stat.S_IFSOCK | 0o600),
+            ("OEBPS/directory-without-slash", stat.S_IFDIR | 0o755),
+            ("OEBPS/regular-file/", stat.S_IFREG | 0o644),
+        )
+        for name, mode in cases:
+            with self.subTest(name=name, mode=mode):
+                buffer = BytesIO()
+                with zipfile.ZipFile(buffer, "w") as archive:
+                    mimetype = zipfile.ZipInfo("mimetype")
+                    mimetype.compress_type = zipfile.ZIP_STORED
+                    archive.writestr(mimetype, b"application/epub+zip")
+
+                    special = zipfile.ZipInfo(name)
+                    special.create_system = 3
+                    special.external_attr = mode << 16
+                    archive.writestr(special, b"not a regular EPUB resource")
+
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        buffer.getvalue(),
+                        source_name="special-entry.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+                self.assertNotIn(name, str(raised.exception))
 
     def test_duplicate_archive_entries_are_rejected(self) -> None:
         buffer = BytesIO()
