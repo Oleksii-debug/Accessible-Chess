@@ -6,7 +6,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-from acs.classroom_collaboration import ClassroomCollaborationController
+from acs.classroom_collaboration import (
+    ClassroomCollaborationController,
+    FileTransferProgress,
+)
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     AttachmentStateUpdate,
@@ -63,6 +66,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         language: UILanguage = UILanguage.EN,
         chat_retention: str = "session",
         file_retention: str = "session",
+        file_progress_event_sink=None,
     ) -> ClassroomCollaborationWebView:
         return ClassroomCollaborationWebView(
             self.controller,
@@ -72,6 +76,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             file_picker=lambda: self.selected_file,
             file_saver=lambda token, name: self.save_calls.append((token, name)),
             file_opener=lambda token, name: self.open_calls.append((token, name)),
+            file_progress_event_sink=file_progress_event_sink,
             chat_retention=chat_retention,
             file_retention=file_retention,
             id_factory=self.next_id,
@@ -1059,6 +1064,63 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertNotIn("short-lived-read-token", repr(opened.payload))
 
+    def test_file_upload_progress_is_incremental_session_bound_and_secret_safe(self) -> None:
+        self.selected_file = self.root / "progress.pgn"
+        self.selected_file.write_bytes(b"0123456789")
+        self.files.scan_state = "clean"
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-ui-1", 4, 10),
+        )
+        progress_events = []
+        view = self.webview(file_progress_event_sink=progress_events.append)
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertEqual(
+            [0, 4, 10],
+            [
+                event.payload["file_progress"]["transferred_bytes"]
+                for event in progress_events
+            ],
+        )
+        self.assertEqual(
+            [False, False, True],
+            [event.payload["file_progress"]["complete"] for event in progress_events],
+        )
+        session_key = uploaded.payload["collaboration"]["session_key"]
+        for event in progress_events:
+            self.assertEqual("collaboration.file.progress", event.kind)
+            progress = event.payload["file_progress"]
+            self.assertEqual(session_key, progress["session_key"])
+            self.assertEqual("progress.pgn", progress["name"])
+            self.assertEqual(10, progress["total_bytes"])
+            self.assertEqual("File transfer progress", progress["label"])
+            self.assertIn("progress.pgn", progress["text"])
+            exposed = repr(event.payload)
+            self.assertNotIn(str(self.root), exposed)
+            self.assertNotIn("rooms/room-1", exposed)
+            self.assertNotIn("sha256", exposed.lower())
+            self.assertNotIn("attachment-ui-1", exposed)
+
+    def test_broken_file_progress_sink_cannot_turn_valid_upload_into_failure(self) -> None:
+        self.selected_file = self.root / "progress-sink-failure.pgn"
+        self.selected_file.write_bytes(b"abc")
+        self.files.scan_state = "clean"
+
+        def broken_sink(_event):
+            raise RuntimeError("browser event channel disappeared")
+
+        view = self.webview(file_progress_event_sink=broken_sink)
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertEqual(
+            "stored",
+            self.store.room_attachments("room-1")[0].transfer_state,
+        )
+        self.assertNotIn("browser event channel", repr(uploaded.payload))
+
     def test_nonretriable_upload_failure_does_not_retain_local_source_path(self) -> None:
         self.selected_file = self.root / "nonretriable.pgn"
         self.selected_file.write_text('[Event "No retry"]\n\n1. e4 e5 *\n', encoding="utf-8")
@@ -1497,7 +1559,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.selected_file = self.root / "retry.pgn"
         self.selected_file.write_text('[Event "Test"]\n\n1. e4 e5 *\n', encoding="utf-8")
         self.files.fail_upload = True
-        view = self.webview()
+        progress_events = []
+        view = self.webview(file_progress_event_sink=progress_events.append)
 
         failed = view.dispatch("collaboration.file.choose_upload", {})
         self.assertEqual("error", failed.kind)
@@ -1510,8 +1573,21 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertNotIn(str(self.selected_file), repr(failed.payload))
 
         self.files.fail_upload = False
+        progress_events.clear()
+        retry_size = self.selected_file.stat().st_size
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-ui-1", retry_size // 2, retry_size),
+        )
         retried = view.dispatch("collaboration.file.retry", {"file_key": item["file_key"]})
         self.assertEqual("collaboration.file.retried", retried.kind)
+        self.assertEqual(
+            [0, retry_size // 2, retry_size],
+            [
+                event.payload["file_progress"]["transferred_bytes"]
+                for event in progress_events
+            ],
+        )
+        self.assertTrue(progress_events[-1].payload["file_progress"]["complete"])
         self.assertEqual(
             "File retry completed: retry.pgn.",
             retried.payload["announcement"],
