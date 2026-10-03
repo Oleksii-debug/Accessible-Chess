@@ -1,9 +1,33 @@
 (function (global) {
   "use strict";
 
+  let providerRuntime = null;
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
+  }
+
+  function mediaProviderRuntime(invoke) {
+    if (providerRuntime) return providerRuntime;
+    const module = global.AccessibleChessClassroomMediaProviderRuntime;
+    if (!module || typeof module.ClassroomMediaProviderRuntime !== "function") {
+      throw new TypeError("classroom media provider runtime is unavailable");
+    }
+    providerRuntime = new module.ClassroomMediaProviderRuntime({ invoke: invoke });
+    return providerRuntime;
+  }
+
+  function settleProviderEvent(result, invoke) {
+    if (!result || typeof result !== "object") {
+      return Promise.reject(new TypeError("classroom media result must be an object"));
+    }
+    if (result.kind !== "provider-dispatch") return Promise.resolve(result);
+    try {
+      return mediaProviderRuntime(invoke).settle(result);
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   function node(tag, text) {
@@ -47,14 +71,15 @@
       Promise.resolve().then(function () {
         return invoke(command, action.payload || {});
       }).then(function (result) {
-        if (!result || typeof result !== "object") {
-          throw new TypeError("classroom media result must be an object");
-        }
-        // Structured error events keep the current DOM. Re-enable before
-        // applyEvent() so focus recovery can target the same native button.
-        // Successful events may replace the button during applyEvent().
-        if (button.isConnected) button.disabled = false;
-        applyEvent(root, result, invoke, announce, language);
+        // Keep the initiating native button disabled across the complete
+        // provider transaction, including moderation chunk chains. Re-enable
+        // only after a terminal event exists so duplicate click/retry cannot
+        // race the sole global provider lease.
+        return settleProviderEvent(result, invoke).then(function (terminal) {
+          if (button.isConnected) button.disabled = false;
+          applyTerminalEvent(root, terminal, invoke, announce, language);
+          return terminal;
+        });
       }).catch(function () {
         if (button.isConnected) {
           button.disabled = false;
@@ -177,7 +202,7 @@
     return section;
   }
 
-  function applyEvent(root, result, invoke, announce, language) {
+  function applyTerminalEvent(root, result, invoke, announce, language) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     if (Object.prototype.hasOwnProperty.call(payload, "snapshot")) {
@@ -196,6 +221,18 @@
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
     focusById(root, payload.focus_target || "");
+  }
+
+  function applyEvent(root, result, invoke, announce, language) {
+    return settleProviderEvent(result, invoke).then(function (terminal) {
+      applyTerminalEvent(root, terminal, invoke, announce, language);
+      return terminal;
+    });
+  }
+
+  function executeProvider(result, invoke) {
+    requireFunction(invoke, "classroom media invoke");
+    return settleProviderEvent(result, invoke);
   }
 
   function mount(root, snapshot, invoke, announce, language, availability) {
@@ -223,6 +260,7 @@
 
   global.AccessibleChessClassroomMediaSurface = Object.freeze({
     mount: mount,
-    apply: applyEvent
+    apply: applyEvent,
+    executeProvider: executeProvider
   });
 })(window);
