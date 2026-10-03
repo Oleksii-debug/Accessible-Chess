@@ -160,7 +160,8 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
 
         reader_before = self.app.reader
         reader_snapshot_before = reader_before.snapshot()
-        self.assertTrue(self.app._start_training_from_current_book())
+        training_route = self.app.browser_command("shell", "screen.training")
+        self.assertEqual(training_route["kind"], "route")
         training_before = self.app.training_workspace
         self.assertIsNotNone(training_before)
         self.assertIs(training_before.reader, reader_before)
@@ -175,6 +176,11 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
         progress_files = tuple(self.app.training_progress_root.glob("*.json"))
         self.assertEqual(len(progress_files), 1)
         durable_training_before = progress_files[0].read_bytes()
+
+        # Return to the Book route before exercising a Book-owned mutation.
+        # Training state remains live but must be discarded if rollback replaces
+        # its reader object.
+        self.app.shell.open_route("books")
 
         with patch.object(
             self.progress_store,
