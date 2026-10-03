@@ -494,6 +494,76 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNone(host.recovery_status)
         self.assertIsNone(arbiter.recovery_status)
 
+    def test_clean_connect_recovery_releases_latch_without_inventing_session(self):
+        controller, roster, _host, _sessions, arbiter, binder = self.make_composition()
+        lease = binder.prepare_join(
+            credential(roster.local_id),
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(lease)
+        binder.take_session_credential(lease.transaction_id)
+        binder.mark_provider_dispatched(lease.transaction_id)
+        binder.provider_failed(lease.transaction_id)
+
+        self.assertIsNotNone(binder.recovery_status)
+        self.assertIsNone(controller.state.room_id)
+        self.assertFalse(controller.state.connected)
+
+        binder.resolve_clean_session_recovery(
+            lease.transaction_id,
+            provider_snapshot(
+                connected=False,
+                room_id=None,
+                participant_id=None,
+            ),
+        )
+
+        self.assertIsNone(binder.recovery_status)
+        self.assertIsNone(arbiter.recovery_status)
+        self.assertIsNone(controller.state.room_id)
+        self.assertFalse(controller.state.connected)
+
+        retry = binder.prepare_join(
+            credential(roster.local_id),
+            now=NOW + timedelta(seconds=2),
+        )
+        self.assertIsNotNone(retry)
+        binder.provider_not_started(retry.transaction_id)
+
+    def test_clean_disconnect_recovery_retires_transport_then_allows_canonical_leave(self):
+        controller, roster, _host, _sessions, arbiter, binder = self.make_composition()
+        self.join(controller, roster, binder)
+        base_revision = controller.state.revision
+        lease = binder.prepare_disconnect()
+        self.assertIsNotNone(lease)
+        binder.mark_provider_dispatched(lease.transaction_id)
+        binder.provider_failed(lease.transaction_id)
+
+        self.assertIsNotNone(binder.recovery_status)
+        self.assertTrue(controller.state.connected)
+        self.assertEqual(controller.state.room_id, "room-1")
+
+        binder.resolve_clean_session_recovery(
+            lease.transaction_id,
+            provider_snapshot(
+                connected=False,
+                room_id=None,
+                participant_id=None,
+            ),
+        )
+
+        self.assertIsNone(binder.recovery_status)
+        self.assertIsNone(arbiter.recovery_status)
+        self.assertFalse(controller.state.connected)
+        self.assertEqual(controller.state.room_id, "room-1")
+        self.assertEqual(controller.state.revision, base_revision + 1)
+
+        # The provider is already proven clean. The canonical leave now requires
+        # no second provider mutation and can retire room identity locally.
+        self.assertIsNone(binder.prepare_disconnect())
+        self.assertIsNone(controller.state.room_id)
+        self.assertFalse(controller.state.connected)
+
     def test_public_binder_state_never_retains_or_renders_join_token(self):
         _controller, roster, _host, _sessions, arbiter, binder = self.make_composition()
         lease = binder.prepare_join(
