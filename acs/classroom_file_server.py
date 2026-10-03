@@ -420,7 +420,25 @@ class ClassroomFileServerSQLiteStore:
         )
 
     @staticmethod
+    def _canonical_row_object_key(row: sqlite3.Row) -> str:
+        try:
+            expected = _canonical_object_key(
+                row["room_id"],
+                row["attachment_id"],
+            )
+        except Exception:
+            raise ClassroomFileServerError(
+                "stored attachment namespace is invalid"
+            ) from None
+        if row["object_key"] != expected:
+            raise ClassroomFileServerError(
+                "stored attachment namespace is invalid"
+            )
+        return expected
+
+    @staticmethod
     def _terminal_from_row(row: sqlite3.Row) -> AttachmentMetadata:
+        object_key = ClassroomFileServerSQLiteStore._canonical_row_object_key(row)
         sequence = row["sequence_no"]
         if type(sequence) is not int or not 0 <= sequence <= MAX_WIRE_INTEGER:
             raise ClassroomFileServerError(
@@ -440,7 +458,7 @@ class ClassroomFileServerSQLiteStore:
                 row["mime_type"],
                 row["size_bytes"],
                 row["sha256"],
-                row["object_key"],
+                object_key,
                 row["transfer_state"],
                 row["retention"],
                 row["scan_state"],
@@ -726,8 +744,8 @@ class ClassroomFileServerSQLiteStore:
                     raise ClassroomFileServerError(
                         "participant cannot cancel another participant's attachment"
                     )
+                object_key = self._canonical_row_object_key(row)
                 if row["transfer_state"] == "uploading":
-                    object_key = row["object_key"]
                     # The object-store put may have succeeded before its
                     # acknowledgement was lost. Keep a durable internal
                     # cancellation row until byte deletion is confirmed.
@@ -742,11 +760,7 @@ class ClassroomFileServerSQLiteStore:
                     db.commit()
                     return None, object_key
                 if row["transfer_state"] == "cancelled":
-                    object_key = (
-                        row["object_key"]
-                        if row["delete_completed"] == 0
-                        else None
-                    )
+                    object_key = object_key if row["delete_completed"] == 0 else None
                     db.commit()
                     return None, object_key
                 if row["transfer_state"] == "deleted":
@@ -907,14 +921,17 @@ class ClassroomFileServerSQLiteStore:
         with closing(self._connect()) as db:
             rows = db.execute(
                 """
-                SELECT attachment_id, object_key
+                SELECT *
                 FROM classroom_file_server_attachments
                 WHERE transfer_state IN ('deleted','cancelled')
                   AND delete_completed=0
                 ORDER BY room_id, sequence_no, attachment_id
                 """
             ).fetchall()
-        return tuple((row["attachment_id"], row["object_key"]) for row in rows)
+        return tuple(
+            (row["attachment_id"], self._canonical_row_object_key(row))
+            for row in rows
+        )
 
     def complete_deletion(self, attachment_id: str) -> None:
         attachment = _server_id(attachment_id, "attachment id")
@@ -994,11 +1011,12 @@ class ClassroomFileServerSQLiteStore:
 
             for row in db.execute(
                 """
-                SELECT attachment_id, sequence_no, transfer_state, delete_completed
+                SELECT *
                 FROM classroom_file_server_attachments
                 WHERE transfer_state NOT IN ('stored','deleted')
                 """
             ):
+                self._canonical_row_object_key(row)
                 state = row["transfer_state"]
                 if state not in {"uploading", "cancelled"}:
                     raise ClassroomFileServerError(
