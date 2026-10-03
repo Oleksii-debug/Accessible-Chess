@@ -110,6 +110,27 @@ class UserLibrarySeedTests(unittest.TestCase):
                     0,
                 )
 
+    def test_later_tampering_fails_before_any_seed_source_is_published(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._seed(
+                Path(directory) / "seed",
+                {"first.pgn": PGN_ONE, "second.pgn": PGN_TWO},
+            )
+            manifest = load_user_library_seed(root)
+            (root / "second.pgn").write_bytes(PGN_ONE.encode("utf-8"))
+
+            with AcsDatabase(":memory:") as database:
+                with self.assertRaises(UserLibrarySeedError):
+                    import_user_library_seed(database, manifest)
+                self.assertEqual(
+                    int(database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]),
+                    0,
+                )
+                self.assertEqual(
+                    int(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]),
+                    0,
+                )
+
     def test_invalid_utf8_and_noncanonical_pgn_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "seed"
@@ -145,6 +166,20 @@ class UserLibrarySeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self._seed(Path(directory) / "seed", {"book.pgn": PGN_ONE})
             (root / "unexpected.txt").write_text("no", encoding="utf-8")
+            with self.assertRaises(UserLibrarySeedError):
+                load_user_library_seed(root)
+
+    def test_casefold_colliding_inventory_member_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._seed(Path(directory) / "seed", {"book.pgn": PGN_ONE})
+            canonical = root / "book.pgn"
+            colliding = root / "BOOK.PGN"
+            colliding.write_text("collision", encoding="utf-8")
+            try:
+                if colliding.samefile(canonical):
+                    self.skipTest("filesystem does not permit distinct case-colliding names")
+            except OSError:
+                pass
             with self.assertRaises(UserLibrarySeedError):
                 load_user_library_seed(root)
 
