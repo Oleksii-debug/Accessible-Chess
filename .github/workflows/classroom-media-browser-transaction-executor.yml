@@ -1,0 +1,90 @@
+name: Classroom Media Browser Transaction Executor
+
+on:
+  push:
+    branches:
+      - feature/classroom-media-browser-transaction-executor-20261003
+  pull_request:
+    branches:
+      - feature/classroom-media-session-host-transaction-20261003
+    paths:
+      - 'web/classroom_media_host_executor.js'
+      - 'tests/js/classroom_media_host_executor_test.js'
+      - '.github/workflows/classroom-media-browser-transaction-executor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-media-browser-transaction-executor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  executor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked executor scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/classroom-media-session-host-transaction-20261003"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current session-host owner $base is not an ancestor of HEAD."
+            exit 1
+          fi
+          git diff --check "$base...HEAD"
+          mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-media-browser-transaction-executor.yml'
+            'tests/js/classroom_media_host_executor_test.js'
+            'web/classroom_media_host_executor.js'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected browser-executor scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          git diff --quiet "$base...HEAD" --             acs             web/livekit_classroom_media.js             web/full_product_classroom_media.js             web/version2_final_product_bootstrap.js
+          echo "CLASSROOM_MEDIA_BROWSER_EXECUTOR_BASE=$base"
+          echo 'CLASSROOM_MEDIA_BROWSER_EXECUTOR_SCOPE=PASS'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+
+      - name: Run async transaction executor contract
+        run: node tests/js/classroom_media_host_executor_test.js
+
+      - name: Replay canonical LiveKit browser adapter contract
+        run: node tests/js/livekit_classroom_media_adapter_test.js
+
+      - name: Prove bounded browser authority and secret handling
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'AccessibleChessClassroomMediaHostExecutor' web/classroom_media_host_executor.js
+          grep -Fq 'Object.defineProperties(this' web/classroom_media_host_executor.js
+          grep -Fq 'credential handoff failed' web/classroom_media_host_executor.js
+          grep -Fq 'provider_snapshot' web/classroom_media_host_executor.js
+          ! grep -Eq 'console\.|localStorage|sessionStorage|document\.|fetch\(|XMLHttpRequest|WebSocket'             web/classroom_media_host_executor.js
+          ! grep -Eq 'AccessToken|api_secret|api_key|room_admin|ClassroomRole|board_control'             web/classroom_media_host_executor.js
+          echo 'CLASSROOM_MEDIA_BROWSER_EXECUTOR_BOUNDARY=PASS'
