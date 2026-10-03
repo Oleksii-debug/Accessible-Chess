@@ -23,10 +23,11 @@ from .classroom_collaboration_storage import (
     ChatMessageMetadata,
     ChatMessageStateUpdate,
 )
+from .classroom_domain import MAX_RECORDS_PER_COLLECTION
 
 
 RPC_VERSION = 1
-MAX_MODERATION_COMMANDS = 256
+MAX_MODERATION_COMMANDS = MAX_RECORDS_PER_COLLECTION
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
