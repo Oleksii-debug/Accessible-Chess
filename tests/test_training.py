@@ -398,6 +398,32 @@ class ExerciseSessionTests(unittest.TestCase):
                     session_definition_digest=definition_digest,
                 )
 
+    def test_restore_rejects_whitespace_normalized_persisted_move(self):
+        definition = self.make_definition()
+        source = ExerciseSession(definition)
+        source.submit("e4")
+        snapshot = source.snapshot()
+        snapshot["accepted_path"] = ["  e4  "]
+
+        with self.assertRaisesRegex(ValueError, "not canonical text"):
+            ExerciseSession.restore(definition, snapshot)
+
+    def test_restore_bounds_raw_persisted_move_before_normalization_scan(self):
+        definition = self.make_definition()
+        source = ExerciseSession(definition)
+        source.submit("e4")
+        snapshot = source.snapshot()
+        snapshot["accepted_path"] = ["x" * 65]
+
+        with patch.object(
+            training_module,
+            "_normalize_move",
+            side_effect=AssertionError("oversized persisted move must not be normalized"),
+        ) as normalize:
+            with self.assertRaisesRegex(ValueError, "entry is too long"):
+                ExerciseSession.restore(definition, snapshot)
+        normalize.assert_not_called()
+
     def test_restore_freezes_accepted_path_before_semantic_replay(self):
         definition = self.make_definition()
         source = ExerciseSession(definition)
