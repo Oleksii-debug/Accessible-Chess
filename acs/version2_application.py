@@ -194,13 +194,31 @@ class Version2Application:
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
+        # Rendering is part of accepting an external Book source. Validate the
+        # exact initial projection while every published application owner still
+        # points at the previous Book. This matches bundled starter-content
+        # staging and prevents a malformed/unrenderable import from creating new
+        # durable progress for a Book the user never actually saw open.
+        bridge.projection.snapshot()
         # Do not publish the staged reader/workflow/route until its initial
-        # progress state is durably accepted by the canonical progress store.
+        # presentation and progress state are both accepted.
         self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self.shell.open_route("books")
-        return len(imported.warnings)
+        warning_count = len(imported.warnings)
+        if warning_count:
+            announcement = (
+                f"Книгу відкрито з попередженнями імпорту: {warning_count}."
+                if self.shell.language is UILanguage.UA
+                else f"Book opened with import warnings: {warning_count}."
+            )
+            # Importer diagnostics remain trusted-host data. Publish only the
+            # bounded count through the existing path-free status event.
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+        return warning_count
 
     def _persist_book_progress(self, book_key, reader):
         """Publish Book progress, offering only explicit bounded backup rollback."""

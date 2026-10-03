@@ -12,9 +12,11 @@ from acs.book_progress_store import (
     BookProgressStoreError,
     BookProgressStoreErrorCode,
 )
+from acs.book_text_import import BookTextFormat, import_text_book
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
+from acs.report_paths import report_safe_name
 from acs.version2_application import Version2Application
 from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
@@ -144,6 +146,107 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.app.reader.index, 0)
         restored = self.app.progress_store.restore(key, self.app.reader.document)
         self.assertEqual(restored.snapshot(), before)
+
+    def test_external_book_open_projection_failure_is_atomic_and_does_not_persist_candidate(self):
+        accepted = self.root / "accepted.md"
+        accepted.write_text(
+            "# Accepted\n\nFirst paragraph.\n\nSecond paragraph.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(accepted)
+        self.assertEqual(self.app.browser_command("books", "book.next")["kind"], "render")
+
+        reader_before = self.app.reader
+        books_before = self.app.books
+        workflow_before = self.app.book_workflow
+        delegate_before = self.app.book_delegate
+        key_before = self.app.book_key
+        snapshot_before = reader_before.snapshot()
+        # Book Open is globally reachable from the native menu. A failed
+        # candidate must not steal the user's current non-Books surface.
+        self.app.shell.open_route("library")
+        route_before = self.app.shell.current_route.route_id
+
+        candidate = self.root / "candidate.md"
+        candidate.write_text(
+            "# Candidate\n\nThis source must never publish if its initial projection fails.\n",
+            encoding="utf-8",
+        )
+        candidate_import = import_text_book(
+            candidate.read_bytes(),
+            source_name=report_safe_name(candidate),
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        self.assertNotEqual(candidate_import.book_key, key_before)
+        self.assertFalse(self.app.progress_store.has(candidate_import.book_key))
+        self.app.open_book_dialog = lambda: candidate
+
+        with patch(
+            "acs.version2_book_workspace.Version2BookWebViewProjection.snapshot",
+            side_effect=ValueError("candidate projection rejected"),
+        ):
+            result = self.app.browser_command("shell", "book.open")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertIs(self.app.reader, reader_before)
+        self.assertIs(self.app.books, books_before)
+        self.assertIs(self.app.book_workflow, workflow_before)
+        self.assertIs(self.app.book_delegate, delegate_before)
+        self.assertEqual(self.app.book_key, key_before)
+        self.assertEqual(self.app.reader.snapshot(), snapshot_before)
+        self.assertEqual(self.app.shell.current_route.route_id, route_before)
+        self.assertFalse(self.app.progress_store.has(candidate_import.book_key))
+        restored = self.app.progress_store.restore(key_before, reader_before.document)
+        self.assertEqual(restored.snapshot(), snapshot_before)
+
+    def test_external_book_open_announces_only_bounded_import_warning_count(self):
+        book = self.root / "warning-book.md"
+        book.write_text(
+            "# Warning book\n\n> Quoted advice\n\nReadable text.\n",
+            encoding="utf-8",
+        )
+        imported = import_text_book(
+            book.read_bytes(),
+            source_name=report_safe_name(book),
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        self.assertGreater(len(imported.warnings), 0)
+        self.app.open_book_dialog = lambda: book
+
+        command = self.app.adapter.activate_action(
+            "book.open",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual(command.kind, "delegated")
+        self.app.native_command(command)
+        events = self.app.drain_events()
+
+        status = [
+            event
+            for event in events
+            if event.get("kind") == "status"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("announcement")
+        ]
+        delegated = [
+            event
+            for event in events
+            if event.get("kind") == "delegated"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("action_id") == "book.open"
+        ]
+        self.assertEqual(len(status), 1)
+        self.assertEqual(len(delegated), 1)
+        self.assertLess(events.index(status[0]), events.index(delegated[0]))
+        announcement = status[0]["payload"]["announcement"]
+        self.assertEqual(
+            announcement,
+            f"Книгу відкрито з попередженнями імпорту: {len(imported.warnings)}.",
+        )
+        serialized = json.dumps(status, ensure_ascii=False)
+        self.assertNotIn(str(self.root), serialized)
+        for warning in imported.warnings:
+            self.assertNotIn(warning, serialized)
 
     def test_book_webview_game_handoff_uses_canonical_board_and_exact_return(self):
         book, origin = self._open_book_game()
