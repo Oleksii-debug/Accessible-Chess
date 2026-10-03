@@ -49,15 +49,22 @@ jobs:
       - name: Prove durable-outbox-only scope
         if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          base="$(git rev-parse HEAD^1)"
-          remote_base="$(git rev-parse "origin/${{ github.base_ref }}")"
-          if [ "$base" != "$remote_base" ]; then
-            printf 'Outbox first parent %s is not current base tip %s\n' "$base" "$remote_base" >&2
-            exit 1
-          fi
-          changed="$(git diff --name-only "$base" HEAD | sort)"
+          test "$BASE_REF" = "converge/windows-dpapi-secret-store-collaboration-20261003"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base_tip="$(git rev-parse "origin/$BASE_REF")"
+          stack_base="$(git merge-base "$base_tip" HEAD)"
+          git cat-file -e "$stack_base^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$stack_base"
+          git merge-base --is-ancestor "$stack_base" HEAD
+          git merge-base --is-ancestor "$stack_base" "$base_tip"
+          git diff --check "$stack_base" HEAD
+          changed="$(git diff --name-only "$stack_base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/classroom-durable-chat-outbox.yml' \
             'acs/classroom_collaboration_outbox.py' \
