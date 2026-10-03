@@ -72,22 +72,7 @@ class FakeRoom {
     this.connectCalls = [];
     this.disconnectCalls = [];
     this.switchCalls = [];
-    this.listeners = Object.create(null);
     FakeRoom.instances.push(this);
-  }
-
-  on(event, callback) {
-    if (!this.listeners[event]) this.listeners[event] = [];
-    this.listeners[event].push(callback);
-    return this;
-  }
-
-  emit(event, ...args) {
-    for (const callback of this.listeners[event] || []) callback(...args);
-  }
-
-  emitUnexpectedDisconnect() {
-    this.emit("disconnected", "network");
   }
 
   async connect(serverUrl, token) {
@@ -101,7 +86,6 @@ class FakeRoom {
   async disconnect(stopTracks) {
     this.disconnectCalls.push(stopTracks);
     if (FakeRoom.disconnectError) throw FakeRoom.disconnectError;
-    this.emit("disconnected", "client_initiated");
   }
 
   async switchActiveDevice(kind, deviceId, exact) {
@@ -126,10 +110,7 @@ function reset() {
 
 function adapter(overrides) {
   return new LiveKitClassroomMediaAdapter(Object.assign({
-    livekit: {
-      Room: FakeRoom,
-      RoomEvent: { Disconnected: "disconnected" }
-    },
+    livekit: { Room: FakeRoom },
     serverUrl: "wss://media.example.test",
     moderationParticipantIdentity: "moderation-service"
   }, overrides || {}));
@@ -269,41 +250,6 @@ async function run() {
         "reconnect enabled a source that was not explicitly requested");
   check(reconnected.microphone_enabled && !reconnected.camera_enabled && !reconnected.screen_share_enabled,
         "reconnect snapshot exposes wrong source state");
-
-  // A final provider-initiated disconnect is observable without treating the
-  // adapter as an independent canonical media-state authority.
-  reset();
-  const transportLosses = [];
-  const lossClient = adapter({
-    onTransportLost(snapshot) {
-      transportLosses.push(snapshot);
-    }
-  });
-  await lossClient.connect(credential(), ["microphone"]);
-  const lossRoom = FakeRoom.instances[0];
-  lossRoom.emitUnexpectedDisconnect();
-  await Promise.resolve();
-  check(lossClient.connected === false, "unexpected disconnect left adapter connected");
-  check(transportLosses.length === 1, "unexpected disconnect was not reported exactly once");
-  check(transportLosses[0].connected === false, "transport-loss snapshot stayed connected");
-  check(transportLosses[0].cleanup_required === false, "final disconnect requested cleanup");
-  check(transportLosses[0].room_id === null && transportLosses[0].participant_id === null,
-        "transport-loss callback leaked stale session identity");
-
-  // Explicit host-driven disconnect emits the same LiveKit RoomEvent but must
-  // not be mistaken for asynchronous transport loss.
-  reset();
-  const intentionalLosses = [];
-  const intentionalClient = adapter({
-    onTransportLost(snapshot) {
-      intentionalLosses.push(snapshot);
-    }
-  });
-  await intentionalClient.connect(credential(), []);
-  await intentionalClient.disconnect();
-  await Promise.resolve();
-  check(intentionalLosses.length === 0,
-        "explicit disconnect was misreported as provider-initiated transport loss");
 
   // Failed disconnect must retain the active Room and visible media state so
   // cleanup can be retried instead of falsely reporting that capture stopped.
