@@ -8,6 +8,7 @@ import unittest
 
 from acs.classroom_moderation_rpc import (
     ClassroomModerationRpcError,
+    ClassroomModerationProviderStateVerifierPort,
     ClassroomModerationRpcService,
     ModerationOperationState,
     MAX_RPC_OPERATIONS,
@@ -82,6 +83,19 @@ class FakeProviderAdmin:
         if command.operation_id in self.fail_once:
             self.fail_once.remove(command.operation_id)
             raise RuntimeError("sensitive provider implementation detail")
+
+
+class FakeProviderStateVerifier:
+    def __init__(self) -> None:
+        self.matches: object = True
+        self.fail = False
+        self.calls: list[tuple[str, object]] = []
+
+    async def moderation_effect_matches(self, *, room_id, command):
+        self.calls.append((room_id, command))
+        if self.fail:
+            raise RuntimeError("sensitive provider state detail")
+        return self.matches
 
 
 class FakeLedger:
@@ -161,6 +175,175 @@ class FakeLedger:
             raise RuntimeError("commit does not match owned reservation")
         del self.reservations[key]
         self.values[key] = fingerprint
+
+
+class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.authorization = FakeAuthorization()
+        self.original_provider = FakeProviderAdmin()
+        self.restarted_provider = FakeProviderAdmin()
+        self.ledger = FakeLedger()
+        self.verifier = FakeProviderStateVerifier()
+        self.original = ClassroomModerationRpcService(
+            authorization=self.authorization,
+            provider_admin=self.original_provider,
+            ledger=self.ledger,
+        )
+
+    def command(self, operation_id: str = "op-recover", *, value: bool = False):
+        return parse_moderation_rpc(
+            payload(operation(operation_id, value=value)),
+            trusted_room_id=ROOM,
+            trusted_caller_identity=CALLER,
+        ).commands[0]
+
+    async def leave_ambiguous_pending(self, operation_id: str = "op-recover"):
+        wire = payload(operation(operation_id))
+        self.original_provider.fail_once.add(operation_id)
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "provider operation failed",
+        ):
+            await self.original.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+        self.assertIn((ROOM, operation_id), self.ledger.reservations)
+        self.assertNotIn((ROOM, operation_id), self.ledger.values)
+        return wire
+
+    def restarted(self, *, verifier=...):
+        if verifier is ...:
+            verifier = self.verifier
+        return ClassroomModerationRpcService(
+            authorization=FakeAuthorization(),
+            provider_admin=self.restarted_provider,
+            ledger=self.ledger,
+            provider_state_verifier=verifier,
+        )
+
+    async def test_verified_provider_state_commits_ambiguous_pending_without_reapplying_effect(self) -> None:
+        wire = await self.leave_ambiguous_pending()
+        original_owner = self.ledger.reservations[(ROOM, "op-recover")][1]
+        restarted = self.restarted()
+
+        await restarted.reconcile_verified_pending(
+            room_id=ROOM,
+            command=self.command(),
+        )
+
+        self.assertEqual(len(self.verifier.calls), 1)
+        self.assertEqual(self.restarted_provider.calls, [])
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.reservations)
+        self.assertIn((ROOM, "op-recover"), self.ledger.values)
+        self.assertIn(
+            (ROOM, "op-recover", self.ledger.values[(ROOM, "op-recover")], original_owner),
+            self.ledger.commit_calls,
+        )
+
+        response = await restarted.handle_rpc(
+            trusted_room_id=ROOM,
+            trusted_caller_identity=CALLER,
+            payload=wire,
+        )
+        self.assertEqual(json.loads(response)["accepted_operation_ids"], ["op-recover"])
+        self.assertEqual(self.restarted_provider.calls, [])
+
+    async def test_unconfirmed_provider_state_remains_pending_and_fail_closed(self) -> None:
+        wire = await self.leave_ambiguous_pending()
+        pending_before = self.ledger.reservations[(ROOM, "op-recover")]
+        self.verifier.matches = False
+        restarted = self.restarted()
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "does not confirm pending operation",
+        ):
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=self.command(),
+            )
+
+        self.assertEqual(
+            self.ledger.reservations[(ROOM, "op-recover")],
+            pending_before,
+        )
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.values)
+        self.assertEqual(self.restarted_provider.calls, [])
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "pending in another service participant",
+        ):
+            await restarted.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+
+    async def test_conflicting_recovery_semantics_fail_before_provider_verification(self) -> None:
+        await self.leave_ambiguous_pending()
+        restarted = self.restarted()
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "reused with different semantics",
+        ):
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=self.command(value=True),
+            )
+
+        self.assertEqual(self.verifier.calls, [])
+        self.assertEqual(self.restarted_provider.calls, [])
+        self.assertIn((ROOM, "op-recover"), self.ledger.reservations)
+
+    async def test_recovery_requires_explicit_verifier_and_sanitizes_verifier_failure(self) -> None:
+        await self.leave_ambiguous_pending()
+        without_verifier = self.restarted(verifier=None)
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "state verification is unavailable",
+        ):
+            await without_verifier.reconcile_verified_pending(
+                room_id=ROOM,
+                command=self.command(),
+            )
+
+        self.verifier.fail = True
+        restarted = self.restarted()
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "state verification failed",
+        ) as context:
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=self.command(),
+            )
+        self.assertIsNone(context.exception.__cause__)
+        self.assertNotIn(
+            "sensitive provider state detail",
+            "".join(traceback.format_exception(context.exception)),
+        )
+        self.assertIn((ROOM, "op-recover"), self.ledger.reservations)
+
+    async def test_non_boolean_verifier_result_cannot_commit_pending_operation(self) -> None:
+        await self.leave_ambiguous_pending()
+        self.verifier.matches = 1
+        restarted = self.restarted()
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "returned invalid result",
+        ):
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=self.command(),
+            )
+
+        self.assertIn((ROOM, "op-recover"), self.ledger.reservations)
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.values)
+        self.assertEqual(self.restarted_provider.calls, [])
 
 
 class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
