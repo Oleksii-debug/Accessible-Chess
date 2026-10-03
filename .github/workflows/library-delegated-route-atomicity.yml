@@ -10,6 +10,7 @@ on:
       - 'acs/library_webview_projection.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_dev1_library_webview_projection.py'
+      - 'tests/test_library_pagination_atomicity.py'
       - '.github/workflows/library-delegated-route-atomicity.yml'
 
 permissions:
@@ -56,12 +57,14 @@ jobs:
             'acs/library_webview_projection.py' \
             'acs/version2_application.py' \
             'tests/test_dev1_library_webview_projection.py' \
+            'tests/test_library_pagination_atomicity.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "0aebf54578be33fcb78ae01abf588212b0713513"
-          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "0b0442a3e2e7e4c0b1e02fcc07c60c86bf1814ea"
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "b188089f3f435a113de0351c1c16ee97cad23a21"
           test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "e6bc874658878860590482d195c2767483a022ef"
           test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = "db711f44ffdfaccf3f274597bab8a1f7947a2992"
+          test "$(git rev-parse HEAD:tests/test_library_pagination_atomicity.py)" = "0fb4f4617b70ef24e15237e1cee8b8d3c4661155"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "285a4aba422fa4e69c06ce29183b728307f0075c"
           git diff --check "$live_product" HEAD
 
@@ -76,11 +79,13 @@ jobs:
           acs/library_webview_projection.py
           acs/version2_application.py
           tests/test_dev1_library_webview_projection.py
+          tests/test_library_pagination_atomicity.py
           tests/test_version2_application.py
 
-      - name: Prove delegated Library state, route, and WebView focus behavior
+      - name: Prove delegated Library state, route, pagination, and WebView focus behavior
         run: >-
           python -m unittest -v
           tests.test_dev1_library_webview_projection
+          tests.test_library_pagination_atomicity
           tests.test_version2_application
           tests.test_dev1_full_product_webview_adapter
