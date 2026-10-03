@@ -437,7 +437,11 @@ class ClassroomFileServerSQLiteStore:
                     """
                     SELECT COALESCE(SUM(size_bytes),0) AS used
                     FROM classroom_file_server_attachments
-                    WHERE room_id=? AND transfer_state!='deleted'
+                    WHERE room_id=?
+                      AND (
+                          transfer_state!='deleted'
+                          OR delete_completed=0
+                      )
                     """,
                     (metadata.room_id,),
                 ).fetchone()
