@@ -4,11 +4,13 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.version2_upgrade_base import (
     UserDataLayout,
     Version2UpgradeCoordinator,
     Version2UpgradeError,
+    _UpgradeLock,
 )
 
 
@@ -36,6 +38,36 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
                 self._coordinator(root)._files()
 
             self.assertEqual(target.read_bytes(), b"outside-user-data")
+
+    def test_missing_upgrade_lock_create_race_never_adopts_foreign_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            lock = root / ".v2-upgrade.lock"
+            real_open = os.open
+            injected = False
+            foreign_bytes = b"foreign-lock-owner"
+
+            def racing_open(path, flags, mode=0o777):
+                nonlocal injected
+                if Path(path) == lock and not injected:
+                    lock.write_bytes(foreign_bytes)
+                    injected = True
+                return real_open(path, flags, mode)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.os.open",
+                side_effect=racing_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "upgrade lock could not be opened safely",
+                ):
+                    with _UpgradeLock(lock):
+                        pass
+
+            self.assertTrue(injected)
+            self.assertEqual(lock.read_bytes(), foreign_bytes)
 
     def test_control_name_directory_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
