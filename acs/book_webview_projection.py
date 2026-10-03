@@ -35,6 +35,16 @@ _BOOK_ROLE_BY_KIND = {
     "Note": "note",
 }
 _POSITION_KINDS = {"Position", "Diagram", "Exercise", "VariationTree"}
+_NAVIGATION_KEYS = {
+    "previous",
+    "next",
+    "previous_heading",
+    "next_heading",
+    "previous_position",
+    "next_position",
+    "previous_game",
+    "next_game",
+}
 
 _LABELS = {
     UILanguage.UA: {
@@ -227,6 +237,11 @@ class BookWebViewProjection:
             raise ValueError("book heading path is invalid")
         if any(type(part) is not str or not part.strip() for part in block.heading_path):
             raise ValueError("book heading path is invalid")
+        if block.kind == "Heading":
+            if block.heading_level is None:
+                raise ValueError("book heading block requires a heading level")
+        elif block.heading_level is not None:
+            raise ValueError("non-heading book block contains a heading level")
         if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
             raise ValueError("book block position presence disagrees with semantic kind")
         if type(block.list_items) is not tuple or any(
@@ -248,6 +263,10 @@ class BookWebViewProjection:
             raise ValueError("non-list book block contains list metadata")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
+        if not isinstance(navigation, Mapping) or set(navigation) != _NAVIGATION_KEYS:
+            raise ValueError("book navigation availability schema is invalid")
+        if any(type(navigation[key]) is not bool for key in _NAVIGATION_KEYS):
+            raise ValueError("book navigation availability flags are invalid")
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
