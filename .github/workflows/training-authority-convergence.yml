@@ -3,6 +3,7 @@ name: Training Authority WebView Convergence
 on:
   pull_request:
     paths:
+      - 'acs/training.py'
       - 'acs/full_product_presenters.py'
       - 'acs/training_webview_projection.py'
       - 'acs/version2_training_workspace.py'
@@ -30,7 +31,8 @@ jobs:
     timeout-minutes: 60
     env:
       EXACT_PARENT: c3c90914685b0fc223daa44a7fca6f5734e00c49
-      PRESENTER_BLOB: 39af0422713bb0a8aade4ae6eb5842c421fcbd59
+      TRAINING_BLOB: fd02d345bf3b68911124510fd5d826e04735a750
+      PRESENTER_BLOB: 9e1b11341359a17c80739e122d3265dd474c0d58
       PROJECTION_BLOB: d048fc83829a86b27f4412d7d183a04235b691d7
       WORKSPACE_BLOB: 8bc4824204dab53f2ae471327cd04db4bfa401ca
       APPLICATION_BLOB: d035f1ce0b3f65e68f7e47e35e65b13f533ef91e
@@ -53,6 +55,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$EXACT_PARENT" HEAD
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:acs/training.py")" = "$TRAINING_BLOB"
           test "$(git rev-parse "HEAD:acs/full_product_presenters.py")" = "$PRESENTER_BLOB"
           test "$(git rev-parse "HEAD:acs/training_webview_projection.py")" = "$PROJECTION_BLOB"
           test "$(git rev-parse "HEAD:acs/version2_training_workspace.py")" = "$WORKSPACE_BLOB"
@@ -65,6 +68,7 @@ jobs:
             '.github/workflows/training-authority-convergence.yml' \
             'acs/book_webview_bridge.py' \
             'acs/full_product_presenters.py' \
+            'acs/training.py' \
             'acs/training_webview_bridge.py' \
             'acs/training_webview_projection.py' \
             'acs/version2_training_workspace.py' \
