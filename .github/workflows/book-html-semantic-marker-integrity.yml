@@ -11,6 +11,7 @@ on:
       - 'acs/book_html_import.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/book-html-semantic-marker-integrity.yml'
+      - '.github/workflows/book-html-br-text-integrity.yml'
   workflow_dispatch:
 
 permissions:
@@ -67,7 +68,7 @@ jobs:
           test -n "$changed"
           while IFS= read -r path; do
             case "$path" in
-              .github/workflows/book-html-semantic-marker-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py)
+              .github/workflows/book-html-semantic-marker-integrity.yml|.github/workflows/book-html-br-text-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py)
                 ;;
               *)
                 echo "Unexpected path outside Book HTML semantic-marker ownership: $path" >&2
@@ -78,6 +79,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             expected="$(printf '%s\n' \
               '.github/workflows/book-html-semantic-marker-integrity.yml' \
+              '.github/workflows/book-html-br-text-integrity.yml' \
               'acs/book_html_import.py' \
               'tests/test_v2_book_html_import.py' | sort)"
             test "$changed" = "$expected"

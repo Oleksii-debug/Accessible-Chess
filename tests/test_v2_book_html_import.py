@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from io import BytesIO
 import tempfile
 from pathlib import Path
 import unittest
+import zipfile
 
+from acs.book_epub_import import import_epub_book
 from acs.book_game_content import resolve_book_game
 from acs.book_html_import import (
     MAX_HTML_SOURCE_BYTES,
@@ -90,6 +93,106 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn("{Developing the knight.}", canonical)
         self.assertIn("(", canonical)
         self.assertIn("Білі", canonical)
+
+    def test_br_preserves_semantic_text_boundaries_for_reading_and_copy(self) -> None:
+        result = import_html_book(
+            """<html><head><title>Breaks</title></head><body>
+<h1>White<br>to move</h1>
+<p>First line<br/>Second line</p>
+</body></html>""",
+            source_name="breaks.html",
+        )
+
+        headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(headings, ["White to move"])
+        self.assertEqual(paragraphs, ["First line Second line"])
+        self.assertNotIn("Whiteto", "\n".join(headings))
+        self.assertNotIn("lineSecond", "\n".join(paragraphs))
+
+    def test_epub_inherits_br_semantic_text_boundaries(self) -> None:
+        buffer = BytesIO()
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        opf = b'''<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:title>Boundary EPUB</dc:title><dc:language>en</dc:language></metadata>
+  <manifest><item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>'''
+        chapter = b"<html><body><h1>White<br>to move</h1><p>First<br/>Second</p></body></html>"
+        with zipfile.ZipFile(buffer, "w") as archive:
+            mimetype = zipfile.ZipInfo("mimetype")
+            mimetype.compress_type = zipfile.ZIP_STORED
+            archive.writestr(mimetype, b"application/epub+zip")
+            archive.writestr("META-INF/container.xml", container, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("OEBPS/Text/chapter.xhtml", chapter, compress_type=zipfile.ZIP_DEFLATED)
+
+        result = import_epub_book(buffer.getvalue(), source_name="breaks.epub")
+        headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(headings, ["White to move"])
+        self.assertEqual(paragraphs, ["First Second"])
+
+    def test_table_cells_do_not_collapse_inside_row_text(self) -> None:
+        result = import_html_book(
+            "<html><body><table><tr><td>e4</td><td>e5</td></tr></table></body></html>",
+            source_name="table-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(paragraphs, ["e4 e5"])
+        self.assertNotIn("e4e5", paragraphs)
+
+    def test_nested_block_close_preserves_resumed_reading_text_boundary(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Alpha<div>Beta</div>Gamma</p></body></html>",
+            source_name="nested-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(paragraphs, ["Alpha Beta Gamma"])
+        self.assertNotIn("BetaGamma", paragraphs[0])
+
+    def test_nested_semantic_capture_preserves_inner_br_in_parent_reading_text(self) -> None:
+        result = import_html_book(
+            "<html><body><p>Outer<blockquote>Inner<br>Line</blockquote>Tail</p></body></html>",
+            source_name="nested-capture-boundaries.html",
+        )
+
+        paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertIn("Inner Line", paragraphs)
+        self.assertIn("Outer Inner Line Tail", paragraphs)
+        self.assertNotIn("InnerLine", "\n".join(paragraphs))
+
+    def test_br_preserves_list_item_boundaries(self) -> None:
+        result = import_html_book(
+            "<html><body><ul><li>White<br>to move</li><li>Black<br/>to move</li></ul></body></html>",
+            source_name="list-breaks.html",
+        )
+
+        lists = result.document.lists()
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["White to move", "Black to move"])
+
+    def test_br_delimited_explicit_pgn_is_not_duplicated_as_reading_prose(self) -> None:
+        result = import_html_book(
+            """<html><body><pre>{PGN 1}<br>
+[Event "BR game"]<br>[White "A"]<br>[Black "B"]<br>[Result "*"]<br><br>
+1. e4 e5 *</pre></body></html>""",
+            source_name="pgn-breaks.html",
+        )
+
+        games = [block for block in result.document.blocks if isinstance(block, Game)]
+        paragraphs = [block for block in result.document.blocks if isinstance(block, Paragraph)]
+        self.assertEqual(result.pgn_games, 1)
+        self.assertEqual(len(games), 1)
+        self.assertFalse(any('[Event "BR game"]' in block.text for block in paragraphs))
 
     def test_unmarked_valid_pgn_is_readable_text_and_never_fabricates_game(self) -> None:
         source = f'''<!doctype html>
@@ -302,6 +405,31 @@ class BookHtmlImportTests(unittest.TestCase):
             reopened_game = reopened.next_game()
             self.assertEqual(reopened_game.block_id, game_location.block_id)
 
+    def test_text_boundary_workflow_qualifies_only_against_canonical_product_target(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "book-html-br-text-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "      - work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertNotIn(
+            "      - fix/book-html-duplicate-fen-marker-20260929",
+            workflow,
+        )
+        self.assertIn(
+            '"refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"',
+            workflow,
+        )
+        self.assertIn(
+            'upstream="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"',
+            workflow,
+        )
+
     def test_semantic_marker_workflow_uses_live_inherited_product_base(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
@@ -327,6 +455,7 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertIn('upstream="$live_base"', workflow)
         self.assertIn(
             ".github/workflows/book-html-semantic-marker-integrity.yml|"
+            ".github/workflows/book-html-br-text-integrity.yml|"
             "acs/book_html_import.py|tests/test_v2_book_html_import.py",
             workflow,
         )
@@ -341,6 +470,64 @@ class BookHtmlImportTests(unittest.TestCase):
         non_claims = set(SUPPORTED_HTML_BOOK_CAPABILITY["does_not_claim"])
         self.assertTrue({"TXT", "Markdown", "DOCX", "EPUB", "PDF/OCR"}.issubset(non_claims))
         self.assertIn("implicit PGN inference from ordinary text", non_claims)
+
+
+    def test_hidden_html_title_marker_cannot_own_unmarked_body_pgn(self) -> None:
+        source = f"""<html><head><title>{{PGN 1}}</title>
+<meta name="author" content="Автор Émile"></head>
+<body><h1>Visible study</h1><pre>{PGN}</pre></body></html>"""
+        result = import_html_book(source, source_name="metadata-marker.html")
+        self.assertEqual(result.document.title, "{PGN 1}")
+        self.assertEqual(result.document.author, "Автор Émile")
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and '[Event "Accessible book demo"]' in block.text
+                for block in result.document.blocks
+            )
+        )
+
+    def test_non_rendered_head_text_cannot_create_pgn_game_or_chess_position(self) -> None:
+        source = f"""<html lang="uk"><head>{{PGN 2}}
+<img id="hidden-diagram" src="images/hidden.png" alt="Not rendered" data-acs-fen="{Board.START}">
+<div data-acs-fen="{Board.START}">Hidden metadata position</div>
+<title>Readable book title</title>
+</head><body><h1>Visible chapter</h1><pre>{PGN}</pre></body></html>"""
+        result = import_html_book(source, source_name="head-chess-markers.html")
+        self.assertEqual(result.document.title, "Readable book title")
+        self.assertEqual(result.document.language, "uk")
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Game, Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(isinstance(block, Heading) and block.text == "Visible chapter"
+                for block in result.document.blocks)
+        )
+
+    def test_visible_body_marker_still_publishes_one_canonical_pgn_game(self) -> None:
+        source = f"""<html><head><title>{{PGN 9}}</title></head>
+<body><h1>Game</h1><pre>{{PGN 1}}
+{PGN}</pre></body></html>"""
+        result = import_html_book(source, source_name="visible-body-marker.html")
+        self.assertEqual(result.document.title, "{PGN 9}")
+        self.assertEqual(result.pgn_games, 1)
+        self.assertEqual(sum(isinstance(block, Game) for block in result.document.blocks), 1)
+        self.assertFalse(
+            any(
+                isinstance(block, Paragraph) and '[Event "Accessible book demo"]' in block.text
+                for block in result.document.blocks
+            )
+        )
+
+    def test_unclosed_head_cannot_recover_hidden_markers_as_readable_games(self) -> None:
+        source = f"""<html><head><title>{{PGN 1}}</title><div data-acs-fen="{Board.START}">
+<pre>{PGN}</pre>"""
+        with self.assertRaises(BookHtmlImportError) as caught:
+            import_html_book(source, source_name="unclosed-head.html")
+        self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.NO_READABLE_CONTENT)
 
 
 if __name__ == "__main__":

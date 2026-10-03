@@ -77,6 +77,7 @@ class _Capture:
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    boundary_count: int = 0
     list_depth: int = 0
 
 
@@ -206,7 +207,9 @@ class _SemanticHtmlParser(HTMLParser):
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._suppressed_tags: list[str] = []
+        self._head_depth = 0
         self._node_count = 0
+        self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
@@ -232,6 +235,16 @@ class _SemanticHtmlParser(HTMLParser):
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         self.visible_parts.append(text)
+
+    def _append_text_boundary(self) -> None:
+        """Record one semantic separator without an O(capture-depth) boundary walk."""
+        self._append_visible("\n")
+        # Data already fans out through every active semantic capture. Record the
+        # boundary once here, then let the next data event synchronize each capture
+        # it already visits. This preserves boundaries in ancestor captures too
+        # (for example nested list/blockquote text) without making markup-only
+        # boundary handling O(capture depth).
+        self._text_boundary_count += 1
 
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
@@ -360,6 +373,14 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if tag == "head":
+            self._head_depth += 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            # HEAD is metadata, not a source of readable or chess-semantic
+            # blocks. In particular, an explicit marker in hidden metadata
+            # must never publish a position/image note or a PGN game.
+            return
         attrs: dict[str, str] = {}
         for name, value in attrs_list:
             normalized_name = name.lower()
@@ -370,7 +391,10 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             attrs[normalized_name] = value or ""
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # HTMLParser does not place markup in capture.parts. Preserve the
+            # same block boundary already published to visible_text inside the
+            # directly containing semantic capture so adjacent words cannot collapse.
+            self._append_text_boundary()
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
             if lang:
@@ -447,6 +471,7 @@ class _SemanticHtmlParser(HTMLParser):
                     kind=kind,
                     attrs=attrs,
                     parts=[],
+                    boundary_count=self._text_boundary_count,
                     list_depth=len(self._lists) if kind == "list_item" else 0,
                 )
             )
@@ -470,6 +495,12 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if tag == "head":
+            if self._head_depth:
+                self._head_depth -= 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            return
         if self._captures and self._captures[-1].tag == tag:
             capture = self._captures.pop()
             self._finish_capture(capture)
@@ -488,13 +519,28 @@ class _SemanticHtmlParser(HTMLParser):
             else:
                 self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # The closing edge matters when inline text resumes after a nested
+            # block (for example Alpha<div>Beta</div>Gamma).
+            self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
         if self._suppressed_depth:
             return
+        if self._head_depth or any(capture.kind == "title" for capture in self._captures):
+            # HTML title still supplies the book title; it and all other
+            # non-rendered HEAD text are excluded from the visible stream that
+            # owns explicit {PGN N} markers. Do not fan metadata into an
+            # unclosed outer Paragraph/Heading capture either.
+            for capture in self._captures:
+                if capture.kind == "title":
+                    capture.parts.append(data)
+            return
         self._append_visible(data)
         for capture in self._captures:
+            pending_boundaries = self._text_boundary_count - capture.boundary_count
+            if pending_boundaries > 0:
+                capture.parts.append("\n" * pending_boundaries)
+                capture.boundary_count = self._text_boundary_count
             capture.parts.append(data)
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
@@ -544,6 +590,11 @@ class _SemanticHtmlParser(HTMLParser):
 
     def close(self) -> None:
         super().close()
+        if self._head_depth:
+            self._warning(
+                "malformed HTML left head metadata unclosed; subsequent readable text may have been omitted"
+            )
+            self._head_depth = 0
         if self._suppressed_depth:
             self._warning(
                 "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"
