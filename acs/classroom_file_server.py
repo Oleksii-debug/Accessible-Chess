@@ -75,7 +75,7 @@ def _server_id(value: object, label: str) -> str:
     try:
         return _id(value, label)
     except Exception as error:
-        raise ClassroomFileServerError(f"invalid {label}") from error
+        raise ClassroomFileServerError(f"invalid {label}") from None
 
 
 def _bounded_cursor(value: object, label: str) -> int | None:
@@ -96,18 +96,28 @@ class ClassroomFileServerSQLiteStore:
     """Durable authoritative file metadata, sequencing and deletion recovery."""
 
     def __init__(self, path: str) -> None:
-        if type(path) is not str or not path:
-            raise ValueError("file-server database path is required")
+        if type(path) is not str or path in {"", ":memory:"}:
+            raise ClassroomFileServerError(
+                "durable file-server database path is required"
+            )
         self._path = path
         self._migrate()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self._path, timeout=30.0)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA synchronous=FULL")
-        return db
+        db: sqlite3.Connection | None = None
+        try:
+            db = sqlite3.connect(self._path, timeout=30.0)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=ON")
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA synchronous=FULL")
+            return db
+        except sqlite3.Error:
+            if db is not None:
+                db.close()
+            raise ClassroomFileServerError(
+                "classroom file-server database open failed"
+            ) from None
 
     def _migrate(self) -> None:
         with closing(self._connect()) as db:
@@ -279,7 +289,7 @@ class ClassroomFileServerSQLiteStore:
         except (TypeError, ValueError, OverflowError) as error:
             raise ClassroomFileServerError(
                 "stored attachment metadata is invalid"
-            ) from error
+            ) from None
 
     @staticmethod
     def _state_from_row(row: sqlite3.Row) -> AttachmentStateUpdate:
@@ -294,7 +304,7 @@ class ClassroomFileServerSQLiteStore:
         except (TypeError, ValueError, OverflowError) as error:
             raise ClassroomFileServerError(
                 "stored attachment state update is invalid"
-            ) from error
+            ) from None
 
     def existing_upload(
         self,
@@ -826,7 +836,7 @@ class ClassroomFileServerService:
         except Exception as error:
             raise ClassroomFileServerError(
                 "classroom file authorization failed"
-            ) from error
+            ) from None
         if allowed is not True:
             raise ClassroomFileServerError(
                 "classroom file action is not authorized"
@@ -856,7 +866,7 @@ class ClassroomFileServerService:
         except Exception as error:
             raise ClassroomFileServerError(
                 "attachment namespace is invalid"
-            ) from error
+            ) from None
         if metadata.object_key != canonical_key:
             raise ClassroomFileServerError(
                 "attachment object key is outside canonical namespace"
@@ -923,7 +933,7 @@ class ClassroomFileServerService:
         except Exception as error:
             raise ClassroomFileServerError(
                 "durable object storage write failed"
-            ) from error
+            ) from None
         return self._store.finalize_upload(metadata.attachment_id)
 
     def cancel(
@@ -965,7 +975,7 @@ class ClassroomFileServerService:
         except Exception as error:
             raise ClassroomFileServerError(
                 "durable object deletion failed"
-            ) from error
+            ) from None
         # Terminal tombstones retain a completion receipt; provisional
         # cancellations are removed only after byte deletion succeeds.
         self._store.complete_deletion(attachment)
@@ -1038,7 +1048,7 @@ class ClassroomFileServerService:
         except Exception as error:
             raise ClassroomFileServerError(
                 "durable read-token issuance failed"
-            ) from error
+            ) from None
         if (
             type(token) is not str
             or not token
@@ -1076,7 +1086,7 @@ class ClassroomFileServerService:
         except Exception as error:
             raise ClassroomFileServerError(
                 "durable object deletion failed"
-            ) from error
+            ) from None
         self._store.complete_deletion(attachment.attachment_id)
 
     def drain_pending_deletions(self) -> int:
@@ -1088,7 +1098,7 @@ class ClassroomFileServerService:
             except Exception as error:
                 raise ClassroomFileServerError(
                     "durable object deletion recovery failed"
-                ) from error
+                ) from None
             self._store.complete_deletion(attachment_id)
             completed += 1
         return completed
@@ -1121,7 +1131,7 @@ class ClassroomFileServerClient:
         except OSError as error:
             raise ClassroomFileServerError(
                 "selected file could not be read for upload"
-            ) from error
+            ) from None
         if (
             len(content) != prepared.metadata.size_bytes
             or hashlib.sha256(content).hexdigest() != prepared.metadata.sha256
