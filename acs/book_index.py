@@ -24,6 +24,10 @@ from .bookdocument import (
 )
 
 
+_MAX_BOOK_TARGET_KEY_CHARS = 4096
+_MAX_BOOK_SEARCH_QUERY_CHARS = 4096
+
+
 class BookEntryKind(str, Enum):
     HEADING = "heading"
     GAME = "game"
@@ -179,9 +183,21 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
-        if not isinstance(target, (BookTarget, str)):
+        if isinstance(target, BookTarget):
+            key = target.key
+            if type(key) is not str:
+                raise TypeError("Book target key must be a string")
+        elif type(target) is str:
+            key = target
+        else:
             raise TypeError("Book target must be a BookTarget or string")
-        key = target.key if isinstance(target, BookTarget) else target
+        # Bound the raw scalar before dictionary lookup hashes caller-controlled
+        # text. This keeps malformed target resolution within a fixed resource
+        # envelope even when BookIndex is used directly outside BookReader.
+        if len(key) > _MAX_BOOK_TARGET_KEY_CHARS:
+            raise ValueError(
+                f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
+            )
         matches = self._by_key.get(key, ())
         if not matches:
             raise LookupError(f"Unknown book target: {key}")
@@ -198,6 +214,12 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
+        # Reject oversized raw input before strip/casefold allocate and scan a
+        # caller-controlled query. Normal UI queries stay far below this limit.
+        if len(text) > _MAX_BOOK_SEARCH_QUERY_CHARS:
+            raise ValueError(
+                f"Search text exceeds {_MAX_BOOK_SEARCH_QUERY_CHARS} characters"
+            )
         needle = text.strip().casefold()
         if not needle:
             raise ValueError("Search text must not be empty")
