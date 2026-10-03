@@ -8,12 +8,17 @@ from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
-from acs.book_board_workflow import BookBoardWorkflow
+from acs.book_board_workflow import (
+    BookBoardWorkflow,
+    BookBoardWorkflowCode,
+    BookBoardWorkflowError,
+)
 from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import BookDocument, Game, ListBlock, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from acs.version2_book_workspace import build_version2_book_webview
 from acs.version2_profile import build_version2_router, build_version2_shell
 from acs.version2_starter_content_application import Version2StarterContentApplication
@@ -156,6 +161,112 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_semantic_tree_rejects_stale_parent_from_an_inactive_branch(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Malformed semantic ancestry",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        before = reader.snapshot()
+        items = (
+            PgnTreeItem("m0", "move", 0, "1 e4", None),
+            PgnTreeItem("v0", "variation", 1, "Variation 1", "m0", result="*"),
+            PgnTreeItem("vm0", "move", 2, "1 d4", "v0"),
+            PgnTreeItem("m1", "move", 0, "1... e5", None),
+            PgnTreeItem("stale", "variation", 1, "Variation 2", "m0", result="*"),
+        )
+        malformed = PgnGameView(0, "Alpha — Beta", "*", (), (), items, "m0")
+
+        with patch.object(PgnTreePresenter, "view", return_value=malformed):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertIn("шахівниця", snapshot["block"]["warning"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_semantic_tree_rejects_move_owned_variation_endings(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Malformed semantic slots",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        before = reader.snapshot()
+        malformed = PgnGameView(
+            0,
+            "Alpha — Beta",
+            "*",
+            (),
+            (),
+            (
+                PgnTreeItem(
+                    "m0",
+                    "move",
+                    0,
+                    "1 e4",
+                    None,
+                    trailing_comments=("not a move tail",),
+                    result="*",
+                ),
+            ),
+            "m0",
+        )
+
+        with patch.object(PgnTreePresenter, "view", return_value=malformed):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertIn("шахівниця", snapshot["block"]["warning"])
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_unavailable_semantic_content_disables_the_matching_board_action(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Unavailable game",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        error = BookBoardWorkflowError(
+            "provider detail must not escape",
+            code=BookBoardWorkflowCode.CONTENT_UNAVAILABLE,
+        )
+
+        with patch.object(workflow, "semantic_game_snapshot", side_effect=error):
+            snapshot = bridge.projection.snapshot()
+
+        actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertFalse(actions["book.open_game"])
+        self.assertNotIn("provider detail", repr(snapshot))
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.index, 0)
+
+    def test_semantic_revision_drift_propagates_instead_of_publishing_stale_fallback(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Revision drift",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Game")],
+            )
+        )
+        before = reader.snapshot()
+        error = BookBoardWorkflowError(
+            "reading location changed",
+            code=BookBoardWorkflowCode.RETURN_FAILED,
+        )
+
+        with patch.object(workflow, "semantic_game_snapshot", side_effect=error):
+            with self.assertRaises(BookBoardWorkflowError) as raised:
+                bridge.projection.snapshot()
+
+        self.assertIs(raised.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
 
     def test_game_open_move_and_exact_return_use_one_canonical_workflow(self):
         document = BookDocument(title="Книга", blocks=[
