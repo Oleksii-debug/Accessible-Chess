@@ -338,7 +338,12 @@
         text(", але несумісний із цією версією", ", but incompatible with this version");
     } else {
       installed = text("встановлено ", "installed ") + String(item.installed_version);
-      if (item.state === "catalog_older") {
+      if (item.state === "version_conflict") {
+        installed += text(
+          "; метадані каталогу конфліктують із встановленою версією",
+          "; catalog metadata conflicts with the installed version"
+        );
+      } else if (item.state === "catalog_older") {
         installed += text(
           "; версія в каталозі старіша за встановлену",
           "; catalog version is older than the installed version"
