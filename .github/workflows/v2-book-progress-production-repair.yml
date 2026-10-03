@@ -29,8 +29,10 @@ jobs:
     timeout-minutes: 60
     env:
       STACK_PARENT_SHA: 5ec896f00615d10157c5ec52a1ef83917779a1b5
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+      CURRENT_BOOKS_BRANCH: work/books-bidirectional-semantic-navigation-20260927
       CURRENT_PROGRESS_OWNER: a56abe4e68d58c7600b97c1a410ae64a42697aaa
       CURRENT_STORE_BLOB: ae880d0eb9ec99028f2b7e2dddff57f162211618
       CURRENT_BASE_TEST_BLOB: ae85ba96da66f339a530e2ddbbf311161fb9832e
@@ -136,6 +138,33 @@ jobs:
             fi
           fi
 
+          current_books_recovery=false
+          current_books=''
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_BASE_REF" = "$CURRENT_BOOKS_BRANCH" ]; then
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            books_ref="refs/remotes/origin/$CURRENT_BOOKS_BRANCH"
+            git fetch --no-tags origin "+refs/heads/$CURRENT_BOOKS_BRANCH:$books_ref"
+            current_books="$(git rev-parse "$books_ref")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$current_books"
+            git merge-base --is-ancestor "$current_books" HEAD
+            test "$(git merge-base "$current_books" HEAD)" = "$current_books"
+            books_delta="$(git diff --name-only "$current_books" HEAD | sort)"
+            books_expected="$(printf '%s\n' \
+              '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+              '.github/workflows/books-progress-backup-recovery.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_version2_application.py' | sort)"
+            if [ "$books_delta" = "$books_expected" ]; then
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              current_books_recovery=true
+            fi
+          fi
+
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
             && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
@@ -194,6 +223,9 @@ jobs:
               acs/book_webview_projection.py \
               acs/version2_application.py
             echo 'BOOK_PROGRESS_TOPOLOGY=ORPHAN_BACKUP_SUCCESSOR'
+          elif [ "$current_books_recovery" = true ]; then
+            git diff --check "$current_books" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=CURRENT_BOOKS_RECOVERY'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.
