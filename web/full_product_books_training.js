@@ -306,7 +306,7 @@
       Position: "group",
       Diagram: "img",
       Game: "group",
-      VariationTree: "tree",
+      VariationTree: "group",
       Exercise: "group",
       Note: "note"
     };
