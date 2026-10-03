@@ -152,7 +152,7 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             now=NOW + timedelta(seconds=1),
         )
         self.assertEqual(payload["operation"], "connect")
-        self.assertEqual(payload["enabled_sources"], [])
+        self.assertEqual(payload["enabled_sources"], ())
         self.assertEqual(
             payload["credential"]["token"],
             "secret-server-issued-token",
@@ -270,6 +270,31 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             now=NOW + timedelta(seconds=1),
         )
 
+    def test_claimed_browser_payload_rejects_post_authorization_mutation(self):
+        _controller, _composite, _session, host = self.make_host()
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
+
+        with self.assertRaisesRegex(TypeError, "payload is immutable"):
+            payload["operation"] = "disconnect"
+        with self.assertRaisesRegex(TypeError, "payload is immutable"):
+            payload["credential"]["token"] = "replacement-token"
+        with self.assertRaises(TypeError):
+            payload["enabled_sources"] += ("camera",)
+
+        self.assertEqual(payload["operation"], "connect")
+        self.assertEqual(
+            payload["credential"]["token"],
+            "secret-server-issued-token",
+        )
+        self.assertEqual(payload["enabled_sources"], ())
+
     def test_secret_never_appears_in_pending_or_recovery_metadata_repr(self):
         _controller, _composite, _session, host = self.make_host()
         effect = host.prepare_join(
@@ -321,7 +346,7 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             effect.transaction_id,
             now=NOW + timedelta(seconds=6),
         )
-        self.assertEqual(payload["enabled_sources"], ["microphone"])
+        self.assertEqual(payload["enabled_sources"], ("microphone",))
         self.assertEqual(
             payload["credential"]["token"],
             "fresh-reconnect-token",

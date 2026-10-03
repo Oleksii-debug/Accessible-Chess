@@ -100,8 +100,25 @@ class _SessionProviderEffect:
             raise MediaSessionHandoffError("session credential is invalid")
 
 
-class _SecretCredentialPayload(dict[str, str]):
-    """JSON-compatible credential mapping with fail-safe diagnostic formatting."""
+class _FrozenPayload(dict):
+    """JSON-compatible mapping that rejects accidental post-authorization mutation."""
+
+    @staticmethod
+    def _immutable(*_args, **_kwargs):
+        raise TypeError("media browser payload is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+
+class _SecretCredentialPayload(_FrozenPayload):
+    """Immutable credential mapping with fail-safe diagnostic formatting."""
 
     def __repr__(self) -> str:
         return (
@@ -112,8 +129,8 @@ class _SecretCredentialPayload(dict[str, str]):
     __str__ = __repr__
 
 
-class _SecretBrowserPayload(dict[str, object]):
-    """JSON-compatible one-shot payload whose nested credential repr is redacted."""
+class _SecretBrowserPayload(_FrozenPayload):
+    """Immutable JSON-compatible one-shot browser payload."""
 
 
 class _PreparedSessionEffect(Exception):
@@ -493,19 +510,24 @@ class ClassroomMediaSessionHandoffs:
                         "media session credential expired before browser handoff"
                     ) from exc
 
-            payload: _SecretBrowserPayload = _SecretBrowserPayload(
-                transaction_id=effect.transaction_id,
-                operation=effect.operation.value,
-            )
-            if effect.credential is not None:
-                payload["credential"] = _SecretCredentialPayload(
-                    room_id=effect.credential.room_id,
-                    participant_id=effect.credential.participant_id,
-                    token=effect.credential.token,
+            if effect.credential is None:
+                payload = _SecretBrowserPayload(
+                    transaction_id=effect.transaction_id,
+                    operation=effect.operation.value,
                 )
-                payload["enabled_sources"] = [
-                    source.value for source in effect.enabled_sources
-                ]
+            else:
+                payload = _SecretBrowserPayload(
+                    transaction_id=effect.transaction_id,
+                    operation=effect.operation.value,
+                    credential=_SecretCredentialPayload(
+                        room_id=effect.credential.room_id,
+                        participant_id=effect.credential.participant_id,
+                        token=effect.credential.token,
+                    ),
+                    enabled_sources=tuple(
+                        source.value for source in effect.enabled_sources
+                    ),
+                )
             self._pending = replace(pending, credential_exposed=True)
             return payload
 
