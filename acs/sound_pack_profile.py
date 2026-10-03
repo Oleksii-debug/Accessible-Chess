@@ -184,7 +184,12 @@ class SoundPackProfileCoordinator:
 
         profile = self._profiles.current
         if profile.pack_id == manifest.pack_id:
-            normalized = _profile_for_manifest(profile, manifest)
+            source_profile = (
+                original_profile
+                if original_profile.pack_id == manifest.pack_id
+                else profile
+            )
+            normalized = _profile_for_manifest(source_profile, manifest)
             if normalized != profile:
                 profile = self._profiles.save(normalized)
         if activate and profile.pack_id != manifest.pack_id:
