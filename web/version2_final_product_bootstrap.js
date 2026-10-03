@@ -407,15 +407,38 @@
     const invoke = areaInvoke("media");
     const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
     if (!runtime || typeof runtime.execute !== "function") {
+      // No provider runtime was entered, so the original dispatch marker is
+      // still authoritative for whether provider execution could have started.
       return retireMediaProviderRuntimeFailure(event, invoke);
     }
+
+    function retireAfterRuntimeFailure() {
+      const transactionId = mediaTransactionId(event);
+      if (!transactionId) {
+        return Promise.reject(new Error("media provider transaction is invalid"));
+      }
+      // Once runtime.execute() was entered, the provider may have run even when
+      // the original event said provider_boundary_crossed=false. Prefer the
+      // conservative unknown-outcome latch. If Python proves the provider
+      // boundary never crossed, only then retire as not-started.
+      return areaInvoke("media")(
+        "media.provider_outcome_unknown",
+        { transaction_id: transactionId }
+      ).catch(function () {
+        return areaInvoke("media")(
+          "media.provider_not_started",
+          { transaction_id: transactionId }
+        );
+      });
+    }
+
     return Promise.resolve(runtime.execute(event, invoke)).then(function (result) {
       if (!result || typeof result !== "object") {
-        return retireMediaProviderRuntimeFailure(event, invoke);
+        return retireAfterRuntimeFailure();
       }
       return result;
     }).catch(function () {
-      return retireMediaProviderRuntimeFailure(event, invoke);
+      return retireAfterRuntimeFailure();
     });
   }
 
