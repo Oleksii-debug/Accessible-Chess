@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from threading import Thread
 import unittest
+from unittest import mock
 
 from acs.classroom_media_host_transactions import (
     ClassroomMediaHostTransactionPort,
@@ -93,6 +94,7 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         *,
         student_count=2,
         transaction_id_factory=None,
+        use_default_transaction_ids=False,
     ):
         roster = FakeRoster(student_count=student_count)
         session = FakeSessionPort()
@@ -111,7 +113,11 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         host = ClassroomMediaHostTransactions(
             controller,
             port,
-            transaction_id_factory=transaction_id_factory or transaction_id,
+            transaction_id_factory=(
+                None
+                if use_default_transaction_ids
+                else (transaction_id_factory or transaction_id)
+            ),
         )
         controller.join(
             credential(participant_id),
@@ -554,6 +560,34 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         self.assertEqual(session.connect_calls[0][1], ())
         self.assertIsNone(host.pending_effect)
         self.assertTrue(controller.state.connected)
+
+    def test_default_transaction_ids_do_not_accumulate_tombstones(self):
+        with mock.patch(
+            "acs.classroom_media_host_transactions.secrets.token_hex",
+            return_value="ab" * 8,
+        ):
+            controller, _roster, _session, _port, host = self.make_host(
+                use_default_transaction_ids=True,
+            )
+
+        identities = []
+        for _index in range(512):
+            effect = host.prepare_local_source(MediaSource.CAMERA, True)
+            identities.append(effect.transaction_id)
+            host.provider_not_started(effect.transaction_id)
+
+        self.assertEqual(len(set(identities)), 512)
+        self.assertEqual(
+            identities[0],
+            "host-" + ("ab" * 8) + "0000000000000001",
+        )
+        self.assertEqual(
+            identities[-1],
+            "host-" + ("ab" * 8) + "0000000000000200",
+        )
+        self.assertEqual(host._injected_transaction_ids, set())
+        self.assertEqual(host._transaction_counter, 512)
+        self.assertEqual(controller.state.desired_sources, frozenset())
 
     def test_transaction_identity_cannot_be_reused_after_safe_discard(self):
         repeated = "host-" + "a" * 32
