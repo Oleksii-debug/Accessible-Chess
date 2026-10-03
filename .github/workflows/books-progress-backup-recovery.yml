@@ -48,6 +48,35 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Prove all recovery gates trigger on canonical authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflows=(
+            '.github/workflows/book-progress-orphan-backup-recovery.yml'
+            '.github/workflows/books-progress-backup-recovery.yml'
+            '.github/workflows/v2-book-progress-production-repair.yml'
+          )
+          required=(
+            '.github/workflows/book-progress-orphan-backup-recovery.yml'
+            '.github/workflows/books-progress-backup-recovery.yml'
+            '.github/workflows/v2-book-progress-production-repair.yml'
+            'acs/book_progress_store.py'
+            'acs/version2_application.py'
+            'tests/test_v2_book_progress_store.py'
+            'tests/test_version2_application.py'
+          )
+          for workflow in "${workflows[@]}"; do
+            trigger="$(sed -n '/^  pull_request:/,/^  workflow_dispatch:/p' "$workflow")"
+            for path in "${required[@]}"; do
+              grep -Fqx "      - '$path'" <<<"$trigger" || {
+                printf 'Recovery gate trigger gap: workflow=%s path=%s\n' "$workflow" "$path" >&2
+                exit 1
+              }
+            done
+          done
+          echo 'BOOK_PROGRESS_RECOVERY_TRIGGER_COVERAGE=PASS'
+
       - name: Prove exact descendant and protect recovery authority
         shell: bash
         run: |
