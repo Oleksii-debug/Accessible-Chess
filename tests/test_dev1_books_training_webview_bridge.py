@@ -127,6 +127,26 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
         self.assertEqual("error", result.kind)
         self.assertIs(before_language, self.book.projection.language)
 
+    def test_book_and_training_payloads_reject_dict_subclasses_before_hooks(self) -> None:
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("payload subclass len must never execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("payload subclass items must never execute")
+
+        book_result = self.book.dispatch("book.next", HostileDict())
+        self.assertEqual("error", book_result.kind)
+        self.assertFalse(HostileDict.touched)
+
+        training_result = self.training.dispatch("training.hint", HostileDict())
+        self.assertEqual("error", training_result.kind)
+        self.assertFalse(HostileDict.touched)
+
     def test_book_bookmark_requires_exact_single_name_field(self) -> None:
         saved = self.book.dispatch("book.bookmark.save", {"name": "chapter"})
         self.assertEqual("render", saved.kind)
