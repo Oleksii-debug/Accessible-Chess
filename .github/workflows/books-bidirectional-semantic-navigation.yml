@@ -89,6 +89,7 @@ jobs:
               'tests/test_dev1_books_training_webview_projection.py'
               'tests/test_dev1_books_training_webview_bridge.py'
               'tests/test_version2_book_workspace.py'
+              'tests/test_version2_application.py'
               'tests/js/books_training_surface_dom_test.js'
               'web/full_product_books_training.js'
             )
@@ -103,6 +104,7 @@ jobs:
             test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "48a9f697120654bd029903b554b969eb768984b6"
             test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "0b1d90ba18824df497812045e4c3560945f008b0"
             test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "4b7248920c0e01108080363803bba8ca197797fd"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "6b03c31c828d1ec6d0cf41bf69366c5e0d19dcea"
             test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "f97195b7fb77c78f9490b89cc5eb7a17c0673066"
             test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
