@@ -94,13 +94,16 @@ jobs:
           tests.test_version2_training_current_runtime
           tests.test_w3_p0f_starter_books_training_content
 
-      - name: Library browser identity, import and privacy regressions
+      - name: Library browser identity, import, seed and privacy regressions
         run: >-
           python -m unittest -v
           tests.test_dev1_library_webview_projection
           tests.test_d07_library_export_webview
           tests.test_d07_library_import_service
           tests.test_v2_library_search_service_v4
+          tests.test_user_library_seed
+          tests.test_user_library_seed_parent_safety
+          tests.test_v2_packaged_starter_application
           tests.test_v2_shared_presentation_path_privacy
           tests.test_version2_package_preflight
 
