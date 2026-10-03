@@ -52,6 +52,7 @@ class DurableChatDraftOutbox:
         secret_store: SecretStore,
         room_id: str,
         participant_id: str,
+        storage_scope: str,
         message_lookup: Callable[[str], ChatMessageMetadata | None],
     ) -> None:
         for method in ("read", "write", "delete"):
@@ -61,6 +62,8 @@ class DurableChatDraftOutbox:
             raise TypeError("room_id must be non-empty text")
         if type(participant_id) is not str or not participant_id:
             raise TypeError("participant_id must be non-empty text")
+        if type(storage_scope) is not str or not storage_scope:
+            raise TypeError("storage_scope must be non-empty text")
         if not callable(message_lookup):
             raise TypeError("message_lookup must be callable")
         # Reuse ChatDraft's canonical opaque-ID validation without inventing a
@@ -76,7 +79,13 @@ class DurableChatDraftOutbox:
         self._participant_id = participant_id
         self._message_lookup = message_lookup
         identity = hashlib.sha256(
-            (room_id + "\0" + participant_id).encode("utf-8")
+            (
+                storage_scope
+                + "\0"
+                + room_id
+                + "\0"
+                + participant_id
+            ).encode("utf-8")
         ).hexdigest()
         self._slot_prefix = f"classroom-chat-outbox-{identity}"
 
