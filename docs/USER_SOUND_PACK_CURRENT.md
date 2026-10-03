@@ -14,7 +14,7 @@ This file records the exact sound source requested by the repository owner for t
 - Owner instruction: do not build another ZIP or EXE until development is declared ready for testing/use and the owner then confirms the final build conditions.
 - Inventory fingerprint algorithm: sort WAV files by case-folded relative POSIX path, then hash the concatenation of relative path, NUL, file SHA-256, and LF.
 
-The builder scripts/build_user_sound_pack.py is bound to this exact extracted inventory and fails closed if a different 330-file tree is supplied.
+The builder scripts/build_user_sound_pack.py is bound to this exact extracted inventory and fails closed if a different 330-file tree is supplied. ZIP input is first copied through a bounded immutable snapshot; the recorded SHA-256, recorded byte count and extraction therefore refer to the same bytes. ZIP and extracted-directory inputs both reject symlinks and Windows-unsafe paths, while ZIP extraction additionally rejects traversal, case-insensitive duplicates and file/directory topology collisions before a conflicting member is written.
 
 Release integrity is closed over the same 330-file authority:
 
@@ -23,6 +23,7 @@ Release integrity is closed over the same 330-file authority:
 - The prepared notices publish the normalized full-library record as `THIRD_PARTY_NOTICES/SOUND_INVENTORY.json`.
 - Final package preflight requires the runtime inventory and audit notice to be identical, independently re-hashes all inventory-bound WAVs, and repeats runtime catalog coverage checks. Regenerating `SHA256SUMS.txt` after replacing a valid alternate WAV therefore cannot make the substitution pass.
 - The fresh Windows candidate workflow rechecks the same inventory/notice identity after ZIP extraction and before packaged EXE, UIA and combined P0 acceptance.
+- That candidate gate also compares the complete shipped manifest, variant catalog, layer catalog and NEWGAME impact document against the builder's canonical semantic constants both immediately after materialization and again after fresh ZIP extraction; remapping an approved WAV to the wrong runtime role is therefore rejected independently of generic package checksums.
 
 ## Product defaults
 
