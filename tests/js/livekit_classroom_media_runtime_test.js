@@ -802,6 +802,8 @@ async function testDuplicateInflightDispatchDoesNotRetireOwner() {
   assert.equal(firstResult.kind, "media-updated");
   assert.deepEqual(retired, []);
   assert.equal(RecordingAdapter.instances[0].calls.length, 1);
+  assert.equal(runtime._activeTransaction, null);
+  assert.equal(runtime._busy, false);
 }
 
 async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
