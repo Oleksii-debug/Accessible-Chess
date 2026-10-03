@@ -1167,6 +1167,64 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertFalse(item["compatible"])
         self.assertFalse(item["installed_compatible"])
 
+    def test_authoritative_missing_active_pack_reconciles_to_classic_without_second_pack_read(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft", "1.0.0")
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {
+                    "move": {
+                        "enabled": False,
+                        "volume_percent": 41,
+                        "sound_id": "capture",
+                    }
+                },
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            installed_audit_provider=lambda: {},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        with (
+            mock.patch.object(
+                coordinator,
+                "status",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as status,
+            mock.patch.object(
+                coordinator,
+                "resolve_usable_pack",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as resolve,
+        ):
+            reconciled = app.reconcile_active_profile()
+
+        status.assert_not_called()
+        resolve.assert_not_called()
+        self.assertEqual("classic", reconciled.pack_id)
+        self.assertEqual("classic", profile_storage.payload["pack_id"])
+        pref = reconciled.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(41, pref.volume_percent)
+        self.assertIsNone(
+            pref.sound_id,
+            "falling back from a missing pack must not retain its explicit asset id",
+        )
+
     def test_same_version_legacy_installed_pack_does_not_borrow_catalog_rights_audit(self) -> None:
         classic = _manifest("classic")
         installed = _manifest("soft", "2.0.0")
