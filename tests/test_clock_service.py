@@ -48,6 +48,245 @@ class ChessClockTests(unittest.TestCase):
         self.assertEqual(snap.black_ms, 59_000)
         self.assertEqual(snap.active, "w")
 
+    def test_switch_charges_mover_through_exact_switch_instant(self):
+        class SteppedTime:
+            def __init__(self):
+                self.value = 100.0
+                self.step = 0.0
+
+            def __call__(self):
+                self.value += self.step
+                return self.value
+
+        now = SteppedTime()
+        clock = ChessClock(TimeControl(10_000, 2_000), now=now)
+        clock.start("w")
+        now.step = 1.0
+        switched = clock.switch_after_move("w")
+
+        # Charge two seconds to White before the 2-second increment.
+        # The returned snapshot may also charge Black after switching.
+        self.assertEqual(switched.white_ms, 10_000)
+        self.assertEqual(switched.black_ms, 9_000)
+        self.assertEqual(switched.active, "b")
+        self.assertEqual(switched.state, ClockState.RUNNING)
+
+    def test_switch_flags_mover_before_increment_at_second_time_read(self):
+        class SteppedTime:
+            def __init__(self):
+                self.value = 100.0
+                self.step = 0.0
+
+            def __call__(self):
+                self.value += self.step
+                return self.value
+
+        now = SteppedTime()
+        clock = ChessClock(TimeControl(1_500, 2_000), now=now)
+        clock.start("w")
+        now.step = 1.0
+        rejected = clock.switch_after_move("w")
+
+        self.assertEqual(rejected.white_ms, 0)
+        self.assertEqual(rejected.black_ms, 1_500)
+        self.assertEqual(rejected.flagged, "w")
+        self.assertEqual(rejected.state, ClockState.FLAGGED)
+        self.assertIsNone(rejected.active)
+
+    def test_switch_does_not_undo_accepted_mover_when_next_side_flags(self):
+        class SequenceTime:
+            def __init__(self, values):
+                self.values = list(values)
+
+            def __call__(self):
+                if not self.values:
+                    raise AssertionError("unexpected clock sample")
+                return self.values.pop(0)
+
+        # Start, start snapshot, mover preflight, switch instant, and returned
+        # snapshot are separate samples. Only the last sample flags Black.
+        now = SequenceTime((100.0, 100.0, 101.0, 102.0, 102.002))
+        clock = ChessClock(TimeControl(3_000, 1_000), now=now)
+        clock.set_remaining("b", 1)
+        clock.start("w")
+
+        switched = clock.switch_after_move("w")
+
+        self.assertEqual(switched.white_ms, 2_000)
+        self.assertEqual(switched.black_ms, 0)
+        self.assertEqual(switched.flagged, "b")
+        self.assertEqual(switched.state, ClockState.FLAGGED)
+        self.assertIsNone(switched.active)
+        # The mover was accepted and earned its increment. Higher layers must
+        # not roll back that move because the *opponent* then flagged.
+
+    def test_switch_final_sample_failure_rolls_back_increment_and_active_side(self):
+        class SequenceTime:
+            def __init__(self, *values):
+                self.values = list(values)
+                self.last = float(values[0])
+
+            def __call__(self):
+                if not self.values:
+                    return self.last
+                sample = self.values.pop(0)
+                if isinstance(sample, Exception):
+                    raise sample
+                self.last = sample
+                return sample
+
+        for invalid in (float("nan"), 99.0, RuntimeError("clock source unavailable")):
+            with self.subTest(invalid=invalid):
+                # start + its returned snapshot, pre-switch accounting,
+                # exact switch instant, then the final opponent snapshot.
+                now = SequenceTime(100.0, 100.0, 100.5, 101.0, invalid)
+                clock = ChessClock(TimeControl(3_000, 1_000), now=now)
+                clock.start("w")
+
+                with self.assertRaises((ClockError, RuntimeError)) as caught:
+                    clock.switch_after_move("w")
+                if isinstance(caught.exception, ClockError):
+                    self.assertEqual(
+                        caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE
+                    )
+
+                # The mover's real elapsed second remains charged, but no
+                # rejected-move increment, side switch, or flag survives.
+                now.last = 101.0
+                recovered = clock.snapshot()
+                self.assertEqual(recovered.white_ms, 2_000)
+                self.assertEqual(recovered.black_ms, 3_000)
+                self.assertEqual(recovered.active, "w")
+                self.assertEqual(recovered.state, ClockState.RUNNING)
+                self.assertIsNone(recovered.flagged)
+
+    def test_switch_invalid_second_sample_does_not_change_side_or_award_increment(self):
+        class SequenceTime:
+            def __init__(self, values):
+                self.values = list(values)
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else 100.0
+
+        now = SequenceTime((100.0, 100.0, 100.0, float("nan")))
+        clock = ChessClock(TimeControl(3_000, 1_000), now=now)
+        clock.start("w")
+
+        with self.assertRaises(ClockError) as caught:
+            clock.switch_after_move("w")
+
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        unchanged = clock.snapshot()
+        self.assertEqual(unchanged.white_ms, 3_000)
+        self.assertEqual(unchanged.black_ms, 3_000)
+        self.assertEqual(unchanged.active, "w")
+        self.assertEqual(unchanged.state, ClockState.RUNNING)
+
+    def test_setting_running_mover_to_zero_flags_without_tick_or_increment(self):
+        clock = ChessClock(TimeControl(1_000, 2_000), now=self.now)
+        clock.start("w")
+
+        zero = clock.set_remaining("w", 0)
+        self.assertEqual(zero.white_ms, 0)
+        self.assertEqual(zero.flagged, "w")
+        self.assertEqual(zero.state, ClockState.FLAGGED)
+        self.assertIsNone(zero.active)
+
+        rejected = clock.switch_after_move("w")
+        self.assertEqual(rejected, zero)
+        self.assertEqual(rejected.black_ms, 1_000)
+
+    def test_restored_running_zero_time_flags_before_move_increment(self):
+        clock = ChessClock(TimeControl(1_000, 2_000), now=self.now)
+
+        restored = clock.restore(
+            ClockSnapshot(0, 1_000, "w", ClockState.RUNNING),
+            resume_running=True,
+        )
+        self.assertEqual(restored.state, ClockState.FLAGGED)
+        self.assertEqual(restored.flagged, "w")
+        self.assertEqual(restored.white_ms, 0)
+        self.assertEqual(clock.switch_after_move("w"), restored)
+
+    def test_paused_zero_time_flags_on_resume_before_move_increment(self):
+        clock = ChessClock(TimeControl(1_000, 2_000), now=self.now)
+        paused = clock.restore(ClockSnapshot(0, 1_000, "w", ClockState.PAUSED))
+        self.assertEqual(paused.state, ClockState.PAUSED)
+
+        resumed = clock.resume()
+        self.assertEqual(resumed.state, ClockState.FLAGGED)
+        self.assertEqual(resumed.flagged, "w")
+        self.assertEqual(resumed.white_ms, 0)
+        self.assertEqual(clock.switch_after_move("w"), resumed)
+
+    def test_zero_time_next_side_flags_only_after_movers_accepted_switch(self):
+        clock = ChessClock(TimeControl(1_000, 100), now=self.now)
+        clock.start("w")
+        running = clock.set_remaining("b", 0)
+        self.assertEqual(running.state, ClockState.RUNNING)
+        self.assertEqual(running.active, "w")
+
+        switched = clock.switch_after_move("w")
+        self.assertEqual(switched.white_ms, 1_100)
+        self.assertEqual(switched.black_ms, 0)
+        self.assertEqual(switched.flagged, "b")
+        self.assertEqual(switched.state, ClockState.FLAGGED)
+
+    def test_failed_start_final_sample_keeps_clock_stopped(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, float("nan")]
+                self.fallback = 100.0
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        clock = ChessClock(TimeControl(3_000), now=Samples())
+        before = clock.snapshot()
+        with self.assertRaises(ClockError) as caught:
+            clock.start("w")
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        self.assertEqual(clock.snapshot(), before)
+        self.assertEqual(clock.start("b").active, "b")
+
+    def test_failed_resume_final_sample_preserves_pause(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, float("nan")]
+                self.fallback = 100.0
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        clock = ChessClock(TimeControl(3_000), now=Samples())
+        before = clock.reset(side_to_move="w")
+        with self.assertRaises(ClockError) as caught:
+            clock.resume()
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        self.assertEqual(clock.snapshot(), before)
+        self.assertEqual(clock.resume().state, ClockState.RUNNING)
+
+    def test_failed_resume_restore_final_sample_keeps_old_game(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, float("nan")]
+                self.fallback = 100.0
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        clock = ChessClock(TimeControl(3_000), now=Samples())
+        before = clock.reset(side_to_move="b")
+        incoming = ClockSnapshot(1_500, 2_000, "w", ClockState.RUNNING)
+        with self.assertRaises(ClockError) as caught:
+            clock.restore(incoming, resume_running=True)
+        self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+        self.assertEqual(clock.snapshot(), before)
+        accepted = clock.restore(incoming, resume_running=True)
+        self.assertEqual(accepted.white_ms, 1_500)
+        self.assertEqual(accepted.active, "w")
+        self.assertEqual(accepted.state, ClockState.RUNNING)
+
     def test_pause_resume_does_not_charge_paused_time(self):
         clock = ChessClock(TimeControl(10_000), now=self.now)
         clock.start("b")
@@ -101,6 +340,48 @@ class ChessClockTests(unittest.TestCase):
         snap = clock.snapshot()
         self.assertEqual(snap.white_ms, 0)
         self.assertIsNone(snap.flagged)
+
+    def test_failed_administrative_edit_preserves_preedit_balances(self):
+        class Samples:
+            def __init__(self):
+                self.values = [100.0, 100.0, 100.5, float("nan")]
+                self.fallback = 100.5
+
+            def __call__(self):
+                return self.values.pop(0) if self.values else self.fallback
+
+        for edited_side in ("w", "b"):
+            with self.subTest(side=edited_side):
+                clock = ChessClock(TimeControl(3_000), now=Samples())
+                clock.start("w")
+                with self.assertRaises(ClockError) as caught:
+                    clock.set_remaining(edited_side, 1_500)
+                self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+                recovered = clock.snapshot()
+                # Half a second actually elapsed before the rejected edit.
+                self.assertEqual(recovered.white_ms, 2_500)
+                self.assertEqual(recovered.black_ms, 3_000)
+                self.assertEqual(recovered.active, "w")
+                self.assertEqual(recovered.state, ClockState.RUNNING)
+                self.assertEqual(
+                    clock.set_remaining(edited_side, 1_500).remaining(edited_side),
+                    1_500,
+                )
+
+    def test_untimed_administrative_balance_must_remain_canonical(self):
+        clock = ChessClock(TimeControl(0), now=self.now)
+        canonical = clock.start("b")
+        self.assertEqual(canonical, ClockSnapshot(0, 0, None, ClockState.STOPPED))
+
+        for side in ("w", "b"):
+            with self.subTest(side=side):
+                with self.assertRaises(ClockError) as caught:
+                    clock.set_remaining(side, 1_000)
+                self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_COMMAND)
+                self.assertEqual(clock.snapshot(), canonical)
+                self.assertEqual(clock.set_remaining(side, 0), canonical)
+                # A returned administrative snapshot must always be restorable.
+                self.assertEqual(clock.restore(clock.snapshot()), canonical)
 
     def test_untimed_reset_discards_side_to_move_from_stopped_clock(self):
         clock = ChessClock(TimeControl(0, 0), now=self.now)
@@ -310,7 +591,7 @@ class ChessClockTests(unittest.TestCase):
             ClockErrorCode.INVALID_TIME_SOURCE,
         )
 
-        for invalid in (True, "100", float("nan"), float("inf")):
+        for invalid in (True, "100", float("nan"), float("inf"), 10**400, -(10**400)):
             self.now.value = invalid
             clock = ChessClock(TimeControl(1_000), now=self.now)
             with self.subTest(value=invalid):
@@ -347,6 +628,24 @@ class ChessClockTests(unittest.TestCase):
         )
         self.now.value = 100.0
         self.assertEqual(clock.snapshot(), before)
+
+    def test_extreme_finite_monotonic_delta_fails_with_domain_error_atomically(self):
+        # The subtraction can overflow (opposite signs), or the subtraction
+        # can be finite while conversion to milliseconds overflows.
+        for starting, advanced in ((-1e308, 1e308), (1e308, 1.1e308)):
+            with self.subTest(starting=starting, advanced=advanced):
+                now = FakeTime()
+                now.value = starting
+                clock = ChessClock(TimeControl(2_000, 500), now=now)
+                before = clock.start("w")
+                now.value = advanced
+                with self.assertRaises(ClockError) as caught:
+                    clock.snapshot()
+                self.assertEqual(caught.exception.code, ClockErrorCode.INVALID_TIME_SOURCE)
+                # The invalid reading must not award an increment, flag a side,
+                # or mutate the last accepted snapshot.
+                now.value = starting
+                self.assertEqual(clock.snapshot(), before)
 
     def test_untimed_restore_requires_canonical_stopped_zero_snapshot(self):
         clock = ChessClock(TimeControl(0), now=self.now)
