@@ -718,6 +718,7 @@ class BookProgressStore:
                     stat.S_ISREG(metadata.st_mode)
                     and not stat.S_ISLNK(metadata.st_mode)
                     and not _is_reparse_point(metadata)
+                    and int(getattr(metadata, "st_nlink", 1)) == 1
                 ):
                     candidate.unlink(missing_ok=True)
             except OSError:
