@@ -156,6 +156,63 @@ class BookEpubImportTests(unittest.TestCase):
         )
         self.assertIn('[Event "Quoted"]', readable)
 
+    def test_package_identifiers_are_not_repaired_by_whitespace_trimming(self) -> None:
+        cases = (
+            (
+                '    <item id=" c1 " href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref=" c1 "/>',
+            ),
+            (
+                '    <item id="fixed" href="fixed.svg" media-type="image/svg+xml" fallback=" fallback "/>\n'
+                '    <item id="fallback" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="fixed"/>',
+            ),
+            (
+                '    <item id="fixed" href="fixed.svg" media-type="image/svg+xml" fallback=""/>\n'
+                '    <item id="fallback" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="fixed"/>',
+            ),
+        )
+        for manifest, spine in cases:
+            with self.subTest(manifest=manifest, spine=spine):
+                raw = _epub(
+                    opf=_opf(manifest=manifest, spine=spine),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>",
+                        "OEBPS/fixed.svg": b"<svg/>",
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="malformed-identifiers.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_unicode_package_identifier_without_whitespace_remains_supported(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="розділ" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="розділ"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable Unicode ID.</p></body></html>",
+            },
+        )
+        result = import_epub_book(raw, source_name="unicode-id.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertEqual(
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+            ["Readable Unicode ID."],
+        )
+
     def test_manifest_fallback_to_readable_xhtml_is_followed(self) -> None:
         opf = _opf(
             manifest='''    <item id="fixed" href="fixed.svg" media-type="image/svg+xml" fallback="fallback"/>
