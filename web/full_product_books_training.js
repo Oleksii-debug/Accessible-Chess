@@ -355,16 +355,16 @@
       }
     }
 
+    const expectedItemFields = [
+      "kind", "depth", "parent_index", "label", "leading_comments",
+      "comments_before", "comments_after", "trailing_comments", "result"
+    ];
     const activeAncestorIndices = [];
     let previousDepth = 0;
     tree.items.forEach(function (item, index) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("Book semantic item is invalid");
       }
-      const expectedItemFields = [
-        "kind", "depth", "parent_index", "label", "leading_comments",
-        "comments_before", "comments_after", "trailing_comments", "result"
-      ];
       const itemFields = Object.keys(item);
       if (itemFields.length !== expectedItemFields.length ||
           expectedItemFields.some(function (field) {
