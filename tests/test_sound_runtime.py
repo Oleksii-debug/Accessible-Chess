@@ -48,10 +48,17 @@ class SoundRuntimeTests(unittest.TestCase):
         game.start()
         game.illegal()
         game.tick()
+        game.low_time()
         game.end()
         self.assertEqual(
             [event for event, _ in fake.calls],
-            [SoundEvent.START, SoundEvent.ILLEGAL, SoundEvent.TICK, SoundEvent.END],
+            [
+                SoundEvent.START,
+                SoundEvent.ILLEGAL,
+                SoundEvent.TICK,
+                SoundEvent.LOW_TIME,
+                SoundEvent.END,
+            ],
         )
 
     def test_specific_terminal_outcomes_do_not_fall_through_to_generic_end(self):
