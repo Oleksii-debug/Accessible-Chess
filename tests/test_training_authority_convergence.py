@@ -315,6 +315,44 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             self.assertEqual("", workspace.presenter_message)
             self.assertIsNone(workspace.presenter_message_key)
 
+    def test_workspace_rejects_command_subclass_before_strip_hook(self) -> None:
+        class HostileCommand(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("command subclass strip must never execute")
+
+        document = BookDocument(
+            title="Training hostile command",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-hostile-command-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            before = workspace.session.snapshot()
+
+            event = workspace.dispatch(HostileCommand("training.hint"), {})
+
+            self.assertEqual("error", event.kind)
+            self.assertFalse(HostileCommand.touched)
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertEqual(before, workspace.session.snapshot())
+
     def test_workspace_generic_error_does_not_replace_live_training_objects(self) -> None:
         document = BookDocument(
             title="Training rejected command",
