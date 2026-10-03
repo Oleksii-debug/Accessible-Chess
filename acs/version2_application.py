@@ -349,6 +349,7 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _dispatch_training_surface_command(self, command, payload=None):
+        command_id = command.strip() if isinstance(command, str) else command
         if self.shell.current_route.route_id != "training":
             raise ValueError(self._training_error_message())
         if self.shell.active_dialog_id is not None:
@@ -359,7 +360,7 @@ class Version2Application:
         language = bookmark_name = training_language = None
         training_message = ""
         training_message_key = None
-        if command == "training.continue":
+        if command_id == "training.continue":
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
@@ -367,9 +368,9 @@ class Version2Application:
             training_message = self.training_workspace.presenter_message
             training_message_key = self.training_workspace.presenter_message_key
         try:
-            result = self.training_workspace.dispatch(command, payload)
+            result = self.training_workspace.dispatch(command_id, payload)
         except Exception:
-            if command == "training.continue":
+            if command_id == "training.continue":
                 # The strict Training bridge normally sanitizes callback/render
                 # failures into an error event. If even that error projection
                 # fails after continuation moved the canonical BookReader, keep
@@ -392,7 +393,7 @@ class Version2Application:
                     )
             raise
         self.training = self.training_workspace.bridge
-        if command == "training.continue":
+        if command_id == "training.continue":
             if result.kind == "error":
                 # The continuation callback can fail after moving the canonical
                 # BookReader and swapping the Training model (for example while
@@ -431,12 +432,13 @@ class Version2Application:
 
     def _dispatch_book_surface_command(self, command, payload=None):
         """Publish mutating Book commands only after durable progress succeeds."""
+        command_id = command.strip() if isinstance(command, str) else command
         if self.books is None or self.reader is None:
             raise ValueError("no book is open")
-        if command == "book.language":
+        if command_id == "book.language":
             # Language is presentation state, not durable reader progress.
-            return self.books.dispatch(command, payload)
-        if command in self._BOOK_BOARD_OPEN_COMMANDS:
+            return self.books.dispatch(command_id, payload)
+        if command_id in self._BOOK_BOARD_OPEN_COMMANDS:
             # Native menu actions are globally reachable even though Book Board
             # opening belongs to the visible Book Reader. Never open a hidden
             # Book position/game from Library, PGN, Settings, or another route.
@@ -448,7 +450,7 @@ class Version2Application:
                 return self.books.projection.generic_error()
             # The canonical BookBoard delegate owns board-opening publication.
             return self.books.dispatch(command, payload)
-        if command in self._BOOK_PROGRESS_COMMANDS:
+        if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
             # hidden reading cursor from Library/PGN/Settings or another route.
@@ -466,7 +468,7 @@ class Version2Application:
             before = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
-            result = self.books.dispatch(command, payload)
+            result = self.books.dispatch(command_id, payload)
             if result.kind == "error":
                 # Projection can fail after canonical reader/bookmark state moved.
                 # Restore the exact pre-command state only when mutation occurred;
@@ -499,7 +501,7 @@ class Version2Application:
                 )
                 return self.books.projection.generic_error()
             return result
-        result = self.books.dispatch(command, payload)
+        result = self.books.dispatch(command_id, payload)
         if result.kind != "error":
             self.save_book_progress()
         return result
