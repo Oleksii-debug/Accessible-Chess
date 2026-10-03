@@ -324,7 +324,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("STANDARD_START_FEN", text)
         self.assertIn("event.ctrlKey", text)
         self.assertIn("key === 'n'", text)
-        self.assertIn("void execute('file.new')", text)
+        self.assertIn("action.actionId !== 'file.new'", text)
+        self.assertIn("void execute(action.actionId)", text)
 
         menu = (self.root / "acs" / "ui_native_menu.py").read_text(encoding="utf-8")
         self.assertIn('getattr(fn, "__name__", "") == "new_game"', menu)
