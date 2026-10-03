@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import acs.version2_upgrade_base as upgrade_base
+
+from acs.version2_upgrade_base import (
+    UpgradeLimits,
+    UserDataLayout,
+    Version2UpgradeCoordinator,
+    Version2UpgradeError,
+)
+
+
+class _Crash(BaseException):
+    """Simulate abrupt process death so normal rollback cannot run."""
+
+
+class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
+    def _relative_files(self, coordinator: Version2UpgradeCoordinator) -> set[str]:
+        root = coordinator.layout.root
+        return {
+            path.relative_to(root).as_posix()
+            for path in coordinator._files()
+        }
+
+    def test_exact_generated_shapes_are_derived_but_near_misses_are_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+
+            generated = (
+                "gametree-resume.json.abcd_123.tmp",
+                "gametree-resume.json.cas-xy_987.bak",
+                ".book-progress.json.abcd_123.tmp",
+                ".book-progress.json.bak.xy_987.tmp",
+            )
+            for name in generated:
+                (root / name).write_bytes(b"generated-runtime-residue")
+
+            near_misses = (
+                "gametree-resume.json.bad.token.tmp",
+                "gametree-resume.json.cas-bad.token.bak",
+                "gametree-resume.json..tmp",
+                "gametree-resume.json.cas-.bak",
+                "gametree-resume.json.bad-token!.tmp",
+                ".book-progress.json.bad.token.tmp",
+                ".book-progress.json.bak.bad.token.tmp",
+                ".book-progress.json..tmp",
+                ".book-progress.json.bak..tmp",
+                ".book-progress.json.bad-token!.tmp",
+            )
+            for name in near_misses:
+                (root / name).write_bytes(b"user-data")
+
+            nested = root / "user-content"
+            nested.mkdir()
+            for name in generated:
+                (nested / name).write_bytes(b"nested-user-data")
+
+            directory = root / "gametree-resume.json.dir_token.tmp"
+            directory.mkdir()
+            (directory / "keep.bin").write_bytes(b"directory-user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            for name in generated:
+                self.assertNotIn(name, files)
+                self.assertIn(f"user-content/{name}", files)
+            for name in near_misses:
+                self.assertIn(name, files)
+            self.assertIn(
+                "gametree-resume.json.dir_token.tmp/keep.bin",
+                files,
+            )
+
+            backup, manifest = coordinator._create_backup("root-writer-token-grammar")
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            for name in generated:
+                self.assertNotIn(name, paths)
+                self.assertIn(f"user-content/{name}", paths)
+                self.assertEqual(
+                    (backup / "data" / "user-content" / name).read_bytes(),
+                    b"nested-user-data",
+                )
+            for name in near_misses:
+                self.assertIn(name, paths)
+                self.assertEqual(
+                    (backup / "data" / name).read_bytes(),
+                    b"user-data",
+                )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "gametree-resume.json.dir_token.tmp"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"directory-user-data",
+            )
+
+    def test_casefolded_exact_generated_shapes_still_match_writer_grammar(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            generated = (
+                "GAMETREE-RESUME.JSON.ABCD_123.TMP",
+                "GAMETREE-RESUME.JSON.CAS-XY_987.BAK",
+                ".BOOK-PROGRESS.JSON.ABCD_123.TMP",
+                ".BOOK-PROGRESS.JSON.BAK.XY_987.TMP",
+            )
+            for name in generated:
+                (root / name).write_bytes(b"generated-runtime-residue")
+
+            files = self._relative_files(
+                Version2UpgradeCoordinator(UserDataLayout(root))
+            )
+            for name in generated:
+                self.assertNotIn(name, files)
+
+    def test_generated_residue_does_not_consume_quota_but_near_miss_does(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            durable = root / "settings.json"
+            durable.write_bytes(b"x")
+            for name in (
+                "gametree-resume.json.abcd_123.tmp",
+                "gametree-resume.json.cas-xy_987.bak",
+                ".book-progress.json.abcd_123.tmp",
+                ".book-progress.json.bak.xy_987.tmp",
+            ):
+                (root / name).write_bytes(b"z" * 4096)
+
+            coordinator = Version2UpgradeCoordinator(
+                UserDataLayout(root),
+                limits=UpgradeLimits(max_files=1, max_bytes=8),
+            )
+            self.assertEqual(
+                self._relative_files(coordinator),
+                {"settings.json"},
+            )
+
+            (root / ".book-progress.json.user.note.tmp").write_bytes(b"u")
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "backup exceeds file count limit",
+            ):
+                coordinator._files()
+
+    def test_legacy_backup_generated_entries_are_not_replayed_over_live_residue(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en", "volume": 34}),
+                encoding="utf-8",
+            )
+            generated = (
+                root / "gametree-resume.json.abcd_123.tmp",
+                root / "gametree-resume.json.cas-xy_987.bak",
+                root / ".book-progress.json.abcd_123.tmp",
+                root / ".book-progress.json.bak.xy_987.tmp",
+            )
+            for path in generated:
+                path.write_bytes(b"legacy-residue")
+
+            def crash(phase: str) -> None:
+                if phase == "settings-migrated":
+                    raise _Crash()
+
+            with (
+                patch.object(
+                    upgrade_base,
+                    "_is_generated_root_runtime_file",
+                    lambda relative_path: False,
+                ),
+                self.assertRaises(_Crash),
+            ):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root),
+                    phase_hook=crash,
+                ).run()
+
+            journal = json.loads(
+                (root / ".v2-upgrade-state.json").read_text(encoding="utf-8")
+            )
+            backup_data = (
+                root.parent
+                / "AccessibleChess.upgrade-backups"
+                / str(journal["backup_name"])
+                / "data"
+            )
+            for path in generated:
+                self.assertTrue((backup_data / path.name).exists())
+
+            for index, path in enumerate(generated):
+                path.write_bytes(f"new-live-{index}".encode("ascii"))
+
+            recovered = Version2UpgradeCoordinator(
+                UserDataLayout(root)
+            ).recover_interrupted()
+
+            self.assertTrue(recovered)
+            for index, path in enumerate(generated):
+                self.assertEqual(
+                    path.read_bytes(),
+                    f"new-live-{index}".encode("ascii"),
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()
