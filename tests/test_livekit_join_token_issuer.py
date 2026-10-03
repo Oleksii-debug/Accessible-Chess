@@ -5,6 +5,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
 import json
+from pathlib import Path
 from types import SimpleNamespace
 import traceback
 import unittest
@@ -23,6 +24,12 @@ from acs.livekit_join_token_issuer import (
 
 
 NOW = datetime(2026, 10, 2, 21, 45, tzinfo=timezone.utc)
+RESERVED_IDENTITY_WORKFLOW = (
+    Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "livekit-reserved-moderation-identity.yml"
+)
 
 
 def _b64(value):
@@ -375,6 +382,22 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveKitJoinTokenIssuerError, "timezone-aware"):
             self.issue(issuer, issued=NOW.replace(tzinfo=None))
         self.assertIsNone(api.access_credentials)
+
+    def test_reserved_identity_workflow_uses_immutable_pull_request_base(self):
+        workflow = RESERVED_IDENTITY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", workflow)
 
     def test_real_pinned_sdk_emits_verified_source_scoped_jwt_when_installed(self):
         try:
