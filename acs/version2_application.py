@@ -628,6 +628,13 @@ class Version2Application:
             # the safe workflow unwind. Emergency projection-failure unwind stays
             # storage-independent in _recover_book_projection_failure().
             self._focus = self.shell.open_route("books")
+            # Route ownership changed synchronously inside the domain workflow.
+            # Publish one V2 refresh request even if the caller subsequently
+            # reports a persistence error, so the visible/NVDA surface cannot
+            # remain on a Board whose Book workflow has already unwound.
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
 
@@ -667,6 +674,9 @@ class Version2Application:
             except Exception:
                 return
             self._focus = self.shell.open_route("books")
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
 
     def _delegate(self, action, payload):
         # Route-changing delegated PGN actions must respect modal focus before
