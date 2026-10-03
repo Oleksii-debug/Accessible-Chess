@@ -175,6 +175,94 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             self.assertNotIn(guard.name, files)
             self.assertEqual(guard.read_bytes(), settings.read_bytes())
 
+    def test_private_publication_guard_lookalike_remains_preservation_backed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b'{"schema_version":1}')
+            guard = root / ".settings.json.publish-guard-abcdef123456"
+            guard.write_bytes(b"user-owned-lookalike")
+
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+
+            self.assertIn("settings.json", files)
+            self.assertIn(guard.name, files)
+            self.assertEqual(guard.read_bytes(), b"user-owned-lookalike")
+
+    def test_publication_guard_hardlink_to_unrelated_inode_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            library.write_bytes(b"current-library")
+            source = root / "important-user-data.bin"
+            source.write_bytes(b"preserve-unrelated-hardlink")
+            guard = root / ".library.acsdb.publish-guard-abcdef123456"
+            try:
+                os.link(source, guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+
+            self.assertIn("library.acsdb", files)
+            self.assertIn(source.name, files)
+            self.assertIn(guard.name, files)
+            self.assertEqual(guard.read_bytes(), source.read_bytes())
+
+    def test_stale_publication_guard_after_target_replace_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b'{"schema_version":1,"old":true}')
+            guard = root / ".settings.json.publish-guard-abcdef123456"
+            try:
+                os.link(settings, guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+            replacement = root / "settings-replacement.json"
+            replacement.write_bytes(b'{"schema_version":1,"new":true}')
+            os.replace(replacement, settings)
+
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+
+            self.assertIn("settings.json", files)
+            self.assertIn(guard.name, files)
+            self.assertEqual(guard.read_bytes(), b'{"schema_version":1,"old":true}')
+            self.assertEqual(settings.read_bytes(), b'{"schema_version":1,"new":true}')
+
+    def test_library_publication_guard_hardlink_to_current_target_is_generated(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            library.write_bytes(b"current-library")
+            guard = root / ".library.acsdb.publish-guard-abcdef123456"
+            try:
+                os.link(library, guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+
+            self.assertIn("library.acsdb", files)
+            self.assertNotIn(guard.name, files)
+            self.assertEqual(guard.read_bytes(), library.read_bytes())
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO creation is unavailable")
     def test_generated_filename_special_object_is_not_silently_discarded(self):
         with tempfile.TemporaryDirectory() as td:
