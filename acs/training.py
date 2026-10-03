@@ -468,9 +468,10 @@ class ExerciseSession:
         path_value = snapshot["accepted_path"]
         if type(path_value) is not list:
             raise TypeError("exercise snapshot accepted_path must be a list")
-        if len(path_value) != common[0]:
+        path_items = tuple(path_value)
+        if len(path_items) != common[0]:
             raise ValueError("exercise snapshot accepted_path does not match step_index")
-        accepted_path = tuple(_snapshot_move(value) for value in path_value)
+        accepted_path = tuple(_snapshot_move(value) for value in path_items)
 
         board = Board(definition.start_fen)
         replayed: list[str] = []
