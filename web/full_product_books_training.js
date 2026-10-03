@@ -81,7 +81,11 @@
       if (!Object.prototype.hasOwnProperty.call(value, index)) {
         throw new TypeError(name + " must be dense");
       }
-      out.push(semanticText(value[index], name, budget));
+      const text = semanticText(value[index], name, budget);
+      if (!text.trim()) {
+        throw new TypeError(name + " must contain visible text");
+      }
+      out.push(text);
     }
     return out;
   }
