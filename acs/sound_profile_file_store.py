@@ -36,6 +36,19 @@ def _is_reparse_point(metadata: os.stat_result) -> bool:
     return bool(flag and attributes & flag)
 
 
+def _require_real_directory(path: Path, *, message: str) -> None:
+    try:
+        metadata = os.lstat(path)
+    except OSError as exc:
+        raise SoundProfileFileError(message) from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or _is_reparse_point(metadata)
+        or not stat.S_ISDIR(metadata.st_mode)
+    ):
+        raise SoundProfileFileError(message)
+
+
 def _require_regular_metadata(
     metadata: os.stat_result,
     *,
@@ -220,6 +233,10 @@ class JsonSoundProfileStorage:
                 raise SoundProfileFileError(
                     "sound profile storage is unavailable"
                 ) from exc
+            _require_real_directory(
+                self.path.parent,
+                message="sound profile storage directory is not a real directory",
+            )
             descriptor = self._open_lock_descriptor()
             acquired = False
             try:
