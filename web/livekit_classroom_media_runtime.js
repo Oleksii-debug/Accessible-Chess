@@ -136,7 +136,10 @@
     }
 
     async _configure(invoke) {
-      if (this._adapter !== null) return this._adapter;
+      // Provider configuration belongs to the current trusted Python binding,
+      // not to the lifetime of this WebView. Re-read it before every provider
+      // transaction so a clean unbind/rebind cannot reuse a stale room URL or
+      // moderation identity.
       const result = await invoke("media.provider_config", {});
       if (!result || result.kind !== "provider-config") {
         throw new Error("media provider config is unavailable");
@@ -159,16 +162,37 @@
           typeof global.AccessibleChessLiveKitMedia.LiveKitClassroomMediaAdapter !== "function") {
         throw new Error("packaged LiveKit media runtime is unavailable");
       }
-      const Adapter = global.AccessibleChessLiveKitMedia.LiveKitClassroomMediaAdapter;
-      this._adapter = new Adapter({
-        livekit: global.LivekitClient,
-        serverUrl: config.server_url,
-        moderationParticipantIdentity: config.moderation_participant_identity
-      });
-      this._config = Object.freeze({
+
+      const nextConfig = Object.freeze({
         server_url: config.server_url,
         moderation_participant_identity: config.moderation_participant_identity
       });
+      if (this._adapter !== null && this._config !== null) {
+        const unchanged =
+          this._config.server_url === nextConfig.server_url &&
+          this._config.moderation_participant_identity ===
+            nextConfig.moderation_participant_identity;
+        if (unchanged) return this._adapter;
+
+        // A changed binding may replace the adapter only after the prior
+        // provider session is proven quiescent. Never silently retarget a live
+        // or cleanup-required LiveKit room.
+        const previous = this._adapter.snapshot();
+        if (!previous || previous.connected !== false ||
+            previous.cleanup_required !== false) {
+          throw new Error(
+            "media provider configuration changed while prior adapter is active"
+          );
+        }
+      }
+
+      const Adapter = global.AccessibleChessLiveKitMedia.LiveKitClassroomMediaAdapter;
+      this._adapter = new Adapter({
+        livekit: global.LivekitClient,
+        serverUrl: nextConfig.server_url,
+        moderationParticipantIdentity: nextConfig.moderation_participant_identity
+      });
+      this._config = nextConfig;
       return this._adapter;
     }
 
