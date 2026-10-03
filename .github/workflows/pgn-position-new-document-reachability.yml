@@ -44,18 +44,13 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
 
-          git fetch --no-tags origin \
-            work/books-bidirectional-semantic-navigation-20260927 \
-            fix/pgn-new-game-position-tag-integrity-20260929
+          git fetch --no-tags origin             work/books-bidirectional-semantic-navigation-20260927             fix/pgn-new-game-position-tag-integrity-20260929
 
           books="$(git rev-parse refs/remotes/origin/work/books-bidirectional-semantic-navigation-20260927)"
           position="$(git rev-parse refs/remotes/origin/fix/pgn-new-game-position-tag-integrity-20260929)"
 
           test "$(git merge-base "$books" HEAD)" = "$books"
-          position_document_blob="$(git rev-parse "$position:acs/pgn_document.py")"
-          position_test_blob="$(git rev-parse "$position:tests/test_pgn_document_new_game_position_integrity.py")"
-          test "$(git rev-parse HEAD:acs/pgn_document.py)" = "$position_document_blob"
-          test "$(git rev-parse HEAD:tests/test_pgn_document_new_game_position_integrity.py)" = "$position_test_blob"
+          git merge-base --is-ancestor "$position" HEAD
           git diff --check "$books" HEAD
 
           mapfile -t actual < <(git diff --name-only "$books" HEAD | LC_ALL=C sort)
