@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 import subprocess
@@ -350,6 +351,62 @@ class EducationWorkspaceStoreTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
             self.assertTrue(store._lock_path.is_file())
             self.assertEqual(list(Path(tmp).glob(".education-workspace.json.*.tmp")), [])
+
+    def test_store_rejects_hardlinked_peer_lock_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            target = Path(tmp) / "unrelated-target.bin"
+            target.write_bytes(b"")
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+
+            os.link(target, store._lock_path)
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceStoreError,
+                "regular unlinked file",
+            ):
+                store.save(workspace, expected_revision=None)
+
+            self.assertEqual(target.read_bytes(), b"")
+            self.assertFalse(path.exists())
+
+    def test_store_rejects_symlink_peer_lock_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            target = Path(tmp) / "unrelated-target.bin"
+            target.write_bytes(b"unchanged")
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+            try:
+                store._lock_path.symlink_to(target)
+            except (OSError, NotImplementedError):
+                return
+
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceStoreError,
+                "regular unlinked file",
+            ):
+                store.save(workspace, expected_revision=None)
+
+            self.assertEqual(target.read_bytes(), b"unchanged")
+            self.assertTrue(store._lock_path.is_symlink())
+            self.assertFalse(path.exists())
+
+    def test_store_legacy_lock_directory_still_fails_busy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+            store._lock_path.mkdir()
+
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceBusyError,
+                "legacy peer lock directory",
+            ):
+                store.save(workspace, expected_revision=None)
+
+            self.assertTrue(store._lock_path.is_dir())
+            self.assertFalse(path.exists())
 
     def test_store_peer_lock_is_released_by_process_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
