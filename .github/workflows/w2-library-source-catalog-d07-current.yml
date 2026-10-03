@@ -60,9 +60,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # W2 verifies checkout byte identity; the canonical Stage1 contract owns the qualified blob allowlist.
           git checkout-index --force -- acs/stage1_release_ui_core.py acs/webapp_keymap_core.py
-          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b579ca0f59ba20f6b69b3a4b7d89589256d54852"
-          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
 
       - uses: actions/setup-python@v5
         with:
