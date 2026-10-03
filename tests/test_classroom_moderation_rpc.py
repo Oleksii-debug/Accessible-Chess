@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import tempfile
 import traceback
 import unittest
 
@@ -17,6 +18,7 @@ from acs.classroom_moderation_rpc import (
     parse_moderation_rpc,
 )
 from acs.classroom_realtime_media import MediaSource, ModerationAction
+from acs.sqlite_classroom_moderation_ledger import SqliteClassroomModerationLedger
 
 
 ROOM = "room-1"
@@ -380,6 +382,104 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
             command=command,
         )
         self.assertEqual(len(self.verifier.calls), verifier_calls)
+        self.assertEqual(self.restarted_provider.calls, [])
+
+    async def test_real_sqlite_restart_reconciles_verified_pending_and_reopens_committed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger_path = Path(temporary) / "moderation-replay.sqlite3"
+            original_ledger = SqliteClassroomModerationLedger(ledger_path)
+            original_provider = FakeProviderAdmin()
+            original_provider.fail_once.add("op-sqlite-restart")
+            original = ClassroomModerationRpcService(
+                authorization=FakeAuthorization(),
+                provider_admin=original_provider,
+                ledger=original_ledger,
+            )
+            wire = payload(operation("op-sqlite-restart"))
+            with self.assertRaisesRegex(
+                ClassroomModerationRpcError,
+                "provider operation failed",
+            ):
+                await original.handle_rpc(
+                    trusted_room_id=ROOM,
+                    trusted_caller_identity=CALLER,
+                    payload=wire,
+                )
+
+            pending = original_ledger.operation_state(
+                room_id=ROOM,
+                operation_id="op-sqlite-restart",
+            )
+            self.assertIsNotNone(pending)
+            self.assertFalse(pending.committed)
+            self.assertIsNotNone(pending.reservation_owner)
+
+            verifier = FakeProviderStateVerifier()
+            restarted_provider = FakeProviderAdmin()
+            restarted = ClassroomModerationRpcService(
+                authorization=FakeAuthorization(),
+                provider_admin=restarted_provider,
+                ledger=SqliteClassroomModerationLedger(ledger_path),
+                provider_state_verifier=verifier,
+            )
+            command = parse_moderation_rpc(
+                wire,
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+            ).commands[0]
+
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=command,
+            )
+
+            reopened = SqliteClassroomModerationLedger(ledger_path)
+            committed = reopened.operation_state(
+                room_id=ROOM,
+                operation_id="op-sqlite-restart",
+            )
+            self.assertIsNotNone(committed)
+            self.assertTrue(committed.committed)
+            self.assertIsNone(committed.reservation_owner)
+            self.assertEqual(restarted_provider.calls, [])
+            self.assertEqual(len(verifier.calls), 1)
+
+            response = await restarted.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+            self.assertEqual(
+                json.loads(response)["accepted_operation_ids"],
+                ["op-sqlite-restart"],
+            )
+            self.assertEqual(restarted_provider.calls, [])
+
+    async def test_reconciliation_commit_failure_is_sanitized_and_preserves_pending(self) -> None:
+        await self.leave_ambiguous_pending()
+        pending_before = self.ledger.reservations[(ROOM, "op-recover")]
+        self.ledger.fail_commit_for.add("op-recover")
+        restarted = self.restarted()
+
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "reconciliation commit failed",
+        ) as context:
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=self.command(),
+            )
+
+        self.assertIsNone(context.exception.__cause__)
+        self.assertNotIn(
+            "sensitive ledger commit detail",
+            "".join(traceback.format_exception(context.exception)),
+        )
+        self.assertEqual(
+            self.ledger.reservations[(ROOM, "op-recover")],
+            pending_before,
+        )
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.values)
         self.assertEqual(self.restarted_provider.calls, [])
 
     async def test_non_boolean_verifier_result_cannot_commit_pending_operation(self) -> None:
