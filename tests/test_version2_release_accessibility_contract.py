@@ -190,6 +190,11 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('const MAX_NATIVE_EVENT_BATCH = 64;', BOOTSTRAP)
+        self.assertIn(
+            'events.length > MAX_NATIVE_EVENT_BATCH',
+            drain,
+        )
         self.assertIn('let queuedFocusTarget = "";', drain)
         self.assertIn('const candidate = payload.focus_target;', drain)
         self.assertIn('if (validFocusId(candidate)) queuedFocusTarget = candidate;', drain)
