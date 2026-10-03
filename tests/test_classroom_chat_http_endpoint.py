@@ -759,11 +759,55 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
                 ],
                 400,
             ),
+            (
+                [
+                    (b"authorization", b"Bearer one"),
+                    (b"content-type", b"application/json"),
+                ],
+                400,
+            ),
         )
         for headers, expected in cases:
             with self.subTest(headers=headers):
                 sent = await self.invoke(raw_body=body, headers=headers)
                 self.assertEqual(expected, self.response(sent)[0])
+
+    async def test_missing_content_length_fails_before_authentication_or_body_read(self) -> None:
+        body = json.dumps(self.send_payload()).encode("utf-8")
+        receive_calls = 0
+        sent = []
+
+        async def receive():
+            nonlocal receive_calls
+            receive_calls += 1
+            raise AssertionError("request body must not be consumed")
+
+        async def send(event):
+            sent.append(event)
+
+        scope = {
+            "type": "http",
+            "scheme": "https",
+            "http_version": "1.1",
+            "method": "POST",
+            "path": CHAT_RPC_PATH,
+            "raw_path": CHAT_RPC_PATH.encode("ascii"),
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer test-token"),
+                (b"content-type", b"application/json"),
+            ],
+            "server": ("203.0.113.5", 443),
+            "client": ("198.51.100.7", 43120),
+        }
+
+        before = len(self.auth.calls)
+        await self.endpoint(scope, receive, send)
+        self.assertEqual(0, receive_calls)
+        self.assertEqual(before, len(self.auth.calls))
+        self.assertEqual(400, self.response(sent)[0])
+        self.assertEqual([], self.backend.send_calls)
+        self.assertTrue(body)
 
     async def test_bearer_is_single_ascii_bounded_and_not_leaked(self) -> None:
         body = json.dumps(self.send_payload()).encode("utf-8")
@@ -809,6 +853,7 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
                 headers=[
                     (b"authorization", b"Bearer test-token"),
                     (b"content-type", b"application/json"),
+                    (b"content-length", b"32"),
                 ],
                 raw_body=b"x" * 33,
             )
