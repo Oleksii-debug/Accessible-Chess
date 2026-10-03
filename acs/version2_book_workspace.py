@@ -42,17 +42,28 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
         semantic = self._reader.block_snapshot(block.index)
-        can_open = isinstance(semantic, (Position, Diagram, Exercise, Game, VariationTree))
+        board_active = self._workflow.active
+        can_open_position = isinstance(
+            semantic,
+            (Position, Diagram, Exercise, VariationTree),
+        )
+        can_open_game = isinstance(semantic, Game)
         actions = []
         for original in snapshot["actions"]:
             action = dict(original)
             if action["command"] == "book.open_position":
-                action["enabled"] = can_open and not self._workflow.active
+                # The WebView exposes a semantic position control. Native/menu
+                # compatibility may still invoke book.open_position for a Game,
+                # but the browser gets one unambiguous Game-specific action.
+                action["enabled"] = can_open_position and not board_active
                 action["label"] = "Відкрити на шахівниці" if self.language is UILanguage.UA else "Open on board"
+            elif action["command"] == "book.open_game":
+                action["enabled"] = can_open_game and not board_active
             elif action["command"] == "book.return_from_board":
-                action["enabled"] = self._workflow.active
+                action["enabled"] = board_active
             actions.append(action)
         snapshot["actions"] = tuple(actions)
+        snapshot["board_active"] = board_active
         return snapshot
 
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
@@ -77,22 +88,36 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         return True
 
     def open_position(self) -> BookWebViewEvent:
+        announcement = self._result_announcement("opened")
         if not self._workflow_action("book.open_position", BookBoardUiEventKind.BOARD_OPENED):
             return self.generic_error()
         return BookWebViewEvent(
             "delegated",
             {
                 "action": "book.open_position",
-                "announcement": self._result_announcement("opened"),
+                "announcement": announcement,
+            },
+        )
+
+    def open_game(self) -> BookWebViewEvent:
+        announcement = self._result_announcement("game_opened")
+        if not self._workflow_action("book.open_game", BookBoardUiEventKind.BOARD_OPENED):
+            return self.generic_error()
+        return BookWebViewEvent(
+            "delegated",
+            {
+                "action": "book.open_game",
+                "announcement": announcement,
             },
         )
 
     def return_from_board(self) -> BookWebViewEvent:
+        announcement = self._result_announcement("returned")
         if not self._workflow_action("book.return", BookBoardUiEventKind.RETURNED_TO_BOOK):
             return self.generic_error()
         return self._render(
             self._presenter.current(),
-            announcement=self._result_announcement("returned"),
+            announcement=announcement,
         )
 
 

@@ -21,6 +21,31 @@ _MAX_BOOKMARK_NAME = 80
 # complete current semantic block up to that release budget instead of silently
 # truncating reader-visible/copyable content to a small UI preview.
 _MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024
+_MAX_BOOK_LIST_ITEMS = 65536
+_MAX_BOOK_HEADING_PATH_PARTS = 6
+_MAX_JS_SAFE_INTEGER = (1 << 53) - 1
+_BOOK_ROLE_BY_KIND = {
+    "Heading": "heading",
+    "Paragraph": "paragraph",
+    "List": "list",
+    "Position": "group",
+    "Diagram": "img",
+    "Game": "group",
+    "VariationTree": "tree",
+    "Exercise": "group",
+    "Note": "note",
+}
+_POSITION_KINDS = {"Position", "Diagram", "Exercise", "VariationTree"}
+_NAVIGATION_KEYS = {
+    "previous",
+    "next",
+    "previous_heading",
+    "next_heading",
+    "previous_position",
+    "next_position",
+    "previous_game",
+    "next_game",
+}
 
 _LABELS = {
     UILanguage.UA: {
@@ -40,11 +65,13 @@ _LABELS = {
         "save_bookmark": "Зберегти закладку",
         "restore_bookmark": "Відновити закладку",
         "open_position": "Відкрити позицію на дошці",
+        "open_game": "Відкрити партію на дошці",
         "return_from_board": "Повернутися до книги",
         "saved": "Закладку збережено.",
         "restored": "Закладку відновлено.",
         "returned": "Повернуто до місця читання.",
         "opened": "Позицію відкрито на дошці.",
+        "game_opened": "Партію відкрито на дошці.",
         "hidden_path": "[локальний шлях приховано]",
     },
     UILanguage.EN: {
@@ -64,11 +91,13 @@ _LABELS = {
         "save_bookmark": "Save bookmark",
         "restore_bookmark": "Restore bookmark",
         "open_position": "Open position on board",
+        "open_game": "Open game on board",
         "return_from_board": "Return to book",
         "saved": "Bookmark saved.",
         "restored": "Bookmark restored.",
         "returned": "Returned to the reading location.",
         "opened": "Position opened on the board.",
+        "game_opened": "Game opened on the board.",
         "hidden_path": "[local path hidden]",
     },
 }
@@ -100,6 +129,8 @@ def _safe_visible_list_items(
     *,
     language: UILanguage,
 ) -> tuple[str, ...]:
+    if len(values) > _MAX_BOOK_LIST_ITEMS:
+        raise ValueError("book presentation list exceeds the item-count budget")
     rendered: list[str] = []
     total = 0
     for value in values:
@@ -159,7 +190,7 @@ class BookWebViewProjection:
 
     def _result_announcement(self, key: str) -> str:
         """Return one localized deterministic success result for the Books surface."""
-        if key not in {"saved", "restored", "opened", "returned"}:
+        if key not in {"saved", "restored", "opened", "game_opened", "returned"}:
             raise ValueError("unsupported book result announcement")
         return _LABELS[self._language][key]
 
@@ -192,15 +223,32 @@ class BookWebViewProjection:
     def _snapshot_from_block(self, block: BookBlockView) -> dict[str, object]:
         if not isinstance(block, BookBlockView):
             raise TypeError("BookReaderPresenter must return BookBlockView")
-        if type(block.index) is not int or block.index < 0:
+        if (
+            type(block.index) is not int
+            or block.index < 0
+            or block.index > _MAX_JS_SAFE_INTEGER
+        ):
             raise ValueError("book block index is invalid")
         if block.heading_level is not None and (
             type(block.heading_level) is not int or not 1 <= block.heading_level <= 6
         ):
             raise ValueError("book heading level is invalid")
+        if type(block.kind) is not str or block.kind not in _BOOK_ROLE_BY_KIND:
+            raise ValueError("book block kind is invalid")
         role = str(block.role)
-        if role not in {"heading", "paragraph", "img", "group", "tree", "note", "list"}:
-            raise ValueError("book block role is invalid")
+        if role != _BOOK_ROLE_BY_KIND[block.kind]:
+            raise ValueError("book block kind/role is inconsistent")
+        if type(block.heading_path) is not tuple or len(block.heading_path) > _MAX_BOOK_HEADING_PATH_PARTS:
+            raise ValueError("book heading path is invalid")
+        if any(type(part) is not str or not part.strip() for part in block.heading_path):
+            raise ValueError("book heading path is invalid")
+        if block.kind == "Heading":
+            if block.heading_level is None:
+                raise ValueError("book heading block requires a heading level")
+        elif block.heading_level is not None:
+            raise ValueError("non-heading book block contains a heading level")
+        if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
+            raise ValueError("book block position presence disagrees with semantic kind")
         if type(block.list_items) is not tuple or any(
             type(item) is not str or not item.strip() for item in block.list_items
         ):
@@ -208,7 +256,9 @@ class BookWebViewProjection:
         if type(block.list_ordered) is not bool:
             raise ValueError("book list ordered flag is invalid")
         if block.list_start is not None and (
-            type(block.list_start) is not int or block.list_start < 1
+            type(block.list_start) is not int
+            or block.list_start < 1
+            or block.list_start > _MAX_JS_SAFE_INTEGER
         ):
             raise ValueError("book list start is invalid")
         if block.list_start is not None and not block.list_ordered:
@@ -220,6 +270,10 @@ class BookWebViewProjection:
             raise ValueError("non-list book block contains list metadata")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
+        if not isinstance(navigation, Mapping) or set(navigation) != _NAVIGATION_KEYS:
+            raise ValueError("book navigation availability schema is invalid")
+        if any(type(navigation[key]) is not bool for key in _NAVIGATION_KEYS):
+            raise ValueError("book navigation availability flags are invalid")
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
@@ -268,6 +322,7 @@ class BookWebViewProjection:
                 {"command": "book.previous_game", "label": labels["previous_game"], "enabled": navigation["previous_game"]},
                 {"command": "book.next_game", "label": labels["next_game"], "enabled": navigation["next_game"]},
                 {"command": "book.open_position", "label": labels["open_position"], "enabled": block.position_fen is not None},
+                {"command": "book.open_game", "label": labels["open_game"], "enabled": block.kind == "Game"},
                 {"command": "book.return_from_board", "label": labels["return_from_board"], "enabled": True},
             ),
             "bookmark": {
@@ -331,12 +386,24 @@ class BookWebViewProjection:
         return self._render(block, announcement=self._result_announcement("restored"))
 
     def open_position(self) -> BookWebViewEvent:
+        # Complete presentation validation before the irreversible board handoff.
+        # A local announcement/schema failure must never activate Book Board while
+        # the browser receives an error and remains on the reading surface.
+        announcement = self._result_announcement("opened")
         # Presenter supplies FEN directly to the canonical dispatcher. Discard the
         # backend return value and expose no FEN/path/provider payload to WebView.
         self._presenter.open_current_position(self._dispatch)
         return BookWebViewEvent(
             "delegated",
-            {"action": "book.open_position", "announcement": self._result_announcement("opened")},
+            {"action": "book.open_position", "announcement": announcement},
+        )
+
+    def open_game(self) -> BookWebViewEvent:
+        announcement = self._result_announcement("game_opened")
+        self._presenter.open_current_game(self._dispatch)
+        return BookWebViewEvent(
+            "delegated",
+            {"action": "book.open_game", "announcement": announcement},
         )
 
     def return_from_board(self) -> BookWebViewEvent:
