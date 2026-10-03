@@ -76,10 +76,12 @@ class KeymapService:
     def __init__(self, path: str | Path, *, lang: str = "uk") -> None:
         self.path = Path(path)
         recovery = None
+        loaded_profile: Mapping[str, object] | None = None
         if self.path.exists():
             try:
                 profile = _decode_user_keymap_profile(self.path.read_text(encoding="utf-8"))
                 registry = ActionRegistry.from_profile(profile)
+                loaded_profile = dict(profile)
             except Exception:
                 registry = ActionRegistry()
                 recovery = "invalid keymap profile"
@@ -87,6 +89,114 @@ class KeymapService:
             registry = ActionRegistry()
         self.editor = KeymapEditorModel(registry, lang=lang)
         self.recovery_message = recovery
+        self._loaded_profile = loaded_profile
+
+    @staticmethod
+    def _profile_mapping(
+        profile: Mapping[str, object],
+        current_name: str,
+        legacy_name: str,
+    ) -> Mapping[str, object]:
+        value: object
+        if current_name in profile:
+            value = profile[current_name]
+        elif "schema_version" not in profile and legacy_name in profile:
+            value = profile[legacy_name]
+        else:
+            return {}
+        return value if isinstance(value, Mapping) else {}
+
+    @staticmethod
+    def _install_registry_values(target: ActionRegistry, source: ActionRegistry) -> None:
+        """Install one already-validated registry state without transient conflicts."""
+
+        for definition in target.definitions():
+            if definition.external:
+                continue
+            target.set_binding(definition.action_id, None, allow_warnings=True)
+            target.set_alias(definition.action_id, None)
+        for definition in source.definitions():
+            if definition.external:
+                continue
+            target.set_binding(
+                definition.action_id,
+                source.get_binding(definition.action_id),
+                allow_warnings=True,
+            )
+            target.set_alias(definition.action_id, source.get_alias(definition.action_id))
+
+    def rebind_registry(self, registry: ActionRegistry) -> ActionRegistry:
+        """Bind a wider action catalog without dropping persisted successor actions.
+
+        Startup first constructs the Stage 1 API, whose registry intentionally
+        ignores unknown full-product action IDs.  Build and validate the complete
+        desired state before touching the shared Version 2 registry.  This also
+        permits valid same-context swaps because installation starts from cleared
+        bindings instead of passing through a transient duplicate assignment.
+        """
+
+        if not isinstance(registry, ActionRegistry):
+            raise TypeError("keymap registry must be ActionRegistry")
+
+        current = self.editor.registry
+        target_profile = registry.to_profile()
+        bindings = dict(target_profile.get("bindings", {}))
+        aliases = dict(target_profile.get("aliases", {}))
+
+        if self._loaded_profile is not None:
+            persisted = ActionRegistry.from_profile(
+                self._loaded_profile,
+                registry.definitions(),
+            )
+            persisted_bindings = self._profile_mapping(
+                self._loaded_profile,
+                "bindings",
+                "keys",
+            )
+            persisted_aliases = self._profile_mapping(
+                self._loaded_profile,
+                "aliases",
+                "commands",
+            )
+            for action_id in persisted_bindings:
+                try:
+                    registry.definition(action_id)
+                except KeyError:
+                    continue
+                bindings[action_id] = persisted.get_binding(action_id)
+            for action_id in persisted_aliases:
+                try:
+                    registry.definition(action_id)
+                except KeyError:
+                    continue
+                aliases[action_id] = persisted.get_alias(action_id)
+
+        for definition in current.definitions():
+            action_id = definition.action_id
+            try:
+                registry.definition(action_id)
+            except KeyError:
+                continue
+            bindings[action_id] = current.get_binding(action_id)
+            aliases[action_id] = current.get_alias(action_id)
+
+        candidate = ActionRegistry(
+            registry.definitions(),
+            bindings=bindings,
+            aliases=aliases,
+        )
+        blocking = tuple(
+            item for item in candidate.validate() if item.severity == "error"
+        )
+        if blocking:
+            raise ValueError(
+                "invalid keymap registry rebind: "
+                + "; ".join(item.message for item in blocking)
+            )
+
+        self._install_registry_values(registry, candidate)
+        self.editor.registry = registry
+        return registry
 
     def snapshot(self) -> dict[str, Any]:
         data = build_web_keymap(self.editor.registry)
@@ -305,6 +415,7 @@ class KeymapService:
 
     def _persist(self) -> None:
         self.editor.registry.save(self.path)
+        self._loaded_profile = self.editor.registry.to_profile()
         self.recovery_message = None
 
     def _capture_control(self, reason: str, key: str) -> dict[str, Any]:
