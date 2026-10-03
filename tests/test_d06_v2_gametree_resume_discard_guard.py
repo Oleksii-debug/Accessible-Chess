@@ -516,6 +516,131 @@ class D06GameTreeResumeDiscardGuardTests(unittest.TestCase):
         self.assertFalse(claimed_guard.exists())
         self.assertEqual(newcomer.read_bytes(), b"new-control-state")
 
+    def test_guard_replaced_during_quarantine_is_preserved_and_rejected(self) -> None:
+        state = GameTreeResumeStore(self.resume_path).save(
+            self.game,
+            GameTreeCursor((), 1),
+        )
+        claimed_bytes = self.resume_path.read_bytes()
+        competing_path, _, competing_bytes = self._state_file(
+            "competing.json",
+            GameTreeCursor((), 3),
+        )
+        self.guard_dir.mkdir()
+        guard = self.guard_dir / f"{state.token}.guard"
+        os.replace(self.resume_path, guard)
+        displaced = self.root / "displaced-claimed.guard"
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+        original_replace = resume_module.os.replace
+        swapped = False
+
+        def replace_with_guard_swap(source, destination):
+            nonlocal swapped
+            source_path = Path(source)
+            destination_path = Path(destination)
+            if (
+                not swapped
+                and source_path == guard
+                and destination_path.name.endswith(
+                    resume_module._DISCARD_TOMBSTONE_SUFFIX
+                )
+            ):
+                swapped = True
+                original_replace(guard, displaced)
+                original_replace(competing_path, guard)
+            return original_replace(source, destination)
+
+        with mock.patch.object(
+            resume_module.os,
+            "replace",
+            side_effect=replace_with_guard_swap,
+        ):
+            self.assertFalse(coordinator.restore(application))
+
+        self.assertTrue(swapped)
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.STALE_WRITER,
+        )
+        self.assertEqual(displaced.read_bytes(), claimed_bytes)
+        tombstones = tuple(self.guard_dir.iterdir())
+        self.assertEqual(len(tombstones), 1)
+        self.assertTrue(
+            tombstones[0].name.endswith(resume_module._DISCARD_TOMBSTONE_SUFFIX)
+        )
+        self.assertEqual(tombstones[0].read_bytes(), competing_bytes)
+
+    def test_crash_left_claimed_tombstone_completes_confirmed_discard(self) -> None:
+        state = GameTreeResumeStore(self.resume_path).save(
+            self.game,
+            GameTreeCursor((), 1),
+        )
+        self.guard_dir.mkdir()
+        tombstone = self.guard_dir / (
+            f"{state.token}.{'a' * resume_module._DISCARD_TOMBSTONE_NONCE_HEX}"
+            f"{resume_module._DISCARD_TOMBSTONE_SUFFIX}"
+        )
+        os.replace(self.resume_path, tombstone)
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertFalse(coordinator.restore(application))
+        self.assertFalse(coordinator.disabled)
+        self.assertFalse(self.resume_path.exists())
+        self.assertFalse(self.guard_dir.exists())
+
+    def test_crash_left_raced_tombstone_is_restored_and_loaded(self) -> None:
+        old_path, old_token, _ = self._state_file(
+            "old.json",
+            GameTreeCursor((), 1),
+        )
+        old_path.unlink()
+        newer_path, newer_token, newer_bytes = self._state_file(
+            "newer.json",
+            GameTreeCursor((), 3),
+        )
+        self.guard_dir.mkdir()
+        tombstone = self.guard_dir / (
+            f"{old_token}.{'b' * resume_module._DISCARD_TOMBSTONE_NONCE_HEX}"
+            f"{resume_module._DISCARD_TOMBSTONE_SUFFIX}"
+        )
+        os.replace(newer_path, tombstone)
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertTrue(coordinator.restore(application))
+        self.assertFalse(coordinator.disabled)
+        self.assertEqual(coordinator.token, newer_token)
+        self.assertEqual(self.resume_path.read_bytes(), newer_bytes)
+        self.assertFalse(self.guard_dir.exists())
+
+    def test_republished_identical_canonical_survives_claimed_tombstone_cleanup(self) -> None:
+        state = GameTreeResumeStore(self.resume_path).save(
+            self.game,
+            GameTreeCursor((), 1),
+        )
+        original = self.resume_path.read_bytes()
+        self.guard_dir.mkdir()
+        tombstone = self.guard_dir / (
+            f"{state.token}.{'c' * resume_module._DISCARD_TOMBSTONE_NONCE_HEX}"
+            f"{resume_module._DISCARD_TOMBSTONE_SUFFIX}"
+        )
+        tombstone.write_bytes(original)
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertTrue(coordinator.restore(application))
+        self.assertFalse(coordinator.disabled)
+        self.assertEqual(coordinator.token, state.token)
+        self.assertEqual(self.resume_path.read_bytes(), original)
+        self.assertFalse(self.guard_dir.exists())
+
     def test_empty_guard_directory_is_cleaned_without_creating_resume(self) -> None:
         self.guard_dir.mkdir()
         application = _Application()
