@@ -546,6 +546,43 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertFalse(os.path.lexists(staged_root))
             self.assertEqual("keep", sentinel.read_text(encoding="utf-8"))
 
+    def test_staging_topology_growth_after_verification_blocks_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            real_verify = store._verify_version
+            injected = False
+
+            def verify_then_grow(version_dir, **kwargs):
+                nonlocal injected
+                result = real_verify(version_dir, **kwargs)
+                if (
+                    not injected
+                    and Path(version_dir).name.startswith(
+                        f".{manifest.pack_id}-{manifest.version}-"
+                    )
+                ):
+                    injected = True
+                    (Path(version_dir) / "unexpected-a").mkdir()
+                    (Path(version_dir) / "unexpected-b").mkdir()
+                return result
+
+            with mock.patch.object(
+                store,
+                "_verify_version",
+                side_effect=verify_then_grow,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "topology exceeds the resource limit",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertTrue(injected)
+            self.assertIsNone(store.active_version(manifest.pack_id))
+            self.assertEqual((), store.versions(manifest.pack_id))
+
     def test_staging_directory_tree_is_flushed_before_version_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
