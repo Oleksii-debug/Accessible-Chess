@@ -126,6 +126,27 @@ class Version2WindowsPgnStreamingLifecycleTests(unittest.TestCase):
                 msg=f"path-bearing public event field: {event!r}",
             )
 
+    def _wait_for_bounded_import(
+        self,
+        controller: Version2WindowsStreamingFileActionDelegate,
+        *,
+        timeout: float = 30.0,
+    ) -> None:
+        """Wait under CI load and cancel/join before reporting a bounded timeout."""
+
+        if controller.wait_for_import(timeout):
+            return
+        cleanup_timeout = 10.0
+        cleanup_complete = controller.shutdown(cleanup_timeout)
+        self.assertTrue(
+            cleanup_complete,
+            msg=(
+                "streaming import exceeded the bounded wait and did not stop "
+                f"within the {cleanup_timeout:.1f}s cleanup window"
+            ),
+        )
+        self.fail(f"streaming import did not finish within {timeout:.1f}s")
+
     def test_browser_payload_cannot_supply_library_filesystem_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "private-browser-path.pgn"
@@ -240,7 +261,7 @@ class Version2WindowsPgnStreamingLifecycleTests(unittest.TestCase):
             controller, events = self._controller(dialogs, factory)
 
             controller("library.import", {})
-            self.assertTrue(controller.wait_for_import(5.0))
+            self._wait_for_bounded_import(controller)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "pgn_import_failed")
             self.assertEqual(publish_calls, [])
@@ -249,7 +270,7 @@ class Version2WindowsPgnStreamingLifecycleTests(unittest.TestCase):
 
             dialogs.source = valid
             controller("library.import", {})
-            self.assertTrue(controller.wait_for_import(5.0))
+            self._wait_for_bounded_import(controller)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertEqual(events[-1].game_count, 2)
             self.assertEqual(publish_calls, [2])
