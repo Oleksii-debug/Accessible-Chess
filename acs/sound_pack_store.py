@@ -703,6 +703,10 @@ class FilesystemSoundPackStore:
                 self._mutation_lock_path,
                 "sound pack storage mutation lock",
             )
+            if int(getattr(existing, "st_nlink", 1)) != 1:
+                raise SoundPackStoreError(
+                    "sound pack storage mutation lock must not be hard-linked"
+                )
 
         flags = os.O_RDWR | os.O_CREAT
         flags |= getattr(os, "O_BINARY", 0)
@@ -722,6 +726,7 @@ class FilesystemSoundPackStore:
                 stat.S_ISLNK(metadata.st_mode)
                 or _is_reparse_point(metadata)
                 or not stat.S_ISREG(metadata.st_mode)
+                or int(getattr(metadata, "st_nlink", 1)) != 1
             ):
                 raise SoundPackStoreError(
                     "sound pack storage mutation lock is not a regular file"
