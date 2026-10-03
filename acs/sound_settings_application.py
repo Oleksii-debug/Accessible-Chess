@@ -326,6 +326,14 @@ class SoundSettingsApplication:
                 ):
                     rights = entry.rights_evidence
                 catalog_rights = entry.rights_evidence
+                projected_state = status.state.value
+                if (
+                    installed_manifest is not None
+                    and installed_manifest == manifest
+                    and stored_rights is not None
+                    and stored_rights != catalog_rights
+                ):
+                    projected_state = "rights_conflict"
                 represented.add(manifest.pack_id)
                 packs.append(
                     {
@@ -353,7 +361,7 @@ class SoundSettingsApplication:
                         "compatible": entry.compatible,
                         "installed_compatible": installed_compatible,
                         "installed_version": status.installed_version,
-                        "state": status.state.value,
+                        "state": projected_state,
                         "active": profile.pack_id == manifest.pack_id,
                         "can_install": catalog_rights is not None
                         and status.state
