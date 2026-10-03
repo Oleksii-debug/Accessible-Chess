@@ -246,6 +246,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
             games = parse_pgn_text(source, strict=False)
         self.assertEqual(len(games), 1)
 
+    def test_literal_double_brace_cannot_hide_next_game_header_limits(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 {{literal}\n'
+            '[Event "abcdef"]\n'
+            '[Result "*"]\n\n'
+            '1. d4 } *\n'
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_TAG_VALUE_CHARS", 5):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+                strict=False,
+            )
+
     def test_tag_field_limit_runs_before_game_framer_allocation(self):
         source = '[Event "abcdef"]\n[Result "*"]\n\n1. e4 *'
         with (
