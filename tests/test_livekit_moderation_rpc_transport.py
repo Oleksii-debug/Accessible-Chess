@@ -32,6 +32,7 @@ RPC_TRANSPORT_WORKFLOW = (
 ROOM = "room-1"
 SERVICE_ID = "moderation-service"
 CALLER = "teacher-1"
+_UNSET = object()
 
 
 class FakeRpcError(Exception):
@@ -75,7 +76,7 @@ class ParsingService:
     def __init__(self):
         self.calls = []
         self.unexpected_error = None
-        self.response_override = None
+        self.response_override = _UNSET
 
     async def handle_rpc(
         self,
@@ -92,7 +93,7 @@ class ParsingService:
             trusted_room_id=trusted_room_id,
             trusted_caller_identity=trusted_caller_identity,
         )
-        if self.response_override is not None:
+        if self.response_override is not _UNSET:
             return self.response_override
         return json.dumps(
             {
@@ -156,13 +157,13 @@ class LiveKitModerationRpcTransportTests(unittest.IsolatedAsyncioTestCase):
             self.transport = transport
         return transport
 
-    async def invoke(self, *, caller=CALLER, wire=None):
+    async def invoke(self, *, caller=CALLER, wire=_UNSET):
         handler = self.participant.handlers[MODERATION_RPC_METHOD]
         return await handler(
             SimpleNamespace(
                 request_id="request-1",
                 caller_identity=caller,
-                payload=payload() if wire is None else wire,
+                payload=payload() if wire is _UNSET else wire,
                 response_timeout=5.0,
                 method=MODERATION_RPC_METHOD,
             )
