@@ -422,6 +422,52 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
                 .publish_allowed
             )
 
+    def test_runtime_chunk_progress_does_not_materialize_full_plan(self):
+        _controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_publish_permission(
+            actor_id="teacher-1",
+            source=MediaSource.CAMERA,
+            allowed=False,
+            operation_id="large-lock-addressed",
+        )
+
+        with mock.patch.object(
+            MediaProviderEffect,
+            "browser_payloads",
+            side_effect=AssertionError("runtime must not build the full plan"),
+        ):
+            first = host.pending_browser_payload
+            self.assertEqual(first["chunk_index"], 0)
+            self.assertEqual(len(first["commands"]), 24)
+            self.assertIsNone(
+                host.acknowledge_provider_chunk_success(
+                    effect.transaction_id,
+                    0,
+                )
+            )
+            second = host.pending_browser_payload
+            self.assertEqual(second["chunk_index"], 1)
+            self.assertEqual(len(second["commands"]), 24)
+            self.assertIsNone(
+                host.acknowledge_provider_chunk_success(
+                    effect.transaction_id,
+                    1,
+                )
+            )
+            third = host.pending_browser_payload
+            self.assertEqual(third["chunk_index"], 2)
+            self.assertEqual(len(third["commands"]), 12)
+            committed = host.acknowledge_provider_chunk_success(
+                effect.transaction_id,
+                2,
+            )
+
+        self.assertEqual(len(committed), 60)
+        self.assertIsNone(host.pending_browser_payload)
+
     def test_multi_chunk_effect_cannot_commit_through_single_call_helper(self):
         controller, _roster, _session, _port, host = self.make_host(
             "teacher-1",
