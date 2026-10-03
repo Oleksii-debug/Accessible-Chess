@@ -141,19 +141,33 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
         variants: dict[str, list[dict[str, str]]] = {}
         selected: dict[str, str] = {}
+        event_enabled: dict[str, bool] = {}
+        event_volumes: dict[str, int] = {}
         for event in SoundEvent:
             options = self._sound_variant_options(event)
             variants[event.value] = list(options)
             available = {item["id"] for item in options}
             choice = "1"
+            enabled_for_event = True
+            volume_for_event = 100
             if self._settings is not None:
                 try:
                     choice = str(
                         self._settings.get(f"sound_{event.value}_variant", "1")
                     )
+                    enabled_for_event = bool(
+                        self._settings.get(f"sound_{event.value}_enabled", True)
+                    )
+                    volume_for_event = int(
+                        self._settings.get(f"sound_{event.value}_volume", 100)
+                    )
                 except Exception:
                     choice = "1"
+                    enabled_for_event = True
+                    volume_for_event = 100
             selected[event.value] = choice if choice in available else "1"
+            event_enabled[event.value] = enabled_for_event
+            event_volumes[event.value] = max(0, min(100, volume_for_event))
 
         return {
             "enabled": enabled,
@@ -166,6 +180,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "events": [event.value for event in SoundEvent],
             "variants": variants,
             "selectedVariants": selected,
+            "eventEnabled": event_enabled,
+            "eventVolumes": event_volumes,
         }
 
     def get_sound_settings(self) -> dict[str, Any]:
@@ -218,6 +234,91 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "message": self._sound_message(
                 f"Вибрано варіант {variant_id}.",
                 f"Variant {variant_id} selected.",
+            ),
+        }
+
+    def set_sound_event_enabled(self, event_id: str, enabled: bool) -> dict[str, Any]:
+        try:
+            event = SoundEvent(str(event_id))
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message("Невідомий звук.", "Unknown sound."),
+            }
+        if not isinstance(enabled, bool) or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося змінити цей звук.",
+                    "This sound setting could not be changed.",
+                ),
+            }
+        try:
+            self._settings.set(f"sound_{event.value}_enabled", enabled)
+            if not enabled:
+                self._stop_current_sound()
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти налаштування цього звуку.",
+                    "This sound setting could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Цей звук увімкнено." if enabled else "Цей звук вимкнено.",
+                "This sound is enabled." if enabled else "This sound is disabled.",
+            ),
+        }
+
+    def set_sound_event_volume(self, event_id: str, volume: int) -> dict[str, Any]:
+        try:
+            event = SoundEvent(str(event_id))
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message("Невідомий звук.", "Unknown sound."),
+            }
+        if (
+            isinstance(volume, bool)
+            or not isinstance(volume, int)
+            or not 0 <= volume <= 100
+            or self._settings is None
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Гучність цього звуку має бути від 0 до 100.",
+                    "This sound volume must be from 0 to 100.",
+                ),
+            }
+        try:
+            self._settings.set(f"sound_{event.value}_volume", volume)
+            if volume == 0:
+                self._stop_current_sound()
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти гучність цього звуку.",
+                    "This sound volume could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                f"Гучність цього звуку {volume} відсотків.",
+                f"This sound volume is {volume} percent.",
             ),
         }
 
