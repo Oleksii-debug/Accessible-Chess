@@ -454,6 +454,11 @@ async function run() {
   const restoredMicSelect = deviceRoot.querySelector(
     "#classroom-media-device-microphone"
   );
+  assert.equal(
+    restoredMicSelect.value,
+    "",
+    "a device that disappeared must not be claimed active merely because it returned"
+  );
   restoredMicSelect.focus();
   deviceEnumerationMode = "failure";
   refresh.click();
