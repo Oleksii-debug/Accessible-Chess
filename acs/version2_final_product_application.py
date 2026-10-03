@@ -20,7 +20,7 @@ from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
 from .education_workspace_store import EducationWorkspaceStore
-from .full_product_ui_shell import UILanguage
+from .full_product_ui_shell import ROUTES, UILanguage
 from .library_export_workspace import build_library_export_webview
 from .search_service import GameSearchQuery
 from .teacher_webview_bridge import TeacherWebViewBridge
@@ -471,7 +471,22 @@ class Version2FinalProductApplication(Version2Application):
 
     def _education_browser_snapshot(self) -> dict[str, object] | None:
         if self.education is None:
-            return None
+            if self.collaboration is None:
+                return None
+            classes_heading = next(
+                route.label(self.shell.language)
+                for route in ROUTES
+                if route.route_id == "classes"
+            )
+            return {
+                "document": {
+                    "lang": self.shell.language.value,
+                    "heading": classes_heading,
+                },
+                "sections": (),
+                "detail": None,
+                "collaboration": self.collaboration.safe_snapshot(),
+            }
         snapshot = dict(self.education.projection.snapshot())
         if self.collaboration is not None:
             snapshot["collaboration"] = self.collaboration.safe_snapshot()
