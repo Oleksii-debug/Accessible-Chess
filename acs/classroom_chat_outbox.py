@@ -90,8 +90,8 @@ class SecretStoreChatOutbox:
             )
         except ChatOutboxError:
             raise
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ChatOutboxError("chat outbox document is malformed") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ChatOutboxError("chat outbox document is malformed") from None
         if type(value) is not dict or set(value) != {
             "v",
             "room_id",
@@ -137,10 +137,10 @@ class SecretStoreChatOutbox:
     def _read(self) -> tuple[ChatDraft, ...]:
         try:
             raw = self.secret_store.read(self.slot_name)
-        except Exception as exc:
-            if isinstance(exc, ChatOutboxError):
-                raise
-            raise ChatOutboxError("chat outbox cannot be read safely") from exc
+        except ChatOutboxError:
+            raise
+        except Exception:
+            raise ChatOutboxError("chat outbox cannot be read safely") from None
         return self._decode(raw)
 
     def _write(self, entries: tuple[ChatDraft, ...]) -> None:
@@ -149,8 +149,8 @@ class SecretStoreChatOutbox:
         if not entries:
             try:
                 self.secret_store.delete(self.slot_name)
-            except Exception as exc:
-                raise ChatOutboxError("chat outbox cannot be cleared safely") from exc
+            except Exception:
+                raise ChatOutboxError("chat outbox cannot be cleared safely") from None
             return
         document = {
             "v": _SCHEMA_VERSION,
@@ -175,10 +175,8 @@ class SecretStoreChatOutbox:
             raise ChatOutboxError("chat outbox document exceeds size limit")
         try:
             self.secret_store.write(self.slot_name, raw)
-        except SecretStoreError as exc:
-            raise ChatOutboxError("chat outbox cannot be persisted safely") from exc
-        except Exception as exc:
-            raise ChatOutboxError("chat outbox cannot be persisted safely") from exc
+        except (SecretStoreError, Exception):
+            raise ChatOutboxError("chat outbox cannot be persisted safely") from None
 
     def entries(self) -> tuple[ChatDraft, ...]:
         return self._read()
