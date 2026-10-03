@@ -103,6 +103,7 @@ def normalize_binding(value: str | None) -> str | None:
         "win": "Win",
         "windows": "Win",
         "meta": "Win",
+        "nvda": "NVDA",
         "escape": "Escape",
         "esc": "Escape",
         "spacebar": "Space",
@@ -125,7 +126,7 @@ def normalize_binding(value: str | None) -> str | None:
     key = None
     for token in tokens:
         canonical = aliases.get(token.casefold())
-        if canonical in {"Ctrl", "Shift", "Alt", "Win"}:
+        if canonical in {"Ctrl", "Shift", "Alt", "Win", "NVDA"}:
             if canonical not in modifiers:
                 modifiers.append(canonical)
             continue
@@ -143,7 +144,7 @@ def normalize_binding(value: str | None) -> str | None:
     if key is None:
         raise ValueError(f"binding must contain a non-modifier key: {value!r}")
 
-    order = ["Ctrl", "Alt", "Shift", "Win"]
+    order = ["Ctrl", "Alt", "Shift", "Win", "NVDA"]
     modifiers.sort(key=order.index)
     return "+".join([*modifiers, key])
 
@@ -340,7 +341,8 @@ class ActionRegistry:
                 "webview_reserved", action_id, None, definition.context, normalized,
                 f"{normalized} is commonly reserved by WebView/browser behavior", "warning"
             ))
-        if normalized in _LIKELY_NVDA or normalized.startswith("NVDA+"):
+        normalized_tokens = normalized.split("+")
+        if normalized in _LIKELY_NVDA or "NVDA" in normalized_tokens[:-1]:
             result.append(Conflict(
                 "nvda_likely", action_id, None, definition.context, normalized,
                 f"{normalized} is likely to conflict with NVDA", "warning"
