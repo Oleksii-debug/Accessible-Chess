@@ -120,6 +120,114 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         data.extend(payload_bytes)
         return bytes(data)
 
+    def _enable_inventory_sound_pack(self) -> tuple[int, str, Path]:
+        manifest_path = self.sounds / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        provenance = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
+
+        library = self.sounds / "library"
+        library.mkdir()
+        moved: dict[str, str] = {}
+        for file_name in sorted(set(manifest["files"].values()), key=str.casefold):
+            source = self.sounds / file_name
+            destination = library / file_name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.replace(destination)
+            moved[file_name] = f"library/{file_name}"
+
+        for event in SoundEvent:
+            old_name = manifest["files"][event.value]
+            new_name = moved[old_name]
+            manifest["files"][event.value] = new_name
+            provenance["events"][event.value]["file"] = new_name
+            provenance["events"][event.value]["sha256"] = self._digest(
+                self.sounds / new_name
+            )
+
+        alt = library / "move-alt.wav"
+        self._write_wav(alt, sample=777)
+        variants = {
+            "schema_version": 1,
+            "events": {
+                event.value: [
+                    {
+                        "id": "1",
+                        "file": manifest["files"][event.value],
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+                for event in SoundEvent
+            },
+        }
+        variants["events"][SoundEvent.MOVE.value].append(
+            {
+                "id": "2",
+                "file": "library/move-alt.wav",
+                "label_uk": "Хід 2",
+                "label_en": "Move 2",
+            }
+        )
+        (self.sounds / "variants.json").write_text(
+            json.dumps(variants, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        (self.sounds / "layers.json").write_text(
+            json.dumps({"schema_version": 1, "events": {}}, sort_keys=True),
+            encoding="utf-8",
+        )
+        manifest_path.write_text(
+            json.dumps(manifest, sort_keys=True),
+            encoding="utf-8",
+        )
+        self.sound_provenance.write_text(
+            json.dumps(provenance, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        entries: list[dict[str, object]] = []
+        fingerprint_rows: list[bytes] = []
+        for path in sorted(
+            (item for item in library.rglob("*") if item.is_file() and item.suffix.casefold() == ".wav"),
+            key=lambda item: item.relative_to(library).as_posix().casefold(),
+        ):
+            relative = path.relative_to(library).as_posix()
+            digest = self._digest(path)
+            with wave.open(str(path), "rb") as reader:
+                frames = reader.getnframes()
+                rate = reader.getframerate()
+                entries.append(
+                    {
+                        "file": f"library/{relative}",
+                        "sha256": digest,
+                        "bytes": path.stat().st_size,
+                        "channels": reader.getnchannels(),
+                        "sample_width_bytes": reader.getsampwidth(),
+                        "sample_rate": rate,
+                        "frames": frames,
+                        "duration_seconds": round(frames / rate, 6),
+                        "compression": reader.getcomptype(),
+                    }
+                )
+            fingerprint_rows.append(
+                f"{relative}\0{digest}\n".encode("utf-8")
+            )
+        inventory_sha = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+        inventory = {
+            "schema_version": 1,
+            "source": payload._USER_SOUND_SOURCE,
+            "license_id": payload._USER_SOUND_LICENSE_ID,
+            "creator": payload._USER_SOUND_CREATOR,
+            "file_count": len(entries),
+            "source_inventory_sha256": inventory_sha,
+            "files": entries,
+        }
+        (self.sounds / "inventory.json").write_text(
+            json.dumps(inventory, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        return len(entries), inventory_sha, alt
+
     def _write_stockfish_archive(
         self,
         path: Path,
@@ -530,6 +638,63 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             packaged_manifest["files"][source_event],
             packaged_manifest["files"][alias_event],
         )
+
+    def test_extended_sound_inventory_is_published_and_binds_runtime_variants(self) -> None:
+        count, inventory_sha, alt = self._enable_inventory_sound_pack()
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+        ):
+            result = self._prepare(self.root / "payload-inventory")
+
+        packaged_root = result.product_dir / "assets" / "sounds"
+        self.assertTrue((packaged_root / "inventory.json").is_file())
+        self.assertTrue((packaged_root / "variants.json").is_file())
+        self.assertTrue((packaged_root / "layers.json").is_file())
+        self.assertEqual(
+            self._digest(packaged_root / "library" / "move-alt.wav"),
+            self._digest(alt),
+        )
+
+        notice_path = result.notices_dir / "SOUND_INVENTORY.json"
+        self.assertTrue(notice_path.is_file())
+        notice = json.loads(notice_path.read_text(encoding="utf-8"))
+        self.assertEqual(notice["file_count"], count)
+        self.assertEqual(notice["source_inventory_sha256"], inventory_sha)
+        self.assertIn(
+            "library/move-alt.wav",
+            {entry["file"] for entry in notice["files"]},
+        )
+
+    def test_non_default_variant_valid_pcm_substitution_fails_inventory_binding(self) -> None:
+        count, inventory_sha, alt = self._enable_inventory_sound_pack()
+        self._write_wav(alt, sample=778)
+        output = self.root / "payload-inventory-tamper"
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+            self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "sound inventory SHA-256 mismatch",
+            ),
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_variant_catalog_without_inventory_fails_atomically(self) -> None:
+        count, inventory_sha, _alt = self._enable_inventory_sound_pack()
+        (self.sounds / "inventory.json").unlink()
+        output = self.root / "payload-inventory-missing"
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+            self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "requires canonical sound inventory",
+            ),
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
 
     def test_layered_sound_assets_are_packaged_and_malformed_layers_fail_atomically(self) -> None:
         impact = self.sounds / "move-hit.wav"
