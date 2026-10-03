@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_board_workflow import BookBoardWorkflow
 from acs.book_progress_store import BookProgressStore
@@ -14,6 +16,7 @@ from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.version2_book_workspace import build_version2_book_webview
 from acs.version2_profile import build_version2_router, build_version2_shell
+from acs.version2_starter_content_application import Version2StarterContentApplication
 from acs.version2_windows_book_board_adapter import (
     BookBoardUiEvent,
     BookBoardUiEventKind,
@@ -202,6 +205,63 @@ class Version2BookWorkspaceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             bridge.projection._snapshot_from_block(view)
+
+
+    def test_starter_material_render_failure_does_not_publish_or_persist_staged_book(self):
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-books-render-atomic-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    booklet = next(
+                        item
+                        for item in catalogue["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    )
+                    staged_key = app._starter_book_key(booklet["material_id"])
+                    self.assertFalse(app.progress_store.has(staged_key))
+
+                    before_reader = app.reader
+                    before_books = app.books
+                    before_workflow = app.book_workflow
+                    before_delegate = app.book_delegate
+                    before_key = app.book_key
+                    before_material = catalogue["current_id"]
+
+                    with patch(
+                        "acs.version2_book_workspace.Version2BookWebViewProjection.snapshot",
+                        side_effect=RuntimeError("simulated staged render failure"),
+                    ):
+                        result = app.browser_command(
+                            "books",
+                            "book.open_starter_material",
+                            {"material_id": booklet["material_id"]},
+                        )
+
+                    self.assertEqual("error", result["kind"])
+                    self.assertIs(before_reader, app.reader)
+                    self.assertIs(before_books, app.books)
+                    self.assertIs(before_workflow, app.book_workflow)
+                    self.assertIs(before_delegate, app.book_delegate)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_material, app._starter_current_material_id)
+                    self.assertFalse(app.progress_store.has(staged_key))
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
 
 
 if __name__ == "__main__":
