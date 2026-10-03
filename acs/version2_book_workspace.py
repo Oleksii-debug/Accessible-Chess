@@ -8,7 +8,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from .book_board_workflow import BookBoardWorkflow, BookBoardWorkflowError
+from .book_board_workflow import (
+    BookBoardWorkflow,
+    BookBoardWorkflowCode,
+    BookBoardWorkflowError,
+)
 from .book_webview_bridge import BookWebViewBridge
 from .book_webview_projection import (
     BookWebViewEvent,
@@ -97,7 +101,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                         raise _BookSemanticProjectionError("semantic GameTree item limit exceeded")
                     stack.append((variation, move_depth + 2))
 
-        view = PgnTreePresenter((game,), language=self.language).view()
+        try:
+            view = PgnTreePresenter((game,), language=self.language).view()
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+            raise _BookSemanticProjectionError(
+                "semantic GameTree presenter data is invalid"
+            ) from exc
         if view.game_index != 0 or type(view.items) is not tuple:
             raise _BookSemanticProjectionError("semantic GameTree view is unavailable")
         if len(view.items) > _MAX_BOOK_SEMANTIC_ITEMS:
@@ -206,13 +215,25 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
         rendered_items: list[dict[str, object]] = []
         seen: dict[str, int] = {}
+        active_ancestor_indices: list[int] = []
+        previous_depth = 0
         for position, item in enumerate(view.items):
             if item.kind not in {"move", "variation"}:
                 raise _BookSemanticProjectionError("semantic item kind is invalid")
             if type(item.depth) is not int or not 0 <= item.depth <= _MAX_BOOK_SEMANTIC_DEPTH:
                 raise _BookSemanticProjectionError("semantic item depth is invalid")
+            if (
+                (item.kind == "move" and item.depth % 2 != 0)
+                or (item.kind == "variation" and item.depth % 2 != 1)
+            ):
+                raise _BookSemanticProjectionError("semantic item kind/depth is inconsistent")
+            if position == 0 and item.depth != 0:
+                raise _BookSemanticProjectionError("semantic root depth is invalid")
+            if position > 0 and item.depth > previous_depth + 1:
+                raise _BookSemanticProjectionError("semantic item depth jumps unexpectedly")
             if type(item.node_id) is not str or not item.node_id or item.node_id in seen:
                 raise _BookSemanticProjectionError("semantic item identity is invalid")
+
             if item.depth == 0:
                 if item.parent_id is not None:
                     raise _BookSemanticProjectionError("semantic root parent is invalid")
@@ -223,10 +244,84 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 parent_index = seen[item.parent_id]
                 if rendered_items[parent_index]["depth"] != item.depth - 1:
                     raise _BookSemanticProjectionError("semantic parent depth is inconsistent")
+                if (
+                    len(active_ancestor_indices) < item.depth
+                    or active_ancestor_indices[item.depth - 1] != parent_index
+                ):
+                    raise _BookSemanticProjectionError(
+                        "semantic parent does not match active ancestry"
+                    )
+                parent_kind = rendered_items[parent_index]["kind"]
+                expected_parent_kind = "move" if item.kind == "variation" else "variation"
+                if parent_kind != expected_parent_kind:
+                    raise _BookSemanticProjectionError("semantic parent kind is invalid")
 
-            item_result = item.result or ""
-            if item_result and item_result not in _BOOK_SEMANTIC_RESULTS:
-                raise _BookSemanticProjectionError("semantic variation result is invalid")
+            if item.kind == "move":
+                if (
+                    type(item.comments) is not tuple
+                    or type(item.comments_before) is not tuple
+                    or type(item.comments_after) is not tuple
+                    or type(item.trailing_comments) is not tuple
+                ):
+                    raise _BookSemanticProjectionError("semantic move comment slots are invalid")
+                if item.comments != item.comments_before + item.comments_after:
+                    raise _BookSemanticProjectionError(
+                        "semantic move comment aggregate is inconsistent"
+                    )
+                if item.trailing_comments:
+                    raise _BookSemanticProjectionError(
+                        "semantic move unexpectedly carries line trailing comments"
+                    )
+                if item.result is not None:
+                    raise _BookSemanticProjectionError(
+                        "semantic move unexpectedly carries a line result"
+                    )
+                leading_comments: tuple[str, ...] = ()
+                comments_before = safe_many(item.comments_before)
+                comments_after = safe_many(item.comments_after)
+                trailing_comments: tuple[str, ...] = ()
+                item_result = safe(
+                    "",
+                    max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+                )
+            else:
+                if (
+                    type(item.comments) is not tuple
+                    or type(item.comments_before) is not tuple
+                    or type(item.comments_after) is not tuple
+                    or type(item.trailing_comments) is not tuple
+                ):
+                    raise _BookSemanticProjectionError(
+                        "semantic variation comment slots are invalid"
+                    )
+                if item.comments_before or item.comments_after:
+                    raise _BookSemanticProjectionError(
+                        "semantic variation unexpectedly carries move comment slots"
+                    )
+                leading_comments = safe_many(item.comments)
+                comments_before = ()
+                comments_after = ()
+                trailing_comments = safe_many(item.trailing_comments)
+                if item.result is None:
+                    item_result = safe(
+                        "",
+                        max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+                    )
+                else:
+                    if type(item.result) is not str:
+                        raise _BookSemanticProjectionError(
+                            "semantic variation result is invalid"
+                        )
+                    item_result = safe(
+                        item.result,
+                        allow_empty=False,
+                        max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+                    )
+                    if item_result not in _BOOK_SEMANTIC_RESULTS:
+                        raise _BookSemanticProjectionError(
+                            "semantic variation result is invalid"
+                        )
+
             rendered_items.append(
                 {
                     "kind": item.kind,
@@ -237,17 +332,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                         allow_empty=False,
                         max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
                     ),
-                    "leading_comments": safe_many(item.comments) if item.kind == "variation" else (),
-                    "comments_before": safe_many(item.comments_before),
-                    "comments_after": safe_many(item.comments_after),
-                    "trailing_comments": safe_many(item.trailing_comments),
-                    "result": safe(
-                        item_result,
-                        max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
-                    ),
+                    "leading_comments": leading_comments,
+                    "comments_before": comments_before,
+                    "comments_after": comments_after,
+                    "trailing_comments": trailing_comments,
+                    "result": item_result,
                 }
             )
             seen[item.node_id] = position
+            del active_ancestor_indices[item.depth :]
+            active_ancestor_indices.append(position)
+            previous_depth = item.depth
 
         return {
             "kind": mode.value,
@@ -275,7 +370,20 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if isinstance(semantic, (Game, VariationTree)):
             try:
                 snapshot["semantic_tree"] = self._semantic_tree_snapshot(block.index)
-            except (BookBoardWorkflowError, _BookSemanticProjectionError, AttributeError, TypeError, ValueError):
+            except BookBoardWorkflowError as error:
+                if error.code not in {
+                    BookBoardWorkflowCode.CONTENT_UNAVAILABLE,
+                    BookBoardWorkflowCode.INVALID_GAME,
+                    BookBoardWorkflowCode.INVALID_POSITION,
+                }:
+                    raise
+                snapshot["semantic_tree"] = None
+                snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["unavailable"]
+                if isinstance(semantic, Game):
+                    can_open_game = False
+                else:
+                    can_open_position = False
+            except (_BookSemanticProjectionError, AttributeError, TypeError, ValueError):
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["unavailable"]
         actions = []
