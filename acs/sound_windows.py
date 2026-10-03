@@ -368,8 +368,13 @@ class WindowsSoundPlaybackAdapter:
         # legitimately preserve or move mtimes backwards.
         source_bytes = source.read_bytes()
         source_digest = hashlib.sha256(source_bytes).hexdigest()
+        try:
+            resolver_root = Path(self._resolver.root).resolve()
+            source_identity = source.resolve().relative_to(resolver_root).as_posix().casefold()
+        except (AttributeError, TypeError, ValueError):
+            source_identity = str(source.resolve()).casefold()
         source_key = hashlib.sha256(
-            str(source.resolve()).casefold().encode("utf-8")
+            source_identity.encode("utf-8")
         ).hexdigest()[:16]
         destination = self._cache_dir / (
             f"{event.value}-v{volume}-a{source_key}-"
