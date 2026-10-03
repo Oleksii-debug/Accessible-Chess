@@ -4,16 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_media_provider_binder import ClassroomMediaProviderBinder
 from .classroom_media_webview_bridge import ClassroomMediaWebViewBridge
 from .classroom_media_webview_projection import (
     ClassroomMediaWebViewProjection,
     ParticipantLabelsProvider,
 )
-from .classroom_realtime_media import ClassroomMediaController
+from .classroom_media_webview_transactions import (
+    ClassroomMediaBrowserProviderConfig,
+    ClassroomMediaTransactionalWebView,
+)
+from .classroom_realtime_media import ClassroomMediaController, JoinCredential
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -86,6 +92,7 @@ class Version2FinalProductApplication(Version2Application):
 
         self.teacher: TeacherWebViewBridge | None = None
         self.media: ClassroomMediaWebViewBridge | None = None
+        self.media_transactions: ClassroomMediaTransactionalWebView | None = None
         self._teacher_state_provider: Callable[[], TeachingSessionState] | None = None
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
@@ -286,12 +293,19 @@ class Version2FinalProductApplication(Version2Application):
         self,
         controller: ClassroomMediaController,
         participant_labels_provider: ParticipantLabelsProvider,
+        *,
+        provider_binder: ClassroomMediaProviderBinder | None = None,
+        provider_config: ClassroomMediaBrowserProviderConfig | None = None,
     ) -> None:
-        """Bind the browser media controls to one trusted canonical media owner."""
+        """Bind browser media to one canonical owner, optionally transactionally."""
 
         self._assert_thread()
         if self.media is not None:
             raise RuntimeError("Classroom media is already bound")
+        if (provider_binder is None) != (provider_config is None):
+            raise ValueError(
+                "classroom media transactional binding requires binder and provider config"
+            )
         projection = ClassroomMediaWebViewProjection(
             controller,
             participant_labels_provider,
@@ -299,13 +313,85 @@ class Version2FinalProductApplication(Version2Application):
         )
         # Force one complete safe projection before publishing browser reachability.
         projection.snapshot()
-        self.media = ClassroomMediaWebViewBridge(projection)
+
+        transactions: ClassroomMediaTransactionalWebView | None = None
+        bridge: ClassroomMediaWebViewBridge
+        if provider_binder is None:
+            bridge = ClassroomMediaWebViewBridge(projection)
+        else:
+            transactions = ClassroomMediaTransactionalWebView(
+                projection,
+                provider_binder,
+                provider_config,
+            )
+            bridge = ClassroomMediaWebViewBridge(
+                projection,
+                mutations=transactions,
+            )
+
+        self.media_transactions = transactions
+        self.media = bridge
 
     def unbind_classroom_media(self) -> None:
-        """Remove only the presentation binding; provider teardown stays with its owner."""
+        """Remove only a quiescent presentation binding; provider teardown stays owned."""
 
         self._assert_thread()
+        transactions = self.media_transactions
+        if transactions is not None and (
+            transactions.binder.active_lease is not None
+            or transactions.binder.recovery_status is not None
+        ):
+            raise RuntimeError(
+                "Classroom media cannot be unbound while provider recovery is active"
+            )
         self.media = None
+        self.media_transactions = None
+
+    def prepare_classroom_media_join(
+        self,
+        credential: JoinCredential,
+        *,
+        now: datetime,
+    ) -> dict[str, object]:
+        """Trusted host entrypoint; enqueue one secret-safe provider join dispatch."""
+
+        self._assert_thread()
+        transactions = self.media_transactions
+        if transactions is None:
+            raise RuntimeError("Transactional classroom media is not bound")
+        event = transactions.prepare_join(credential, now=now)
+        rendered = asdict(event)
+        self._events.append(rendered)
+        return rendered
+
+    def prepare_classroom_media_reconnect(
+        self,
+        credential: JoinCredential,
+        *,
+        now: datetime,
+    ) -> dict[str, object]:
+        """Trusted host entrypoint for one exact reconnect transaction."""
+
+        self._assert_thread()
+        transactions = self.media_transactions
+        if transactions is None:
+            raise RuntimeError("Transactional classroom media is not bound")
+        event = transactions.prepare_reconnect(credential, now=now)
+        rendered = asdict(event)
+        self._events.append(rendered)
+        return rendered
+
+    def prepare_classroom_media_disconnect(self) -> dict[str, object]:
+        """Trusted host entrypoint for one exact provider disconnect transaction."""
+
+        self._assert_thread()
+        transactions = self.media_transactions
+        if transactions is None:
+            raise RuntimeError("Transactional classroom media is not bound")
+        event = transactions.prepare_disconnect()
+        rendered = asdict(event)
+        self._events.append(rendered)
+        return rendered
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
@@ -341,6 +427,12 @@ class Version2FinalProductApplication(Version2Application):
         if area == "media":
             if self.media is None:
                 return self._error()
+            if type(command) is str and command.startswith("media.provider_"):
+                if self.media_transactions is None:
+                    return self._error()
+                return asdict(
+                    self.media_transactions.dispatch_provider(command, payload)
+                )
             return asdict(self.media.dispatch(command, payload))
         if area in {"classes", "education"}:
             if self.education is None:
@@ -380,8 +472,18 @@ class Version2FinalProductApplication(Version2Application):
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
                     "media_binding_active": self.media is not None,
-                    "media_recovery_required": media_recovery_required,
-                    "remote_transport": "not_approved",
+                    "media_recovery_required": (
+                        media_recovery_required
+                        or (
+                            self.media_transactions is not None
+                            and self.media_transactions.binder.recovery_status is not None
+                        )
+                    ),
+                    "remote_transport": (
+                        "livekit_transactional"
+                        if self.media_transactions is not None
+                        else "not_approved"
+                    ),
                 },
             }
         )
