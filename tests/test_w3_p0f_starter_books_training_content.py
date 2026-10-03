@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -353,6 +354,105 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             self.assertEqual("error", rejected_retry.kind)
             self.assertEqual(before, workspace.session.snapshot())
             self.assertEqual(before_message, workspace.presenter_message)
+
+    def test_training_save_skips_only_a_proven_identical_durable_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-training-durable-snapshot-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Durable snapshot",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Exercise",
+                        answer_text="e4",
+                        block_id="exercise",
+                    )
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+            store = workspace._store
+            self.assertIsNotNone(store)
+            self.assertIsNone(workspace._revision)
+            self.assertIsNone(workspace._persisted_snapshot)
+
+            with patch.object(store, "save", wraps=store.save) as save:
+                first_revision = workspace.save()
+            save.assert_called_once()
+            self.assertIsNotNone(first_revision)
+            durable = store.path.read_bytes()
+            self.assertEqual(workspace.session.snapshot(), workspace._persisted_snapshot)
+
+            with patch.object(
+                store,
+                "save",
+                side_effect=AssertionError("identical durable snapshot must not be rewritten"),
+            ) as save:
+                second_revision = workspace.save()
+            save.assert_not_called()
+            self.assertEqual(first_revision, second_revision)
+            self.assertEqual(durable, store.path.read_bytes())
+
+            workspace.session.submit("d4")
+            with patch.object(store, "save", wraps=store.save) as save:
+                changed_revision = workspace.save()
+            save.assert_called_once()
+            self.assertNotEqual(first_revision, changed_revision)
+            self.assertEqual(workspace.session.snapshot(), workspace._persisted_snapshot)
+
+    def test_training_continue_does_not_rewrite_already_committed_origin(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-training-continue-no-rewrite-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Continue without rewrite",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="First",
+                        answer_text="e4",
+                        block_id="first",
+                    ),
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Second",
+                        answer_text="d4",
+                        block_id="second",
+                    ),
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+            completed = workspace.dispatch("training.submit", {"answer": "e4"})
+            self.assertEqual("render", completed.kind)
+            self.assertTrue(workspace.session.completed)
+            origin_store = workspace._store
+            self.assertIsNotNone(origin_store)
+            durable_before = origin_store.path.read_bytes()
+            origin_revision = workspace._revision
+
+            with patch.object(
+                origin_store,
+                "save",
+                side_effect=AssertionError(
+                    "already committed completed origin must not be rewritten"
+                ),
+            ) as save:
+                continued = workspace.continue_next()
+
+            save.assert_not_called()
+            self.assertEqual("render", continued.kind)
+            self.assertEqual(1, workspace.reader.index)
+            self.assertFalse(workspace.session.completed)
+            self.assertEqual(durable_before, origin_store.path.read_bytes())
+            self.assertEqual(origin_revision, hashlib.sha256(durable_before).hexdigest())
 
     def test_workspace_continue_render_error_restores_exact_local_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-workspace-continue-atomic-") as raw:
