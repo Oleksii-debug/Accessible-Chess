@@ -108,7 +108,7 @@
 
     const lists = [rootList];
     const lastItems = [];
-    const deferredTrailingComments = [];
+    const deferredVariationEndings = [];
     let previousDepth = 0;
 
     items.forEach(function (item, index) {
@@ -173,24 +173,45 @@
         item.trailing_comments,
         "book semantic item trailing comments"
       );
+      const itemResult = item.result === undefined || item.result === null
+        ? ""
+        : item.result;
+      if (typeof itemResult !== "string") {
+        throw new TypeError("book semantic item result must be text");
+      }
+      if (item.kind !== "variation" && itemResult) {
+        throw new TypeError("book semantic move must not carry a line result");
+      }
       lists[depth].appendChild(listItem);
-      if (trailingComments.length) {
-        deferredTrailingComments.push({ item: listItem, comments: trailingComments });
+      if (itemResult || trailingComments.length) {
+        deferredVariationEndings.push({
+          item: listItem,
+          result: itemResult,
+          comments: trailingComments
+        });
       }
       lastItems[depth] = listItem;
       lastItems.length = depth + 1;
       previousDepth = depth;
     });
 
-    deferredTrailingComments.forEach(function (entry) {
-      const commentList = node("ul");
-      commentList.setAttribute("aria-label", semantic.comments_label || "");
-      entry.comments.forEach(function (comment) {
-        commentList.appendChild(node("li", comment));
-      });
-      // Appending after the full depth walk keeps variation-tail comments
-      // after that variation's nested move list instead of before its moves.
-      entry.item.appendChild(commentList);
+    deferredVariationEndings.forEach(function (entry) {
+      // A nested line's explicit result comes after its moves in PGN reading
+      // order. Append only after the full depth walk has built the child list.
+      if (entry.result) {
+        entry.item.appendChild(
+          node("p", String(semantic.result_label || "Result") + ": " + entry.result)
+        );
+      }
+      if (entry.comments.length) {
+        const commentList = node("ul");
+        commentList.setAttribute("aria-label", semantic.comments_label || "");
+        entry.comments.forEach(function (comment) {
+          commentList.appendChild(node("li", comment));
+        });
+        // Tail comments follow both the nested moves and the line result.
+        entry.item.appendChild(commentList);
+      }
     });
 
     appendSemanticTextList(
