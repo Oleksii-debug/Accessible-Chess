@@ -313,6 +313,49 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, coercive)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
 
+    def test_wire_field_discovery_is_bounded_before_set_hashing(self):
+        oversized = copy.deepcopy(self.payload)
+        oversized.update({f"extra_{index}": None for index in range(1_000)})
+
+        with patch(
+            "acs.book_training.set",
+            side_effect=AssertionError("oversized fields must fail before set()"),
+            create=True,
+        ):
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, oversized)
+
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.UNKNOWN_FIELD)
+
+        long_name = copy.deepcopy(self.payload)
+        del long_name["schema_version"]
+        long_name["x" * 129] = BOOK_TRAINING_SCHEMA_VERSION
+        with patch(
+            "acs.book_training.set",
+            side_effect=AssertionError("oversized field name must fail before set()"),
+            create=True,
+        ):
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, long_name)
+
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.UNKNOWN_FIELD)
+
+    def test_huge_schema_version_uses_bounded_error_message(self):
+        future = copy.deepcopy(self.payload)
+        future["schema_version"] = 10 ** 5_000
+
+        with self.assertRaises(BookTrainingError) as caught:
+            restore_book_training_material(self.book, future)
+
+        self.assertEqual(
+            caught.exception.code,
+            BookTrainingErrorCode.UNSUPPORTED_SCHEMA,
+        )
+        self.assertEqual(
+            str(caught.exception),
+            "unsupported book training schema_version",
+        )
+
     def test_wire_dict_subclasses_are_rejected_before_hooks(self):
         class HostileDict(dict):
             touched = False
