@@ -2,8 +2,6 @@ name: Classroom File Server Contract
 
 on:
   pull_request:
-    branches:
-      - feature/classroom-collaboration-contract-20260926
     paths:
       - ".github/workflows/classroom-file-server.yml"
       - "acs/classroom_file_server.py"
