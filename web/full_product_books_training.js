@@ -115,9 +115,21 @@
     return value;
   }
 
+  function requireDocumentSpec(snapshot, surface) {
+    const documentSpec = requireSnapshotRecord(snapshot, "document", surface);
+    if (documentSpec.landmark !== "main") {
+      throw new TypeError(surface + " snapshot landmark must be main");
+    }
+    if (documentSpec.lang !== "uk" && documentSpec.lang !== "en") {
+      throw new TypeError(surface + " snapshot language is invalid");
+    }
+    return documentSpec;
+  }
+
   function requireBookSnapshot(snapshot) {
     const block = requireSnapshotRecord(snapshot, "block", "Book");
     requireSnapshotRecord(snapshot, "bookmark", "Book");
+    requireDocumentSpec(snapshot, "Book");
     if (!Array.isArray(snapshot.actions)) {
       throw new TypeError("Book snapshot actions must be an array");
     }
@@ -130,6 +142,7 @@
     requireSnapshotRecord(snapshot, "progress", "Training");
     requireSnapshotRecord(snapshot, "answer", "Training");
     requireSnapshotRecord(snapshot, "reset_dialog", "Training");
+    requireDocumentSpec(snapshot, "Training");
     if (!Array.isArray(snapshot.actions)) {
       throw new TypeError("Training snapshot actions must be an array");
     }
@@ -259,7 +272,7 @@
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Book snapshot is required");
 
     const fragment = document.createDocumentFragment();
-    const main = node("section");
+    const main = node("main");\n    main.setAttribute("lang", snapshot.document.lang);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
@@ -393,7 +406,7 @@
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Training snapshot is required");
 
     const fragment = document.createDocumentFragment();
-    const main = node("section");
+    const main = node("main");\n    main.setAttribute("lang", snapshot.document.lang);
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("h3", snapshot.title || ""));
 
