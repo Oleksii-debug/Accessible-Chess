@@ -60,8 +60,8 @@ jobs:
           product_parser_test="$(git rev-parse "$product:$parser_test_path")"
           candidate_parser="$(git rev-parse "HEAD:$parser_path")"
           candidate_parser_test="$(git rev-parse "HEAD:$parser_test_path")"
-          package_identity_successor_parser='c73efbb02e4dab6e4423add807ac44e964dddfe1'
-          package_identity_successor_parser_test='a1f098d932210619a7c56249ae993becfc819e4e'
+          package_identity_successor_parser='a88a50e67ff6c5d8758680107500e8168e061ac2'
+          package_identity_successor_parser_test='90741983e84a87cece2553de64ad62b2d6409c27'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then
