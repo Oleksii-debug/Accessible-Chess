@@ -36,6 +36,7 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertNotIn("'tests/test_local_profile.py'", workflow)
         self.assertIn("'acs/version2_local_profile_api.py'", workflow)
         self.assertIn("'tests/test_version2_local_profile_api.py'", workflow)
+        self.assertIn("node tests/js/version2_release_bootstrap_dom_test.js", workflow)
         self.assertIn('python-version: "3.12.10"', workflow)
 
     def test_profile_dialog_is_semantic_keyboard_native_html(self) -> None:
