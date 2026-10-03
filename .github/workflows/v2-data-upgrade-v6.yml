@@ -17,6 +17,7 @@ on:
       - 'tests/test_version2_upgrade.py'
       - 'tests/test_v2_upgrade_sound_artifact_control.py'
       - 'tests/test_v2_upgrade_root_writer_artifact_grammar.py'
+      - 'tests/test_v2_upgrade_book_progress_temp_artifact_control.py'
       - 'tests/test_v2_upgrade_training_progress_artifact_control.py'
       - 'tests/test_v2_upgrade_self_coordination_artifact_control.py'
       - 'tests/test_v2_upgrade_education_workspace_artifact_control.py'
@@ -92,6 +93,7 @@ jobs:
             tests/test_v2_upgrade_schema0_integration.py \
             tests/test_v2_upgrade_sound_artifact_control.py \
             tests/test_v2_upgrade_root_writer_artifact_grammar.py \
+            tests/test_v2_upgrade_book_progress_temp_artifact_control.py \
             tests/test_v2_upgrade_training_progress_artifact_control.py \
             tests/test_v2_upgrade_self_coordination_artifact_control.py \
             tests/test_v2_upgrade_education_workspace_artifact_control.py \
@@ -125,6 +127,7 @@ jobs:
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
           tests/test_v2_upgrade_sound_artifact_control.py=9e26a615c933042378ef33004b54ac2c45ff404c
           tests/test_v2_upgrade_root_writer_artifact_grammar.py=a458adb2c80a37e251578d1f1a49b12cc6473297
+          tests/test_v2_upgrade_book_progress_temp_artifact_control.py=5cfc9677a43d093f662cceb075972e9d17b7b2d0
           tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
           tests/test_v2_upgrade_self_coordination_artifact_control.py=980ae8b3d74d93300ee9d9b83bbe5b22fa28fe84
           tests/test_v2_upgrade_education_workspace_artifact_control.py=db99b0298133443ff52abf72e656dd2c9061d031
@@ -146,6 +149,7 @@ jobs:
           tests.test_version2_upgrade
           tests.test_v2_upgrade_sound_artifact_control
           tests.test_v2_upgrade_root_writer_artifact_grammar
+          tests.test_v2_upgrade_book_progress_temp_artifact_control
           tests.test_v2_upgrade_training_progress_artifact_control
           tests.test_v2_upgrade_self_coordination_artifact_control
           tests.test_v2_upgrade_education_workspace_artifact_control
