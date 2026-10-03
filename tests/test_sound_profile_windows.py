@@ -12,7 +12,11 @@ from unittest import mock
 import wave
 
 from acs.sound_events import SoundEvent
-from acs.sound_pack_store import FilesystemSoundPackStore, SoundPackAssetSnapshot
+from acs.sound_pack_store import (
+    FilesystemSoundPackStore,
+    SoundPackAssetLookup,
+    SoundPackAssetSnapshot,
+)
 from acs.sound_profile_windows import ProfiledWindowsSoundPlaybackAdapter
 from acs.sound_runtime import SoundAssetRequest
 from acs.sound_windows import PackagedSoundAssetResolver
@@ -136,19 +140,16 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 preview=False,
             )
 
-            with (
-                mock.patch.object(
-                    store,
-                    "installed_manifest",
-                    return_value=SimpleNamespace(files={}),
-                ),
-                mock.patch.object(store, "read_asset_snapshot") as snapshot,
-            ):
+            with mock.patch.object(
+                store,
+                "read_asset_lookup",
+                return_value=SoundPackAssetLookup(True, False, None),
+            ) as lookup:
                 source, key = adapter._resolve(request)
 
             self.assertEqual(resolver.resolve(SoundEvent.MOVE), source)
             self.assertEqual("classic-fallback-move", key)
-            snapshot.assert_not_called()
+            lookup.assert_called_once_with("legacy.pack", "move")
 
     def test_custom_pack_missing_explicit_remap_never_falls_back_to_classic(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-custom-remap-missing-") as raw:
@@ -164,8 +165,8 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
 
             with mock.patch.object(
                 store,
-                "installed_manifest",
-                return_value=SimpleNamespace(files={}),
+                "read_asset_lookup",
+                return_value=SoundPackAssetLookup(True, False, None),
             ), self.assertRaises(FileNotFoundError):
                 adapter._resolve(request)
 
@@ -184,10 +185,9 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     store,
-                    "installed_manifest",
-                    return_value=SimpleNamespace(files={"move": "audio/move.wav"}),
+                    "read_asset_lookup",
+                    return_value=SoundPackAssetLookup(True, True, None),
                 ),
-                mock.patch.object(store, "read_asset_snapshot", return_value=None),
                 self.assertRaises(FileNotFoundError),
             ):
                 adapter._resolve(request)
