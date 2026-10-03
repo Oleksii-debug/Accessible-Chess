@@ -2307,7 +2307,11 @@ class Version2UpgradeCoordinator:
         owned_states = {str(k): str(v) for k, v in owned_raw.items()}
 
         actions: dict[str, str] = {}
-        # Authorize every destructive action before changing either tracked path.
+        authorized_states: dict[str, str | None] = {}
+
+        # First pass remains all-or-nothing authorization: prove that both
+        # tracked paths are either original, upgrader-owned, or absent exactly
+        # as the journal permits before recovery mutates either one.
         for name in (self.layout.settings_name, self.layout.library_name):
             entry = self._manifest_tracked_entry(manifest, name)
             try:
@@ -2316,6 +2320,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "tracked recovery state cannot be authenticated"
                 ) from exc
+            authorized_states[name] = current
             owned = owned_states.get(name)
             if entry is None:
                 if current is None:
@@ -2333,77 +2338,180 @@ class Version2UpgradeCoordinator:
                     "upgrade backup tracked-state metadata is invalid"
                 )
             if current == original or (owned is not None and current == owned):
-                # Re-copy even an unchanged original so rollback readback remains
-                # an explicit, testable durability operation.
                 actions[name] = "restore"
             else:
                 raise Version2UpgradeRecoveryError(
                     "tracked user data changed outside this upgrade"
                 )
 
+        def guarded_state(name: str, guard: _PublicationGuard) -> str:
+            if name == self.layout.library_name:
+                return _library_state_sha256(
+                    guard.path,
+                    schema_validator=self._validate_library_schema,
+                )
+            return _publication_guard_hash(guard)
+
         restored = 0
         for name in (self.layout.settings_name, self.layout.library_name):
             action = actions[name]
             entry = self._manifest_tracked_entry(manifest, name)
             destination = self.layout.root / name
+            authorized = authorized_states[name]
             if action == "noop":
                 continue
+            if authorized is None:
+                raise Version2UpgradeRecoveryError(
+                    "tracked recovery authorization disappeared"
+                )
+
+            # A Library restore/delete must first collapse any quiescent WAL
+            # state into the exact authenticated main inode. This also blocks a
+            # canonical writer through BEGIN IMMEDIATE before sidecars are
+            # removed.
             if name == self.layout.library_name:
-                self._clear_library_sidecars()
-            if action == "delete":
-                if destination.exists() or destination.is_symlink():
-                    info = _safe_stat(
-                        destination, "upgrade-created tracked data"
-                    )
-                    if not stat.S_ISREG(info.st_mode):
-                        raise Version2UpgradeRecoveryError(
-                            "upgrade-created tracked data is not a file"
-                        )
-                    try:
-                        _remove_exact_regular_file(
-                            destination,
-                            label="upgrade-created tracked data",
-                            expected_identity=_stat_identity(info),
-                        )
-                    except Version2UpgradeError as exc:
-                        raise Version2UpgradeRecoveryError(
-                            "upgrade-created tracked data changed during removal"
-                        ) from exc
-                continue
-            assert entry is not None
-            relative = str(entry["path"])
-            source = backup / "data" / Path(*PurePosixPath(relative).parts)
-            chain = _dir_chain(
-                self.layout.root, destination.parent, create=True
-            )
-            size, digest = _stable_copy(
-                source,
-                destination,
-                expected_size=int(entry["size"]),
-                expected_sha256=str(entry["sha256"]),
-            )
-            if _dir_chain(self.layout.root, destination.parent) != chain:
-                raise Version2UpgradeRecoveryError(
-                    "user-data parent directory changed during recovery"
-                )
-            if size != entry["size"] or digest != entry["sha256"]:
-                raise Version2UpgradeRecoveryError(
-                    "upgrade backup changed during recovery"
-                )
+                try:
+                    self._prepare_library_publication(authorized)
+                except Version2UpgradeError as exc:
+                    raise Version2UpgradeRecoveryError(
+                        "tracked Library changed before recovery publication"
+                    ) from exc
+
             try:
-                if self._tracked_state_sha256(name) != entry.get(
-                    "state_sha256"
+                immediate = self._tracked_state_sha256(name)
+            except Exception as exc:
+                raise Version2UpgradeRecoveryError(
+                    "tracked recovery state cannot be re-authenticated"
+                ) from exc
+            if immediate != authorized:
+                raise Version2UpgradeRecoveryError(
+                    "tracked user data changed before recovery publication"
+                )
+
+            guard: _PublicationGuard | None = None
+            preserve_guard = False
+            try:
+                guard = _publication_guard(destination)
+                if (
+                    guarded_state(name, guard) != authorized
+                    or self._tracked_state_sha256(name) != authorized
                 ):
+                    raise Version2UpgradeRecoveryError(
+                        "tracked user data changed before recovery publication"
+                    )
+
+                if action == "delete":
+                    _remove_exact_regular_file(
+                        destination,
+                        label="upgrade-created tracked data",
+                        expected_identity=guard.identity,
+                    )
+                    # The canonical pathname is now gone, but the exact old
+                    # inode remains reachable through the guard. An in-place
+                    # writer racing the final window therefore remains visible.
+                    if guarded_state(name, guard) != authorized:
+                        os.replace(guard.path, destination)
+                        guard = None
+                        _fsync_dir(destination.parent)
+                        raise Version2UpgradeRecoveryError(
+                            "tracked user data changed during recovery deletion"
+                        )
+                    _remove_publication_guard(guard)
+                    guard = None
+                    continue
+
+                assert action == "restore"
+                assert entry is not None
+                relative = str(entry["path"])
+                source = backup / "data" / Path(*PurePosixPath(relative).parts)
+                chain = _dir_chain(
+                    self.layout.root, destination.parent, create=True
+                )
+                size, digest = _stable_copy(
+                    source,
+                    destination,
+                    expected_size=int(entry["size"]),
+                    expected_sha256=str(entry["sha256"]),
+                )
+                if _dir_chain(self.layout.root, destination.parent) != chain:
+                    preserve_guard = True
+                    raise Version2UpgradeRecoveryError(
+                        "user-data parent directory changed during recovery"
+                    )
+                if size != entry["size"] or digest != entry["sha256"]:
+                    preserve_guard = True
+                    raise Version2UpgradeRecoveryError(
+                        "upgrade backup changed during recovery"
+                    )
+
+                if guarded_state(name, guard) != authorized:
+                    # A legitimate in-place writer reached the old inode after
+                    # final authorization but before our replace. Its exact bytes
+                    # win over rollback: restore that guarded inode and fail.
+                    _require_publication_guard(guard)
+                    os.replace(guard.path, destination)
+                    guard = None
+                    _fsync_dir(destination.parent)
+                    raise Version2UpgradeRecoveryError(
+                        "tracked user data changed during recovery publication"
+                    )
+
+                try:
+                    restored_state = self._tracked_state_sha256(name)
+                except Exception as exc:
+                    preserve_guard = True
+                    raise Version2UpgradeRecoveryError(
+                        "tracked recovery readback validation failed"
+                    ) from exc
+                if restored_state != entry.get("state_sha256"):
+                    preserve_guard = True
                     raise Version2UpgradeRecoveryError(
                         "tracked recovery readback mismatch"
                     )
+
+                _remove_publication_guard(guard)
+                guard = None
+                restored += 1
             except Version2UpgradeRecoveryError:
+                if guard is not None:
+                    try:
+                        current = _safe_stat(
+                            destination, "tracked recovery publication target"
+                        )
+                        target_is_guarded = (
+                            stat.S_ISREG(current.st_mode)
+                            and _stat_identity(current) == guard.identity
+                        )
+                    except (OSError, Version2UpgradeError):
+                        target_is_guarded = False
+                    if not target_is_guarded:
+                        preserve_guard = True
                 raise
-            except Exception as exc:
+            except Version2UpgradeError as exc:
+                if guard is not None:
+                    try:
+                        current = _safe_stat(
+                            destination, "tracked recovery publication target"
+                        )
+                        target_is_guarded = (
+                            stat.S_ISREG(current.st_mode)
+                            and _stat_identity(current) == guard.identity
+                        )
+                    except (OSError, Version2UpgradeError):
+                        target_is_guarded = False
+                    if not target_is_guarded:
+                        preserve_guard = True
                 raise Version2UpgradeRecoveryError(
-                    "tracked recovery readback validation failed"
+                    "tracked recovery publication failed"
                 ) from exc
-            restored += 1
+            finally:
+                if guard is not None and not preserve_guard:
+                    try:
+                        _remove_publication_guard(guard)
+                    except Version2UpgradeError as exc:
+                        raise Version2UpgradeRecoveryError(
+                            "tracked recovery guard cleanup failed"
+                        ) from exc
 
         _fsync_dir(self.layout.root)
         try:
@@ -2411,28 +2519,23 @@ class Version2UpgradeCoordinator:
                 manifest, self.layout.settings_name
             )
             if settings_entry is not None:
+                settings_payload = _read_exact_regular_bytes(
+                    self.layout.settings_path,
+                    label="recovered settings readback",
+                    max_bytes=_MAX_RECOVERY_JSON_BYTES,
+                )
                 candidate = self.settings_factory(
                     self.layout.root / ".settings.recovery-readback"
                 )
                 candidate.import_json(
-                    self.layout.settings_path.read_text(encoding="utf-8"),
+                    settings_payload.decode("utf-8"),
                     persist=False,
                 )
             library_entry = self._manifest_tracked_entry(
                 manifest, self.layout.library_name
             )
             if library_entry is not None:
-                connection = sqlite3.connect(
-                    self.layout.library_path.resolve(strict=True).as_uri()
-                    + "?mode=ro",
-                    uri=True,
-                    timeout=0.0,
-                )
-                try:
-                    connection.execute("PRAGMA busy_timeout=0")
-                    restored_schema = self._validate_library_schema(connection)
-                finally:
-                    connection.close()
+                restored_schema = self._library_schema()
                 if restored_schema != manifest.get("library_schema_before"):
                     raise Version2UpgradeRecoveryError(
                         "tracked library recovery readback schema mismatch"
