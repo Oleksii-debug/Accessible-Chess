@@ -441,6 +441,8 @@ class Version2Application:
             return result
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
+        if action in {"library.import", "library.export"} and self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before opening a Library file workflow")
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.open":
