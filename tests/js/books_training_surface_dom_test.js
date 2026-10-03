@@ -182,7 +182,9 @@ function semanticGameSnapshot() {
     details_label: "Game details",
     details: [
       { kind: "event", label: "Event", value: "Accessible Cup" },
-      { kind: "date", label: "Date", value: "2026.10.03" }
+      { kind: "date", label: "Date", value: "2026.10.03" },
+      { kind: "custom:ECO", label: "ECO", value: "C20" },
+      { kind: "custom:Annotator", label: "Annotator", value: "" }
     ],
     comments_label: "Comments",
     intro_comments_label: "Comments before moves",
@@ -200,7 +202,8 @@ function semanticGameSnapshot() {
         comments: ["legacy combined must not duplicate"],
         comments_before: ["Before <em>literal</em>"],
         comments_after: ["After <strong>literal</strong>"],
-        trailing_comments: []
+        trailing_comments: [],
+        result: ""
       },
       {
         kind: "variation",
@@ -210,7 +213,8 @@ function semanticGameSnapshot() {
         comments: [],
         comments_before: [],
         comments_after: [],
-        trailing_comments: ["Branch tail <b>literal</b>"]
+        trailing_comments: ["Branch tail <b>literal</b>"],
+        result: "*"
       },
       {
         kind: "move",
@@ -220,7 +224,8 @@ function semanticGameSnapshot() {
         comments: [],
         comments_before: [],
         comments_after: ["<img onerror=bad()>"],
-        trailing_comments: []
+        trailing_comments: ["Branch tail <b>literal</b>"],
+        result: "*"
       },
       {
         kind: "move",
@@ -1886,6 +1891,10 @@ async function run() {
     "semantic Game metadata lacks native definition-list naming");
   check(find(detailsList, "DT", "Event") !== null && find(detailsList, "DD", "Accessible Cup") !== null,
     "semantic Game event metadata is missing");
+  check(find(detailsList, "DT", "ECO") !== null && find(detailsList, "DD", "C20") !== null,
+    "custom semantic Game metadata is missing");
+  check(find(detailsList, "DT", "Annotator") !== null,
+    "empty authored metadata label is missing");
   check(find(semanticBlock, "H4", "Moves and variations") !== null,
     "semantic move heading is missing");
   check(find(semanticBlock, "SPAN", "1. e4") !== null,
@@ -1895,6 +1904,19 @@ async function run() {
   const rootMoves = find(semanticBlock, "OL");
   check(rootMoves !== null && rootMoves.children.length === 2,
     "main-line move order/list semantics are wrong");
+  const rootResult = semanticBlock.children.find(function (item) {
+    return item.tagName === "P" && item.textContent === "Result: *";
+  }) || null;
+  const outroHeading = semanticBlock.children.find(function (item) {
+    return item.tagName === "H4" && item.textContent === "Comments after moves";
+  }) || null;
+  check(rootResult !== null, "root game result is not visible");
+  check(outroHeading !== null, "root outro heading is missing");
+  check(
+    semanticBlock.children.indexOf(rootResult) > semanticBlock.children.indexOf(rootMoves) &&
+      semanticBlock.children.indexOf(rootResult) < semanticBlock.children.indexOf(outroHeading),
+    "root result must follow root moves and precede root outro comments"
+  );
   const e4Item = rootMoves.children[0];
   check(e4Item.children[0].tagName === "UL",
     "before-move comments must precede the move label");
@@ -1915,12 +1937,21 @@ async function run() {
   const branchMoves = find(variationItem, "OL");
   check(branchMoves !== null && branchMoves.children.length === 2,
     "variation moves are not nested in authored order");
+  const variationResult = find(variationItem, "P", "Result: *");
+  check(variationResult !== null, "nested variation result is not visible");
   const variationTail = find(variationItem, "LI", "Branch tail <b>literal</b>");
   check(variationTail !== null, "variation trailing comment is not visible");
   check(semanticBlock.descendants().every((item) => !["B", "EM", "STRONG"].includes(item.tagName)),
     "semantic comments must remain literal text");
-  check(variationItem.children[variationItem.children.length - 1].tagName === "UL",
-    "variation trailing comment must follow its nested move list");
+  const branchChildren = variationItem.children;
+  const nestedIndex = branchChildren.indexOf(branchMoves);
+  const resultIndex = branchChildren.indexOf(variationResult);
+  const tailList = variationTail.parentNode;
+  const tailIndex = branchChildren.indexOf(tailList);
+  check(nestedIndex >= 0 && resultIndex > nestedIndex && tailIndex > resultIndex,
+    "variation result/tail must follow nested moves in authored order");
+  check(branchChildren[branchChildren.length - 1].tagName === "UL",
+    "variation trailing comment must remain the final variation child");
   check(find(semanticBlock, "LI", "<img onerror=bad()>") !== null,
     "semantic comment must remain literal selectable text");
   check(semanticBlock.descendants().every((item) => item.tagName !== "IMG"),
