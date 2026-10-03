@@ -268,6 +268,71 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
             ],
         )
 
+    def test_active_update_recovery_write_failure_preserves_primary_pack_error(self):
+        operations = []
+        coordinator, pack_manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        old_base = pack_storage.items["soft.wood"]
+        old_files = dict(old_base.files)
+        old_files["quiet.move"] = "audio/quiet-move.wav"
+        pack_storage.items["soft.wood"] = SoundPackManifest(
+            pack_id=old_base.pack_id,
+            version=old_base.version,
+            title=old_base.title,
+            license_id=old_base.license_id,
+            files=old_files,
+            author=old_base.author,
+            provenance=old_base.provenance,
+        )
+        current = SoundProfile(
+            pack_id="soft.wood",
+            events={"move": SoundEventPreference(False, 44, "quiet.move")},
+        )
+        coordinator._profiles._current = current
+        profile_storage.raw = current.to_mapping()
+
+        writes = 0
+        real_write = profile_storage.write_profile_atomically
+
+        def fail_only_recovery(payload):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                profile_storage.operations.append(
+                    ("profile.write", payload.get("pack_id"))
+                )
+                raise OSError("recovery profile write failed")
+            return real_write(payload)
+
+        profile_storage.write_profile_atomically = fail_only_recovery
+        new_manifest = manifest("soft.wood", version="2.0.0")
+        new_entry, downloaded = entry_for(new_manifest)
+        pack_manager._downloader = Downloader(downloaded)
+        pack_storage.fail_install = True
+
+        with self.assertRaisesRegex(OSError, "^pack install failed$") as caught:
+            coordinator.install(new_entry)
+
+        self.assertIn(
+            "sound profile recovery after pack-install failure also failed",
+            getattr(caught.exception, "__notes__", ()),
+        )
+        self.assertEqual("1.0.0", pack_storage.items["soft.wood"].version)
+        self.assertIsNone(
+            coordinator.current_profile.preference_for("move").sound_id,
+            "failed recovery must retain the pre-install default-safe mapping",
+        )
+        self.assertEqual(
+            operations,
+            [
+                ("profile.write", "soft.wood"),
+                ("pack.install", "soft.wood"),
+                ("profile.write", "soft.wood"),
+            ],
+        )
+
     def test_active_update_uncertain_commit_keeps_profile_valid_for_published_version(self):
         operations = []
         coordinator, pack_manager, pack_storage, profile_storage = make_stack(
