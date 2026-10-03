@@ -555,15 +555,21 @@ def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> Non
     license_path = root / "LICENSE"
     notice_path = root / "NOTICE"
     provenance_path = root / "provenance.json"
+    provenance_bytes = _read_stable_regular_bytes(
+        provenance_path,
+        label="LiveKit client provenance",
+        max_bytes=_MAX_LIVEKIT_PROVENANCE_BYTES,
+    )
     try:
-        raw = _json_no_duplicates(
-            provenance_path.read_text(encoding="utf-8"),
-            label="LiveKit client provenance",
-        )
-    except OSError as exc:
+        provenance_text = provenance_bytes.decode("utf-8")
+    except UnicodeError as exc:
         raise Version2ReleasePayloadError(
             "LiveKit client provenance is missing or unreadable"
         ) from exc
+    raw = _json_no_duplicates(
+        provenance_text,
+        label="LiveKit client provenance",
+    )
     if type(raw) is not dict:
         raise Version2ReleasePayloadError("LiveKit client provenance root must be an object")
     required_keys = {
@@ -602,6 +608,23 @@ def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> Non
         raise Version2ReleasePayloadError(
             "LiveKit client provenance notice_sha256 does not match the pinned release"
         )
+    resource_bytes = {
+        bundle: _read_stable_regular_bytes(
+            bundle,
+            label="LiveKit client browser SDK",
+            max_bytes=_MAX_LIVEKIT_BUNDLE_BYTES,
+        ),
+        license_path: _read_stable_regular_bytes(
+            license_path,
+            label="LiveKit client license",
+            max_bytes=_MAX_LIVEKIT_LICENSE_BYTES,
+        ),
+        notice_path: _read_stable_regular_bytes(
+            notice_path,
+            label="LiveKit client NOTICE",
+            max_bytes=_MAX_LIVEKIT_NOTICE_BYTES,
+        ),
+    }
     for path, key in (
         (bundle, "bundle_sha256"),
         (license_path, "license_sha256"),
@@ -616,31 +639,21 @@ def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> Non
             raise Version2ReleasePayloadError(
                 f"LiveKit client provenance {key} is invalid"
             )
-        try:
-            actual_digest = _sha256(path)
-        except OSError as exc:
-            raise Version2ReleasePayloadError(
-                "LiveKit client packaged resource is missing or unreadable"
-            ) from exc
+        actual_digest = hashlib.sha256(resource_bytes[path]).hexdigest()
         if actual_digest != expected_digest:
             raise Version2ReleasePayloadError(
                 f"LiveKit client packaged resource digest mismatch: {path.name}"
             )
-    try:
-        license_bytes = license_path.read_bytes()
-        notice_bytes = notice_path.read_bytes()
-    except OSError as exc:
-        raise Version2ReleasePayloadError(
-            "LiveKit client redistribution notices are unreadable"
-        ) from exc
+    license_bytes = resource_bytes[license_path]
+    notice_bytes = resource_bytes[notice_path]
     if b"Apache License" not in license_bytes or b"Version 2.0" not in license_bytes:
         raise Version2ReleasePayloadError("LiveKit client license payload is invalid")
     if b"LiveKit" not in notice_bytes or b"Apache License" not in notice_bytes:
         raise Version2ReleasePayloadError("LiveKit client NOTICE payload is invalid")
 
-    shutil.copyfile(license_path, notices_dir / _LIVEKIT_LICENSE_NOTICE)
-    shutil.copyfile(notice_path, notices_dir / _LIVEKIT_TEXT_NOTICE)
-    shutil.copyfile(provenance_path, notices_dir / _LIVEKIT_PROVENANCE_NOTICE)
+    (notices_dir / _LIVEKIT_LICENSE_NOTICE).write_bytes(license_bytes)
+    (notices_dir / _LIVEKIT_TEXT_NOTICE).write_bytes(notice_bytes)
+    (notices_dir / _LIVEKIT_PROVENANCE_NOTICE).write_bytes(provenance_bytes)
 
 
 def _verify_livekit_tree_against_pinned_archive(
