@@ -63,6 +63,52 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "WHERE type='table' AND name='collaboration_attachment_deletions'"
                 ).fetchone()
             )
+            deletion_columns = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA table_info(collaboration_attachment_deletions)"
+                )
+            }
+            self.assertIn("completed", deletion_columns)
+
+    def test_v7_upgrade_requeues_tombstones_without_cleanup_receipt(self) -> None:
+        tombstone = AttachmentMetadata(
+            "v7-missing-receipt",
+            "room",
+            "teacher",
+            0,
+            "v7.bin",
+            None,
+            1,
+            "9" * 64,
+            "rooms/room/v7-missing-receipt",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute("DROP TABLE collaboration_attachment_deletions")
+            db.execute(
+                """
+                CREATE TABLE collaboration_attachment_deletions(
+                    room_id TEXT NOT NULL,
+                    attachment_id TEXT NOT NULL UNIQUE,
+                    object_key TEXT PRIMARY KEY
+                )
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=7 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(
+            reopened.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+        reopened.integrity_check()
 
     def test_v6_upgrade_backfills_deleted_attachment_cleanup(self) -> None:
         tombstone = AttachmentMetadata(
@@ -125,8 +171,33 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             object_key=tombstone.object_key,
         )
         self.assertEqual(reopened.pending_attachment_deletions("room"), ())
-        self.assertEqual(reopened.register_attachment(tombstone), tombstone)
-        self.assertEqual(reopened.pending_attachment_deletions("room"), ())
+        with closing(sqlite3.connect(self.db_path)) as db:
+            receipt = db.execute(
+                """
+                SELECT room_id, attachment_id, object_key, completed
+                FROM collaboration_attachment_deletions
+                WHERE attachment_id=?
+                """,
+                (tombstone.attachment_id,),
+            ).fetchone()
+        self.assertEqual(
+            receipt,
+            (
+                tombstone.room_id,
+                tombstone.attachment_id,
+                tombstone.object_key,
+                1,
+            ),
+        )
+
+        reopened_again = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        reopened_again.integrity_check()
+        self.assertEqual(
+            reopened_again.pending_attachment_deletions("room"),
+            (),
+        )
+        self.assertEqual(reopened_again.register_attachment(tombstone), tombstone)
+        self.assertEqual(reopened_again.pending_attachment_deletions("room"), ())
 
     def test_schema_version_rejects_noncanonical_sqlite_real(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -183,6 +254,39 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(
             CollaborationStorageError,
             "stored attachment deletion intent is invalid",
+        ):
+            self.store.integrity_check()
+
+    def test_deleted_attachment_missing_cleanup_record_fails_integrity(self) -> None:
+        tombstone = AttachmentMetadata(
+            "missing-cleanup-record",
+            "room",
+            "teacher",
+            0,
+            "missing.bin",
+            None,
+            1,
+            "e" * 64,
+            "rooms/room/missing-cleanup-record",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        self.store.acknowledge_attachment_deletion(
+            room_id="room",
+            object_key=tombstone.object_key,
+        )
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DELETE FROM collaboration_attachment_deletions "
+                "WHERE attachment_id=?",
+                (tombstone.attachment_id,),
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "tombstone is missing durable deletion record",
         ):
             self.store.integrity_check()
 

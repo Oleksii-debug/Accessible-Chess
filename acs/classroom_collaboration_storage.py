@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -349,8 +349,8 @@ def _queue_attachment_deletion(
     db.execute(
         """
         INSERT OR IGNORE INTO collaboration_attachment_deletions(
-            room_id, attachment_id, object_key
-        ) VALUES(?,?,?)
+            room_id, attachment_id, object_key, completed
+        ) VALUES(?,?,?,0)
         """,
         (
             attachment.room_id,
@@ -360,7 +360,7 @@ def _queue_attachment_deletion(
     )
     rows = db.execute(
         """
-        SELECT room_id, attachment_id, object_key
+        SELECT room_id, attachment_id, object_key, completed
         FROM collaboration_attachment_deletions
         WHERE attachment_id=? OR object_key=?
         """,
@@ -602,6 +602,33 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=7 WHERE key='schema_version'"
                 )
                 version = 7
+            if version < 8:
+                # v7 deleted cleanup rows after provider acknowledgement, which
+                # made a lost/corrupt row indistinguishable from successful byte
+                # deletion. Preserve a durable completion receipt instead. Any
+                # historical tombstone lacking a v7 row is conservatively
+                # re-queued; FileStorePort.delete is explicitly idempotent.
+                db.execute(
+                    """
+                    ALTER TABLE collaboration_attachment_deletions
+                    ADD COLUMN completed INTEGER NOT NULL DEFAULT 0
+                    CHECK(completed IN (0,1))
+                    """
+                )
+                db.execute(
+                    """
+                    INSERT OR IGNORE INTO collaboration_attachment_deletions(
+                        room_id, attachment_id, object_key, completed
+                    )
+                    SELECT room_id, attachment_id, object_key, 0
+                    FROM collaboration_attachments
+                    WHERE transfer_state='deleted'
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=8 WHERE key='schema_version'"
+                )
+                version = 8
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -1560,7 +1587,7 @@ class ClassroomCollaborationSQLiteStore:
         with closing(self._connect()) as db:
             rows = db.execute(
                 """
-                SELECT d.room_id, d.attachment_id, d.object_key,
+                SELECT d.room_id, d.attachment_id, d.object_key, d.completed,
                        a.room_id AS attachment_room_id,
                        a.object_key AS attachment_object_key,
                        a.transfer_state AS attachment_transfer_state
@@ -1574,7 +1601,7 @@ class ClassroomCollaborationSQLiteStore:
             ).fetchall()
         pending: list[str] = []
         for row in rows:
-            deletion_room, _attachment_id, deletion_key = (
+            deletion_room, _attachment_id, deletion_key, completed = (
                 self._deletion_intent_from_row(row)
             )
             if (
@@ -1586,7 +1613,8 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationStorageError(
                     "attachment deletion intent is inconsistent with tombstone metadata"
                 )
-            pending.append(deletion_key)
+            if not completed:
+                pending.append(deletion_key)
         return tuple(pending)
 
     def acknowledge_attachment_deletion(
@@ -1601,21 +1629,30 @@ class ClassroomCollaborationSQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 """
-                SELECT room_id, attachment_id
+                SELECT room_id, attachment_id, object_key, completed
                 FROM collaboration_attachment_deletions
                 WHERE object_key=?
                 """,
                 (key,),
             ).fetchone()
             if row is None:
-                return
-            if row["room_id"] != room:
+                raise CollaborationStorageError(
+                    "attachment deletion acknowledgement has no durable intent"
+                )
+            deletion_room, deletion_attachment_id, deletion_key, completed = (
+                self._deletion_intent_from_row(row)
+            )
+            if deletion_room != room:
                 raise CollaborationStorageError(
                     "attachment deletion acknowledgement crossed room boundary"
                 )
+            if deletion_key != key:
+                raise CollaborationStorageError(
+                    "attachment deletion acknowledgement changed storage identity"
+                )
             attachment_row = db.execute(
                 "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
-                (row["attachment_id"],),
+                (deletion_attachment_id,),
             ).fetchone()
             if attachment_row is None:
                 raise CollaborationStorageError(
@@ -1630,10 +1667,15 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationStorageError(
                     "attachment deletion acknowledgement does not match tombstone"
                 )
-            db.execute(
-                "DELETE FROM collaboration_attachment_deletions WHERE object_key=?",
-                (key,),
-            )
+            if not completed:
+                db.execute(
+                    """
+                    UPDATE collaboration_attachment_deletions
+                    SET completed=1
+                    WHERE object_key=?
+                    """,
+                    (key,),
+                )
 
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
@@ -1802,12 +1844,12 @@ class ClassroomCollaborationSQLiteStore:
 
             for deletion in db.execute(
                 """
-                SELECT room_id, attachment_id, object_key
+                SELECT room_id, attachment_id, object_key, completed
                 FROM collaboration_attachment_deletions
                 """
             ):
-                room, attachment_id, object_key = self._deletion_intent_from_row(
-                    deletion
+                room, attachment_id, object_key, _completed = (
+                    self._deletion_intent_from_row(deletion)
                 )
                 row = db.execute(
                     "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
@@ -1827,15 +1869,48 @@ class ClassroomCollaborationSQLiteStore:
                         "attachment deletion intent is inconsistent with tombstone"
                     )
 
+            for tombstone_row in db.execute(
+                """
+                SELECT *
+                FROM collaboration_attachments
+                WHERE transfer_state='deleted'
+                """
+            ):
+                tombstone = self._attachment_from_row(tombstone_row)
+                receipt = db.execute(
+                    """
+                    SELECT room_id, attachment_id, object_key, completed
+                    FROM collaboration_attachment_deletions
+                    WHERE attachment_id=?
+                    """,
+                    (tombstone.attachment_id,),
+                ).fetchone()
+                if receipt is None:
+                    raise CollaborationStorageError(
+                        "attachment tombstone is missing durable deletion record"
+                    )
+                room, attachment_id, object_key, _completed = (
+                    self._deletion_intent_from_row(receipt)
+                )
+                if (
+                    room != tombstone.room_id
+                    or attachment_id != tombstone.attachment_id
+                    or object_key != tombstone.object_key
+                ):
+                    raise CollaborationStorageError(
+                        "attachment tombstone deletion record changed storage identity"
+                    )
+
     @staticmethod
     def _deletion_intent_from_row(
         row: sqlite3.Row,
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, str, bool]:
         try:
             return (
                 _canonical_id(row["room_id"], "deletion room id"),
                 _canonical_id(row["attachment_id"], "deletion attachment id"),
                 _safe_object_key(row["object_key"]),
+                _stored_boolean(row["completed"], "deletion completion flag"),
             )
         except (TypeError, ValueError, KeyError, IndexError, OverflowError) as error:
             raise CollaborationStorageError(
