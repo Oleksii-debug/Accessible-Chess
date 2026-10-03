@@ -330,8 +330,14 @@ class BookWebViewProjection:
             raise ValueError("book list items are invalid")
         if len(block.list_items) > _MAX_BOOK_LIST_ITEMS:
             raise ValueError("book presentation list exceeds the item-count budget")
-        if any(type(item) is not str or not item for item in block.list_items):
-            raise ValueError("book list items are invalid")
+        for item in block.list_items:
+            if type(item) is not str or not item:
+                raise ValueError("book list items are invalid")
+            # Reject one malformed scalar from O(1) length metadata before
+            # NUL stripping, whitespace normalization, path redaction or
+            # UTF-16 accounting can scan attacker-controlled presentation text.
+            if len(item) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise ValueError("book list item exceeds the raw text budget")
         if type(block.list_ordered) is not bool:
             raise ValueError("book list ordered flag is invalid")
         if block.list_start is not None and (
