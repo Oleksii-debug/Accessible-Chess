@@ -174,6 +174,39 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertNotIn(manifest.pack_id, store.installed())
             self.assertIsNone(store.rights_evidence(manifest.pack_id))
 
+    def test_v2_integrity_rejects_injected_unbound_rights_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store.install_atomically(downloaded)
+
+            version_dir = (
+                store.root
+                / manifest.pack_id
+                / "versions"
+                / manifest.version
+            )
+            injected = SoundPackRightsEvidence(
+                license_id=manifest.license_id,
+                source_uri="https://example.invalid/injected-source",
+                license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+            )
+            (version_dir / "rights.json").write_text(
+                json.dumps(
+                    injected.to_mapping(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertNotIn(manifest.pack_id, store.installed())
+            self.assertIsNone(store.rights_evidence(manifest.pack_id))
+
     def test_legacy_unbound_rights_remain_playable_but_are_not_audited(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
