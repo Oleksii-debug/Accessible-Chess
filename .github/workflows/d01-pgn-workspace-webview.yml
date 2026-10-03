@@ -16,6 +16,7 @@ on:
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'tests/js/pgn_surface_dom_test.js'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
       - 'tests/test_dev1_pgn_webview_atomicity.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
@@ -232,12 +233,13 @@ jobs:
             }
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
-          acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
+          acs/pgn_webview_bridge.py=10b604853608b6f1310888d04322dd5740622789
+          acs/pgn_workspace_webview_adapter.py=21127c7337dc6bbba640b2b9044d2d847f6d0787
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
-          tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
+          tests/test_dev1_pgn_workspace_webview_adapter.py=494fa57c5bb41b533e237547c1f6dbad60aac08d
+          tests/js/pgn_surface_dom_test.js=7b701dd0a28ade8093dc8c99d91ba7cedee8d109
+          tests/js/pgn_tree_keyboard_dom_test.js=c954f8764f95b5f520c4c150684eacf6655cb788
           LOCKS
 
           # Presentation privacy is an intentional successor of the exact D01
@@ -245,7 +247,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|c7ade6cc8fefdac160235b67291438fa15c689b8)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -264,7 +266,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|6fd2dcc8b24d213a739b7277f1146d95fbb6a5a5)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
@@ -279,7 +281,9 @@ jobs:
           python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_board_analysis_hotkey_feedback.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
 
       - name: D01 PGN focused regressions
         run: >-
