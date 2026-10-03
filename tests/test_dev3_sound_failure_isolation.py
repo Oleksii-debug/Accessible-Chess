@@ -83,6 +83,9 @@ class Dev3SoundFailureIsolationTests(unittest.TestCase):
         self.assertEqual(sink_calls, [SoundEvent.CAPTURE])
         self.assertEqual(report.delivered, (SoundEvent.CHECK, SoundEvent.END))
         self.assertEqual(tuple(item.event for item in report.failures), (SoundEvent.CAPTURE,))
+        self.assertEqual(report.failures[0].error_type, "FileNotFoundError")
+        self.assertEqual(report.failures[0].message, "sound playback adapter failed")
+        self.assertNotIn("C:/private", report.failures[0].message)
         self.assertEqual(
             tuple(event for event, _ in playback.calls),
             (SoundEvent.CAPTURE, SoundEvent.CHECK, SoundEvent.END),

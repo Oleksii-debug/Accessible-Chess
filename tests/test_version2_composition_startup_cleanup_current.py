@@ -17,6 +17,77 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             library_path=root / "library.acsdb",
         )
 
+    def test_shipping_factory_forwards_optional_sound_provider_authorities(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            app_dir = root / "app"
+            runtime = mock.Mock()
+            runtime.provider = mock.Mock()
+            analysis = mock.Mock()
+            continuous = mock.Mock()
+            settings = mock.Mock()
+            settings.data = {"language": "uk"}
+            settings.get.side_effect = lambda key, default=None: settings.data.get(key, default)
+            sound = mock.Mock(
+                game_runtime=mock.Mock(),
+                profiled_runtime=mock.Mock(),
+                settings=mock.Mock(),
+            )
+            api = mock.Mock()
+            catalog = {"soft": mock.sentinel.catalog_entry}
+            downloader = mock.sentinel.downloader
+            verifier = mock.sentinel.verifier
+
+            with (
+                mock.patch.object(
+                    release_app,
+                    "_prepare_version2_user_data",
+                    return_value=self._layout(root),
+                ),
+                mock.patch.object(release_app, "AnalysisService", return_value=analysis),
+                mock.patch.object(
+                    release_app,
+                    "ContinuousAnalysisService",
+                    return_value=continuous,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "EnginePlayService",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(release_app, "Settings", return_value=settings),
+                mock.patch.object(
+                    release_app,
+                    "create_local_sound_composition",
+                    return_value=sound,
+                ) as compose,
+                mock.patch.object(
+                    release_app,
+                    "Version2ReleaseAccessibleChessAPI",
+                    return_value=api,
+                ),
+            ):
+                release_app.create_version2_release_application(
+                    application_dir=app_dir,
+                    runtime_factory=lambda _config: runtime,
+                    sound_playback=mock.sentinel.playback,
+                    sound_pack_catalog=catalog,
+                    sound_pack_downloader=downloader,
+                    sound_pack_signature_verifier=verifier,
+                    defer_ui=True,
+                )
+
+            compose.assert_called_once_with(
+                application_dir=app_dir,
+                data_root=root,
+                legacy_settings=settings.data,
+                asset_playback=mock.sentinel.playback,
+                catalog=catalog,
+                pack_downloader=downloader,
+                signature_verifier=verifier,
+            )
+            api.bind_sound_settings_application.assert_called_once_with(sound.settings)
+
     def test_analysis_construction_failure_closes_engine_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -151,11 +222,14 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                     return_value=mock.Mock(),
                 ),
                 mock.patch.object(release_app, "Settings", return_value=settings),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
                 mock.patch.object(
                     release_app,
-                    "GameSoundRuntime",
-                    return_value=mock.Mock(),
+                    "create_local_sound_composition",
+                    return_value=mock.Mock(
+                        game_runtime=mock.Mock(),
+                        profiled_runtime=mock.Mock(),
+                        settings=mock.Mock(),
+                    ),
                 ),
                 mock.patch.object(
                     release_app,
@@ -208,11 +282,14 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                     return_value=mock.Mock(),
                 ),
                 mock.patch.object(release_app, "Settings", return_value=settings),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
                 mock.patch.object(
                     release_app,
-                    "GameSoundRuntime",
-                    return_value=mock.Mock(),
+                    "create_local_sound_composition",
+                    return_value=mock.Mock(
+                        game_runtime=mock.Mock(),
+                        profiled_runtime=mock.Mock(),
+                        settings=mock.Mock(),
+                    ),
                 ),
                 mock.patch.object(
                     release_app,
