@@ -566,6 +566,18 @@ class Version2Application:
                 return result
             try:
                 self.save_book_progress()
+            except BookProgressStoreError as error:
+                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._restore_book_progress(
+                        before,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                    )
+                # On ambiguous durability the save path already rebound to the
+                # visible canonical primary. Do not restore speculative history.
+                if self.books is None:
+                    return self._error()
+                return self.books.projection.generic_error()
             except Exception:
                 self._restore_book_progress(
                     before,
