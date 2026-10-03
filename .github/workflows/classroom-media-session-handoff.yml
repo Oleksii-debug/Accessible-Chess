@@ -1,9 +1,6 @@
 name: Classroom Media Session Handoff
 
 on:
-  push:
-    branches:
-      - feature/classroom-media-session-handoff-20261003
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
