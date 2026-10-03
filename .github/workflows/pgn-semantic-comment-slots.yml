@@ -1,0 +1,83 @@
+name: PGN Semantic Comment Slots
+
+on:
+  pull_request:
+    branches:
+      - 'feature/books-readonly-semantic-game-snapshot-20261003'
+    paths:
+      - 'acs/full_product_presenters.py'
+      - 'tests/test_dev1_full_product_ui_packages.py'
+      - '.github/workflows/pgn-semantic-comment-slots.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-semantic-comment-slots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-comment-slots:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          parent_branch='feature/books-readonly-semantic-game-snapshot-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+            live_ref="refs/remotes/origin/$parent_branch"
+            git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+            live_parent="$(git rev-parse "$live_ref")"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_parent"
+            git merge-base --is-ancestor "$live_parent" HEAD
+            test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+            changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/pgn-semantic-comment-slots.yml' \
+              'acs/full_product_presenters.py' \
+              'tests/test_dev1_full_product_ui_packages.py' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_parent" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "d0ca0a3a2ab65a5f49f064b5a3dd02765c630e92"
+          test "$(git rev-parse HEAD:tests/test_dev1_full_product_ui_packages.py)" = "1f7f6cb3226871f1301d3ff2921cc5c8ac43e34d"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile presenter boundary
+        run: >-
+          python -m compileall -q
+          acs/full_product_presenters.py
+          tests/test_dev1_full_product_ui_packages.py
+
+      - name: Prove semantic comment slots and retained presenter flow
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_full_product_ui_packages
+          tests.test_v2_book_board_workflow

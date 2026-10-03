@@ -53,6 +53,10 @@ class PgnTreeItem:
     san: str | None = None
     comments: tuple[str, ...] = ()
     nags: tuple[str, ...] = ()
+    trailing_comments: tuple[str, ...] = ()
+    comments_before: tuple[str, ...] = ()
+    comments_after: tuple[str, ...] = ()
+    result: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +170,10 @@ class PgnTreePresenter:
                     label=variation_label,
                     parent_id=parent_id,
                     comments=tuple(comment.text for comment in line.leading_comments),
+                    trailing_comments=tuple(
+                        comment.text for comment in line.trailing_comments
+                    ),
+                    result=line.result,
                 )
             )
             parent_id = line_id
@@ -173,11 +181,19 @@ class PgnTreePresenter:
         for move_index, move in enumerate(line.moves):
             node_id = f"{line_id}/m{move_index}"
             number = f"{move.move_number} " if move.move_number else ""
-            comments = tuple(
+            comments_before = tuple(
                 comment.text
-                for comment in (*move.comments_before, *move.comments_after)
+                for comment in move.comments_before
                 if comment.text.strip()
             )
+            comments_after = tuple(
+                comment.text
+                for comment in move.comments_after
+                if comment.text.strip()
+            )
+            # Preserve the historical aggregate for PGN editing callers while
+            # exposing exact before/after slots to read-only semantic readers.
+            comments = comments_before + comments_after
             annotation = " ".join(move.nags)
             label = f"{number}{move.san}"
             if annotation:
@@ -192,6 +208,8 @@ class PgnTreePresenter:
                     san=move.san,
                     comments=comments,
                     nags=tuple(move.nags),
+                    comments_before=comments_before,
+                    comments_after=comments_after,
                 )
             )
             for variation_index, variation in enumerate(move.variations):
