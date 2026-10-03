@@ -395,6 +395,61 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_stale_temp_cleanup_deletes_only_owned_tempfile_names(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        owned = (
+            self.path.parent / ".book-progress.json.abcd_123.tmp",
+            self.path.parent / ".book-progress.json.bak.xy_987.tmp",
+        )
+        for path in owned:
+            path.write_bytes(b"stale-owned-temp")
+
+        user_files = (
+            self.path.parent / ".book-progress.json.bad.token.tmp",
+            self.path.parent / ".book-progress.json.bad-token.tmp",
+            self.path.parent / ".book-progress.json..tmp",
+            self.path.parent / "book-progress.json.abcd_123.tmp",
+            self.path.parent / ".book-progress.json.abcd_123.tmp.keep",
+            self.path.parent / ".book-progress.json.bak.bad.token.tmp",
+        )
+        for path in user_files:
+            path.write_bytes(b"user-data")
+
+        user_directory = self.path.parent / ".book-progress.json.zz_123.tmp"
+        user_directory.mkdir()
+        (user_directory / "keep.bin").write_bytes(b"directory-user-data")
+
+        with self.store._exclusive_access():
+            pass
+
+        for path in owned:
+            self.assertFalse(path.exists())
+        for path in user_files:
+            self.assertEqual(path.read_bytes(), b"user-data")
+        self.assertEqual(
+            (user_directory / "keep.bin").read_bytes(),
+            b"directory-user-data",
+        )
+
+    def test_stale_temp_cleanup_preserves_similar_backup_user_files(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        canonical = self.path.parent / ".book-progress.json.bak.a1_b2c3d.tmp"
+        canonical.write_bytes(b"owned")
+        similar = (
+            self.path.parent / ".book-progress.json.bak.a1.b2.tmp",
+            self.path.parent / ".book-progress.json.bak.a1-b2.tmp",
+            self.path.parent / ".book-progress.json.bak.a1_b2.tmp.extra",
+        )
+        for path in similar:
+            path.write_bytes(b"preserve")
+
+        with self.store._exclusive_access():
+            pass
+
+        self.assertFalse(canonical.exists())
+        for path in similar:
+            self.assertEqual(path.read_bytes(), b"preserve")
+
     def test_publish_orphan_guard_requires_exact_boolean(self) -> None:
         self.path.parent.mkdir(parents=True)
         for invalid in (0, 1, None, "", object()):
