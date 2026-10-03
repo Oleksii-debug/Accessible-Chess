@@ -598,9 +598,9 @@ class Version2GameTreeResumeCoordinator:
                     canonical_token = _token_for_bytes(_read_store_bytes(path))
                     if canonical_token == moved_token:
                         self._remove_discard_guard_locked(
-                            guard,
-                            expected_payload=moved_payload,
-                        )
+                guard,
+                expected_payload=moved_payload,
+            )
                 raise GameTreeResumeError(
                     "resume store changed during discard publication",
                     code=GameTreeResumeCode.STALE_WRITER,
