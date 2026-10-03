@@ -216,6 +216,10 @@ class ClassroomMediaProviderExecutionArbiter:
         self._assert_owner_thread()
         with self._lock:
             active = self._require_active(lease_id)
+            if active.owner is not MediaProviderExecutionOwner.SESSION:
+                raise MediaProviderExecutionError(
+                    "verified clean failure is not valid for media-effect transactions"
+                )
             if active.transaction_id is None or not active.provider_boundary_crossed:
                 raise MediaProviderExecutionError(
                     "verified clean failure requires an exact dispatched transaction"
