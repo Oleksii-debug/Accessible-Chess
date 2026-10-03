@@ -581,8 +581,8 @@
 
     confirm.addEventListener("click", function () {
       safeInvoke(root, invoke, "training.reset", { confirmed: true }, function (result) {
-        if (dialog.open) dialog.close();
         applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+        if (result && result.kind === "render" && dialog.open) dialog.close();
       }, announce, fallbackMessage);
     });
     cancel.addEventListener("click", closeAndRestore);
@@ -723,6 +723,8 @@
       button.addEventListener("click", function () {
         const command = String(action.command || "");
         if (command === "training.reset.request") {
+          const activeFlight = inFlightRoots.get(root);
+          if (activeFlight && activeFlight.epoch === renderEpoch(root)) return;
           resetDialog.open(button);
           return;
         }
