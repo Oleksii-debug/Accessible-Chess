@@ -617,6 +617,30 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original_bytes)
         self.assertEqual(self.store.restore("book:atomic", self.original_document()).index, 1)
 
+    def test_post_replace_canonical_change_reports_durability_unknown(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        external = b'{"entries":{},"generation":41,"schema_version":2}'
+
+        def replace_after_sync(path: Path) -> None:
+            if Path(path) == self.path:
+                self.path.write_bytes(external)
+
+        with mock.patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=replace_after_sync,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:post-replace-race",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.path.read_bytes(), external)
+
     @unittest.skipIf(os.name == "nt", "Windows symlink creation requires environment-specific privileges")
     def test_symlink_store_is_rejected(self) -> None:
         real = Path(self.tempdir.name) / "real.json"
