@@ -1480,7 +1480,7 @@ async function run() {
     let rejected = false;
     try {
       window.AccessibleChessBookSurface.render(
-        bookRoot, snapshot, bookInvoke, announce, "book-block-3", "Action failed"
+        bookRoot, snapshot, bookInvoke, announce, snapshot.block.dom_id, "Action failed"
       );
     } catch (error) {
       rejected = true;
@@ -1497,6 +1497,48 @@ async function run() {
   const nulBookTitle = bookSnapshot(3, "NUL title");
   nulBookTitle.block.title = "Unsafe\u0000title";
   expectBookRenderRejected(nulBookTitle, "NUL Book block title");
+
+  const emptyParagraph = bookSnapshot(3, "Paragraph");
+  emptyParagraph.block.text = "   ";
+  expectBookRenderRejected(emptyParagraph, "empty Book paragraph");
+
+  const emptyHeading = bookSnapshot(3, "Heading");
+  emptyHeading.block.role = "heading";
+  emptyHeading.block.text = " ";
+  emptyHeading.block.title = "";
+  emptyHeading.block.heading_level = 2;
+  expectBookRenderRejected(emptyHeading, "empty Book heading");
+
+  const missingHeadingLevel = bookSnapshot(3, "Heading without level");
+  missingHeadingLevel.block.role = "heading";
+  missingHeadingLevel.block.title = "Heading without level";
+  expectBookRenderRejected(missingHeadingLevel, "Book heading without heading level");
+
+  const paragraphHeadingLevel = bookSnapshot(3, "Paragraph with heading level");
+  paragraphHeadingLevel.block.heading_level = 2;
+  expectBookRenderRejected(paragraphHeadingLevel, "non-heading Book block with heading level");
+
+  const emptyImage = bookSnapshot(3, "Image");
+  emptyImage.block.role = "img";
+  emptyImage.block.text = "";
+  emptyImage.block.title = "";
+  expectBookRenderRejected(emptyImage, "unnamed Book image");
+
+  const emptyTree = bookSnapshot(3, "Tree");
+  emptyTree.block.role = "tree";
+  emptyTree.block.text = "";
+  emptyTree.block.title = "";
+  expectBookRenderRejected(emptyTree, "empty Book tree");
+
+  const emptyGroup = bookSnapshot(3, "Group");
+  emptyGroup.block.role = "group";
+  emptyGroup.block.text = "";
+  emptyGroup.block.title = "";
+  expectBookRenderRejected(emptyGroup, "empty Book group");
+
+  const semanticOnParagraph = semanticGameSnapshot();
+  semanticOnParagraph.block.role = "paragraph";
+  expectBookRenderRejected(semanticOnParagraph, "semantic tree on Book paragraph role");
 
   const oversizedBookText = bookSnapshot(3, "Oversized block text");
   oversizedBookText.block.text = "x".repeat((12 * 1024 * 1024) + 1);
@@ -1800,6 +1842,32 @@ async function run() {
     "malformed semantic render must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic render must not steal reading focus");
+
+  const arraySemanticItem = semanticGameSnapshot();
+  const forgedSemanticArrayItem = [];
+  Object.assign(
+    forgedSemanticArrayItem,
+    arraySemanticItem.block.semantic_tree.items[0]
+  );
+  arraySemanticItem.block.semantic_tree.items[0] = forgedSemanticArrayItem;
+  let arraySemanticItemRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      arraySemanticItem,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    arraySemanticItemRejected = true;
+  }
+  check(arraySemanticItemRejected, "array-shaped semantic item must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "array-shaped semantic item must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "array-shaped semantic item must preserve reading focus");
 
   const nulSemanticText = semanticGameSnapshot();
   nulSemanticText.block.semantic_tree.items[0].label = "1. e4\u0000";
