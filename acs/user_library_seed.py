@@ -119,14 +119,16 @@ def _unique_json(text: str) -> object:
 def _portable_name(value: object) -> str:
     if type(value) is not str:
         raise UserLibrarySeedError("user Library seed filename is invalid")
-    name = value.strip()
+    name = value
     if (
         not name
+        or name != name.strip()
         or len(name) > 255
         or name in {".", ".."}
         or "/" in name
         or "\\" in name
         or ":" in name
+        or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
         or Path(name).name != name
         or not name.casefold().endswith(".pgn")
     ):
@@ -162,7 +164,11 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
         "files",
     }:
         raise UserLibrarySeedError("user Library seed manifest contract is invalid")
-    if raw["schema_version"] != SCHEMA_VERSION or raw["bundle_kind"] != BUNDLE_KIND:
+    if (
+        type(raw["schema_version"]) is not int
+        or raw["schema_version"] != SCHEMA_VERSION
+        or raw["bundle_kind"] != BUNDLE_KIND
+    ):
         raise UserLibrarySeedError("user Library seed manifest identity is invalid")
     if raw["runtime_network_required"] is not False or raw["ai_required"] is not False:
         raise UserLibrarySeedError("user Library seed must be fully local")
