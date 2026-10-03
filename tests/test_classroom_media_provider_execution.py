@@ -194,6 +194,39 @@ class ClassroomMediaProviderExecutionArbiterTests(unittest.TestCase):
         arbiter.complete(lease.lease_id)
         self.assertIsNone(arbiter.active_lease)
 
+    def test_recovery_requires_exact_bound_coordinator_transaction(self):
+        arbiter = self.make_arbiter()
+        lease = arbiter.begin(MediaProviderExecutionOwner.SESSION)
+
+        with self.assertRaisesRegex(
+            MediaProviderExecutionError,
+            "requires a bound transaction",
+        ):
+            arbiter.require_recovery(
+                lease.lease_id,
+                provider_outcome_unknown=False,
+            )
+
+        self.assertEqual(arbiter.active_lease.lease_id, lease.lease_id)
+        self.assertIsNone(arbiter.recovery_status)
+
+    def test_unknown_outcome_requires_crossed_provider_boundary(self):
+        arbiter = self.make_arbiter()
+        lease = arbiter.begin(MediaProviderExecutionOwner.EFFECT)
+        arbiter.bind_transaction(lease.lease_id, "host-" + "8" * 32)
+
+        with self.assertRaisesRegex(
+            MediaProviderExecutionError,
+            "requires a crossed provider boundary",
+        ):
+            arbiter.require_recovery(
+                lease.lease_id,
+                provider_outcome_unknown=True,
+            )
+
+        self.assertEqual(arbiter.active_lease.lease_id, lease.lease_id)
+        self.assertIsNone(arbiter.recovery_status)
+
     def test_unknown_outcome_latches_global_recovery_and_blocks_both_owners(self):
         arbiter = self.make_arbiter()
         lease = arbiter.begin(MediaProviderExecutionOwner.EFFECT)
