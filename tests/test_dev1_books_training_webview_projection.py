@@ -512,6 +512,25 @@ class BookProjectionTests(unittest.TestCase):
         self.assertEqual(before["block"]["dom_id"], after["block"]["dom_id"])
         self.assertNotEqual(before["heading"], after["heading"])
 
+    def test_book_language_token_is_bounded_before_normalization(self) -> None:
+        before = self.projection.language
+
+        class HostileLanguage(str):
+            stripped = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).stripped = True
+                raise AssertionError("language subclass must not reach normalization")
+
+        with self.assertRaisesRegex(TypeError, "language must be UILanguage"):
+            self.projection.set_language(HostileLanguage("en"))
+        self.assertFalse(HostileLanguage.stripped)
+        self.assertIs(before, self.projection.language)
+
+        with self.assertRaisesRegex(ValueError, "unsupported UI language"):
+            self.projection.set_language("e" * 9)
+        self.assertIs(before, self.projection.language)
+
 
 class TrainingProjectionTests(unittest.TestCase):
     def setUp(self) -> None:
