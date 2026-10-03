@@ -27,6 +27,8 @@ from .gametree import (
     GameTreeSerializationError,
     MAX_TREE_NODES,
     MAX_VARIATION_DEPTH,
+    MOVE_NUMBER_ATTACHED_RE,
+    MOVE_NUMBER_PERIODS_ATTACHED_RE,
     MOVE_NUMBER_RE,
     MoveNode,
     NAG_SYMBOLS,
@@ -373,7 +375,10 @@ def _preflight_text(
                     value not in RESULTS
                     and MOVE_NUMBER_RE.fullmatch(value) is None
                     and value not in NAG_SYMBOLS
-                    and re.match(r"^(\d+\.{1,3})(.+)$", value) is not None
+                    and (
+                        MOVE_NUMBER_ATTACHED_RE.fullmatch(value) is not None
+                        or MOVE_NUMBER_PERIODS_ATTACHED_RE.fullmatch(value) is not None
+                    )
                 ):
                     _claim_token(token_count, source_budget)
                 token_length = 0
