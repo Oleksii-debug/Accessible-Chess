@@ -57,6 +57,7 @@ jobs:
             'acs/classroom_file_rpc.py'
             'acs/classroom_file_server.py'
             'tests/test_classroom_file_rpc.py'
+            'tests/test_classroom_file_server.py'
           )
           mandatory=(
             '.github/workflows/classroom-file-rpc.yml'
