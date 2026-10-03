@@ -207,7 +207,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.store.integrity_check()
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     "SELECT value FROM classroom_chat_server_meta "
                     "WHERE key='schema_version'"
@@ -1012,7 +1012,7 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
 
     def test_corrupt_schema_version_is_sanitized_and_never_auto_repaired(self) -> None:
-        for value in ("not-an-integer", 0, 1.5, 4):
+        for value in ("not-an-integer", 0, 1.5, 5):
             with self.subTest(value=value):
                 path = Path(self.tmp.name) / f"schema-{str(value).replace(' ', '-')}.sqlite3"
                 ClassroomChatServerSQLiteStore(path)
@@ -1293,7 +1293,7 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
@@ -1373,7 +1373,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         repaired.integrity_check()
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
@@ -1663,7 +1663,7 @@ class ClassroomChatServerTests(unittest.TestCase):
 
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
@@ -2558,6 +2558,228 @@ class ClassroomChatServerTests(unittest.TestCase):
 
         self.assertEqual(first, recovered)
         self.assertEqual(0, replacement_clock.calls)
+
+    def test_session_retention_redaction_clears_body_and_preserves_history_identity(self) -> None:
+        draft = self.draft(
+            "session-retention-redaction",
+            "Session-only content",
+        )
+        sent = self.send(draft)
+
+        updates = self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        self.assertEqual(1, len(updates))
+        self.assertEqual(sent.message_id, updates[0].message_id)
+        self.assertEqual(0, updates[0].revision)
+        self.assertFalse(updates[0].hidden)
+        self.assertTrue(updates[0].redacted)
+
+        history = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )
+        self.assertEqual(1, len(history))
+        redacted = history[0]
+        self.assertEqual("", redacted.body)
+        self.assertTrue(redacted.redacted)
+        self.assertFalse(redacted.hidden)
+        self.assertEqual(sent.message_id, redacted.message_id)
+        self.assertEqual(sent.sender_id, redacted.sender_id)
+        self.assertEqual(sent.sequence_no, redacted.sequence_no)
+        self.assertEqual(sent.sent_at_unix_ms, redacted.sent_at_unix_ms)
+        self.assertEqual(sent.retention, redacted.retention)
+
+        streamed = self.service.state_updates_after(
+            trusted_caller_identity=STUDENT,
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual(updates, streamed)
+        self.assertEqual(
+            (),
+            self.service.redact_retention(
+                room_id=ROOM,
+                retentions=("session",),
+            ),
+        )
+        self.store.integrity_check()
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "content was already redacted",
+        ):
+            self.service.send_message(
+                trusted_caller_identity=STUDENT,
+                draft=draft,
+            )
+        self.assertEqual(
+            "",
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )[0].body,
+        )
+
+    def test_hide_then_retention_redaction_preserves_both_monotonic_states(self) -> None:
+        sent = self.send(
+            self.draft(
+                "hidden-then-redacted",
+                "Moderated before session end",
+            )
+        )
+        hide = self.moderation(
+            "hide-before-redaction",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(hide,),
+        )
+
+        redaction = self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        self.assertEqual(1, len(redaction))
+        self.assertEqual(1, redaction[0].revision)
+        updates = self.store.state_updates_after(
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual(2, len(updates))
+        self.assertTrue(updates[0].hidden)
+        self.assertFalse(updates[0].redacted)
+        self.assertFalse(updates[1].hidden)
+        self.assertTrue(updates[1].redacted)
+        final = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )[0]
+        self.assertTrue(final.hidden)
+        self.assertTrue(final.redacted)
+        self.assertEqual("", final.body)
+        self.store.integrity_check()
+
+    def test_retention_redaction_is_selective_and_persistent_policy_is_forbidden(self) -> None:
+        transient_service = ClassroomChatServerService(
+            store=self.store,
+            authorization=self.auth,
+            clock_unix_ms=self.clock,
+            retention_policy=lambda _room_id: "transient",
+        )
+        transient = transient_service.send_message(
+            trusted_caller_identity=STUDENT,
+            draft=ChatDraft(
+                "transient-to-redact",
+                ROOM,
+                STUDENT,
+                "Transient content",
+                retention="transient",
+            ),
+        )
+        session = self.send(
+            self.draft(
+                "session-to-keep",
+                "Session content",
+            )
+        )
+
+        updates = self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("transient",),
+        )
+        self.assertEqual((transient.message_id,), tuple(x.message_id for x in updates))
+        history = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )
+        by_id = {message.message_id: message for message in history}
+        self.assertTrue(by_id[transient.message_id].redacted)
+        self.assertEqual("", by_id[transient.message_id].body)
+        self.assertFalse(by_id[session.message_id].redacted)
+        self.assertEqual("Session content", by_id[session.message_id].body)
+
+        for invalid in (
+            ("persistent",),
+            ("session", "session"),
+            (),
+            ["session"],
+            (object(),),
+        ):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "retention redaction policy is invalid",
+                ):
+                    self.service.redact_retention(
+                        room_id=ROOM,
+                        retentions=invalid,
+                    )
+
+    def test_corrupt_redaction_body_or_duplicate_transition_fails_closed(self) -> None:
+        sent = self.send(self.draft("redaction-corruption", "Erase me"))
+        self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET body='resurrected'
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored message redaction state is invalid",
+        ):
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET body=''
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden, redacted
+                ) VALUES(?,?,?,?,?)
+                """,
+                (ROOM, 1, sent.message_id, 0, 1),
+            )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "state transition is duplicated",
+        ):
+            self.store.state_updates_after(
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
 
     def test_retention_policy_failure_is_sanitized_before_storage(self) -> None:
         def broken_policy(_room_id):
