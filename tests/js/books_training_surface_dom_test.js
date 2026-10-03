@@ -1297,6 +1297,54 @@ async function run() {
     "oversized list did not fail closed accessibly"
   );
 
+  const excessiveListItemsRoot = new FakeElement("div");
+  const excessiveListItemsAnnouncements = [];
+  const excessiveListItemsSnapshot = bookSnapshot(40, "Excessive list item count");
+  excessiveListItemsSnapshot.block.kind = "List";
+  excessiveListItemsSnapshot.block.role = "list";
+  excessiveListItemsSnapshot.block.list = {
+    ordered: false,
+    start: null,
+    items: Array.from({ length: 65537 }, () => "x")
+  };
+  window.AccessibleChessBookSurface.render(
+    excessiveListItemsRoot,
+    bookSnapshot(40, "Stable list item count"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: excessiveListItemsSnapshot,
+        focus_target: "book-block-40"
+      }
+    }),
+    (message) => excessiveListItemsAnnouncements.push(String(message)),
+    "book-block-40",
+    "List item count failed"
+  );
+  const excessiveListItemsBefore =
+    excessiveListItemsRoot.querySelector("#book-block-40");
+  find(excessiveListItemsRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    excessiveListItemsRoot.querySelector("#book-block-40") ===
+      excessiveListItemsBefore,
+    "excessive Book list item count replaced the stable reading render"
+  );
+  check(
+    find(excessiveListItemsRoot, "LI") === null,
+    "excessive Book list item count materialized DOM nodes before rejection"
+  );
+  check(
+    document.activeElement === excessiveListItemsBefore,
+    "excessive Book list item count disturbed reading focus"
+  );
+  check(
+    excessiveListItemsAnnouncements.length === 1 &&
+      excessiveListItemsAnnouncements[0] === "List item count failed",
+    "excessive Book list item count did not fail closed accessibly"
+  );
+
   const oversizedStarterRoot = new FakeElement("div");
   const oversizedStarterAnnouncements = [];
   const oversizedStarterSnapshot = bookSnapshot(33, "Oversized starter catalogue");
