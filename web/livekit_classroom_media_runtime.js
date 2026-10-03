@@ -359,9 +359,6 @@
     async _settleCleanSessionFailure(invoke, transaction, operation, snapshot) {
       try {
         if (operation === "disconnect") {
-          // The first provider disconnect threw, but the immediate cleanup retry
-          // reached the exact intended state. Commit the original leave through
-          // the existing session-success authority.
           return await invoke("media.provider_session_success", {
             transaction_id: transaction,
             snapshot
@@ -373,10 +370,9 @@
         });
       } catch (_error) {
         const result = await this._providerFailed(invoke, transaction);
-        // Provider state is already proven clean, but Python may have latched an
-        // ambiguous session recovery because the bridge reply was lost. Retain
-        // the clean snapshot until trusted recovery completion lets the normal
-        // transport-loss callback converge canonical state.
+        // Browser/provider proof of clean teardown is not authority to release
+        // an ambiguous Python recovery. Retain the snapshot so current #1201
+        // can retry canonical transport-loss convergence after trusted recovery.
         this._rememberTransportLossSnapshot(snapshot);
         return result;
       }
@@ -398,9 +394,10 @@
         );
       }
 
-      // A failed connect/reconnect can leave a validated Room with capture
-      // already enabled; a failed disconnect can leave the whole session live.
-      // Retry teardown immediately before presenting recovery.
+      // Failed reconnect/source republish or disconnect can leave a validated
+      // provider Room live while recovery hides media controls. Retry teardown
+      // immediately so microphone/camera capture is not stranded behind the
+      // recovery surface.
       try {
         await adapter.disconnect();
         snapshot = adapter.snapshot();
@@ -421,10 +418,9 @@
       }
 
       const result = await this._providerFailed(invoke, transaction);
-      // Do not let recovery hide the only path that can stop provider capture.
-      // The existing periodic transport reconciler will retry disconnect until
-      // the adapter proves a clean snapshot. Current #1201 semantics deliberately
-      // keep that snapshot pending while trusted Python recovery is latched.
+      // Keep retrying provider teardown from the existing transport reconciler.
+      // It will retain the eventual clean snapshot while trusted recovery is
+      // still latched and only clear it after Python returns media-updated.
       this._rememberTransportLossSnapshot(snapshot);
       return result;
     }
@@ -585,9 +581,9 @@
           this._transportLossSnapshot = snapshot;
           this._transportRetryAt = 0;
         } catch (_error) {
-          // Preserve the latest visible provider state for the next retry. In
-          // particular, a validated active Room can still be publishing media
-          // even though cleanup_required is false.
+          // A validated active Room can still publish media even though its
+          // snapshot is not cleanup-only. Preserve the latest provider truth
+          // and keep retrying teardown instead of hiding it behind recovery.
           try {
             this._transportLossSnapshot = this._adapter.snapshot();
           } catch (_snapshotError) {}
