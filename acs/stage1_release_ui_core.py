@@ -223,6 +223,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             }
         try:
             self._settings.set("sounds", enabled)
+            if not enabled and self._sound_runtime is not None:
+                self._sound_runtime.stop_current()
+                self._clock_sound_not_before = 0.0
         except Exception:
             return {
                 "ok": False,
@@ -287,6 +290,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             }
         try:
             self._settings.set("volume", volume)
+            if volume == 0 and self._sound_runtime is not None:
+                self._sound_runtime.stop_current()
+                self._clock_sound_not_before = 0.0
         except Exception:
             return {
                 "ok": False,
