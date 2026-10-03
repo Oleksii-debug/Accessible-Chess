@@ -563,7 +563,7 @@ class LibraryWebViewProjection:
             },
         )
 
-    def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
+    def _search_view(self, query: GameSearchQuery) -> LibraryView:
         if not isinstance(query, GameSearchQuery):
             raise TypeError("query must be GameSearchQuery")
         normalized = query.normalized()
@@ -575,7 +575,10 @@ class LibraryWebViewProjection:
         # transactional: only a successful replacement search owns the new query.
         if view.status is not SurfaceStatus.ERROR:
             self._query = normalized
-        return self._render_event(view, announce=True)
+        return view
+
+    def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
+        return self._render_event(self._search_view(query), announce=True)
 
     def reset_filters(self) -> LibraryWebViewEvent:
         return self.search(GameSearchQuery())
