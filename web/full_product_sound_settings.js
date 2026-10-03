@@ -355,12 +355,31 @@
         );
       }
     }
+    let catalogMetadata = "";
+    const catalogVersion = item.catalog_version == null
+      ? null
+      : String(item.catalog_version);
+    if (
+      item.installed_version != null &&
+      catalogVersion != null &&
+      (
+        catalogVersion !== String(item.version || "") ||
+        item.state === "version_conflict"
+      )
+    ) {
+      catalogMetadata =
+        " " + text("Версія каталогу: ", "Catalog version: ") + catalogVersion + ". " +
+        text("Автор каталогу: ", "Catalog author: ") + String(item.catalog_author || "") + ". " +
+        text("Ліцензія каталогу: ", "Catalog license: ") + String(item.catalog_license_id || "") + ". " +
+        text("Походження каталогу: ", "Catalog provenance: ") +
+          String(item.catalog_provenance || "") + ".";
+    }
     metadata.textContent =
       text("Версія ", "Version ") + String(item.version || "") + ". " +
       text("Автор: ", "Author: ") + String(item.author || "") + ". " +
       text("Ліцензія: ", "License: ") + String(item.license_id || "") + ". " +
       text("Походження: ", "Provenance: ") + String(item.provenance || "") + ". " +
-      installed + ".";
+      installed + "." + catalogMetadata;
     group.appendChild(metadata);
 
     if (item.active === true) {
