@@ -162,6 +162,8 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
     def test_windows_unsafe_member_names_are_rejected(self) -> None:
         unsafe_names = (
             "package/CON.txt",
+            "package/COM¹.txt",
+            "package/LPT³.bin",
             "package/trailing./file.txt",
             "package/drive:C/file.txt",
             "package/control\x1f/file.txt",
@@ -214,6 +216,35 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 self._stage()
         self.assertFalse(self.output.exists())
 
+    def test_archive_metadata_change_during_snapshot_is_rejected(self) -> None:
+        original_lstat = Path.lstat
+        initial = original_lstat(self.archive)
+        archive_checks = 0
+
+        def fake_lstat(path: Path):
+            nonlocal archive_checks
+            if path != self.archive:
+                return original_lstat(path)
+            archive_checks += 1
+            if archive_checks == 1:
+                return initial
+            return mock.Mock(
+                st_mode=initial.st_mode,
+                st_dev=initial.st_dev,
+                st_ino=initial.st_ino,
+                st_size=initial.st_size,
+                st_mtime_ns=initial.st_mtime_ns + 1,
+                st_file_attributes=getattr(initial, "st_file_attributes", 0),
+            )
+
+        with mock.patch.object(Path, "lstat", autospec=True, side_effect=fake_lstat):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "changed while it was being read",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
     def test_symlink_is_rejected(self) -> None:
         with tarfile.open(self.archive, "w:gz") as archive:
             info = tarfile.TarInfo("package/package.json")
@@ -223,6 +254,25 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
         with self.assertRaisesRegex(
             sdk.LiveKitClientSdkStageError,
             "link or special",
+        ):
+            self._stage()
+        self.assertFalse(self.output.exists())
+
+    def test_member_count_limit_stops_archive_scan(self) -> None:
+        self._write_archive(
+            members=[
+                ("package/package.json", json.dumps(self.package).encode("utf-8")),
+                ("package/dist/livekit-client.umd.js", self.bundle),
+                ("package/LICENSE", self.license),
+                ("package/extra.txt", b"x"),
+            ]
+        )
+        with (
+            mock.patch.object(sdk, "_MAX_MEMBERS", 3),
+            self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "member-count limit",
+            ),
         ):
             self._stage()
         self.assertFalse(self.output.exists())
@@ -345,6 +395,30 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
         ):
             self._stage()
         self.assertFalse(self.output.exists())
+
+    def test_output_appearing_during_staging_is_not_overwritten(self) -> None:
+        original_lexists = sdk.os.path.lexists
+        output_checks = 0
+
+        def fake_lexists(path: object) -> bool:
+            nonlocal output_checks
+            if Path(path) == self.output:
+                output_checks += 1
+                return output_checks >= 2
+            return original_lexists(path)
+
+        with mock.patch.object(sdk.os.path, "lexists", side_effect=fake_lexists):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "appeared during staging",
+            ):
+                self._stage()
+
+        self.assertFalse(self.output.exists())
+        self.assertEqual(
+            list(self.output.parent.glob(f".{self.output.name}.stage-*")),
+            [],
+        )
 
     def test_write_failure_leaves_no_partial_output_or_staging_directory(self) -> None:
         with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
