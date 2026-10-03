@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
+import sys
 from typing import Any
 
 from . import classroom_domain as cd
@@ -23,6 +24,7 @@ from .education_workspace_store import EducationWorkspaceStore
 from .full_product_ui_shell import ROUTES, UILanguage
 from .library_export_workspace import build_library_export_webview
 from .search_service import GameSearchQuery
+from .secret_store import SecretStore, WindowsDpapiSecretStore
 from .teacher_webview_bridge import TeacherWebViewBridge
 from .teacher_webview_projection import TeacherWebViewProjection
 from .teaching_classroom_adapter import apply_classroom_action
@@ -322,6 +324,7 @@ class Version2FinalProductApplication(Version2Application):
         file_bearer_token_provider: Callable[[], str],
         participant_label: Callable[[str], str],
         collaboration_store_path: str | Path | None = None,
+        chat_secret_store: SecretStore | None = None,
         file_picker: Callable[[], Path | None] | None = None,
         file_saver: Callable[[str, str], object] | None = None,
         file_opener: Callable[[str, str], object] | None = None,
@@ -352,6 +355,14 @@ class Version2FinalProductApplication(Version2Application):
             if collaboration_store_path is not None
             else self.progress_store.path.parent / "classroom-collaboration.sqlite3"
         )
+        effective_chat_secret_store = chat_secret_store
+        if effective_chat_secret_store is None and sys.platform == "win32":
+            # The shipping Windows product has an approved current-user DPAPI
+            # authority. Keep encrypted outbox material beside other per-user
+            # application state without reading ambient provider credentials.
+            effective_chat_secret_store = WindowsDpapiSecretStore(
+                path.parent / "secure"
+            )
         runtime = build_classroom_collaboration_http_runtime(
             room_id=room_id,
             participant_id=participant_id,
@@ -363,6 +374,7 @@ class Version2FinalProductApplication(Version2Application):
             file_bearer_token_provider=file_bearer_token_provider,
             participant_label=participant_label,
             language=self.shell.language,
+            chat_secret_store=effective_chat_secret_store,
             file_picker=file_picker,
             file_saver=file_saver,
             file_opener=file_opener,
