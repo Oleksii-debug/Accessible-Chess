@@ -501,6 +501,94 @@ async function testCrossedTransactionConfigurationLossRequiresRecovery() {
   ]);
 }
 
+async function testMalformedSessionInstructionRetiresBeforeCredentialHandoff() {
+  const cases = [
+    {
+      label: "initial connect auto-publish",
+      operation: "connect",
+      enabled_sources: ["camera"]
+    },
+    {
+      label: "reconnect duplicate source",
+      operation: "reconnect",
+      enabled_sources: ["camera", "camera"]
+    },
+    {
+      label: "reconnect unknown source",
+      operation: "reconnect",
+      enabled_sources: ["unknown-source"]
+    }
+  ];
+
+  for (let index = 0; index < cases.length; index += 1) {
+    RecordingAdapter.instances.length = 0;
+    const runtime = loadRuntime(RecordingAdapter);
+    const transaction = "session-" + String(index + 1).repeat(32);
+    const bridgeCalls = [];
+    const event = dispatch(transaction, {
+      transaction_id: transaction,
+      operation: cases[index].operation,
+      credential_required: true,
+      enabled_sources: cases[index].enabled_sources
+    }, false);
+
+    const result = await runtime.execute(event, async (command, payload) => {
+      bridgeCalls.push([command, payload.transaction_id || null]);
+      if (command === "media.provider_not_started") {
+        return { kind: "error", payload: { message: "sanitized" } };
+      }
+      throw new Error("malformed session instruction crossed unexpected bridge command");
+    });
+
+    assert.equal(result.kind, "error", cases[index].label);
+    assert.deepEqual(
+      bridgeCalls,
+      [["media.provider_not_started", transaction]],
+      cases[index].label
+    );
+    assert.equal(RecordingAdapter.instances.length, 0, cases[index].label);
+  }
+}
+
+async function testMalformedCrossedInstructionEscalatesToUnknownRecovery() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const transaction = "host-" + "e".repeat(32);
+  const bridgeCalls = [];
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "set_local_source",
+    source: "not-a-source",
+    enabled: true
+  }, true);
+
+  const result = await runtime.execute(event, async (command, payload) => {
+    bridgeCalls.push(command);
+    assert.equal(payload.transaction_id, transaction);
+    if (command === "media.provider_not_started") {
+      throw new Error("authoritative binder says provider boundary already crossed");
+    }
+    if (command === "media.provider_outcome_unknown") {
+      return {
+        kind: "error",
+        payload: {
+          recovery_required: true,
+          transaction_id: transaction
+        }
+      };
+    }
+    throw new Error("unexpected command " + command);
+  });
+
+  assert.equal(result.kind, "error");
+  assert.equal(result.payload.recovery_required, true);
+  assert.deepEqual(bridgeCalls, [
+    "media.provider_not_started",
+    "media.provider_outcome_unknown"
+  ]);
+  assert.equal(RecordingAdapter.instances.length, 0);
+}
+
 async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
   let releaseFirst;
   class BlockingAdapter extends RecordingAdapter {
@@ -949,6 +1037,8 @@ async function run() {
   await testProviderEffectFailureRequiresRecoveryCallback();
   await testProviderSuccessAckLossRequiresRecovery();
   await testCrossedTransactionConfigurationLossRequiresRecovery();
+  await testMalformedSessionInstructionRetiresBeforeCredentialHandoff();
+  await testMalformedCrossedInstructionEscalatesToUnknownRecovery();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindRejectsResidualDisconnectedState();
