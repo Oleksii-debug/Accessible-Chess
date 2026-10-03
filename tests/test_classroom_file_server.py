@@ -1049,6 +1049,36 @@ class ClassroomFileServerTests(unittest.TestCase):
                 limit=100,
             )
 
+    def test_corrupt_pending_deletion_namespace_fails_before_object_delete(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="corrupt-delete-namespace-a0")
+        )
+        self.store.cancel(
+            trusted_sender_id="student-1",
+            attachment_id=stored.attachment_id,
+        )
+        with self.store._connect() as db, db:
+            db.execute(
+                "UPDATE classroom_file_server_attachments "
+                "SET object_key=? WHERE attachment_id=?",
+                ("rooms/room-1/not-the-attachment", stored.attachment_id),
+            )
+
+        delete_calls = len(self.objects.delete_calls)
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "stored attachment namespace is invalid",
+        ):
+            self.service.drain_pending_deletions()
+
+        self.assertEqual(len(self.objects.delete_calls), delete_calls)
+        self.assertIn(stored.object_key, self.objects.objects)
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "stored attachment namespace is invalid",
+        ):
+            self.service.integrity_check()
+
     def test_corrupt_terminal_sequence_fails_integrity(self):
         stored = self.student1.upload(
             self.prepared(attachment_id="corrupt-a0")
