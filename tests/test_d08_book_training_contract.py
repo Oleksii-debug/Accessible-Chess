@@ -202,6 +202,45 @@ class BookTrainingOriginTests(unittest.TestCase):
         self.assertEqual(returned.index, 2)
         self.assertEqual(reader.index, 2)
 
+    def test_semantic_origin_rejects_heading_context_drift(self):
+        exercise = Exercise(
+            fen=KING_FEN,
+            prompt="Context-bound exercise.",
+            answer_text="Kf3",
+            block_id="exercise-context",
+            source_anchor="exercise-context-source",
+        )
+        original = make_book(
+            blocks=[
+                Heading(text="Chapter A", level=1, block_id="chapter-a"),
+                exercise,
+            ]
+        )
+        material = build_book_training_material(original, "block:exercise-context")
+        self.assertEqual(material.origin.heading_path, ("Chapter A",))
+
+        moved = make_book(
+            blocks=[
+                Heading(text="Chapter B", level=1, block_id="chapter-b"),
+                Exercise(**{k: v for k, v in exercise.as_dict().items() if k != "kind"}),
+            ]
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            resolve_book_training_origin(moved, material.origin)
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
+
+    def test_index_origin_rejects_tampered_export_index(self):
+        exercise = Exercise(fen=KING_FEN, prompt="Index bound", answer_text="Kf3")
+        book = make_book(blocks=[exercise])
+        material = build_book_training_material(book, 0)
+        payload = material.origin.as_dict()
+        payload["index_at_export"] = 7
+        forged = type(material.origin).from_dict(payload)
+
+        with self.assertRaises(BookTrainingError) as caught:
+            resolve_book_training_origin(book, forged)
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
+
     def test_index_fallback_is_snapshot_bound_and_fails_after_reorder(self):
         exercise = Exercise(fen=KING_FEN, prompt="Fallback", answer_text="Kf3")
         original = make_book(blocks=[exercise])
