@@ -28,6 +28,7 @@ from .sound_windows import PackagedSoundAssetResolver
 
 
 PROFILED_SCALED_SOUND_CACHE_FORMAT_VERSION = 1
+_MAX_PROFILED_SOURCE_WAV_BYTES = 32 * 1024 * 1024
 _CACHE_LOCKS_GUARD = threading.Lock()
 _CACHE_LOCKS: dict[str, threading.RLock] = {}
 
@@ -76,6 +77,69 @@ def _require_real_cache_directory_chain(path: Path) -> None:
     for directory in chain:
         if os.path.lexists(directory):
             _require_real_cache_directory(directory)
+
+
+def _read_verified_source_bytes(path: Path) -> bytes:
+    """Read one bounded WAV from the same regular file proven by lstat."""
+
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise FileNotFoundError("profiled sound source is unavailable") from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _is_reparse_point(before)
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise ValueError("profiled sound source is not a regular file")
+    if before.st_size <= 0 or before.st_size > _MAX_PROFILED_SOURCE_WAV_BYTES:
+        raise ValueError("profiled sound source exceeds the resource limit")
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise FileNotFoundError(
+            "profiled sound source could not be opened safely"
+        ) from exc
+
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            stat.S_ISLNK(opened.st_mode)
+            or _is_reparse_point(opened)
+            or not stat.S_ISREG(opened.st_mode)
+            or _regular_file_identity(opened) != _regular_file_identity(before)
+        ):
+            raise ValueError("profiled sound source changed before secure read")
+        remaining = opened.st_size
+        chunks: list[bytes] = []
+        while remaining:
+            try:
+                chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            except OSError as exc:
+                raise OSError("profiled sound source could not be read") from exc
+            if not chunk:
+                raise ValueError("profiled sound source was truncated")
+            remaining -= len(chunk)
+            chunks.append(chunk)
+        try:
+            extra = os.read(descriptor, 1)
+        except OSError as exc:
+            raise OSError("profiled sound source could not be read") from exc
+        if extra:
+            raise ValueError("profiled sound source changed during secure read")
+        after = os.fstat(descriptor)
+        if _regular_file_identity(after) != _regular_file_identity(opened):
+            raise ValueError("profiled sound source changed during secure read")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 def _scale_pcm_frames(frames: bytes, sample_width: int, factor: float) -> bytes:
@@ -182,11 +246,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
             # winsound opens it.
             with self._exclusive_playback():
                 source, cache_key = self._resolve(request)
-                if request.pack_id == self._classic and request.volume == 100:
-                    # Packaged classic assets are immutable release resources.
-                    assert isinstance(source, Path)
-                    playable = source
-                elif isinstance(source, SoundPackAssetSnapshot):
+                if isinstance(source, SoundPackAssetSnapshot):
                     # The store revalidated the exact descriptor bytes against the
                     # active manifest digest. Never reopen its pathname here.
                     playable = self._scaled_bytes(
@@ -329,7 +389,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
         """
 
         self._ensure_real_cache_dir()
-        source_bytes = source.read_bytes()
+        source_bytes = _read_verified_source_bytes(source)
         return self._scaled_bytes(source_bytes, cache_key, volume)
 
     def _scaled_bytes(
