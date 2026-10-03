@@ -10,6 +10,14 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  let eventDrainInFlight = false;
+  let eventDrainPending = false;
+  const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const MAX_NATIVE_EVENT_BATCH = 64;
+
+  function validFocusId(value) {
+    return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
 
   function uiText(uk, en) {
     return currentLanguage === "en" ? en : uk;
@@ -66,7 +74,7 @@
   }
 
   function focusById(id) {
-    if (!id) return false;
+    if (!validFocusId(id)) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
@@ -231,7 +239,9 @@
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
-    const requestedFocus = String(screen.focus_target || "");
+    const requestedFocus = validFocusId(screen.focus_target)
+      ? screen.focus_target
+      : "";
     const heading = String(screen.heading || "");
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
@@ -292,24 +302,47 @@
     if (event.kind === "delegated") {
       const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
       if (delegatedHasOwnPresentationEvent(actionId)) return false;
+      if (actionId === "pgn.open_on_board") {
+        orderedStage1Refreshes.push(refreshStage1Surface);
+      }
       if (actionId && !isVersion2DomainAction(actionId)) {
-        refreshStage1Surface();
+        orderedStage1Refreshes.push(refreshStage1Surface);
         return false;
       }
     }
     if (event.kind === "book-board") {
-      orderedStage1Refreshes.push(refreshStage1Surface());
+      orderedStage1Refreshes.push(refreshStage1Surface);
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
     return event.kind !== "error" && event.kind !== "status";
   }
 
+  function finishEventDrain() {
+    eventDrainInFlight = false;
+    if (!eventDrainPending) return;
+    eventDrainPending = false;
+    drainEvents();
+  }
+
   function drainEvents() {
+    if (eventDrainInFlight) {
+      eventDrainPending = true;
+      return;
+    }
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
-    bridge.v2_drain_events().then(function (events) {
-      if (!Array.isArray(events) || !events.length) return;
+    eventDrainInFlight = true;
+    eventDrainPending = false;
+    let drained;
+    try {
+      drained = bridge.v2_drain_events();
+    } catch (_) {
+      finishEventDrain();
+      return;
+    }
+    Promise.resolve(drained).then(function (events) {
+      if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
       let needsRefresh = false;
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
@@ -318,25 +351,24 @@
         if (!refreshRequired) return;
         needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
-        if (candidate) queuedFocusTarget = candidate;
+        const candidate = payload.focus_target;
+        if (validFocusId(candidate)) queuedFocusTarget = candidate;
       });
-      if (needsRefresh) {
-        const repaintBarrier = orderedStage1Refreshes.length
-          ? Promise.all(orderedStage1Refreshes)
-          : Promise.resolve();
-        repaintBarrier.then(function () {
-          return refresh(true);
-        }).then(function () {
-          if (queuedFocusTarget) focusById(queuedFocusTarget);
-        }, function () {});
-      }
-    }, function () {});
+      if (!needsRefresh && !orderedStage1Refreshes.length) return;
+      const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
+        return chain.then(function () { return refreshStage1(); });
+      }, Promise.resolve());
+      return repaintBarrier.then(function () {
+        return needsRefresh ? refresh(true) : undefined;
+      }).then(function () {
+        if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);
+      });
+    }).then(finishEventDrain, finishEventDrain);
   }
 
   documentRef.addEventListener("focusin", function (event) {
     const target = event.target;
-    if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    if (!target || !validFocusId(target.id)) return;
     if (target.id.indexOf("v2-nav-") === 0) return;
     const bridge = api();
     if (bridge && typeof bridge.v2_record_focus === "function") {
