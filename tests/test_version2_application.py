@@ -261,6 +261,56 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_book_durability_rebind_repairs_stale_book_block_focus(self):
+        book = self.root / "durability-rebind-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        key = self.app.book_key
+        document = self.app.reader.document
+        self.app.record_focus("book-block-0")
+
+        external = BookReader(document)
+        external.go_to(2)
+        self.app.progress_store.save(key, external)
+
+        self.app._reload_book_progress_after_durability_ambiguity()
+
+        self.assertEqual(self.app.reader.index, 2)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-2")
+        self.assertEqual(self.app._focus, "book-block-2")
+        self.assertEqual(
+            self.app.snapshot()["screen"]["focus_target"],
+            "book-block-2",
+        )
+
+    def test_book_durability_rebind_preserves_stable_book_control_focus(self):
+        book = self.root / "durability-rebind-control-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        key = self.app.book_key
+        document = self.app.reader.document
+        self.app.record_focus("book-bookmark-name")
+
+        external = BookReader(document)
+        external.go_to(2)
+        self.app.progress_store.save(key, external)
+
+        self.app._reload_book_progress_after_durability_ambiguity()
+
+        self.assertEqual(self.app.reader.index, 2)
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "book-bookmark-name",
+        )
+        self.assertEqual(self.app._focus, "book-bookmark-name")
+
     def test_book_durability_unknown_with_unreadable_primary_fails_surface_closed(self):
         book = self.root / "durability-unknown-unreadable.md"
         book.write_text(
