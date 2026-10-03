@@ -68,6 +68,13 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                     expected_source_archive_sha256=archive_sha,
                 )
             self.assertEqual(report["file_count"], 330)
+            self.assertEqual(report["source_archive_sha256"], archive_sha)
+            self.assertEqual(report["source_archive_bytes"], archive.stat().st_size)
+            recorded = json.loads(
+                (destination / "inventory.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(recorded["source_archive_sha256"], archive_sha)
+            self.assertEqual(recorded["source_archive_bytes"], archive.stat().st_size)
             self.assertTrue((destination / "library" / "Board" / "NEWGAME.WAV").is_file())
 
     def test_zip_source_rejects_wrong_sha256_before_extraction(self):
