@@ -1,0 +1,94 @@
+name: Books V2 Exact Scalar Boundaries
+
+on:
+  push:
+    branches:
+      - fix/books-v2-exact-scalar-boundaries-20261003
+  pull_request:
+    branches:
+      - converge/books-semantic-durable-board-20261003
+    paths:
+      - 'acs/book_webview_projection.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_dev1_books_training_webview_projection.py'
+      - 'tests/test_version2_application.py'
+      - '.github/workflows/books-v2-exact-scalar-boundaries.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-v2-exact-scalar-boundaries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent, bounded scope and pinned blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='e4eccf32858165641805cb0f84191bf1a2872ef7'
+          git cat-file -e "$parent^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'converge/books-semantic-durable-board-20261003'
+            test '${{ github.event.pull_request.base.sha }}' = "$parent"
+          fi
+
+          git diff --check "$parent" HEAD
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/books-v2-exact-scalar-boundaries.yml'             'acs/book_webview_projection.py'             'acs/version2_application.py'             'tests/test_dev1_books_training_webview_projection.py'             'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "2e9263f2b21f53e28d483ed38fa961956c0d2622"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "93387132c55130f2be9d050000e1923ec88414f4"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "17d467b5cf0b148738e2c62b42dd8d8c6a5b62c1"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "f4a81a87d1eb425a51dc6e80fbdc2355c2292777"
+
+          echo 'BOOKS_V2_EXACT_SCALAR_SCOPE=PASS'
+
+      - name: Compile exact Python surfaces
+        run: >-
+          python -m compileall -q
+          acs/book_webview_projection.py
+          acs/version2_application.py
+          tests/test_dev1_books_training_webview_projection.py
+          tests/test_version2_application.py
+
+      - name: Focused scalar, Book, recovery and NVDA regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_webview_projection
+          tests.test_version2_application
+          tests.test_v2_book_transaction_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_book_board_refresh_focus_order_evidence
+          tests.test_version2_release_accessibility_contract
+
+      - name: Core selftest
+        run: python -m acs.selftest
