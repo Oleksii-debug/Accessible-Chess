@@ -219,6 +219,8 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
             "package/CON.txt",
             "package/COM¹.txt",
             "package/LPT³.bin",
+            "package/CONIN$.txt",
+            "package/conout$.bin",
             "package/trailing./file.txt",
             "package/drive:C/file.txt",
             "package/control\x1f/file.txt",
