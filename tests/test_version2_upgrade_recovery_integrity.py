@@ -7,6 +7,7 @@ from unittest import mock
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 import acs.version2_upgrade as upgrade_module
+import acs.version2_upgrade_base as upgrade_base_module
 from acs.version2_upgrade import (
     UserDataLayout,
     Version2UpgradeCoordinator,
@@ -138,7 +139,7 @@ class Version2UpgradeRecoveryIntegrityTests(unittest.TestCase):
                 return result
 
             with mock.patch(
-                "acs.version2_upgrade._stable_copy",
+                "acs.version2_upgrade_base._stable_copy",
                 side_effect=corrupt_after_copy,
             ):
                 with self.assertRaisesRegex(

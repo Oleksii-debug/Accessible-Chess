@@ -12,10 +12,15 @@ import threading
 
 from .acsdb import AcsDatabase
 from .book_board_workflow import BookBoardWorkflow
+from .book_epub_import import import_epub_book, MAX_EPUB_SOURCE_BYTES
 from .book_html_import import import_html_book, MAX_HTML_SOURCE_BYTES
 from .book_text_import import import_text_book, BookTextFormat, MAX_TEXT_SOURCE_BYTES
 from .book_library_game_lookup import AcsdbBookGameLookup
-from .book_progress_store import BookProgressStore
+from .book_progress_store import (
+    BookProgressStore,
+    BookProgressStoreError,
+    BookProgressStoreErrorCode,
+)
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
@@ -90,6 +95,10 @@ class Version2Application:
         self.library = build_library_export_webview(database, self.router.dispatch, language=language)
         self.library.projection.search(GameSearchQuery())
         self.confirm_document_replace = lambda: not (self.session and self.session.dirty)
+        # Backup rollback can discard the newest saved progress generation, so
+        # production must bind an explicit owner-controlled confirmation. Tests
+        # and non-Windows compositions fail closed by default.
+        self.confirm_book_progress_recovery = lambda: False
         self.open_book_dialog = lambda: None
 
     def _assert_thread(self):
@@ -136,12 +145,19 @@ class Version2Application:
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before opening another source")
         suffix = source.suffix.casefold()
-        if suffix not in {".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
+        if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
             raise ValueError("unsupported book source")
-        limit = MAX_HTML_SOURCE_BYTES if suffix in {".html", ".htm", ".xhtml"} else MAX_TEXT_SOURCE_BYTES
+        if suffix == ".epub":
+            limit = MAX_EPUB_SOURCE_BYTES
+        elif suffix in {".html", ".htm", ".xhtml"}:
+            limit = MAX_HTML_SOURCE_BYTES
+        else:
+            limit = MAX_TEXT_SOURCE_BYTES
         with source.open("rb") as handle: raw = handle.read(limit + 1)
         if len(raw) > limit: raise ValueError("book source exceeds the supported limit")
-        if suffix in {".html", ".htm", ".xhtml"}:
+        if suffix == ".epub":
+            imported = import_epub_book(raw, source_name=report_safe_name(source))
+        elif suffix in {".html", ".htm", ".xhtml"}:
             imported = import_html_book(raw, source_name=report_safe_name(source), available_assets=())
         else:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
@@ -155,15 +171,50 @@ class Version2Application:
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
         # Do not publish the staged reader/workflow/route until its initial
         # progress state is durably accepted by the canonical progress store.
-        self.progress_store.save(imported.book_key, reader)
+        self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self.shell.open_route("books")
         return len(imported.warnings)
 
+    def _persist_book_progress(self, book_key, reader):
+        """Publish Book progress, offering only explicit bounded backup rollback."""
+
+        try:
+            return self.progress_store.save(book_key, reader)
+        except BookProgressStoreError as error:
+            if error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
+                raise
+            # Validate the exact backup for this Book/document and retain its
+            # byte revision. Confirmation may leave the store unlocked, but
+            # recovery may publish only those same semantically validated bytes.
+            try:
+                backup_revision = self.progress_store.validated_backup_revision(
+                    book_key,
+                    reader.document,
+                )
+            except (BookProgressStoreError, LookupError, TypeError, ValueError):
+                raise error
+            # Recovery can lose the newest corrupt-primary generation, so user
+            # consent remains mandatory even after the backup is proven usable.
+            try:
+                confirmed = self.confirm_book_progress_recovery()
+            except Exception:
+                confirmed = False
+            if confirmed is not True:
+                raise
+            if not self.progress_store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+            ):
+                raise
+            # Re-enter the canonical store write after recovery. This reloads
+            # the recovered generation under normal interprocess/CAS locks.
+            return self.progress_store.save(book_key, reader)
+
     def save_book_progress(self):
         self._assert_thread()
-        if self.reader is not None: self.progress_store.save(self.book_key, self.reader)
+        if self.reader is not None:
+            self._persist_book_progress(self.book_key, self.reader)
 
     def save_training_progress(self):
         self._assert_thread()

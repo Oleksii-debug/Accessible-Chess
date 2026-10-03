@@ -114,6 +114,34 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertTrue(session.dirty)
         self.assertIn("External Edit", path.read_text(encoding="utf-8"))
 
+    def test_windows_1251_source_is_readable_but_requires_save_as(self) -> None:
+        path = self.root / "legacy-windows-1251.pgn"
+        source = DOCUMENT.replace("Workspace One", "Русская шахматная книга")
+        path.write_bytes(source.encode("cp1251"))
+
+        session = PgnDocumentSession.open(path)
+
+        self.assertFalse(session.view().source_overwrite_safe)
+        self.assertTrue(session.view().global_warnings)
+        self.assertTrue(
+            any(
+                warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+                for warning in session.view().global_warnings
+            )
+        )
+        self.assertIn("Русская шахматная книга", session.copy_pgn())
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            session.save()
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS)
+
+        target = self.root / "legacy-converted-utf8.pgn"
+        session.save_as(target)
+        reopened = PgnDocumentSession.open(target)
+        self.assertTrue(reopened.view().source_overwrite_safe)
+        self.assertFalse(reopened.view().global_warnings)
+        self.assertIn("Русская шахматная книга", reopened.copy_pgn())
+
     def test_invalid_utf8_source_requires_save_as(self) -> None:
         path = self.root / "legacy.pgn"
         raw = DOCUMENT.replace("Sicilian", "Sicilian {legacy}").encode("utf-8")

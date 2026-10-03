@@ -10,6 +10,7 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.api = AccessibleChessAPI("uk")
         self.root = Path(__file__).resolve().parents[1]
         self.html = (self.root / "web" / "index.html").read_text(encoding="utf-8")
+        self.pgn_js = (self.root / "web" / "full_product_pgn.js").read_text(encoding="utf-8")
 
     def test_board_has_64_cells(self):
         self.assertEqual(len(self.api.get_state()["board"]), 64)
@@ -103,6 +104,47 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("selection&&selection.toString()", self.html)
         self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)", self.html)
 
+    def test_analysis_hotkeys_remain_available_in_editable_controls(self):
+        self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("if(editable&&!e.altKey)return", self.html)
+        self.assertIn("let a=await resolveBinding(chord,'analysis','analysis')", self.html)
+        self.assertIn(
+            "if(editable&&a&&a.context!=='analysis'&&!String(a.actionId||'').startsWith('analysis.'))a=null",
+            self.html,
+        )
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'history','document')", self.html)
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'document','document')", self.html)
+        self.assertIn("e.stopPropagation();executeAction(a.actionId)", self.html)
+
+    def test_modified_board_and_pgn_tree_chords_reach_central_keymap(self):
+        board_start = self.html.index("async function onBoardKey(e)")
+        board_end = self.html.index("function enterBoard(", board_start)
+        board = self.html[board_start:board_end]
+        self.assertIn(
+            "modified=e.altKey||e.ctrlKey||e.shiftKey||e.metaKey",
+            board,
+        )
+        self.assertIn(
+            "if(modified){const mapped=await resolveBinding(eventChord(e),'board','board')",
+            board,
+        )
+        self.assertLess(
+            board.index("if(modified){const mapped=await resolveBinding"),
+            board.index("if(!modified&&key==='Escape')"),
+        )
+        self.assertIn("if(!modified&&key==='ArrowUp')", board)
+        self.assertIn("if(!modified&&key==='ArrowDown')", board)
+        self.assertIn("e.stopPropagation();executeAction(mapped.actionId)", board)
+
+        modifier_guard = (
+            'if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;'
+        )
+        self.assertIn(modifier_guard, self.pgn_js)
+        self.assertLess(
+            self.pgn_js.index(modifier_guard),
+            self.pgn_js.index('if (event.key === "ArrowUp")'),
+        )
+
     def test_keymap_editor_is_out_of_main_flow_and_passive_validation_is_silent(self):
         self.assertIn('<dialog id="keymap-dialog"', self.html)
         self.assertIn('id="open-keymap" type="button"', self.html)
@@ -130,7 +172,10 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn('id="game-info" class="block" aria-live="off"', self.html)
         self.assertIn('id="moves" class="block" aria-live="off"', self.html)
         self.assertIn('id="engine-status" class="block" aria-live="off"', self.html)
-        self.assertIn("message===lastAnnouncement&&now-lastAnnouncementAt<500", self.html)
+        self.assertIn("rememberedAnnouncementEvents.has(eventKey)", self.html)
+        self.assertIn("rememberedAnnouncementEventOrder.length>256", self.html)
+        self.assertIn("recentAnnouncements=recentAnnouncements.filter(item=>now-item.at<500)", self.html)
+        self.assertIn("recentAnnouncements.some(item=>item.message===message)", self.html)
 
 
 if __name__ == "__main__":

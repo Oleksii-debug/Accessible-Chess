@@ -100,6 +100,50 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
+  function renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage) {
+    const catalogue = snapshot.starter_materials;
+    const items = catalogue && Array.isArray(catalogue.items) ? catalogue.items : [];
+    if (!catalogue || !items.length) return;
+
+    const section = node("section");
+    const heading = node("h3", catalogue.heading || "");
+    heading.id = "book-starter-materials-heading";
+    section.setAttribute("aria-labelledby", heading.id);
+    section.appendChild(heading);
+    if (catalogue.description) section.appendChild(node("p", catalogue.description));
+
+    const label = node("label", catalogue.label || "");
+    const select = node("select");
+    select.id = "book-starter-material";
+    label.htmlFor = select.id;
+    items.forEach(function (item) {
+      if (!item || typeof item !== "object") return;
+      const materialId = String(item.material_id || "");
+      if (!materialId) return;
+      const option = node("option", item.title || materialId);
+      option.value = materialId;
+      select.appendChild(option);
+    });
+    const currentId = String(catalogue.current_id || "");
+    if (currentId && items.some(function (item) { return String(item.material_id || "") === currentId; })) {
+      select.value = currentId;
+    }
+    label.appendChild(select);
+    section.appendChild(label);
+
+    const open = node("button", catalogue.open_label || "");
+    open.type = "button";
+    open.addEventListener("click", function () {
+      const materialId = String(select.value || "");
+      if (!materialId) return;
+      safeInvoke(invoke, "book.open_starter_material", { material_id: materialId }, function (result) {
+        applyBookEvent(main.parentNode, result, invoke, announce, fallbackMessage);
+      }, announce, fallbackMessage);
+    });
+    section.appendChild(open);
+    main.appendChild(section);
+  }
+
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("Book root must support replaceChildren");
@@ -111,6 +155,7 @@
     const fragment = document.createDocumentFragment();
     const main = node("section");
     main.appendChild(node("h2", snapshot.heading || ""));
+    renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
     renderBookBlock(main, block);
 

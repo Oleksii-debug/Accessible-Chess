@@ -281,9 +281,49 @@ class BookProgressStore:
         if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata) or not stat.S_ISREG(metadata.st_mode):
             raise BookProgressStoreError(message, code=BookProgressStoreErrorCode.IO_FAILURE)
 
-    def _read_raw_file_unlocked(self, path: Path, *, missing_ok: bool) -> bytes | None:
+    @staticmethod
+    def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+        """Return whether two metadata snapshots identify the same file object."""
         try:
-            metadata = os.lstat(path)
+            return os.path.samestat(first, second)
+        except (AttributeError, OSError):
+            return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+    def _read_raw_file_unlocked(self, path: Path, *, missing_ok: bool) -> bytes | None:
+        """Read through the exact descriptor whose file identity was validated.
+
+        The path is inspected before opening to reject symlinks/reparse points,
+        then the opened descriptor and a post-open path snapshot must identify
+        the same regular file.  Reads never reopen the path after validation.
+        """
+        try:
+            before = os.lstat(path)
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
+            raise BookProgressStoreError(
+                "book progress storage is unavailable",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from exc
+
+        if before is not None:
+            self._require_regular_metadata(
+                before,
+                message="book progress storage is not a regular file",
+            )
+            if before.st_size > MAX_BOOK_PROGRESS_STORE_BYTES:
+                raise BookProgressStoreError(
+                    "book progress store exceeds the resource limit",
+                    code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+                )
+
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(path, flags)
         except FileNotFoundError:
             if missing_ok:
                 return None
@@ -293,32 +333,81 @@ class BookProgressStore:
             )
         except OSError as exc:
             raise BookProgressStoreError(
-                "book progress storage is unavailable",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
-
-        self._require_regular_metadata(
-            metadata,
-            message="book progress storage is not a regular file",
-        )
-        if metadata.st_size > MAX_BOOK_PROGRESS_STORE_BYTES:
-            raise BookProgressStoreError(
-                "book progress store exceeds the resource limit",
-                code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
-            )
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise BookProgressStoreError(
                 "book progress storage could not be read",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             ) from exc
-        if len(raw) > MAX_BOOK_PROGRESS_STORE_BYTES:
-            raise BookProgressStoreError(
-                "book progress store exceeds the resource limit",
-                code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+
+        try:
+            opened = os.fstat(descriptor)
+            self._require_regular_metadata(
+                opened,
+                message="book progress storage is not a regular file",
             )
-        return raw
+            if opened.st_size > MAX_BOOK_PROGRESS_STORE_BYTES:
+                raise BookProgressStoreError(
+                    "book progress store exceeds the resource limit",
+                    code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+                )
+            if before is not None and not self._same_file_identity(before, opened):
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+
+            try:
+                after_open = os.lstat(path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                after_open,
+                message="book progress storage is not a regular file",
+            )
+            if not self._same_file_identity(opened, after_open):
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                raw = stream.read(MAX_BOOK_PROGRESS_STORE_BYTES + 1)
+            if len(raw) > MAX_BOOK_PROGRESS_STORE_BYTES:
+                raise BookProgressStoreError(
+                    "book progress store exceeds the resource limit",
+                    code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+                )
+            final_metadata = os.fstat(descriptor)
+            if (
+                not self._same_file_identity(opened, final_metadata)
+                or final_metadata.st_size != opened.st_size
+                or getattr(final_metadata, "st_mtime_ns", None)
+                != getattr(opened, "st_mtime_ns", None)
+            ):
+                raise BookProgressStoreError(
+                    "book progress storage changed while being read",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            try:
+                after_read = os.lstat(path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage changed while being read",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                after_read,
+                message="book progress storage is not a regular file",
+            )
+            if not self._same_file_identity(opened, after_read):
+                raise BookProgressStoreError(
+                    "book progress storage changed while being read",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            return raw
+        finally:
+            os.close(descriptor)
 
     @staticmethod
     def _decode_payload(raw: bytes) -> dict[str, object]:
@@ -406,6 +495,30 @@ class BookProgressStore:
         except OSError:
             pass
 
+    def _require_lock_descriptor_current(self, descriptor: int) -> None:
+        """Require the locked descriptor to still be the configured lock pathname."""
+        try:
+            metadata = os.fstat(descriptor)
+            current_path = os.lstat(self._lock_path)
+        except OSError as exc:
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from exc
+        self._require_regular_metadata(
+            metadata,
+            message="book progress storage lock is not a regular file",
+        )
+        self._require_regular_metadata(
+            current_path,
+            message="book progress storage lock is not a regular file",
+        )
+        if not self._same_file_identity(metadata, current_path):
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
     def _open_lock_descriptor(self) -> int:
         try:
             existing = os.lstat(self._lock_path)
@@ -440,9 +553,46 @@ class BookProgressStore:
                 metadata,
                 message="book progress storage lock is not a regular file",
             )
+            if existing is not None and not self._same_file_identity(existing, metadata):
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            try:
+                current_path = os.lstat(self._lock_path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                current_path,
+                message="book progress storage lock is not a regular file",
+            )
+            if not self._same_file_identity(metadata, current_path):
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
             if metadata.st_size == 0:
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
+            try:
+                final_path = os.lstat(self._lock_path)
+            except OSError as exc:
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being initialized",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from exc
+            self._require_regular_metadata(
+                final_path,
+                message="book progress storage lock is not a regular file",
+            )
+            if not self._same_file_identity(metadata, final_path):
+                raise BookProgressStoreError(
+                    "book progress storage lock changed while being initialized",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
             return descriptor
         except BaseException:
             os.close(descriptor)
@@ -481,6 +631,7 @@ class BookProgressStore:
             try:
                 self._lock_file_descriptor(descriptor)
                 acquired = True
+                self._require_lock_descriptor_current(descriptor)
                 self._cleanup_stale_temps_unlocked()
                 yield
             finally:
@@ -639,6 +790,29 @@ class BookProgressStore:
             snapshot = dict(entries[key])
         return BookReader.restore_snapshot(document, snapshot)
 
+    def validated_backup_revision(self, book_key: str, document: BookDocument) -> str:
+        """Validate the exact backup for this Book and return its byte revision.
+
+        The returned revision binds later explicit recovery to the same backup
+        bytes that were semantically validated before user confirmation.
+        """
+        key = _book_key(book_key)
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be BookDocument")
+        with self._exclusive_access():
+            payload, raw, revision = self._read_state_unlocked(
+                self.backup_path,
+                missing_ok=False,
+            )
+            assert payload is not None and raw is not None and revision is not None
+            entries = payload["entries"]
+            assert isinstance(entries, dict)
+            if key not in entries:
+                raise LookupError("No saved reading progress for this book")
+            snapshot = dict(entries[key])
+            BookReader.restore_snapshot(document, snapshot)
+            return revision
+
     def has(self, book_key: str) -> bool:
         key = _book_key(book_key)
         with self._exclusive_access():
@@ -667,12 +841,31 @@ class BookProgressStore:
             )
             return True
 
-    def recover_from_backup(self) -> bool:
+    def recover_from_backup(
+        self,
+        *,
+        expected_backup_revision: str | None = None,
+    ) -> bool:
         """Explicitly replace a corrupt primary with its previous valid snapshot.
 
-        Returns ``False`` when the current primary is already valid or absent.
-        Future/unknown primary schemas are never rolled back through this method.
+        If an expected backup revision is supplied, only those exact previously
+        validated backup bytes may be published. Calls without a revision retain
+        the historical explicit-recovery contract.
         """
+        if expected_backup_revision is not None:
+            if (
+                type(expected_backup_revision) is not str
+                or len(expected_backup_revision) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in expected_backup_revision
+                )
+            ):
+                raise BookProgressStoreError(
+                    "book progress backup revision is invalid",
+                    code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
+                )
+
         with self._exclusive_access():
             primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
             if primary_raw is None:
@@ -682,11 +875,23 @@ class BookProgressStore:
             except BookProgressStoreError as primary_error:
                 if primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                     raise
-                backup_payload, backup_raw, _ = self._read_state_unlocked(
+                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
                     self.backup_path,
                     missing_ok=False,
                 )
-                assert backup_payload is not None and backup_raw is not None
+                assert (
+                    backup_payload is not None
+                    and backup_raw is not None
+                    and backup_revision is not None
+                )
+                if (
+                    expected_backup_revision is not None
+                    and backup_revision != expected_backup_revision
+                ):
+                    raise BookProgressStoreError(
+                        "book progress backup changed before recovery could be committed",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
                 current_raw = self._read_raw_file_unlocked(self._path, missing_ok=False)
                 if _revision(current_raw) != _revision(primary_raw):
                     raise BookProgressStoreError(

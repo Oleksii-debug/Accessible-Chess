@@ -16,13 +16,17 @@ import stat
 import tempfile
 import wave
 import zipfile
+import xml.etree.ElementTree as ET
 
 from .acsdb import ACSDB_SCHEMA_VERSION
 from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from .sound_events import SoundEvent
 from .sound_windows import (
+    DEFAULT_SOUND_LAYERS_MANIFEST,
     DEFAULT_SOUND_MANIFEST,
     DEFAULT_SOUND_RELATIVE_DIR,
+    DEFAULT_SOUND_VARIANTS_MANIFEST,
+    PackagedSoundAssetResolver,
     SOUND_MANIFEST_SCHEMA_VERSION,
 )
 from .stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
@@ -33,6 +37,15 @@ MANIFEST_NAME = "RELEASE_MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS.txt"
 V2_PACKAGE_MANIFEST_SCHEMA_VERSION = 1
 V2_PACKAGE_PROFILE = "version2-default"
+
+_WINFORMS_ACCESSIBILITY_SWITCHES = (
+    "Switch.UseLegacyAccessibilityFeatures",
+    "Switch.UseLegacyAccessibilityFeatures.2",
+    "Switch.UseLegacyAccessibilityFeatures.3",
+    "Switch.UseLegacyAccessibilityFeatures.4",
+    "Switch.UseLegacyAccessibilityFeatures.5",
+)
+_MAX_APPCONFIG_BYTES = 64 * 1024
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -102,10 +115,26 @@ _REQUIRED_SOUND_MANIFEST = (
     _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_MANIFEST
 ).as_posix()
 _REQUIRED_SOUND_PROVENANCE = "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+_REQUIRED_SOUND_INVENTORY = (
+    _REQUIRED_SOUND_ROOT / "inventory.json"
+).as_posix()
+_REQUIRED_SOUND_INVENTORY_NOTICE = "THIRD_PARTY_NOTICES/SOUND_INVENTORY.json"
 _SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_SOUND_INVENTORY_SCHEMA_VERSION = 1
+_USER_SOUND_EXPECTED_WAV_COUNT = 330
+_USER_SOUND_EXPECTED_INVENTORY_SHA256 = (
+    "41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920"
+)
+_USER_SOUND_SOURCE = "urn:accessible-chess:user-upload:sound-archive:2026-10-03"
+_USER_SOUND_LICENSE_ID = "USER_PROVIDED"
+_USER_SOUND_CREATOR = "User-provided legacy chess sound archive"
+_MAX_SOUND_INVENTORY_BYTES = 4 * 1024 * 1024
+_MAX_SOUND_FILE_BYTES = 64 * 1024 * 1024
+_MAX_SOUND_LIBRARY_WAV_BYTES = 512 * 1024 * 1024
 _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
+_REQUIRED_WINFORMS_APPCONFIG = "AccessibleChess/AccessibleChess.exe.config"
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -113,6 +142,9 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_pgn.js",
     "AccessibleChess/web/full_product_library.js",
     "AccessibleChess/web/full_product_books_training.js",
+    "AccessibleChess/web/full_product_teacher.js",
+    "AccessibleChess/web/full_product_education.js",
+    "AccessibleChess/web/version2_final_product_bootstrap.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
 )
 
@@ -156,6 +188,7 @@ class Version2PackagePreflightReport:
             "total_bytes": self.total_bytes,
             "checksums_verified": self.checksums_verified,
             "archive_sha256": self.archive_sha256,
+            "human_tested": False,
             "nvda_verified": False,
             "result": "PASS",
         }
@@ -220,6 +253,108 @@ def _sha256(path: Path) -> str:
     except OSError as exc:
         _fail(f"package file cannot be read: {type(exc).__name__}")
     return digest.hexdigest()
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare pathname/open-handle identity plus content-relevant metadata."""
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _snapshot_regular_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+):
+    """Copy one verified pathname identity once, then validate immutable snapshot bytes."""
+    before = _safe_lstat(path, label=label)
+    if not stat.S_ISREG(before.st_mode):
+        _fail(f"{label} must be a regular file")
+    if before.st_size > max_bytes:
+        _fail(f"{label} exceeds archive byte limit")
+
+    snapshot = tempfile.SpooledTemporaryFile(
+        max_size=min(max_bytes, 64 * 1024 * 1024),
+        mode="w+b",
+    )
+    source = None
+    digest = hashlib.sha256()
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail(f"{label} must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail(f"{label} changed while being opened")
+
+        copied = 0
+        while True:
+            block = source.read(1024 * 1024)
+            if not block:
+                break
+            copied += len(block)
+            if copied > max_bytes:
+                _fail(f"{label} exceeds archive byte limit")
+            digest.update(block)
+            snapshot.write(block)
+
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label=label)
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+            or copied != int(after_read.st_size)
+        ):
+            _fail(f"{label} changed while being read")
+        snapshot.seek(0)
+        return snapshot, digest.hexdigest()
+    except Version2PackagePreflightError:
+        snapshot.close()
+        raise
+    except OSError as exc:
+        snapshot.close()
+        _fail(f"{label} cannot be read safely: {type(exc).__name__}")
+    finally:
+        if source is not None:
+            source.close()
+
+
+def _register_zip_topology(
+    token: str,
+    *,
+    is_dir: bool,
+    files: set[str],
+    directories: set[str],
+    label: str,
+) -> None:
+    parts = token.casefold().split("/")
+    folded = "/".join(parts)
+    ancestors = {"/".join(parts[:index]) for index in range(1, len(parts))}
+    if any(parent in files for parent in ancestors):
+        _fail(f"{label} path topology collision")
+    if is_dir:
+        if folded in files:
+            _fail(f"{label} path topology collision")
+        directories.add(folded)
+    else:
+        if folded in directories:
+            _fail(f"{label} path topology collision")
+        files.add(folded)
+    directories.update(ancestors)
 
 
 def _backend_payload(relative: str) -> bool:
@@ -346,8 +481,15 @@ def _json_no_duplicates(text: str, *, label: str) -> dict[str, object]:
             result[key] = value
         return result
 
+    def reject_nonfinite(value: str) -> object:
+        _fail(f"{label} contains non-finite JSON number: {value}")
+
     try:
-        value = json.loads(text, object_pairs_hook=hook)
+        value = json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=reject_nonfinite,
+        )
     except Version2PackagePreflightError:
         raise
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -502,10 +644,502 @@ def _validate_sound_provenance(
             _fail(f"sound provenance creator identity is unresolved: {event.value}")
 
 
+def _sound_inventory_sha256(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        _fail(f"{label} SHA-256 is invalid")
+    return value
+
+
+def _sound_inventory_file_token(value: object) -> str:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
+        _fail("sound inventory file path is invalid")
+    token = _relative_token(value, label="sound inventory file path")
+    path = PurePosixPath(token)
+    if len(path.parts) < 2 or path.parts[0] != "library":
+        _fail("sound inventory file must be under library")
+    if path.suffix.casefold() != ".wav":
+        _fail("sound inventory entry is not WAV")
+    return token
+
+
+def _validate_sound_inventory(
+    root: Path,
+    package_inventory: tuple[str, ...],
+) -> None:
+    variants_relative = (
+        _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_VARIANTS_MANIFEST
+    ).as_posix()
+    layers_relative = (
+        _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_LAYERS_MANIFEST
+    ).as_posix()
+    has_variants = variants_relative in package_inventory
+    has_source = _REQUIRED_SOUND_INVENTORY in package_inventory
+    has_notice = _REQUIRED_SOUND_INVENTORY_NOTICE in package_inventory
+
+    if not has_source and not has_notice:
+        if has_variants:
+            _fail("packaged sound variants require canonical sound inventory")
+        return
+    if not has_source or not has_notice:
+        _fail("packaged sound inventory and audit notice must both be present")
+
+    source_path = _require_package_file(
+        root,
+        package_inventory,
+        _REQUIRED_SOUND_INVENTORY,
+        label="packaged sound inventory",
+    )
+    notice_path = _require_package_file(
+        root,
+        package_inventory,
+        _REQUIRED_SOUND_INVENTORY_NOTICE,
+        label="sound inventory audit notice",
+    )
+    try:
+        if (
+            source_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
+            or notice_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
+        ):
+            _fail("sound inventory exceeds byte limit")
+        source_doc = _json_no_duplicates(
+            source_path.read_text(encoding="utf-8-sig"),
+            label="packaged sound inventory",
+        )
+        notice_doc = _json_no_duplicates(
+            notice_path.read_text(encoding="utf-8-sig"),
+            label="sound inventory audit notice",
+        )
+    except Version2PackagePreflightError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        _fail(f"sound inventory is unreadable: {type(exc).__name__}")
+    if source_doc != notice_doc:
+        _fail("packaged sound inventory does not match audit notice")
+
+    required_root = {
+        "schema_version",
+        "source",
+        "license_id",
+        "creator",
+        "file_count",
+        "source_inventory_sha256",
+        "files",
+    }
+    optional_archive = {"source_archive_sha256", "source_archive_bytes"}
+    keys = set(source_doc)
+    if not required_root.issubset(keys) or not keys.issubset(required_root | optional_archive):
+        _fail("sound inventory root contract is invalid")
+    archive_keys = keys & optional_archive
+    if archive_keys and archive_keys != optional_archive:
+        _fail("sound inventory archive identity is incomplete")
+    if (
+        type(source_doc.get("schema_version")) is not int
+        or source_doc.get("schema_version") != _SOUND_INVENTORY_SCHEMA_VERSION
+    ):
+        _fail("sound inventory schema is invalid")
+    if source_doc.get("source") != _USER_SOUND_SOURCE:
+        _fail("sound inventory source identity is invalid")
+    if source_doc.get("license_id") != _USER_SOUND_LICENSE_ID:
+        _fail("sound inventory license identity is invalid")
+    if source_doc.get("creator") != _USER_SOUND_CREATOR:
+        _fail("sound inventory creator identity is invalid")
+
+    file_count = source_doc.get("file_count")
+    files = source_doc.get("files")
+    if type(file_count) is not int or file_count != _USER_SOUND_EXPECTED_WAV_COUNT:
+        _fail("sound inventory file count is invalid")
+    if not isinstance(files, list) or len(files) != file_count:
+        _fail("sound inventory files list is invalid")
+    declared_inventory_sha = _sound_inventory_sha256(
+        source_doc.get("source_inventory_sha256"),
+        label="sound inventory source",
+    )
+    if declared_inventory_sha != _USER_SOUND_EXPECTED_INVENTORY_SHA256:
+        _fail("sound inventory does not match approved source identity")
+
+    by_path: dict[str, dict[str, object]] = {}
+    normalized_files: list[dict[str, object]] = []
+    total_bytes = 0
+    expected_fields = {
+        "file",
+        "sha256",
+        "bytes",
+        "channels",
+        "sample_width_bytes",
+        "sample_rate",
+        "frames",
+        "duration_seconds",
+        "compression",
+    }
+    for entry in files:
+        if not isinstance(entry, dict) or set(entry) != expected_fields:
+            _fail("sound inventory entry contract is invalid")
+        file_name = _sound_inventory_file_token(entry.get("file"))
+        folded = file_name.casefold()
+        if folded in by_path:
+            _fail("sound inventory contains duplicate file paths")
+        digest = _sound_inventory_sha256(entry.get("sha256"), label="sound inventory file")
+
+        byte_count = entry.get("bytes")
+        channels = entry.get("channels")
+        sample_width = entry.get("sample_width_bytes")
+        sample_rate = entry.get("sample_rate")
+        frames = entry.get("frames")
+        duration = entry.get("duration_seconds")
+        compression = entry.get("compression")
+        if (
+            type(byte_count) is not int
+            or byte_count < 45
+            or byte_count > _MAX_SOUND_FILE_BYTES
+            or type(channels) is not int
+            or not 1 <= channels <= 64
+            or type(sample_width) is not int
+            or not 1 <= sample_width <= 8
+            or type(sample_rate) is not int
+            or not 1 <= sample_rate <= 768000
+            or type(frames) is not int
+            or frames < 1
+            or isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or duration <= 0
+            or not isinstance(compression, str)
+            or not compression
+            or len(compression) > 32
+        ):
+            _fail("sound inventory audio metadata is invalid")
+        if abs(float(duration) - round(frames / sample_rate, 6)) > 0.000001:
+            _fail("sound inventory duration metadata is invalid")
+
+        package_relative = (
+            _REQUIRED_SOUND_ROOT / PurePosixPath(file_name)
+        ).as_posix()
+        asset = _require_package_file(
+            root,
+            package_inventory,
+            package_relative,
+            label="inventory-bound sound asset",
+            min_bytes=45,
+        )
+        try:
+            if asset.stat().st_size != byte_count:
+                _fail("sound inventory byte size mismatch")
+        except OSError as exc:
+            _fail(f"sound inventory asset cannot be inspected: {type(exc).__name__}")
+        if _sha256(asset) != digest:
+            _fail("sound inventory SHA-256 mismatch")
+        try:
+            with wave.open(str(asset), "rb") as reader:
+                actual_channels = reader.getnchannels()
+                actual_sample_width = reader.getsampwidth()
+                actual_sample_rate = reader.getframerate()
+                actual_frames = reader.getnframes()
+                actual_compression = reader.getcomptype()
+                frame_bytes = reader.readframes(actual_frames)
+        except Version2PackagePreflightError:
+            raise
+        except (OSError, EOFError, wave.Error) as exc:
+            _fail(f"sound inventory WAV is unreadable: {type(exc).__name__}")
+        if (
+            actual_channels != channels
+            or actual_sample_width != sample_width
+            or actual_sample_rate != sample_rate
+            or actual_frames != frames
+            or actual_compression != compression
+        ):
+            _fail("sound inventory WAV metadata mismatch")
+        if len(frame_bytes) != actual_frames * actual_channels * actual_sample_width:
+            _fail("sound inventory WAV is truncated")
+
+        total_bytes += byte_count
+        if total_bytes > _MAX_SOUND_LIBRARY_WAV_BYTES:
+            _fail("sound inventory library byte limit exceeded")
+        normalized = dict(entry)
+        normalized["file"] = file_name
+        normalized["sha256"] = digest
+        normalized_files.append(normalized)
+        by_path[folded] = normalized
+
+    library_prefix = (_REQUIRED_SOUND_ROOT / "library").as_posix() + "/"
+    actual_library_wavs = {
+        relative.casefold()
+        for relative in package_inventory
+        if relative.startswith(library_prefix)
+        and PurePosixPath(relative).suffix.casefold() == ".wav"
+    }
+    expected_library_wavs = {
+        (_REQUIRED_SOUND_ROOT / PurePosixPath(str(item["file"]))).as_posix().casefold()
+        for item in normalized_files
+    }
+    if actual_library_wavs != expected_library_wavs:
+        _fail("sound inventory does not exactly cover packaged WAV library")
+
+    fingerprint_rows = []
+    for item in sorted(normalized_files, key=lambda current: str(current["file"]).casefold()):
+        source_relative = str(item["file"]).removeprefix("library/")
+        fingerprint_rows.append(
+            f'{source_relative}\0{item["sha256"]}\n'.encode("utf-8")
+        )
+    calculated_inventory_sha = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+    if (
+        calculated_inventory_sha != declared_inventory_sha
+        or calculated_inventory_sha != _USER_SOUND_EXPECTED_INVENTORY_SHA256
+    ):
+        _fail("sound inventory fingerprint mismatch")
+
+    if archive_keys:
+        _sound_inventory_sha256(
+            source_doc.get("source_archive_sha256"),
+            label="sound inventory source archive",
+        )
+        archive_bytes = source_doc.get("source_archive_bytes")
+        if type(archive_bytes) is not int or archive_bytes < 1:
+            _fail("sound inventory source archive size is invalid")
+
+    product_dir = root / _PRODUCT_ROOT
+    try:
+        resolver = PackagedSoundAssetResolver(product_dir)
+        manifest = resolver.load_manifest()
+        variants = resolver.load_variant_catalog()
+        layers = resolver.load_layer_catalog()
+    except Exception as exc:
+        _fail(f"packaged sound catalog is invalid: {type(exc).__name__}")
+    runtime_paths = {
+        *manifest.files.values(),
+        *(option.path for options in variants.values() for option in options),
+        *(
+            path
+            for by_variant in layers.values()
+            for sequence in by_variant.values()
+            for path in sequence
+        ),
+    }
+    sound_root = product_dir / DEFAULT_SOUND_RELATIVE_DIR
+    sound_root_resolved = sound_root.resolve()
+    for path in runtime_paths:
+        try:
+            relative = path.resolve().relative_to(sound_root_resolved).as_posix()
+        except (OSError, ValueError):
+            _fail("runtime sound asset escapes canonical inventory")
+        token = _sound_inventory_file_token(relative).casefold()
+        entry = by_path.get(token)
+        if entry is None:
+            _fail("runtime sound asset is absent from canonical inventory")
+        if (
+            entry["compression"] != "NONE"
+            or entry["sample_width_bytes"] not in {1, 2}
+        ):
+            _fail("runtime sound asset must be uncompressed 8-bit or 16-bit PCM")
+
+    if layers_relative in package_inventory and not has_variants:
+        # Layer-only legacy packs are allowed only when they do not opt into
+        # the full user-pack inventory contract.
+        _fail("inventory-bound sound layers require the variant catalog")
+
+
+def _validate_stockfish_source_archive(
+    source_archive: Path,
+    limits: PackageLimits,
+) -> None:
+    """Validate one immutable snapshot of the nested corresponding-source ZIP."""
+    snapshot, _ = _snapshot_regular_file(
+        source_archive,
+        label="Stockfish source ZIP",
+        max_bytes=limits.max_archive_bytes,
+    )
+    try:
+        with snapshot:
+            with zipfile.ZipFile(snapshot) as archive:
+                infos = archive.infolist()
+                if not infos:
+                    _fail("Stockfish corresponding source archive is empty")
+                if len(infos) > limits.max_files * 2:
+                    _fail("Stockfish source ZIP exceeds member-count limit")
+
+                seen: set[str] = set()
+                topology_files: set[str] = set()
+                topology_directories: set[str] = set()
+                file_count = 0
+                total = 0
+                has_source_file = False
+                for info in infos:
+                    raw = (
+                        info.filename[:-1]
+                        if info.is_dir() and info.filename.endswith("/")
+                        else info.filename
+                    )
+                    token = _relative_token(raw, label="Stockfish source ZIP member path")
+                    folded = token.casefold()
+                    if folded in seen:
+                        _fail("Stockfish source ZIP members collide under Windows case-folding")
+                    seen.add(folded)
+
+                    unix_mode = (info.external_attr >> 16) & 0xFFFF
+                    file_type = stat.S_IFMT(unix_mode)
+                    if file_type == stat.S_IFLNK:
+                        _fail("Stockfish source ZIP symbolic links are forbidden")
+                    if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                        _fail("Stockfish source ZIP special files are forbidden")
+                    if info.flag_bits & 0x1:
+                        _fail("encrypted Stockfish source ZIP members are forbidden")
+                    _register_zip_topology(
+                        token,
+                        is_dir=info.is_dir(),
+                        files=topology_files,
+                        directories=topology_directories,
+                        label="Stockfish source ZIP",
+                    )
+                    if info.is_dir():
+                        continue
+
+                    file_count += 1
+                    if file_count > limits.max_files:
+                        _fail("Stockfish source ZIP exceeds file-count limit")
+                    if info.file_size > limits.max_member_bytes:
+                        _fail("Stockfish source ZIP member exceeds uncompressed size limit")
+                    total += int(info.file_size)
+                    if total > limits.max_bytes:
+                        _fail("Stockfish source ZIP exceeds total uncompressed byte limit")
+                    if info.file_size:
+                        if info.compress_size <= 0:
+                            _fail("Stockfish source ZIP member has invalid compressed size")
+                        if info.file_size > info.compress_size * limits.max_compression_ratio:
+                            _fail("Stockfish source ZIP member exceeds compression-ratio limit")
+
+                    written = 0
+                    try:
+                        with archive.open(info, "r") as source:
+                            while True:
+                                block = source.read(1024 * 1024)
+                                if not block:
+                                    break
+                                written += len(block)
+                                if written > info.file_size or written > limits.max_member_bytes:
+                                    _fail("Stockfish source ZIP member expanded beyond declared bounds")
+                    except Version2PackagePreflightError:
+                        raise
+                    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                        _fail(
+                            "Stockfish source ZIP member readback failed: "
+                            f"{type(exc).__name__}"
+                        )
+                    if written != info.file_size:
+                        _fail("Stockfish source ZIP member readback size mismatch")
+                    if written and "/src/" in f"/{token}":
+                        has_source_file = True
+
+                if not has_source_file:
+                    _fail("Stockfish corresponding source archive does not contain source files")
+    except Version2PackagePreflightError:
+        raise
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
+
+def validate_winforms_accessibility_app_config(path: Path) -> None:
+    """Require the packaged WinForms accessibility switches to remain enabled."""
+
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
+    if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
+        _fail("WinForms accessibility app-config size is invalid")
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeError as exc:
+        _fail(f"WinForms accessibility app-config must be UTF-8: {type(exc).__name__}")
+
+    # ElementTree receives decoded text below, so it does not enforce that an
+    # XML encoding declaration agrees with the actual packaged bytes.  A .NET
+    # config loader reads the file as bytes and does honor that declaration.
+    # Reject contradictory declarations here so preflight cannot approve UTF-8
+    # bytes that claim to be UTF-16 (or another encoding) at runtime.
+    declaration = re.match(r"\A<\?xml\s+[^?]*\?>", text, flags=re.IGNORECASE)
+    if declaration is not None:
+        declared_encoding = re.search(
+            r"\bencoding\s*=\s*(['\"])([^'\"]+)\1",
+            declaration.group(0),
+            flags=re.IGNORECASE,
+        )
+        if (
+            declared_encoding is not None
+            and declared_encoding.group(2).casefold() != "utf-8"
+        ):
+            _fail(
+                "WinForms accessibility app-config XML declaration must declare UTF-8"
+            )
+
+    upper = text.upper()
+    if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
+        _fail("WinForms accessibility app-config must not contain DTD or entities")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        _fail(f"WinForms accessibility app-config is invalid XML: {type(exc).__name__}")
+    if root.tag != "configuration":
+        _fail("WinForms accessibility app-config root is invalid")
+
+    runtime_nodes = root.findall("runtime")
+    if len(runtime_nodes) != 1:
+        _fail("WinForms accessibility app-config must contain exactly one runtime element")
+    runtime = runtime_nodes[0]
+    switch_nodes = runtime.findall("AppContextSwitchOverrides")
+    if len(switch_nodes) != 1:
+        _fail(
+            "WinForms accessibility app-config must contain exactly one "
+            "AppContextSwitchOverrides element"
+        )
+    node = switch_nodes[0]
+    if (
+        (runtime.text is not None and runtime.text.strip())
+        or any(child.tail is not None and child.tail.strip() for child in runtime)
+    ):
+        _fail(
+            "WinForms accessibility app-config runtime must not contain mixed text"
+        )
+    if set(node.attrib) != {"value"}:
+        _fail("WinForms accessibility app-config switch attributes are invalid")
+    if list(node) or (node.text is not None and node.text.strip()):
+        _fail(
+            "WinForms accessibility app-config AppContextSwitchOverrides "
+            "must not contain child content"
+        )
+    value = node.attrib.get("value", "")
+    parsed: dict[str, str] = {}
+    for raw_entry in value.split(";"):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            _fail("WinForms accessibility app-config switch entry is invalid")
+        name, setting = (part.strip() for part in entry.split("=", 1))
+        if not name or name in parsed:
+            _fail("WinForms accessibility app-config switch names must be unique")
+        parsed[name] = setting.casefold()
+
+    expected_switches = set(_WINFORMS_ACCESSIBILITY_SWITCHES)
+    actual_switches = set(parsed)
+    missing = sorted(expected_switches - actual_switches)
+    if missing:
+        _fail("WinForms accessibility app-config is missing required accessibility switches")
+    unexpected = sorted(actual_switches - expected_switches)
+    if unexpected:
+        _fail("WinForms accessibility app-config contains unexpected accessibility switches")
+    if any(parsed[name] != "false" for name in _WINFORMS_ACCESSIBILITY_SWITCHES):
+        _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
+    limits: PackageLimits,
 ) -> None:
+    app_config = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_WINFORMS_APPCONFIG,
+        label="WinForms accessibility app-config",
+    )
+    validate_winforms_accessibility_app_config(app_config)
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
             root,
@@ -547,16 +1181,14 @@ def _validate_required_runtime_resources(
     if set(mapping) != expected_events:
         _fail("packaged sound manifest must declare every semantic sound event exactly once")
 
-    seen_sound_paths: set[str] = set()
     for event in SoundEvent:
         value = mapping.get(event.value)
         if not isinstance(value, str) or not value:
             _fail(f"packaged sound manifest entry is invalid: {event.value}")
         token = _relative_token(value, label="sound asset path")
-        folded_token = token.casefold()
-        if folded_token in seen_sound_paths:
-            _fail("packaged sound events must use distinct WAV assets")
-        seen_sound_paths.add(folded_token)
+        # Multiple semantic outcomes may intentionally share one neutral WAV.
+        # Provenance remains event-specific and is verified below against the
+        # selected manifest path and bytes, so aliases cannot bypass integrity.
         if PurePosixPath(token).suffix.casefold() != ".wav":
             _fail(f"packaged sound asset is not WAV: {event.value}")
         relative = (_REQUIRED_SOUND_ROOT / PurePosixPath(token)).as_posix()
@@ -570,17 +1202,21 @@ def _validate_required_runtime_resources(
         try:
             with wave.open(str(sound_path), "rb") as reader:
                 if (
-                    reader.getsampwidth() != 2
+                    reader.getcomptype() != "NONE"
+                    or reader.getsampwidth() not in {1, 2}
                     or reader.getframerate() <= 0
                     or reader.getnframes() <= 0
                 ):
-                    _fail(f"packaged sound asset is not usable 16-bit PCM: {event.value}")
+                    _fail(
+                        f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
+                    )
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
             _fail(f"packaged sound asset is invalid: {event.value} ({type(exc).__name__})")
 
     _validate_sound_provenance(root, inventory, mapping)
+    _validate_sound_inventory(root, inventory)
 
     source_archive = _require_package_file(
         root,
@@ -588,13 +1224,7 @@ def _validate_required_runtime_resources(
         _REQUIRED_STOCKFISH_SOURCE,
         label="Stockfish 18 corresponding source archive",
     )
-    try:
-        with zipfile.ZipFile(source_archive) as archive:
-            names = tuple(info.filename.replace("\\", "/") for info in archive.infolist())
-    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
-        _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
-    if not any("/src/" in f"/{name.lstrip('/')}" for name in names):
-        _fail("Stockfish corresponding source archive does not contain source files")
+    _validate_stockfish_source_archive(source_archive, limits)
 
     notice_path = _require_package_file(
         root,
@@ -629,6 +1259,7 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
         "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
         "product": "Accessible Chess",
         "package_profile": V2_PACKAGE_PROFILE,
+        "human_tested": False,
         "nvda_verified": False,
         "upgrade_from_version1": True,
         "upgrade_journal_schema": UPGRADE_JOURNAL_SCHEMA_VERSION,
@@ -745,7 +1376,7 @@ def validate_version2_package_tree(
     root = Path(root)
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
-    _validate_required_runtime_resources(root, inventory)
+    _validate_required_runtime_resources(root, inventory, limits)
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
@@ -774,6 +1405,8 @@ def _validate_zip_entries(
     if len(infos) > limits.max_files * 2:
         _fail("Version 2 ZIP exceeds member-count limit")
     seen: set[str] = set()
+    topology_files: set[str] = set()
+    topology_directories: set[str] = set()
     total = 0
     validated: list[tuple[zipfile.ZipInfo, str]] = []
     for info in infos:
@@ -790,6 +1423,13 @@ def _validate_zip_entries(
             _fail("ZIP special files are forbidden")
         if info.flag_bits & 0x1:
             _fail("encrypted ZIP members are forbidden")
+        _register_zip_topology(
+            token,
+            is_dir=info.is_dir(),
+            files=topology_files,
+            directories=topology_directories,
+            label="Version 2 ZIP",
+        )
         if not info.is_dir():
             _validate_file_policy(token)
             if info.file_size > limits.max_member_bytes:
@@ -805,7 +1445,6 @@ def _validate_zip_entries(
         validated.append((info, token))
     return tuple(validated)
 
-
 def validate_version2_package_zip(
     zip_path: str | Path,
     *,
@@ -816,51 +1455,51 @@ def validate_version2_package_zip(
         raise TypeError("limits must be PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
     path = Path(zip_path)
-    info = _safe_lstat(path, label="Version 2 ZIP")
-    if not stat.S_ISREG(info.st_mode):
-        _fail("Version 2 ZIP must be a regular file")
-    if info.st_size > limits.max_archive_bytes:
-        _fail("Version 2 ZIP exceeds archive byte limit")
-    archive_sha = _sha256(path)
+    snapshot, archive_sha = _snapshot_regular_file(
+        path,
+        label="Version 2 ZIP",
+        max_bytes=limits.max_archive_bytes,
+    )
 
     try:
-        with zipfile.ZipFile(path) as archive:
-            entries = _validate_zip_entries(archive, limits)
-            with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-readback-") as td:
-                root = Path(td)
-                extracted_files: set[str] = set()
-                for member, token in entries:
-                    target = root.joinpath(*PurePosixPath(token).parts)
-                    if member.is_dir():
-                        target.mkdir(parents=True, exist_ok=True)
-                        continue
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    written = 0
-                    try:
-                        with archive.open(member, "r") as source, target.open("xb") as destination:
-                            while True:
-                                block = source.read(1024 * 1024)
-                                if not block:
-                                    break
-                                written += len(block)
-                                if written > member.file_size or written > limits.max_member_bytes:
-                                    _fail("ZIP member expanded beyond declared bounds")
-                                destination.write(block)
-                    except Version2PackagePreflightError:
-                        raise
-                    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
-                        _fail(f"ZIP member readback failed: {type(exc).__name__}")
-                    if written != member.file_size:
-                        _fail("ZIP member readback size mismatch")
-                    extracted_files.add(token)
-                report = validate_version2_package_tree(
-                    root,
-                    expected_integration_sha=expected_sha,
-                    limits=limits,
-                )
-                if set(report.inventory) != extracted_files:
-                    _fail("ZIP readback inventory differs from archive file inventory")
-                return replace(report, archive_sha256=archive_sha)
+        with snapshot:
+            with zipfile.ZipFile(snapshot) as archive:
+                entries = _validate_zip_entries(archive, limits)
+                with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-readback-") as td:
+                    root = Path(td)
+                    extracted_files: set[str] = set()
+                    for member, token in entries:
+                        target = root.joinpath(*PurePosixPath(token).parts)
+                        if member.is_dir():
+                            target.mkdir(parents=True, exist_ok=True)
+                            continue
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        written = 0
+                        try:
+                            with archive.open(member, "r") as source, target.open("xb") as destination:
+                                while True:
+                                    block = source.read(1024 * 1024)
+                                    if not block:
+                                        break
+                                    written += len(block)
+                                    if written > member.file_size or written > limits.max_member_bytes:
+                                        _fail("ZIP member expanded beyond declared bounds")
+                                    destination.write(block)
+                        except Version2PackagePreflightError:
+                            raise
+                        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                            _fail(f"ZIP member readback failed: {type(exc).__name__}")
+                        if written != member.file_size:
+                            _fail("ZIP member readback size mismatch")
+                        extracted_files.add(token)
+                    report = validate_version2_package_tree(
+                        root,
+                        expected_integration_sha=expected_sha,
+                        limits=limits,
+                    )
+                    if set(report.inventory) != extracted_files:
+                        _fail("ZIP readback inventory differs from archive file inventory")
+                    return replace(report, archive_sha256=archive_sha)
     except Version2PackagePreflightError:
         raise
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:

@@ -1,0 +1,166 @@
+name: P0 Native MenuBar UIA Runtime
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/full_product_native_menu.py'
+      - 'acs/ui_native_menu.py'
+      - 'acs/webview2_accessibility.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'scripts/p0_native_menubar_uia_oracle.py'
+      - 'scripts/p0_native_menubar_uia_probe.ps1'
+      - 'scripts/p0_native_menu_provider_ab.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_webview2_modern_winforms_accessibility.py'
+      - 'tests/test_windows_native_menu_smoke_contract.py'
+      - '.github/workflows/p0-native-menubar-uia-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-native-menubar-uia-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-final-product-uia:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install exact Windows host dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install -q `
+            pywebview==6.2.1 `
+            pythonnet==3.1.0 `
+            clr-loader==0.3.1 `
+            cffi==2.1.1 `
+            pycparser==3.0 `
+            typing-extensions==4.16.0
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows host dependency installation failed'}
+
+      - name: Compile native MenuBar runtime oracle and composition
+        run: >-
+          python -m compileall -q
+          scripts/p0_native_menubar_uia_oracle.py
+          scripts/p0_native_menu_provider_ab.py
+          acs/ui_native_menu.py
+          acs/full_product_native_menu.py
+          acs/webview2_accessibility.py
+          acs/version2_release_ui.py
+          acs/version2_final_product_profile.py
+          acs/version2_education_mutation_release.py
+          acs/version2_upgrade_status_release.py
+          tests/test_webview2_modern_winforms_accessibility.py
+
+      - name: Preserve source menu contract tests
+        run: >-
+          python -m unittest -v
+          tests.test_full_product_native_menu
+          tests.test_ui_native_menu_recovery
+          tests.test_webview2_modern_winforms_accessibility
+          tests.test_windows_native_menu_smoke_contract
+          tests.test_version2_release_ui
+          tests.test_version2_windows_composition_profile
+
+      - name: Classify WinForms native menu provider variants through external Windows UIA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $summary=[ordered]@{}
+          $variants=@('menustrip','menustrip-modern','menustrip-accessibility-object','mainmenu')
+          foreach($variant in $variants){
+            $slug=$variant.Replace('-','_')
+            $ready=Join-Path $PWD "p0-provider-$slug-ready.json"
+            $uia=Join-Path $PWD "p0-provider-$slug-uia.json"
+            $stdout=Join-Path $PWD "p0-provider-$slug-stdout.txt"
+            $stderr=Join-Path $PWD "p0-provider-$slug-stderr.txt"
+            Remove-Item $ready,$uia,$stdout,$stderr -Force -ErrorAction SilentlyContinue
+            $process=Start-Process -FilePath python -ArgumentList @(
+              'scripts/p0_native_menu_provider_ab.py',
+              '--variant',$variant,
+              '--ready-file',$ready
+            ) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+            try {
+              $deadline=[DateTime]::UtcNow.AddSeconds(20)
+              while(-not (Test-Path $ready) -and [DateTime]::UtcNow -lt $deadline){
+                if($process.HasExited){
+                  $diagnostic=((Get-Content -Raw $stderr -ErrorAction SilentlyContinue) + ' ' + (Get-Content -Raw $stdout -ErrorAction SilentlyContinue)).Trim()
+                  throw "Provider probe $variant exited early with code $($process.ExitCode): $diagnostic"
+                }
+                Start-Sleep -Milliseconds 100
+                $process.Refresh()
+              }
+              if(-not (Test-Path $ready)){throw "Provider probe $variant did not become ready"}
+              $state=Get-Content -Raw $ready | ConvertFrom-Json
+              & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                -File scripts/p0_native_menubar_uia_probe.ps1 `
+                -TargetProcessId $process.Id `
+                -MenuHandle ([long]$state.menu_handle) `
+                -OutputPath $uia `
+                -TimeoutSeconds 8
+              if($LASTEXITCODE -ne 0){throw "External UIA probe failed for $variant"}
+              $evidence=Get-Content -Raw $uia | ConvertFrom-Json
+              $summary[$variant]=[ordered]@{
+                process_id=$process.Id
+                form_handle=[long]$state.form_handle
+                menu_handle=[long]$state.menu_handle
+                accessibility_switches=$state.accessibility_switches
+                accessibility=$state.accessibility
+                same_process_menu_bars=@($evidence.same_process_menu_bars)
+                same_process_menu_bar_details=@($evidence.same_process_menu_bar_details)
+                menu_from_handle=$evidence.menu_from_handle
+              }
+            }
+            finally {
+              $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+              if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+            }
+          }
+          $summary | ConvertTo-Json -Depth 14 | Set-Content -Encoding utf8 p0-native-menu-provider-ab-summary.json
+          foreach($variant in $variants){
+            $bars=@($summary[$variant].same_process_menu_bars)
+            Write-Host "PROVIDER_AB_$($variant.ToUpper().Replace('-','_'))_MENU_BARS=$($bars.Count)"
+            if($bars.Count -gt 0){
+              $detail=@($summary[$variant].same_process_menu_bar_details)[0]
+              Write-Host "PROVIDER_AB_$($variant.ToUpper().Replace('-','_'))_NAMES=$(@($detail.top_level_names) -join '|')"
+              Write-Host "PROVIDER_AB_$($variant.ToUpper().Replace('-','_'))_EXPAND=$(@($detail.top_level_expand_collapse) -join '|')"
+            }
+          }
+
+      - name: Prove shipping source MenuBar through process-scoped Windows UIA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          python scripts/p0_native_menubar_uia_oracle.py
+          if($LASTEXITCODE -ne 0){throw 'Source final-product native MenuBar UIA oracle failed'}
+
+      - name: Upload bounded MenuBar source evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p0-native-menubar-uia-source-evidence
+          path: |
+            p0-native-menubar-uia-source-summary.json
+            p0-native-menu-provider-ab-summary.json
+            p0-provider-*-stderr.txt
+            p0-provider-*-stdout.txt
+          if-no-files-found: warn
+          retention-days: 14

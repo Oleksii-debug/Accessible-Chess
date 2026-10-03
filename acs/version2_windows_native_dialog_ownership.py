@@ -44,9 +44,15 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         ),
         "export_pgn_title": "Export PGN selection",
         "open_book_title": "Open chess book",
+        "book_progress_recovery_title": "Recover saved reading progress",
+        "book_progress_recovery_message": (
+            "The saved reading-progress file is damaged. Restore the previous valid backup? "
+            "The most recent saved progress may be lost."
+        ),
         "book_filter": (
-            "Supported books (*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
-            "*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "Supported books (*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
+            "*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "EPUB books (*.epub)|*.epub|"
             "HTML books (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
             "Text and Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
         ),
@@ -70,9 +76,15 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         ),
         "export_pgn_title": "Експортувати вибране як PGN",
         "open_book_title": "Відкрити шахову книгу",
+        "book_progress_recovery_title": "Відновити збережений прогрес читання",
+        "book_progress_recovery_message": (
+            "Файл збереженого прогресу читання пошкоджено. Відновити попередню справну "
+            "резервну копію? Останній збережений прогрес може бути втрачено."
+        ),
         "book_filter": (
-            "Підтримувані книги (*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
-            "*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "Підтримувані книги (*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
+            "*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "Книги EPUB (*.epub)|*.epub|"
             "Книги HTML (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
             "Текст і Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
         ),
