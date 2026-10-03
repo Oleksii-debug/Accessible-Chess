@@ -9,10 +9,13 @@ on:
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/p0-release-critical-triad-convergence.yml'
       - 'acs/book_progress_store.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_v2_book_transaction_current_runtime.py'
       - 'tests/test_version2_application.py'
   workflow_dispatch:
 
@@ -45,6 +48,7 @@ jobs:
       CURRENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
       CURRENT_ROUTE_ROLLBACK_TEST_BLOB: 526c01f61f672e89c0206a0da31f39d7af1b5b0f
       CURRENT_TRANSACTION_RUNTIME_TEST_BLOB: 10e9590d8d6ce0d469d51958f95b6cca3fd1b18e
+      CURRENT_TRIAD_WORKFLOW_BLOB: 87583407365588a16259b8baee4e7b4dce8b4864
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -133,6 +137,7 @@ jobs:
               '.github/workflows/book-progress-orphan-backup-recovery.yml' \
               '.github/workflows/books-progress-backup-recovery.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
+              '.github/workflows/p0-release-critical-triad-convergence.yml' \
               'acs/book_progress_store.py' \
               'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
@@ -148,6 +153,9 @@ jobs:
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "$CURRENT_ROUTE_ROLLBACK_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_transaction_current_runtime.py)" = "$CURRENT_TRANSACTION_RUNTIME_TEST_BLOB"
+              test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "$CURRENT_TRIAD_WORKFLOW_BLOB"
               orphan_backup_successor=true
             fi
           fi
@@ -168,6 +176,7 @@ jobs:
               '.github/workflows/book-progress-orphan-backup-recovery.yml' \
               '.github/workflows/books-progress-backup-recovery.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
+              '.github/workflows/p0-release-critical-triad-convergence.yml' \
               'acs/book_progress_store.py' \
               'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
@@ -183,6 +192,7 @@ jobs:
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "$CURRENT_ROUTE_ROLLBACK_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_transaction_current_runtime.py)" = "$CURRENT_TRANSACTION_RUNTIME_TEST_BLOB"
+              test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "$CURRENT_TRIAD_WORKFLOW_BLOB"
               current_books_recovery=true
             fi
           fi
@@ -278,6 +288,7 @@ jobs:
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "$CURRENT_ROUTE_ROLLBACK_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_transaction_current_runtime.py)" = "$CURRENT_TRANSACTION_RUNTIME_TEST_BLOB"
+            test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "$CURRENT_TRIAD_WORKFLOW_BLOB"
           fi
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
