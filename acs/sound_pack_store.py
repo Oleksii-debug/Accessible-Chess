@@ -1737,10 +1737,10 @@ class FilesystemSoundPackStore:
         return result
 
     def installed_audit(self) -> Mapping[str, SoundPackInstalledAudit]:
-        """Return manifest and rights from the same verified active-version scan."""
+        """Return manifest, asset digests and rights from one verified active scan."""
 
         result = {
-            pack_id: SoundPackInstalledAudit(manifest, None)
+            pack_id: SoundPackInstalledAudit(manifest, None, None)
             for pack_id, manifest in self._built_in.items()
         }
         for pack_id, installed in self._installed_disk_inventory().items():
@@ -1749,6 +1749,7 @@ class FilesystemSoundPackStore:
             result[pack_id] = SoundPackInstalledAudit(
                 installed.manifest,
                 installed.rights_evidence,
+                installed.digests,
             )
         return result
 
