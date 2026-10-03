@@ -29,10 +29,6 @@ from acs.classroom_file_server import (
     ClassroomFileServerSQLiteStore,
     ClassroomFileServerService,
 )
-from acs.classroom_file_server import (
-    ClassroomFileServerSQLiteStore,
-    ClassroomFileServerService,
-)
 
 
 ROOM = "room-1"
@@ -175,51 +171,6 @@ class CleanScanner:
 
 class MemoryObjectStore:
     def __init__(self):
-        self.objects = {}
-
-    def stored_sha256(self, *, object_key):
-        content = self.objects.get(object_key)
-        if content is None:
-            return None
-        return hashlib.sha256(content).hexdigest()
-
-    def put(self, *, object_key, content, expected_sha256):
-        if hashlib.sha256(content).hexdigest() != expected_sha256:
-            raise RuntimeError("hash mismatch")
-        self.objects[object_key] = bytes(content)
-
-    def issue_read_token(self, *, object_key, participant_id, ttl_seconds):
-        if object_key not in self.objects:
-            raise RuntimeError("missing object")
-        return f"token-{participant_id}-{ttl_seconds}"
-
-    def delete(self, *, object_key):
-        self.objects.pop(object_key, None)
-
-
-class AllowMembers:
-    def __init__(self, members) -> None:
-        self.members = set(members)
-
-    def authorize_file_action(
-        self,
-        *,
-        trusted_caller_identity,
-        room_id,
-        action,
-        attachment_id,
-        retention,
-    ):
-        return (trusted_caller_identity, room_id) in self.members
-
-
-class CleanScanner:
-    def scan(self, **kwargs):
-        return "clean"
-
-
-class MemoryObjectStore:
-    def __init__(self) -> None:
         self.objects = {}
 
     def stored_sha256(self, *, object_key):
