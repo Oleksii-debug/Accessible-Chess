@@ -45,10 +45,15 @@ jobs:
           test "$BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$BASE_SHA" HEAD
-          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          git diff --check "$BASE_SHA" HEAD
-          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base_tip="$(git rev-parse "origin/$BASE_REF")"
+          stack_base="$(git merge-base "$base_tip" HEAD)"
+          git cat-file -e "$stack_base^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" "$stack_base"
+          git merge-base --is-ancestor "$stack_base" HEAD
+          git merge-base --is-ancestor "$stack_base" "$base_tip"
+          git diff --check "$stack_base" HEAD
+          mapfile -t actual < <(git diff --name-only "$stack_base" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-collaboration-contract.yml'
             'acs/classroom_collaboration.py'
