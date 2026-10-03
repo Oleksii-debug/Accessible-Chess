@@ -461,6 +461,21 @@ async function run() {
         active: false,
         can_install: false,
         can_uninstall: true
+      },
+      {
+        pack_id: "conflicted.installed",
+        title: "Conflicted Installed",
+        version: "2.0.0",
+        author: "Provider author",
+        license_id: "CC0-1.0",
+        provenance: "conflicting provider catalog",
+        compatible: true,
+        installed_compatible: true,
+        installed_version: "2.0.0",
+        state: "version_conflict",
+        active: false,
+        can_install: false,
+        can_uninstall: true
       }
     ]
   };
@@ -495,6 +510,16 @@ async function run() {
       "catalog version is older than the installed version"
     ),
     "stale-catalog rollback protection must be visible/selectable text"
+  );
+  assert.ok(elements.get("sound-pack-conflicted.installed-select"),
+    "verified installed pack must remain selectable despite catalog metadata conflict");
+  assert.strictEqual(elements.get("sound-pack-conflicted.installed-install"), undefined,
+    "catalog metadata conflict must never expose a reinstall action");
+  assert.ok(
+    elements.get("sound-pack-conflicted.installed-metadata").textContent.includes(
+      "catalog metadata conflicts with the installed version"
+    ),
+    "catalog metadata conflict must remain visible/selectable text"
   );
 
   const savedCommandBridge = api.sound_settings_command;
