@@ -395,6 +395,91 @@ async function run() {
     "discarded stale result left the Book surface busy"
   );
 
+  const supersedeRoot = new FakeElement("div");
+  let supersedeCalls = 0;
+  const supersedeResolvers = [];
+  const supersedeInvoke = () => {
+    supersedeCalls += 1;
+    return new Promise((resolve) => {
+      supersedeResolvers.push(resolve);
+    });
+  };
+  window.AccessibleChessBookSurface.render(
+    supersedeRoot,
+    bookSnapshot(14, "Before superseding refresh"),
+    supersedeInvoke,
+    announce,
+    "book-block-14",
+    "Action failed"
+  );
+  find(supersedeRoot, "BUTTON", "Next").listeners.click();
+  check(supersedeCalls === 1, "first supersede action was not dispatched");
+  check(
+    supersedeRoot.getAttribute("aria-busy") === "true",
+    "first supersede action did not expose aria-busy"
+  );
+  window.AccessibleChessBookSurface.render(
+    supersedeRoot,
+    bookSnapshot(15, "Fresh external render"),
+    supersedeInvoke,
+    announce,
+    "book-block-15",
+    "Action failed"
+  );
+  check(
+    supersedeRoot.getAttribute("aria-busy") === null,
+    "fresh external render inherited stale busy state"
+  );
+  find(supersedeRoot, "BUTTON", "Next").listeners.click();
+  check(
+    supersedeCalls === 2,
+    "fresh external render remained blocked by the stale in-flight action"
+  );
+  check(
+    supersedeRoot.getAttribute("aria-busy") === "true",
+    "fresh action did not publish its own busy state"
+  );
+  supersedeResolvers[0]({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(16, "Obsolete first completion"),
+      focus_target: "book-block-16",
+      announcement: ""
+    }
+  });
+  await flushPromises();
+  await flushPromises();
+  check(
+    supersedeRoot.querySelector("#book-block-15") !== null,
+    "obsolete first completion replaced the fresh external render"
+  );
+  check(
+    supersedeRoot.querySelector("#book-block-16") === null,
+    "obsolete first completion escaped the render-epoch guard"
+  );
+  check(
+    supersedeRoot.getAttribute("aria-busy") === "true",
+    "obsolete first completion cleared the newer action busy state"
+  );
+  supersedeResolvers[1]({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(17, "Fresh action completion"),
+      focus_target: "book-block-17",
+      announcement: ""
+    }
+  });
+  await flushPromises();
+  await flushPromises();
+  check(
+    supersedeRoot.querySelector("#book-block-17") !== null,
+    "fresh action completion was not rendered"
+  );
+  check(
+    supersedeRoot.getAttribute("aria-busy") === null,
+    "fresh action completion left the surface busy"
+  );
+
   const staleRejectRoot = new FakeElement("div");
   let rejectStale = null;
   const staleRejectInvoke = () => new Promise((resolve, reject) => {
