@@ -3,6 +3,7 @@
 
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
   const MAX_BOOK_SEMANTIC_TAGS = 4096;
+  const MAX_BOOK_SEMANTIC_COMMENT_ENTRIES = 10000;
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -114,6 +115,16 @@
 
   function renderBookSemanticTree(container, block) {
     const semantic = block.semantic_tree;
+    let semanticCommentEntries = 0;
+
+    function semanticComments(value, name) {
+      const items = semanticTextArray(value, name);
+      semanticCommentEntries += items.length;
+      if (semanticCommentEntries > MAX_BOOK_SEMANTIC_COMMENT_ENTRIES) {
+        throw new TypeError("book semantic comment entry limit exceeded");
+      }
+      return items;
+    }
     if (!semantic || typeof semantic !== "object") {
       throw new TypeError("book semantic tree must be an object");
     }
@@ -184,7 +195,7 @@
     appendSemanticTextList(
       container,
       introCommentsLabel,
-      semanticTextArray(semantic.intro_comments, "book semantic intro comments"),
+      semanticComments(semantic.intro_comments, "book semantic intro comments"),
       String(block.dom_id || "") + "-semantic-intro-heading"
     );
 
@@ -241,12 +252,12 @@
       }
 
       const listItem = node("li");
-      const comments = semanticTextArray(item.comments, "book semantic item comments");
-      const commentsBefore = semanticTextArray(
+      const comments = semanticComments(item.comments, "book semantic item comments");
+      const commentsBefore = semanticComments(
         item.comments_before,
         "book semantic comments before move"
       );
-      const commentsAfter = semanticTextArray(
+      const commentsAfter = semanticComments(
         item.comments_after,
         "book semantic comments after move"
       );
@@ -272,7 +283,7 @@
         appendItemComments(comments);
       }
 
-      const trailingComments = semanticTextArray(
+      const trailingComments = semanticComments(
         item.trailing_comments,
         "book semantic item trailing comments"
       );
@@ -333,14 +344,14 @@
     appendSemanticTextList(
       container,
       outroCommentsLabel,
-      semanticTextArray(semantic.outro_comments, "book semantic outro comments"),
+      semanticComments(semantic.outro_comments, "book semantic outro comments"),
       String(block.dom_id || "") + "-semantic-outro-heading"
     );
 
     appendSemanticTextList(
       container,
       warningsLabel,
-      semanticTextArray(semantic.warnings, "book semantic warnings"),
+      semanticComments(semantic.warnings, "book semantic warnings"),
       String(block.dom_id || "") + "-semantic-warnings-heading"
     );
   }
