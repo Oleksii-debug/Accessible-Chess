@@ -113,7 +113,7 @@ def _canonical_json_bytes(value: object) -> bytes:
             separators=(",", ":"),
             allow_nan=False,
         ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError):
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError):
         raise BookProgressStoreError(
             "book progress data is not valid JSON data",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
@@ -423,11 +423,11 @@ class BookProgressStore:
             parsed = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
         except BookProgressStoreError:
             raise
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
             raise BookProgressStoreError(
                 "book progress store is corrupt",
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
-            ) from exc
+            ) from None
         return _validate_payload(parsed)
 
     def _read_state_unlocked(
