@@ -465,7 +465,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (),
         )
 
@@ -772,7 +772,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                     room_id="room-1",
                     after_sequence=None,
                     limit=100,
-                )
+                ).attachments
             ),
             1,
         )
@@ -1354,6 +1354,32 @@ class ClassroomFileServerTests(unittest.TestCase):
             self.student2.history_after(
                 room_id="room-1",
                 after_sequence=first.sequence_no,
+                limit=100,
+            )
+
+    def test_history_watermark_rejects_authoritative_revision_gap(self):
+        first = self.student1.upload(
+            self.prepared(attachment_id="history-revision-gap-a0")
+        )
+        second = self.student1.upload(
+            self.prepared(attachment_id="history-revision-gap-a1")
+        )
+        self.student1.cancel(attachment_id=first.attachment_id)
+        self.student1.cancel(attachment_id=second.attachment_id)
+        with self.store._connect() as db, db:
+            db.execute(
+                "UPDATE classroom_file_server_state_updates "
+                "SET revision=2 WHERE attachment_id=?",
+                (second.attachment_id,),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "state revision has a gap",
+        ):
+            self.student2.history_after(
+                room_id="room-1",
+                after_sequence=None,
                 limit=100,
             )
 
