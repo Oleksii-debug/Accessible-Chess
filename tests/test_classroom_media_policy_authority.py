@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -748,7 +749,7 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             self.path.name + ".provider-effect-lock.sqlite3"
         )
         self.assertTrue(lock_path.exists())
-        with sqlite3.connect(str(lock_path)) as connection:
+        with closing(sqlite3.connect(str(lock_path))) as connection:
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -1097,7 +1098,7 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
         authority = self.authority()
         self.assertNotIn(str(self.path), repr(authority))
         self.assertIn("redacted", repr(authority))
-        with sqlite3.connect(str(self.path)) as connection:
+        with closing(sqlite3.connect(str(self.path))) as connection:
             self.assertEqual(
                 connection.execute("PRAGMA journal_mode").fetchone()[0].lower(),
                 "wal",

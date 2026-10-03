@@ -54,7 +54,7 @@ jobs:
           LEDGER_OWNER_SHA: e7366ce87e56f4c2580f5212972f4b42dc4465f9
           CURRENT_LEDGER_OWNER_SHA: 86b3e5f18d2c153beef7eabd5d89c99a1278ffcc
           ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf
-          POLICY_OWNER_SHA: b1d547bb81c18e0caae4a5e144f6326c47d805b7
+          POLICY_OWNER_SHA: 82442d42c214dcee827a799599f1bbc48531b99d
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
