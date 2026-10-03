@@ -18,6 +18,7 @@ from acs.classroom_media_host_transactions import (
 )
 from acs.classroom_realtime_media import (
     ClassroomMediaController,
+    ClassroomMediaError,
     ClassroomRole,
     JoinCredential,
     MediaDeviceKind,
@@ -659,6 +660,31 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         self.assertEqual(host._injected_transaction_ids, set())
         self.assertEqual(host._transaction_counter, 512)
         self.assertEqual(controller.state.desired_sources, frozenset())
+
+    def test_noop_prepare_does_not_retire_unexposed_transaction_identity(self):
+        repeated = "host-" + "b" * 32
+        _controller, _roster, _session, _port, host = self.make_host(
+            transaction_id_factory=lambda: repeated,
+        )
+
+        self.assertIsNone(host.prepare_local_source(MediaSource.CAMERA, False))
+        effect = host.prepare_local_source(MediaSource.CAMERA, True)
+
+        self.assertIsNotNone(effect)
+        self.assertEqual(effect.transaction_id, repeated)
+
+    def test_validation_failure_does_not_retire_unexposed_transaction_identity(self):
+        repeated = "host-" + "c" * 32
+        _controller, _roster, _session, _port, host = self.make_host(
+            transaction_id_factory=lambda: repeated,
+        )
+
+        with self.assertRaises(ClassroomMediaError):
+            host.prepare_local_source(MediaSource.CAMERA, "yes")
+
+        effect = host.prepare_local_source(MediaSource.CAMERA, True)
+        self.assertIsNotNone(effect)
+        self.assertEqual(effect.transaction_id, repeated)
 
     def test_transaction_identity_cannot_be_reused_after_safe_discard(self):
         repeated = "host-" + "a" * 32
