@@ -31,6 +31,26 @@ from acs.sound_profiles import CORE_SOUND_EVENTS, SoundPackManifest
 from acs.sound_runtime import SoundAssetRequest
 
 
+class _LyingCatalog(Mapping):
+    def __init__(self, entry: SoundPackCatalogEntry) -> None:
+        self._entry = entry
+
+    def __getitem__(self, key):
+        if key == self._entry.manifest.pack_id:
+            return self._entry
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter((self._entry.manifest.pack_id,))
+
+    def __len__(self):
+        return 1
+
+    def items(self):
+        for _ in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
+            yield self._entry.manifest.pack_id, self._entry
+
+
 class _OversizedCatalog(Mapping):
     def __getitem__(self, key):
         raise KeyError(key)
@@ -854,6 +874,20 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 )
 
             self.assertFalse(data.exists())
+
+    def test_provider_catalog_streaming_cap_rejects_mapping_that_underreports_length(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-lying-limit-") as raw:
+            root = Path(raw)
+            entry, _staging = _catalog_entry(root)
+
+            with self.assertRaisesRegex(ValueError, "catalog exceeds"):
+                create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=root / "data",
+                    asset_playback=_Playback(),
+                    catalog=_LyingCatalog(entry),
+                    pack_downloader=mock.Mock(download=mock.Mock()),
+                )
 
     def test_provider_catalog_requires_downloader_and_cannot_replace_classic(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-contract-") as raw:
