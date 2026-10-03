@@ -447,6 +447,8 @@ class Version2Application:
                 raise ValueError("invalid Library projection status")
             self.shell.open_route("library")
             return result
+        if action in {"library.import", "library.export"} and self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before opening a Library file workflow")
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.open":
