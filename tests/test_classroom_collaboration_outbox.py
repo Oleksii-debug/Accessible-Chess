@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from acs.classroom_collaboration import ChatDraft
+from acs.classroom_collaboration import ChatDraft, ClassroomCollaborationController
 from acs.classroom_collaboration_outbox import (
     DurableChatDraftOutbox,
     DurableChatOutboxError,
@@ -323,6 +323,24 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertNotIn("distinct", slot_name)
         self.assertNotIn("message", slot_name)
         self.assertTrue(slot_name.endswith("-00"))
+
+    def test_non_windows_runtime_preserves_exact_canonical_controller(self) -> None:
+        target = Path(self.temp.name) / "plain-runtime.sqlite3"
+        with mock.patch("acs.classroom_collaboration_runtime.sys.platform", "linux"):
+            runtime = build_classroom_collaboration_http_runtime(
+                room_id="room-1",
+                participant_id="student-1",
+                roster=Roster(),
+                store_path=target,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-token",
+                file_bearer_token_provider=lambda: "file-token",
+                participant_label=lambda participant_id: participant_id,
+            )
+
+        self.assertIsNone(runtime.chat_outbox)
+        self.assertIs(type(runtime.controller), ClassroomCollaborationController)
 
     def test_windows_runtime_selects_dpapi_secret_store_without_browser_changes(self) -> None:
         secret_store = MemorySecretStore()
