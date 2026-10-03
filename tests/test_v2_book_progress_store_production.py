@@ -271,9 +271,13 @@ class BookProgressProductionTests(unittest.TestCase):
         original_publish = store._atomic_publish_bytes_unlocked
         injected = False
 
-        def publish(target: Path, encoded: bytes) -> None:
+        backup_expected_target_raw = []
+
+        def publish(target: Path, encoded: bytes, **kwargs: object) -> None:
             nonlocal injected
-            original_publish(target, encoded)
+            original_publish(target, encoded, **kwargs)
+            if target == store.backup_path:
+                backup_expected_target_raw.append(kwargs.get("expected_target_raw", object()))
             if target == store.backup_path and not injected:
                 injected = True
                 self.path.write_bytes(external_bytes)
@@ -282,6 +286,7 @@ class BookProgressProductionTests(unittest.TestCase):
         with self.assertRaises(BookProgressStoreError) as caught:
             store.save("book:two", _reader(2))
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(backup_expected_target_raw, [None])
         self.assertEqual(self.path.read_bytes(), external_bytes)
         self.assertEqual(set(json.loads(self.path.read_text())["entries"]), {"book:one", "book:external"})
 
