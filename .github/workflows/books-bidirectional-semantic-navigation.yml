@@ -77,6 +77,7 @@ jobs:
             test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
             expected_paths=(
               '.github/workflows/books-bidirectional-semantic-navigation.yml'
+              '.github/workflows/p0-release-critical-triad-convergence.yml'
               'tests/test_book_bidirectional_semantic_navigation.py'
               'tests/test_dev1_books_training_web_asset.py'
               'web/full_product_books_training.js'
@@ -84,6 +85,7 @@ jobs:
             test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "bb34d6496a9481153440cb3bf449525728346f03"
             test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "1d64f5a43afcb24374da7a3608061ab562002c0a"
             test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "813345da231efb3ed6b4d7982bb800e037c9d404"
+            test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "87583407365588a16259b8baee4e7b4dce8b4864"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
             product_ref="refs/remotes/origin/$product_branch"
