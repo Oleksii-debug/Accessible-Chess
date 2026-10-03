@@ -1411,6 +1411,67 @@ async function run() {
     "oversized Book announcement did not fail closed accessibly"
   );
 
+  const kindRoleRoot = new FakeElement("div");
+  const kindRoleAnnouncements = [];
+  const kindRoleSnapshot = bookSnapshot(36, "Semantic role mismatch");
+  kindRoleSnapshot.block.kind = "Position";
+  window.AccessibleChessBookSurface.render(
+    kindRoleRoot,
+    bookSnapshot(36, "Stable semantic role"),
+    () => ({
+      kind: "render",
+      payload: { snapshot: kindRoleSnapshot, focus_target: "book-block-36" }
+    }),
+    (message) => kindRoleAnnouncements.push(String(message)),
+    "book-block-36",
+    "Semantic role failed"
+  );
+  const kindRoleBefore = kindRoleRoot.querySelector("#book-block-36");
+  find(kindRoleRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    kindRoleRoot.querySelector("#book-block-36") === kindRoleBefore,
+    "Book kind/role mismatch replaced the stable semantic render"
+  );
+  check(
+    kindRoleAnnouncements.length === 1 &&
+      kindRoleAnnouncements[0] === "Semantic role failed",
+    "Book kind/role mismatch did not fail closed accessibly"
+  );
+
+  const positionKindRoot = new FakeElement("div");
+  const positionKindAnnouncements = [];
+  const positionKindSnapshot = bookSnapshot(37, "Position flag mismatch");
+  positionKindSnapshot.block.kind = "Position";
+  positionKindSnapshot.block.role = "group";
+  positionKindSnapshot.block.has_position = false;
+  positionKindSnapshot.actions[8].enabled = false;
+  window.AccessibleChessBookSurface.render(
+    positionKindRoot,
+    bookSnapshot(37, "Stable position semantics"),
+    () => ({
+      kind: "render",
+      payload: { snapshot: positionKindSnapshot, focus_target: "book-block-37" }
+    }),
+    (message) => positionKindAnnouncements.push(String(message)),
+    "book-block-37",
+    "Position semantics failed"
+  );
+  const positionKindBefore = positionKindRoot.querySelector("#book-block-37");
+  find(positionKindRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    positionKindRoot.querySelector("#book-block-37") === positionKindBefore,
+    "position-like Book kind without position replaced the stable render"
+  );
+  check(
+    positionKindAnnouncements.length === 1 &&
+      positionKindAnnouncements[0] === "Position semantics failed",
+    "position-like Book kind without position did not fail closed accessibly"
+  );
+
   console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
 
