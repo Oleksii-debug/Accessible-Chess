@@ -17,6 +17,7 @@ from typing import Protocol
 
 from .classroom_domain import MAX_WIRE_INTEGER
 from .classroom_collaboration import (
+    MAX_DOWNLOAD_TOKEN_CHARS,
     MAX_SYNC_ATTACHMENTS,
     FileQuotaPolicy,
     PreparedFile,
@@ -295,6 +296,39 @@ class ClassroomFileServerSQLiteStore:
                 "stored attachment state update is invalid"
             ) from error
 
+    def existing_upload(
+        self,
+        metadata: AttachmentMetadata,
+    ) -> AttachmentMetadata | None:
+        """Return an exact previously accepted upload before rescanning a retry."""
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT * FROM classroom_file_server_attachments "
+                "WHERE attachment_id=?",
+                (metadata.attachment_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        if self._row_immutable_tuple(row) != self._immutable_tuple(metadata):
+            raise CollaborationConflictError(
+                "attachment identity was reused with different payload"
+            )
+        if row["transfer_state"] == "stored":
+            return self._terminal_from_row(row)
+        if row["transfer_state"] == "deleted":
+            raise CollaborationConflictError(
+                "deleted attachment identity cannot be reused"
+            )
+        if row["transfer_state"] == "cancelled":
+            raise CollaborationConflictError(
+                "attachment cancellation cleanup is still pending"
+            )
+        if row["transfer_state"] != "uploading":
+            raise ClassroomFileServerError(
+                "stored upload reservation has invalid state"
+            )
+        return None
+
     def reserve_upload(
         self,
         metadata: AttachmentMetadata,
@@ -318,6 +352,10 @@ class ClassroomFileServerSQLiteStore:
                     if row["transfer_state"] == "deleted":
                         raise CollaborationConflictError(
                             "deleted attachment identity cannot be reused"
+                        )
+                    if row["transfer_state"] == "cancelled":
+                        raise CollaborationConflictError(
+                            "attachment cancellation cleanup is still pending"
                         )
                     if row["transfer_state"] == "stored":
                         result = self._terminal_from_row(row)
@@ -464,10 +502,24 @@ class ClassroomFileServerSQLiteStore:
                     )
                 if row["transfer_state"] == "uploading":
                     object_key = row["object_key"]
+                    # The object-store put may have succeeded before its
+                    # acknowledgement was lost. Keep a durable internal
+                    # cancellation row until byte deletion is confirmed.
                     db.execute(
-                        "DELETE FROM classroom_file_server_attachments "
-                        "WHERE attachment_id=?",
+                        """
+                        UPDATE classroom_file_server_attachments
+                        SET transfer_state='cancelled', delete_completed=0
+                        WHERE attachment_id=?
+                        """,
                         (attachment,),
+                    )
+                    db.commit()
+                    return None, object_key
+                if row["transfer_state"] == "cancelled":
+                    object_key = (
+                        row["object_key"]
+                        if row["delete_completed"] == 0
+                        else None
                     )
                     db.commit()
                     return None, object_key
@@ -601,8 +653,9 @@ class ClassroomFileServerSQLiteStore:
                 """
                 SELECT attachment_id, object_key
                 FROM classroom_file_server_attachments
-                WHERE transfer_state='deleted' AND delete_completed=0
-                ORDER BY room_id, sequence_no
+                WHERE transfer_state IN ('deleted','cancelled')
+                  AND delete_completed=0
+                ORDER BY room_id, sequence_no, attachment_id
                 """
             ).fetchall()
         return tuple((row["attachment_id"], row["object_key"]) for row in rows)
@@ -616,7 +669,18 @@ class ClassroomFileServerSQLiteStore:
                 "WHERE attachment_id=?",
                 (attachment,),
             ).fetchone()
-            if row is None or row["transfer_state"] != "deleted":
+            if row is None:
+                raise ClassroomFileServerError(
+                    "file deletion completion lost cleanup authority"
+                )
+            if row["transfer_state"] == "cancelled":
+                db.execute(
+                    "DELETE FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (attachment,),
+                )
+                return
+            if row["transfer_state"] != "deleted":
                 raise ClassroomFileServerError(
                     "file deletion completion lost tombstone authority"
                 )
@@ -670,6 +734,28 @@ class ClassroomFileServerSQLiteStore:
                 if item.transfer_state == "stored" and delete_completed != 1:
                     raise ClassroomFileServerError(
                         "stored attachment cannot have pending deletion"
+                    )
+
+            for row in db.execute(
+                """
+                SELECT attachment_id, sequence_no, transfer_state, delete_completed
+                FROM classroom_file_server_attachments
+                WHERE transfer_state NOT IN ('stored','deleted')
+                """
+            ):
+                state = row["transfer_state"]
+                if state not in {"uploading", "cancelled"}:
+                    raise ClassroomFileServerError(
+                        "stored upload reservation state is invalid"
+                    )
+                if row["sequence_no"] is not None:
+                    raise ClassroomFileServerError(
+                        "provisional server attachment cannot own room sequence"
+                    )
+                expected_delete = 0 if state == "cancelled" else 1
+                if row["delete_completed"] != expected_delete:
+                    raise ClassroomFileServerError(
+                        "provisional cleanup state is inconsistent"
                     )
 
             last_revision: dict[str, int] = {}
@@ -799,6 +885,11 @@ class ClassroomFileServerService:
             attachment_id=metadata.attachment_id,
             retention=metadata.retention,
         )
+        existing = self._store.existing_upload(metadata)
+        if existing is not None:
+            # Exact retry of a committed upload is recovery, not a new scan or
+            # policy decision. The accepted immutable identity is authoritative.
+            return existing
         try:
             scan_state = self._scanner.scan(
                 room_id=metadata.room_id,
@@ -875,10 +966,9 @@ class ClassroomFileServerService:
             raise ClassroomFileServerError(
                 "durable object deletion failed"
             ) from error
-        # Uploading reservations were removed, while terminal tombstones remain.
-        record = self._store.attachment_for_object_key(object_key)
-        if record is not None and record.transfer_state == "deleted":
-            self._store.complete_deletion(record.attachment_id)
+        # Terminal tombstones retain a completion receipt; provisional
+        # cancellations are removed only after byte deletion succeeds.
+        self._store.complete_deletion(attachment)
 
     def history_after(
         self,
@@ -949,7 +1039,15 @@ class ClassroomFileServerService:
             raise ClassroomFileServerError(
                 "durable read-token issuance failed"
             ) from error
-        if type(token) is not str or not token:
+        if (
+            type(token) is not str
+            or not token
+            or len(token) > MAX_DOWNLOAD_TOKEN_CHARS
+            or any(
+                ch.isspace() or ord(ch) < 32 or ord(ch) == 127
+                for ch in token
+            )
+        ):
             raise ClassroomFileServerError(
                 "durable object store returned invalid read token"
             )

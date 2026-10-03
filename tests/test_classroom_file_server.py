@@ -287,6 +287,18 @@ class ClassroomFileServerTests(unittest.TestCase):
             (recovered,),
         )
 
+    def test_exact_accepted_resend_does_not_depend_on_later_scanner_result(self):
+        prepared = self.prepared(attachment_id="accepted-before-scan-shift")
+        accepted = self.student1.upload(prepared)
+        scan_calls = len(self.scanner.calls)
+        self.scanner.state = "blocked"
+
+        recovered = self.student1.retry(prepared)
+
+        self.assertEqual(recovered, accepted)
+        self.assertEqual(len(self.scanner.calls), scan_calls)
+        self.assertIn(accepted.object_key, self.objects.objects)
+
     def test_exact_resend_is_idempotent_and_identity_reuse_conflicts(self):
         prepared = self.prepared(attachment_id="idempotent-a0")
         first = self.student1.upload(prepared)
@@ -425,6 +437,51 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertNotIn(stored.object_key, self.objects.objects)
         self.assertEqual(reopened.drain_pending_deletions(), 0)
         reopened.integrity_check()
+
+    def test_ambiguous_put_then_cancel_delete_failure_recovers_after_restart(self):
+        prepared = self.prepared(attachment_id="provisional-cancel-recovery")
+        self.objects.raise_after_put_once = True
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+        self.assertIn(prepared.metadata.object_key, self.objects.objects)
+
+        self.objects.delete_failures = 1
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object deletion failed",
+        ):
+            self.student1.cancel(
+                attachment_id=prepared.metadata.attachment_id,
+            )
+
+        self.assertEqual(
+            self.student1.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=100,
+            ),
+            (),
+        )
+        reopened = ClassroomFileServerService(
+            store=ClassroomFileServerSQLiteStore(str(self.db_path)),
+            authorization=self.auth,
+            scanner=self.scanner,
+            object_store=self.objects,
+            quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+        )
+        self.assertEqual(reopened.drain_pending_deletions(), 1)
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        reopened.integrity_check()
+
+        rebound = ClassroomFileServerClient(
+            service=reopened,
+            trusted_caller_identity="student-1",
+        )
+        rebound.cancel(attachment_id=prepared.metadata.attachment_id)
+        self.assertEqual(reopened.drain_pending_deletions(), 0)
 
     def test_cancel_unaccepted_identity_is_safe_idempotent_noop(self):
         self.student1.cancel(attachment_id="never-accepted")
