@@ -178,27 +178,46 @@ class _Builder:
         elif len(self.warnings) == MAX_TEXT_WARNINGS:
             self.warnings.append("additional text import warnings were suppressed")
 
-    def paragraph(self, text: str, line: int) -> None:
+    def paragraph(
+        self,
+        text: str,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Paragraph(
                 text=text,
-                block_id=self._id("Paragraph", text),
+                block_id=self._id("Paragraph", identity),
                 source_anchor=f"line:{line}",
             )
         )
 
-    def heading(self, text: str, level: int, line: int) -> None:
+    def heading(
+        self,
+        text: str,
+        level: int,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Heading(
                 text=text,
                 level=level,
-                block_id=self._id("Heading", f"{level}\0{text}"),
+                block_id=self._id("Heading", f"{level}\0{identity}"),
                 source_anchor=f"line:{line}",
             )
         )
@@ -309,6 +328,10 @@ class _Builder:
                 code=BookTextImportErrorCode.MALFORMED_CHESS_CONTENT,
             )
         game = games[0]
+        if game.warnings:
+            self.warning(
+                "Explicit PGN block required canonical recovery; review the game before relying on recovered content"
+            )
         title = " — ".join(
             part for part in (game.tags.get("White"), game.tags.get("Black"))
             if part and part != "?"
@@ -325,13 +348,67 @@ class _Builder:
         self.pgn_games += 1
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
+_LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+
+
+def _iter_semantic_images(line: str):
+    """Yield unescaped inline images outside conservative backtick literals.
+
+    This is deliberately a bounded, single-pass recognizer rather than a second
+    Markdown parser. Escaped punctuation and backtick-delimited text stay
+    readable source text. If a backtick run is never closed, the rest of the
+    line is conservatively treated as literal instead of inventing semantics.
+    """
+
+    index = 0
+    code_ticks = 0
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if char == "`":
+            end = index + 1
+            while end < length and line[end] == "`":
+                end += 1
+            run_length = end - index
+            if code_ticks == 0:
+                code_ticks = run_length
+            elif run_length == code_ticks:
+                code_ticks = 0
+            index = end
+            continue
+        if code_ticks:
+            # Backslashes are literal inside a code span; they must not escape
+            # the matching closing backtick run.
+            index += 1
+            continue
+        if char == "\\":
+            index = min(length, index + 2)
+            continue
+        match = _IMAGE_RE.match(line, index)
+        if match is not None:
+            yield match
+            index = match.end()
+            continue
+        index += 1
+
+
+def _is_fence_close(line: str, marker: str) -> bool:
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    if leading_spaces > 3:
+        return False
+    candidate = line[leading_spaces:].rstrip(" \t")
+    return (
+        len(candidate) >= len(marker)
+        and bool(candidate)
+        and set(candidate) == {marker[0]}
+    )
 
 
 def _parse_txt(text: str, builder: _Builder) -> None:
@@ -391,7 +468,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             closed = False
             while index < len(lines):
                 current = lines[index]
-                if current.strip() and current.strip()[0] == marker[0] and len(current.strip()) >= len(marker) and set(current.strip()) == {marker[0]}:
+                if _is_fence_close(current, marker):
                     closed = True
                     break
                 body_lines.append(current)
@@ -422,7 +499,18 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
-            builder.heading(heading.group(2), len(heading.group(1)), number)
+            legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
+            identity_text = (
+                legacy_heading.group(2)
+                if legacy_heading is not None
+                else heading.group(2)
+            )
+            builder.heading(
+                heading.group(2),
+                len(heading.group(1)),
+                number,
+                identity_text=identity_text,
+            )
             index += 1
             continue
 
@@ -431,16 +519,47 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        images = _IMAGE_RE.findall(line)
-        if images:
+        image_matches = _iter_semantic_images(line)
+        first_image = next(image_matches, None)
+        if first_image is not None:
             flush()
-            for alt in images:
-                alt = alt.strip()
+            # Before this source-order repair, all regex-shaped image Notes were
+            # appended first and one combined Paragraph containing the remaining
+            # prose was appended last. Keep that historical Paragraph identity
+            # while recognizing only unescaped images outside literal code now.
+            legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
+            legacy_identity_available = legacy_paragraph_identity is not None
+            cursor = 0
+            match = first_image
+            while match is not None:
+                leading = line[cursor:match.start()].strip()
+                if leading:
+                    builder.paragraph(
+                        leading,
+                        number,
+                        identity_text=(
+                            legacy_paragraph_identity
+                            if legacy_identity_available
+                            else None
+                        ),
+                    )
+                    legacy_identity_available = False
+                alt = match.group(1).strip()
                 if alt:
                     builder.image_note(alt, number)
-            remaining = _IMAGE_RE.sub("", line).strip()
-            if remaining:
-                builder.paragraph(remaining, number)
+                cursor = match.end()
+                match = next(image_matches, None)
+            trailing = line[cursor:].strip()
+            if trailing:
+                builder.paragraph(
+                    trailing,
+                    number,
+                    identity_text=(
+                        legacy_paragraph_identity
+                        if legacy_identity_available
+                        else None
+                    ),
+                )
             index += 1
             continue
 
@@ -452,7 +571,7 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             ordered = list_match.group("number") is not None
             start_value = int(list_match.group("number")) if ordered else None
 
-            if indent:
+            if "\t" in indent or len(indent) > 3:
                 builder.paragraph(line.strip(), number)
                 builder.warning(
                     "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
@@ -499,6 +618,40 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
                 ordered=ordered,
                 start=start_value if ordered else None,
             )
+
+            # One to three leading spaces can represent a top-level Markdown
+            # list when the whole list uses that indentation.  A deeper list
+            # marker immediately following this list, however, is authored
+            # nesting. BookDocument has no nested-list model, so never flatten
+            # that child into a second peer ListBlock. Preserve its text and
+            # surface the structural loss explicitly.
+            nested_warning_emitted = False
+            while next_index < len(lines):
+                nested_line = lines[next_index]
+                nested_match = _LIST_RE.match(nested_line)
+                if nested_match is None:
+                    break
+                nested_indent = nested_match.group("indent")
+                is_deeper = (
+                    "\t" in nested_indent
+                    or len(nested_indent) > len(indent)
+                )
+                if not is_deeper:
+                    break
+                visible += len(nested_line)
+                if visible > MAX_TEXT_VISIBLE_CHARS:
+                    raise BookTextImportError(
+                        "Markdown book visible text exceeds the supported size",
+                        code=BookTextImportErrorCode.RESOURCE_LIMIT,
+                    )
+                builder.paragraph(nested_line.strip(), next_index + 1)
+                if not nested_warning_emitted:
+                    builder.warning(
+                        "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
+                    )
+                    nested_warning_emitted = True
+                next_index += 1
+
             index = next_index
             continue
         if quote_match:
