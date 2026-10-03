@@ -350,6 +350,35 @@ window.finishNewGameVisualSequence = finishNewGameVisualSequence;
 
 function installNewGameVisualSequence() {
     if (document.body.dataset.stage1NewGameVisualReady === 'true') return;
+
+    // Button activation and remappable file.new both ultimately cross apiAction.
+    // Own the request lifetime at that shared boundary so a rejected/failed New
+    // Game cannot leave the visual trigger armed for an unrelated later render.
+    const baseApiAction = window.apiAction;
+    if (typeof baseApiAction === 'function' && !baseApiAction.__newGameVisualPendingRecovery) {
+        const wrappedApiAction = async function(name, ...args) {
+            const isNewGameRequest =
+                name === 'new_game'
+                || (name === 'dispatch_action' && String(args[0] || '') === 'file.new');
+            if (isNewGameRequest) newGameVisualPending = true;
+            try {
+                return await baseApiAction.call(this, name, ...args);
+            } finally {
+                if (isNewGameRequest) {
+                    // A successful render's MutationObserver consumes the flag
+                    // first. One extra microtask lets that observer run; if the
+                    // flag is still armed, the request produced no usable board
+                    // render and must fail closed instead of leaking to the next
+                    // state change.
+                    await Promise.resolve();
+                    if (newGameVisualPending) newGameVisualPending = false;
+                }
+            }
+        };
+        wrappedApiAction.__newGameVisualPendingRecovery = true;
+        window.apiAction = wrappedApiAction;
+    }
+
     const baseExecuteAction = window.executeAction;
     if (typeof baseExecuteAction === 'function' && !baseExecuteAction.__newGameVisualTrigger) {
         const wrappedExecuteAction = async function(id, ...args) {
