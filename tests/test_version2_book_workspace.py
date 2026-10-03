@@ -42,13 +42,13 @@ class Version2BookWorkspaceTests(unittest.TestCase):
     def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
         cases = (
             Game(
-                pgn='[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
+                pgn='[Event "Accessible event"]\n[Site "C:\\private\\venue.pgn"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
                 title="Annotated game",
                 block_id="game",
             ),
             VariationTree(
                 root_fen=Board.START,
-                pgn='[White "Gamma"]\n[Black "Delta"]\n[Result "*"]\n\n{Intro variation} 1. {Before variation main} e4 {After variation main} (1. d4 $1 d5 * {Nested variation}) e5 * {Outro variation}',
+                pgn='[Event "Variation event"]\n[Site "C:\\private\\variation.pgn"]\n[White "Gamma"]\n[Black "Delta"]\n[Result "*"]\n\n{Intro variation} 1. {Before variation main} e4 {After variation main} (1. d4 $1 d5 * {Nested variation}) e5 * {Outro variation}',
                 title="Variation study",
                 block_id="variation",
             ),
@@ -64,6 +64,21 @@ class Version2BookWorkspaceTests(unittest.TestCase):
 
                 self.assertIsInstance(tree, dict)
                 self.assertEqual(tree["result"], "*")
+                metadata = {
+                    item["name"]: item["value"]
+                    for item in tree["metadata"]
+                }
+                self.assertEqual(
+                    "Accessible event"
+                    if isinstance(semantic, Game)
+                    else "Variation event",
+                    metadata["Event"],
+                )
+                self.assertIn("Site", metadata)
+                self.assertNotIn("White", metadata)
+                self.assertNotIn("Black", metadata)
+                self.assertNotIn("Result", metadata)
+                self.assertNotIn("private", metadata["Site"].casefold())
                 self.assertIn(" — ", tree["players"])
                 self.assertNotIn("?", tree["players"])
                 self.assertEqual(len(tree["intro_comments"]), 1)
