@@ -100,6 +100,7 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_education.js",
     Path("web") / "livekit_classroom_media.js",
     Path("web") / "classroom_media_host_executor.js",
+    Path("web") / "classroom_media_provider_runtime.js",
     Path("web") / "vendor" / "livekit" / "livekit-client.umd.js",
     Path("web") / "vendor" / "livekit" / "LICENSE",
     Path("web") / "vendor" / "livekit" / "NOTICE",
