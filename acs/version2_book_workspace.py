@@ -358,12 +358,23 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "items": tuple(rendered_items),
         }
 
+    def _workflow_presentation_state(self) -> tuple[bool, int]:
+        revision_before = self._workflow.revision
+        active = self._workflow.active
+        revision_after = self._workflow.revision
+        if revision_before != revision_after:
+            raise BookBoardWorkflowError(
+                "Book Board state changed while preparing semantic reading",
+                code=BookBoardWorkflowCode.RETURN_FAILED,
+            )
+        return active, revision_after
+
     def _snapshot_from_block(self, block):
         snapshot = super()._snapshot_from_block(block)
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
         semantic = self._reader.block_snapshot(block.index)
-        board_active = self._workflow.active
+        board_active, workflow_revision = self._workflow_presentation_state()
         can_open_position = isinstance(
             semantic,
             (Position, Diagram, Exercise, VariationTree),
@@ -394,6 +405,16 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             except (_BookSemanticProjectionError, AttributeError, TypeError, ValueError):
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["reading_unavailable"]
+        final_board_active, final_workflow_revision = self._workflow_presentation_state()
+        if (
+            final_board_active != board_active
+            or final_workflow_revision != workflow_revision
+        ):
+            raise BookBoardWorkflowError(
+                "Book Board state changed while preparing semantic reading",
+                code=BookBoardWorkflowCode.RETURN_FAILED,
+            )
+
         actions = []
         for original in snapshot["actions"]:
             action = dict(original)
