@@ -77,6 +77,11 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._clock_sound_not_before = 0.0
         self._low_time_warned_sides: set[str] = set()
         self._suppress_next_engine_move_sound_for_start = False
+        # Monotonic in-process visual cue identity. The browser observes this
+        # value from ordinary state refreshes, so NEWGAME animation cannot
+        # depend on whether the action originated from WebView, native menu,
+        # engine-game startup or a future native shortcut router.
+        self._new_game_visual_serial = 0
 
     def _concise_error(self, uk: str, en: str) -> dict[str, Any]:
         return self._error(uk if self.lang == "uk" else en)
@@ -938,6 +943,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         game = self._engine_game_projection()
         state["engineGame"] = game
         state["engineGameStatus"] = game["status"]
+        state["newGameVisualSerial"] = self._new_game_visual_serial
         if game["configured"]:
             state["mode"] = "engine_play"
         return state
@@ -1242,6 +1248,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_game_phase = "active"
         self._engine_game_error = None
         self._engine_clock_history = [snapshot.clock]
+        self._new_game_visual_serial += 1
         self._play_game_start_sound()
 
         human = "b" if snapshot.config.engine_side == "w" else "w"
@@ -1459,9 +1466,14 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             if blocked is not None:
                 return blocked
         self._reset_engine_game_state()
+        self._new_game_visual_serial += 1
         result = super().new_game()
         if result.get("ok"):
             self._play_game_start_sound()
+        else:
+            # Keep failed resets invisible to the browser cue detector.
+            self._new_game_visual_serial = max(0, self._new_game_visual_serial - 1)
+        result["newGameVisualSerial"] = self._new_game_visual_serial
         return result
 
     def clear_board(self) -> dict[str, Any]:
