@@ -569,20 +569,22 @@ def _require_publication_guard(guard: _PublicationGuard) -> os.stat_result:
 
 
 def _publication_guard_hash(guard: _PublicationGuard) -> str:
-    """Hash the exact guarded inode without trusting the guard pathname alone."""
-    before = _require_publication_guard(guard)
-    before_state = (
-        int(before.st_size),
-        int(getattr(before, "st_mtime_ns", 0)),
-        int(getattr(before, "st_ctime_ns", 0)),
-    )
+    """Hash one exact guarded inode through a stable descriptor.
+
+    Pathname identity is authenticated before and after the descriptor read.
+    Content stability is proved from descriptor observations only: pathname
+    stat and descriptor fstat timestamps are not cross-compared because
+    Windows exposes different/deprecated st_ctime semantics for those
+    interfaces. A second descriptor-bound hash makes same-size writes visible
+    even when filesystem timestamp granularity is too coarse to move mtime.
+    """
+    _require_publication_guard(guard)
     flags = (
         os.O_RDONLY
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_BINARY", 0)
     )
     descriptor = -1
-    digest = hashlib.sha256()
     try:
         descriptor = os.open(guard.path, flags)
         opened = os.fstat(descriptor)
@@ -596,26 +598,43 @@ def _publication_guard_hash(guard: _PublicationGuard) -> str:
         opened_state = (
             int(opened.st_size),
             int(getattr(opened, "st_mtime_ns", 0)),
-            int(getattr(opened, "st_ctime_ns", 0)),
         )
-        if opened_state != before_state:
-            raise Version2UpgradeError(
-                "tracked publication guard changed unexpectedly"
-            )
+
+        first = hashlib.sha256()
         while True:
             block = os.read(descriptor, 1024 * 1024)
             if not block:
                 break
-            digest.update(block)
-        after = os.fstat(descriptor)
-        after_state = (
-            int(after.st_size),
-            int(getattr(after, "st_mtime_ns", 0)),
-            int(getattr(after, "st_ctime_ns", 0)),
-        )
+            first.update(block)
+        after_first = os.fstat(descriptor)
         if (
-            _stat_identity(after) != guard.identity
-            or after_state != before_state
+            _stat_identity(after_first) != guard.identity
+            or (
+                int(after_first.st_size),
+                int(getattr(after_first, "st_mtime_ns", 0)),
+            )
+            != opened_state
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        second = hashlib.sha256()
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            second.update(block)
+        after_second = os.fstat(descriptor)
+        if (
+            _stat_identity(after_second) != guard.identity
+            or (
+                int(after_second.st_size),
+                int(getattr(after_second, "st_mtime_ns", 0)),
+            )
+            != opened_state
+            or second.digest() != first.digest()
         ):
             raise Version2UpgradeError(
                 "tracked publication guard changed unexpectedly"
@@ -630,7 +649,7 @@ def _publication_guard_hash(guard: _PublicationGuard) -> str:
         if descriptor >= 0:
             os.close(descriptor)
     _require_publication_guard(guard)
-    return digest.hexdigest()
+    return first.hexdigest()
 
 
 def _remove_publication_guard(guard: _PublicationGuard) -> None:
