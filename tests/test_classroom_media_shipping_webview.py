@@ -356,6 +356,45 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
         self.assertNotIn(transaction_id, transactions._focus_by_transaction)
 
+    def test_duplicate_callback_after_recovery_preserves_recovery_surface(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+        event = bridge.dispatch(
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = event.payload["transaction_id"]
+        transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+
+        first = transactions.dispatch_provider(
+            "media.provider_effect_success",
+            {"transaction_id": transaction_id, "chunk_index": "not-an-int"},
+        )
+        self.assertTrue(first.payload["recovery_required"])
+        self.assertIsNone(first.payload["snapshot"])
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNotNone(binder.recovery_status)
+
+        retry = transactions.dispatch_provider(
+            "media.provider_outcome_unknown",
+            {"transaction_id": transaction_id},
+        )
+
+        self.assertEqual(retry.kind, "error")
+        self.assertTrue(retry.payload["recovery_required"])
+        self.assertIsNone(retry.payload["snapshot"])
+        self.assertEqual(retry.payload["transaction_id"], transaction_id)
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNotNone(binder.recovery_status)
+        self.assertEqual(
+            binder.recovery_status.lease.transaction_id,
+            transaction_id,
+        )
+        self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
+
     def test_browser_provider_config_is_nonsecret_and_secure(self):
         _controller, _roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
         result = transactions.dispatch_provider("media.provider_config", {})
