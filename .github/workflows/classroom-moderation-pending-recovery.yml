@@ -90,15 +90,24 @@ jobs:
               if isinstance(node, ast.ClassDef)
               and node.name == "ClassroomModerationRpcService"
           )
-          recovery = next(
-              node
+          recovery_methods = {
+              node.name: node
               for node in service.body
               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-              and node.name == "reconcile_verified_pending"
-          )
+              and node.name in {
+                  "reconcile_verified_pending",
+                  "_reconcile_verified_pending_locked",
+              }
+          }
+          if set(recovery_methods) != {
+              "reconcile_verified_pending",
+              "_reconcile_verified_pending_locked",
+          }:
+              raise SystemExit("moderation recovery methods are incomplete")
           attributes = {
               node.attr
-              for node in ast.walk(recovery)
+              for method in recovery_methods.values()
+              for node in ast.walk(method)
               if isinstance(node, ast.Attribute)
           }
           if "apply_moderation_command" in attributes:
