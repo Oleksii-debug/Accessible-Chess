@@ -236,6 +236,47 @@ class Version2ApplicationTests(unittest.TestCase):
         persisted = store.restore(key, document)
         self.assertEqual(persisted.index, 1)
 
+    def test_book_durability_unknown_with_corrupt_primary_fails_surface_closed(self):
+        book = self.root / "durability-unknown-corrupt-primary.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(
+            self.app.browser_command("shell", "book.open")["kind"],
+            "delegated",
+        )
+        store = self.app.progress_store
+        key = self.app.book_key
+        document = self.app.reader.document
+
+        def corrupt_after_primary_sync(path):
+            if Path(path) == store.path:
+                store.path.write_bytes(b'{"schema_version":2,"generation":')
+
+        with patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=corrupt_after_primary_sync,
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.book_key)
+        self.assertIsNone(self.app.book_workflow)
+        self.assertIsNone(self.app.book_delegate)
+        self.assertIsNone(self.app.books)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        with self.assertRaises(BookProgressStoreError) as caught:
+            store.restore_primary(key, document)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+
     def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
         book = self.root / "render-failure.md"
         book.write_text("Коротко\n\n12345678901\n", encoding="utf-8")
