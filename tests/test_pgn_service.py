@@ -75,6 +75,32 @@ class PgnFileServiceTests(unittest.TestCase):
                 any("bytes were replaced" in warning for warning in opened.global_warnings)
             )
 
+    def test_malformed_cp1251_like_source_never_leaks_codec_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "malformed-legacy-looking.pgn"
+            prefix = (
+                '[Event "Русский тест"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {'
+            ).encode("cp1251")
+            path.write_bytes(prefix + b"bad-\\x98-byte} *\\n")
+
+            opened = open_pgn(path)
+
+            self.assertEqual(opened.total_games, 1)
+            self.assertTrue(
+                any(
+                    warning.startswith("Invalid UTF-8 bytes were replaced")
+                    for warning in opened.global_warnings
+                )
+            )
+            self.assertFalse(
+                any(
+                    warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+                    for warning in opened.global_warnings
+                )
+            )
+
     def test_atomic_save_round_trips_rich_structure(self):
         games = parse_games(RICH_PGN)
         with tempfile.TemporaryDirectory() as tmp:
