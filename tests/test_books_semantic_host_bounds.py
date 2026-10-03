@@ -323,6 +323,35 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
 
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_root_result_subclass_falls_back_before_truthiness(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileResult(str):
+            def __bool__(self):
+                raise AssertionError("malformed root result must not be truth-tested")
+
+        game.line.result = HostileResult("*")
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not receive a hostile root result"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_malformed_mode_falls_back_before_value_access(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
@@ -522,6 +551,54 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
                 "acs.version2_book_workspace.PgnTreePresenter",
                 side_effect=AssertionError(
                     "PgnTreePresenter must not join over-budget NAG text"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_empty_nag_join_boundary_is_accepted(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # Base label "1 e4" costs four units. 1,196 empty NAG elements create
+        # 1,195 join separators plus the presenter's one annotation separator:
+        # exactly 1,200 raw label units.
+        game.line.moves[0].nags = [""] * 1_196
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.GAME, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsInstance(snapshot["semantic_tree"], dict)
+        self.assertEqual(snapshot["semantic_tree"]["items"][0]["label"], "1 e4")
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_empty_nag_join_overflow_falls_back_before_presenter(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # One more empty element creates one more join separator. The old
+        # cumulative-nonempty accounting saw zero annotation units here.
+        game.line.moves[0].nags = [""] * 1_197
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not join an over-budget NAG annotation"
                 ),
             ) as presenter,
         ):
