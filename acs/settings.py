@@ -16,6 +16,8 @@ DEFAULTS: dict[str, Any] = {
     "volume": 80,
     "tick_policy": "my_turn",
     "tick_last_seconds": 0,
+    "low_time_policy": "my_turn",
+    "low_time_seconds": 30,
     "engine_path": "",
     "sound_move_variant": "1",
     "sound_capture_variant": "1",
@@ -28,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     "sound_mate_variant": "1",
     "sound_draw_variant": "1",
     "sound_tick_variant": "1",
+    "sound_low_time_variant": "1",
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
@@ -46,6 +49,7 @@ _SOUND_VARIANT_KEYS = frozenset(
         "sound_mate_variant",
         "sound_draw_variant",
         "sound_tick_variant",
+        "sound_low_time_variant",
     }
 )
 
@@ -133,13 +137,13 @@ def _validated_value(key: str, value: Any) -> Any:
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
             raise SettingsError("volume must be an integer in 0..100")
         return value
-    if key == "tick_policy":
+    if key in {"tick_policy", "low_time_policy"}:
         if value not in _ALLOWED_TICK_POLICY:
-            raise SettingsError("tick_policy must be off, my_turn, or both")
+            raise SettingsError(f"{key} must be off, my_turn, or both")
         return value
-    if key == "tick_last_seconds":
+    if key in {"tick_last_seconds", "low_time_seconds"}:
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3600:
-            raise SettingsError("tick_last_seconds must be an integer in 0..3600")
+            raise SettingsError(f"{key} must be an integer in 0..3600")
         return value
     if key in _SOUND_VARIANT_KEYS:
         if not isinstance(value, str):
