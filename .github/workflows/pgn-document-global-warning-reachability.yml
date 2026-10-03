@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      STACK_PARENT_SHA: 38633cf9317974c66dc78a6a1909ffce4fc3884a
+      STACK_PARENT_SHA: bdee46155a550edf5b9855405fcfa6f0c812711f
       EVENT_NAME: ${{ github.event_name }}
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
     steps:
