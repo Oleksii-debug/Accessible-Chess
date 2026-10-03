@@ -84,6 +84,38 @@ def build_classroom_collaboration_http_runtime(
         raise TypeError("file bearer token provider must be callable")
     if not callable(participant_label):
         raise TypeError("participant_label must be callable")
+    for label, callback in (
+        ("file_picker", file_picker),
+        ("file_saver", file_saver),
+        ("file_opener", file_opener),
+        ("file_progress_event_sink", file_progress_event_sink),
+        ("moderation_allowed", moderation_allowed),
+    ):
+        if callback is not None and not callable(callback):
+            raise TypeError(f"{label} must be callable")
+    if participant_moderation is not None and not isinstance(
+        participant_moderation,
+        ClassroomMediaController,
+    ):
+        raise TypeError(
+            "participant_moderation must be ClassroomMediaController"
+        )
+    if type(chat_retention) is not str or chat_retention not in {
+        "transient",
+        "session",
+        "persistent",
+    }:
+        raise ValueError(
+            "chat_retention must be transient, session, or persistent"
+        )
+    if type(file_retention) is not str or file_retention not in {
+        "transient",
+        "session",
+        "persistent",
+    }:
+        raise ValueError(
+            "file_retention must be transient, session, or persistent"
+        )
     if not isinstance(language, UILanguage):
         raise TypeError("language must be UILanguage")
     if type(allow_insecure_loopback) is not bool:
