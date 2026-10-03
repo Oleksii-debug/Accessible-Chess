@@ -320,7 +320,7 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             (root / ".book-progress.json.user.note.tmp").write_bytes(b"u")
             with self.assertRaisesRegex(
                 Version2UpgradeError,
-                "user-data backup exceeds file-count limit",
+                "user-data backup exceeds file count limit",
             ):
                 coordinator._files()
 
