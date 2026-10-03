@@ -1,4 +1,4 @@
-name: Training Exact Ingress Snapshot
+name: Training Session Authority Snapshot
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: training-exact-ingress-snapshot-${{ github.ref }}
+  group: training-session-authority-snapshot-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,9 +24,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
-      EXACT_PARENT: 5252e582358deb25fe5d01fbf547d4e21a8fbcb1
-      TRAINING_BLOB: 012c60dfe08a9c3e93f4d7d7208025e83e316f2f
-      RESUME_TEST_BLOB: 6022ee36ecbb056bd55642067e9f7779f013d3f4
+      EXACT_PARENT: a3bb2020d948cb9314bf585f3d569bfc00c64042
+      TRAINING_BLOB: 0939402776df43727f84a48141757c603356cbe3
+      RESUME_TEST_BLOB: d7a8c9d8c4b68d104da660765a6c77de11756b0a
     steps:
       - uses: actions/checkout@v4
         with:
