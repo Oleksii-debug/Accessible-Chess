@@ -18,6 +18,7 @@ provider-execution owner; two independent pending provider calls are not safe.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from enum import Enum
 import re
 import secrets
@@ -453,6 +454,8 @@ class ClassroomMediaSessionHandoffs:
     def claim_browser_payload(
         self,
         transaction_id: str,
+        *,
+        now: datetime | None = None,
     ) -> Mapping[str, object]:
         """Return the browser session payload exactly once.
 
@@ -469,6 +472,23 @@ class ClassroomMediaSessionHandoffs:
                     "media session browser payload was already claimed"
                 )
             effect = pending.effect
+            if effect.credential is not None:
+                if type(now) is not datetime:
+                    raise MediaSessionHandoffError(
+                        "current time is required for credential handoff"
+                    )
+                try:
+                    effect.credential.assert_usable(now)
+                except Exception as exc:
+                    # The credential has not crossed the browser boundary yet.
+                    # Retire this exposed transaction identity and force the host
+                    # to obtain a fresh short-lived credential rather than
+                    # disclosing a stale token to JavaScript.
+                    self._pending = None
+                    raise MediaSessionHandoffError(
+                        "media session credential expired before browser handoff"
+                    ) from exc
+
             payload: _SecretBrowserPayload = _SecretBrowserPayload(
                 transaction_id=effect.transaction_id,
                 operation=effect.operation.value,
