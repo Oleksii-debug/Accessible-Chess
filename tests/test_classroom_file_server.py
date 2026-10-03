@@ -971,6 +971,28 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.student1.cancel(attachment_id="never-accepted")
         self.assertEqual(self.objects.delete_calls, [])
 
+    def test_read_token_rejects_durable_bytes_that_no_longer_match_metadata(self):
+        stored = self.student1.upload(
+            self.prepared(
+                attachment_id="download-integrity-a0",
+                content=b"original clean bytes",
+            )
+        )
+        self.objects.objects[stored.object_key] = b"tampered after scan"
+        token_calls = len(self.objects.token_calls)
+
+        with self.assertRaisesRegex(
+            CollaborationConflictError,
+            "durable object integrity conflicts",
+        ):
+            self.student2.issue_read_token(
+                object_key=stored.object_key,
+                participant_id="student-2",
+                ttl_seconds=60,
+            )
+
+        self.assertEqual(len(self.objects.token_calls), token_calls)
+
     def test_download_identity_cannot_be_spoofed_by_bound_client(self):
         stored = self.student1.upload(
             self.prepared(attachment_id="download-bound-a0")
