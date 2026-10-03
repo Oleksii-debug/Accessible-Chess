@@ -420,6 +420,13 @@ class LibraryPresenter:
                 value = getattr(item, field_name)
                 if value is not None and type(value) is not str:
                     raise TypeError("library page contains invalid game metadata")
+            if item.result is not None and item.result not in {
+                "1-0",
+                "0-1",
+                "1/2-1/2",
+                "*",
+            }:
+                raise ValueError("library page contains an invalid game result")
             ids.append(item.game_id)
             previous_id = item.game_id
 
