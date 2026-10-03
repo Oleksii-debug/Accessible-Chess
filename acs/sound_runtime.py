@@ -125,6 +125,18 @@ class SoundRuntime:
             raise TypeError("sound settings provider must return SoundRuntimeSettings")
         return value
 
+    def stop_current(self) -> bool:
+        """Best-effort stop for presentation audio already accepted by the port."""
+
+        stop = getattr(self._playback, "stop", None)
+        if not callable(stop):
+            return False
+        try:
+            stop()
+        except Exception:
+            return False
+        return True
+
     def dispatch(self, events: Iterable[SoundEvent]) -> SoundPlaybackReport:
         ordered: list[SoundEvent] = []
         seen: set[SoundEvent] = set()
