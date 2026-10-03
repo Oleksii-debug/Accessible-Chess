@@ -320,7 +320,6 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
                         prompt="Exercise",
                         answer_text="e4",
-                        hint="Use the king pawn.",
                         block_id="exercise",
                     )
                 ],
