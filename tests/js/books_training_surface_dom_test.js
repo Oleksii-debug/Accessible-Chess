@@ -99,6 +99,7 @@ function find(root, tagName, text) {
 
 function trainingSnapshot() {
   return {
+    document: { lang: "en", landmark: "main" },
     heading: "Training",
     title: "Opening line",
     progress: {
@@ -133,6 +134,7 @@ function trainingSnapshot() {
 
 function bookSnapshot(index, text) {
   return {
+    document: { lang: "en", landmark: "main" },
     heading: "Chess book reader",
     block: {
       dom_id: "book-block-" + String(index),
@@ -205,6 +207,9 @@ async function run() {
     "Action failed",
     []
   );
+  const trainingMain = find(trainingRoot, "MAIN");
+  check(trainingMain !== null, "training main landmark missing");
+  check(trainingMain.attributes.lang === "en", "training document language missing");
   const firstAnswer = trainingRoot.querySelector("#training-answer");
   check(firstAnswer !== null, "training answer input missing");
   check(document.activeElement === firstAnswer, "initial training focus missing");
@@ -256,6 +261,9 @@ async function run() {
     "book-block-2",
     "Action failed"
   );
+  const bookMain = find(bookRoot, "MAIN");
+  check(bookMain !== null, "book main landmark missing");
+  check(bookMain.attributes.lang === "en", "book document language missing");
   check(document.activeElement === bookRoot.querySelector("#book-block-2"), "book focus missing");
   find(bookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();
