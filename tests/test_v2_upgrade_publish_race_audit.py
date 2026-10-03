@@ -542,6 +542,46 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
 
             self.assertTrue(injected)
 
+    def test_settings_verify_rejects_same_bytes_inode_swap_on_open(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            current = Settings(settings)
+            current.set("volume", 10)
+            payload = settings.read_bytes()
+            replacement = root / "replacement-current-settings.json"
+            replacement.write_bytes(payload)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            real_open = upgrade_base_module.os.open
+            injected = False
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if candidate == settings and not injected:
+                    os.replace(replacement, settings)
+                    injected = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "open",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "migrated settings readback validation failed",
+                ):
+                    coordinator._verify(
+                        coordinator.layout.backup_root / "unused",
+                        {"entries": []},
+                    )
+
+            self.assertTrue(injected)
+            self.assertEqual(payload, settings.read_bytes())
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
