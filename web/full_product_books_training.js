@@ -63,7 +63,9 @@
       result = invoke(command, payload || {});
     } catch (_) {
       finish();
-      if (fallbackMessage) announce(String(fallbackMessage));
+      if (renderEpoch(root) === startedAtEpoch && fallbackMessage) {
+        announce(String(fallbackMessage));
+      }
       return;
     }
     Promise.resolve(result)
@@ -72,7 +74,9 @@
         return onResult(value);
       })
       .catch(function () {
-        if (fallbackMessage) announce(String(fallbackMessage));
+        if (renderEpoch(root) === startedAtEpoch && fallbackMessage) {
+          announce(String(fallbackMessage));
+        }
       })
       .then(finish, finish);
   }
