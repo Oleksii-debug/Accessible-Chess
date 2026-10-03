@@ -114,6 +114,12 @@ def _clock_value(value: object) -> int:
     return value
 
 
+def _stored_bool(value: object, label: str) -> bool:
+    if type(value) is not int or value not in (0, 1):
+        raise ClassroomChatServerError(f"stored {label} is invalid")
+    return bool(value)
+
+
 def _moderation_fingerprint(command: ChatModerationCommand) -> str:
     payload = {
         "operation_id": command.operation_id,
@@ -214,16 +220,23 @@ class ClassroomChatServerSQLiteStore:
 
     @staticmethod
     def _row_message(row: sqlite3.Row) -> ChatMessageMetadata:
-        return ChatMessageMetadata(
-            message_id=row["message_id"],
-            room_id=row["room_id"],
-            sender_id=row["sender_id"],
-            sequence_no=int(row["sequence_no"]),
-            body=row["body"],
-            retention=row["retention"],
-            hidden=bool(row["hidden"]),
-            sent_at_unix_ms=int(row["sent_at_unix_ms"]),
-        )
+        try:
+            return ChatMessageMetadata(
+                message_id=row["message_id"],
+                room_id=row["room_id"],
+                sender_id=row["sender_id"],
+                sequence_no=int(row["sequence_no"]),
+                body=row["body"],
+                retention=row["retention"],
+                hidden=_stored_bool(row["hidden"], "message hidden flag"),
+                sent_at_unix_ms=int(row["sent_at_unix_ms"]),
+            )
+        except ClassroomChatServerError:
+            raise
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError):
+            raise ClassroomChatServerError(
+                "stored classroom chat message is invalid"
+            ) from None
 
     @staticmethod
     def _same_draft(message: ChatMessageMetadata, draft: ChatDraft) -> bool:
@@ -292,10 +305,15 @@ class ClassroomChatServerSQLiteStore:
                     """,
                     (draft.room_id, draft.sender_id),
                 ).fetchone()
-                if permission is not None and not bool(permission["allowed"]):
-                    raise ClassroomChatServerError(
-                        "chat sending is disabled for participant"
+                if permission is not None:
+                    allowed = _stored_bool(
+                        permission["allowed"],
+                        "chat permission flag",
                     )
+                    if not allowed:
+                        raise ClassroomChatServerError(
+                            "chat sending is disabled for participant"
+                        )
 
                 sequence = int(
                     db.execute(
@@ -405,15 +423,27 @@ class ClassroomChatServerSQLiteStore:
             raise ClassroomChatServerError(
                 "classroom chat server state history read failed"
             ) from None
-        return tuple(
-            ChatMessageStateUpdate(
-                room_id=row["room_id"],
-                message_id=row["message_id"],
-                revision=int(row["revision"]),
-                hidden=bool(row["hidden"]),
-            )
-            for row in rows
-        )
+        decoded: list[ChatMessageStateUpdate] = []
+        for row in rows:
+            try:
+                decoded.append(
+                    ChatMessageStateUpdate(
+                        room_id=row["room_id"],
+                        message_id=row["message_id"],
+                        revision=int(row["revision"]),
+                        hidden=_stored_bool(
+                            row["hidden"],
+                            "moderation hidden flag",
+                        ),
+                    )
+                )
+            except ClassroomChatServerError:
+                raise
+            except (TypeError, ValueError, KeyError, IndexError, OverflowError):
+                raise ClassroomChatServerError(
+                    "stored classroom chat state update is invalid"
+                ) from None
+        return tuple(decoded)
 
     def apply_moderation(
         self,
@@ -472,7 +502,11 @@ class ClassroomChatServerSQLiteStore:
                             raise ClassroomChatServerError(
                                 "message to hide does not exist in room"
                             )
-                        if not bool(target["hidden"]):
+                        target_hidden = _stored_bool(
+                            target["hidden"],
+                            "message hidden flag",
+                        )
+                        if not target_hidden:
                             db.execute(
                                 """
                                 UPDATE classroom_chat_server_messages
