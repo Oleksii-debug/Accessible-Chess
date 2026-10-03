@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+import threading
 import unittest
 from unittest import mock
 
@@ -89,6 +90,10 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         application.media_transactions = transactions
         application._media_join_http = None
         application._media_join_now_provider = None
+        application._media_join_http_generation = 0
+        application._media_join_http_request_serial = 0
+        application._media_join_http_pending = None
+        application._media_join_http_inflight = None
         application._events = deque()
         application._assert_thread = lambda: None
         return application, controller, transactions
@@ -103,6 +108,12 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
                 else now_provider
             ),
         )
+
+    def finish(self, application, request_id):
+        pending = application._media_join_http_pending
+        self.assertIsNotNone(pending)
+        pending.future.exception(timeout=2.0)
+        return application.finish_classroom_media_join_http(request_id)
 
     def test_configuration_is_lazy_and_requires_transactional_media(self):
         calls = []
@@ -135,6 +146,180 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         self.assertIsNone(application._media_join_http)
         self.assertIsNone(application._media_join_now_provider)
 
+    def test_join_http_fetch_does_not_block_owner_thread(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+        issued = credential()
+
+        def issue(_client, *, room_id, participant_id):
+            self.assertEqual((room_id, participant_id), ("room-1", "student-1"))
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return issued
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            self.assertIsNone(
+                application.finish_classroom_media_join_http(request_id)
+            )
+            self.assertEqual(transactions.join_calls, [])
+            release.set()
+            rendered = self.finish(application, request_id)
+
+        self.assertEqual(rendered["kind"], "provider-dispatch")
+        self.assertEqual(len(transactions.join_calls), 1)
+
+    def test_worker_failure_is_sanitized_and_never_creates_provider_lease(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=ValueError("provider-secret-token internal failure"),
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            with self.assertRaisesRegex(
+                ClassroomJoinHttpClientError,
+                "^classroom join HTTP worker failed$",
+            ) as error:
+                self.finish(application, request_id)
+
+        self.assertNotIn(TOKEN, repr(error.exception))
+        self.assertEqual(transactions.join_calls, [])
+        self.assertIsNone(transactions.binder.active_lease)
+
+    def test_unbind_makes_late_worker_completion_inert(self):
+        application, controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+
+        def issue(_client, *, room_id, participant_id):
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            controller.state = SimpleNamespace(
+                room_id=None,
+                participant_id="student-1",
+                connected=False,
+            )
+            application.unbind_classroom_media()
+            release.set()
+            inflight = application._media_join_http_inflight
+            self.assertIsNotNone(inflight)
+            inflight.exception(timeout=2.0)
+
+        with self.assertRaisesRegex(RuntimeError, "not pending"):
+            application.finish_classroom_media_join_http(request_id)
+        self.assertEqual(transactions.join_calls, [])
+        self.assertIsNone(transactions.binder.active_lease)
+
+    def test_shutdown_retires_late_join_completion_without_waiting_for_network(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+
+        def issue(_client, *, room_id, participant_id):
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with (
+            mock.patch.object(
+                ClassroomJoinHttpClient,
+                "issue",
+                autospec=True,
+                side_effect=issue,
+            ),
+            mock.patch(
+                "acs.version2_final_product_application.Version2Application.shutdown",
+                return_value=True,
+            ) as parent_shutdown,
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            self.assertTrue(application.shutdown(timeout=0.25))
+            parent_shutdown.assert_called_once_with(timeout=0.25)
+            release.set()
+            inflight = application._media_join_http_inflight
+            self.assertIsNotNone(inflight)
+            inflight.exception(timeout=2.0)
+
+        with self.assertRaisesRegex(RuntimeError, "not pending"):
+            application.finish_classroom_media_join_http(request_id)
+        self.assertEqual(transactions.join_calls, [])
+        self.assertIsNone(transactions.binder.active_lease)
+
+    def test_retiring_request_bounds_rebind_to_one_network_fetch(self):
+        application, controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+
+        def issue(_client, *, room_id, participant_id):
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            controller.state = SimpleNamespace(
+                room_id=None,
+                participant_id="student-1",
+                connected=False,
+            )
+            application.unbind_classroom_media()
+
+            application.media = SimpleNamespace(
+                projection=SimpleNamespace(controller=controller)
+            )
+            application.media_transactions = transactions
+            self.configure(application, lambda: "new-account-token")
+            with self.assertRaisesRegex(RuntimeError, "still retiring"):
+                application.prepare_classroom_media_join_http("room-2")
+
+            release.set()
+            inflight = application._media_join_http_inflight
+            self.assertIsNotNone(inflight)
+            inflight.exception(timeout=2.0)
+
+            with mock.patch.object(
+                ClassroomJoinHttpClient,
+                "issue",
+                autospec=True,
+                return_value=credential(room_id="room-2"),
+            ):
+                request_id = application.prepare_classroom_media_join_http("room-2")
+                rendered = self.finish(application, request_id)
+
+        self.assertEqual(rendered["kind"], "provider-dispatch")
+
     def test_join_uses_canonical_controller_participant_and_redacts_provider_token(self):
         application, _controller, transactions = self.application()
         self.configure(application, lambda: "account-token")
@@ -146,7 +331,8 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             return_value=issued,
         ) as issue:
-            rendered = application.prepare_classroom_media_join_http("room-1")
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            rendered = self.finish(application, request_id)
 
         issue.assert_called_once_with(
             application._media_join_http,
@@ -186,7 +372,8 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             side_effect=issue,
         ):
-            rendered = application.prepare_classroom_media_join_http("room-1")
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            rendered = self.finish(application, request_id)
 
         self.assertEqual(order, ["issue", "clock"])
         self.assertEqual(
@@ -216,11 +403,12 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             return_value=issued,
         ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
             with self.assertRaisesRegex(
                 ClassroomMediaError,
                 "join credential is not currently valid",
             ) as error:
-                application.prepare_classroom_media_join_http("room-1")
+                self.finish(application, request_id)
 
         self.assertNotIn(TOKEN, repr(error.exception))
         self.assertEqual(transactions.join_calls, [])
@@ -234,13 +422,14 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             lambda: bearer_calls.append("called") or "account-token",
         )
 
+        request_id = application.prepare_classroom_media_join_http(
+            "bad room",
+        )
         with self.assertRaisesRegex(
             ClassroomJoinHttpClientError,
             "^join credential request room id is invalid$",
         ):
-            application.prepare_classroom_media_join_http(
-                "bad room",
-            )
+            self.finish(application, request_id)
 
         self.assertEqual(bearer_calls, [])
         self.assertEqual(list(application._events), [])
@@ -278,7 +467,8 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             return_value=issued,
         ) as issue:
-            rendered = application.prepare_classroom_media_reconnect_http()
+            request_id = application.prepare_classroom_media_reconnect_http()
+            rendered = self.finish(application, request_id)
 
         issue.assert_called_once_with(
             application._media_join_http,
