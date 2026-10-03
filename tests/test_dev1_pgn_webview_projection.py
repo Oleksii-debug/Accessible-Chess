@@ -356,6 +356,24 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertEqual("error", result.kind)
         self.assertFalse(StripBomb.touched)
 
+    def test_utf16_bounds_match_the_webview_contract(self) -> None:
+        base = self.presenter.view()
+        emoji_title = replace(base, title="😀" * 240)
+        with patch.object(self.presenter, "view", return_value=emoji_title):
+            snapshot = self.projection.snapshot()
+        heading = snapshot["game"]["heading"]
+        self.assertEqual(120, len(heading))
+        self.assertEqual(240, len(heading.encode("utf-16-le")) // 2)
+
+        before = list(self.calls)
+        with self.assertRaisesRegex(ValueError, "comment text is invalid"):
+            self.projection.edit_comment("😀" * 4001)
+        self.assertEqual(before, self.calls)
+
+        accepted = "😀" * 4000
+        self.projection.edit_comment(accepted)
+        self.assertEqual(accepted, self.calls[-1][1]["text"])
+
     def test_comment_input_is_bounded_and_nul_rejected_before_dispatch(self) -> None:
         before = list(self.calls)
         with self.assertRaises(ValueError):
