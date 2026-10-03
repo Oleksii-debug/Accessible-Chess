@@ -413,6 +413,19 @@ async function run() {
   const rootMoves = find(semanticBlock, "OL");
   check(rootMoves !== null && rootMoves.children.length === 2,
     "main-line move order/list semantics are wrong");
+  const rootResult = semanticBlock.children.find(function (item) {
+    return item.tagName === "P" && item.textContent === "Result: *";
+  }) || null;
+  const outroHeading = semanticBlock.children.find(function (item) {
+    return item.id === "book-block-5-semantic-outro-heading";
+  }) || null;
+  check(rootResult !== null, "root game result is not visible");
+  check(outroHeading !== null, "root trailing-comment heading is missing");
+  check(
+    semanticBlock.children.indexOf(rootResult) > semanticBlock.children.indexOf(rootMoves)
+      && semanticBlock.children.indexOf(outroHeading) > semanticBlock.children.indexOf(rootResult),
+    "root PGN reading order must be moves then result then trailing comments"
+  );
   const e4Item = rootMoves.children[0];
   check(e4Item.children[0].tagName === "UL",
     "before-move comments must precede the move label");
@@ -527,6 +540,27 @@ async function run() {
     "malformed trailing comments must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed trailing comments must not steal reading focus");
+
+  const malformedRootResult = semanticGameSnapshot();
+  malformedRootResult.block.semantic_tree.result = "invented";
+  let malformedRootResultRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedRootResult,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedRootResultRejected = true;
+  }
+  check(malformedRootResultRejected, "non-canonical root result must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed root result must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed root result must not steal reading focus");
 
   const malformedMetadata = semanticGameSnapshot();
   malformedMetadata.block.semantic_tree.metadata = { Event: "bad" };
