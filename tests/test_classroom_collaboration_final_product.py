@@ -176,6 +176,19 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertNotIn("rooms/room-1", exposed)
         self.assertNotIn("sha256", exposed.lower())
 
+    def test_binding_without_progress_sink_clears_preexisting_observer(self) -> None:
+        app = self.bare_app()
+        retired_events: list[ClassroomCollaborationWebViewEvent] = []
+        self.collaboration.set_file_progress_event_sink(retired_events.append)
+        self.assertIsNotNone(self.collaboration._file_progress_event_sink)
+
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            app.bind_classroom_collaboration(self.collaboration)
+            self.assertIsNone(self.collaboration._file_progress_event_sink)
+            app.unbind_classroom_collaboration()
+
+        self.assertEqual([], retired_events)
+
     def test_rebind_without_progress_sink_does_not_reuse_retired_host_channel(self) -> None:
         app = self.bare_app()
         old_channel_events: list[dict[str, object]] = []
