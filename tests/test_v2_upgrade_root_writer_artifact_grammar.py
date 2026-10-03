@@ -204,8 +204,14 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             outside.write_bytes(b"user-owned-hardlink-bytes")
             temp_lookalike = root / ".book-progress.json.abcd_123.tmp"
             control_lookalike = root / "book-progress.json.lock"
+            foreign_resume_guard = root / "gametree-resume.json.cas-abcd_123.bak"
+            foreign_settings_guard = (
+                root / ".settings.json.publish-guard-deadbeefcafe"
+            )
             os.link(outside, temp_lookalike)
             os.link(outside, control_lookalike)
+            os.link(outside, foreign_resume_guard)
+            os.link(outside, foreign_settings_guard)
 
             resume = root / "gametree-resume.json"
             resume.write_bytes(b"canonical-resume")
@@ -223,6 +229,8 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
 
             self.assertIn(".book-progress.json.abcd_123.tmp", files)
             self.assertIn("book-progress.json.lock", files)
+            self.assertIn("gametree-resume.json.cas-abcd_123.bak", files)
+            self.assertIn(".settings.json.publish-guard-deadbeefcafe", files)
             self.assertIn("gametree-resume.json", files)
             self.assertIn("settings.json", files)
             self.assertNotIn("gametree-resume.json.cas-xy_98765.bak", files)
@@ -234,6 +242,8 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             paths = {str(item["path"]) for item in manifest["entries"]}
             self.assertIn(".book-progress.json.abcd_123.tmp", paths)
             self.assertIn("book-progress.json.lock", paths)
+            self.assertIn("gametree-resume.json.cas-abcd_123.bak", paths)
+            self.assertIn(".settings.json.publish-guard-deadbeefcafe", paths)
             self.assertNotIn("gametree-resume.json.cas-xy_98765.bak", paths)
             self.assertNotIn(".settings.json.publish-guard-abcdef123456", paths)
             self.assertEqual(
@@ -246,6 +256,22 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             )
             self.assertEqual(
                 (backup / "data" / "book-progress.json.lock").read_bytes(),
+                b"user-owned-hardlink-bytes",
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "gametree-resume.json.cas-abcd_123.bak"
+                ).read_bytes(),
+                b"user-owned-hardlink-bytes",
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".settings.json.publish-guard-deadbeefcafe"
+                ).read_bytes(),
                 b"user-owned-hardlink-bytes",
             )
 
