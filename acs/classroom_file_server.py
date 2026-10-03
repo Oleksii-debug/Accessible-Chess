@@ -539,10 +539,6 @@ class ClassroomFileServerSQLiteStore:
             raise CollaborationConflictError(
                 "attachment cancellation cleanup is still pending"
             )
-        if row["transfer_state"] == "expired":
-            raise CollaborationConflictError(
-                "expired attachment identity cannot be reused"
-            )
         if row["transfer_state"] != "uploading":
             raise ClassroomFileServerError(
                 "stored upload reservation has invalid state"
@@ -576,10 +572,6 @@ class ClassroomFileServerSQLiteStore:
                     if row["transfer_state"] == "cancelled":
                         raise CollaborationConflictError(
                             "attachment cancellation cleanup is still pending"
-                        )
-                    if row["transfer_state"] == "expired":
-                        raise CollaborationConflictError(
-                            "expired attachment identity cannot be reused"
                         )
                     if row["transfer_state"] == "stored":
                         result = self._terminal_from_row(row)
@@ -634,7 +626,7 @@ class ClassroomFileServerSQLiteStore:
                     FROM classroom_file_server_attachments
                     WHERE room_id=?
                       AND (
-                          transfer_state NOT IN ('deleted','expired')
+                          transfer_state!='deleted'
                           OR delete_completed=0
                       )
                     """,
@@ -1028,7 +1020,7 @@ class ClassroomFileServerSQLiteStore:
         This is a trusted quiescent lifecycle primitive, not a client action.
         Callers must stop room file requests before invoking it. Terminal stored
         items become durable tombstones with monotonic state revisions; ambiguous
-        in-flight reservations become durable expired identity tombstones. Physical
+        in-flight reservations become durable cancelled cleanup records. Physical
         object deletion happens only after this transaction commits.
         """
 
@@ -1128,7 +1120,7 @@ class ClassroomFileServerSQLiteStore:
                         db.execute(
                             """
                             UPDATE classroom_file_server_attachments
-                            SET transfer_state='expired', delete_completed=0
+                            SET transfer_state='cancelled', delete_completed=0
                             WHERE attachment_id=? AND transfer_state='uploading'
                             """,
                             (row["attachment_id"],),
@@ -1142,18 +1134,6 @@ class ClassroomFileServerSQLiteStore:
                                 "provisional cleanup state is inconsistent"
                             )
                         pending.append((row["attachment_id"], object_key))
-                        continue
-
-                    if state == "expired":
-                        if (
-                            row["sequence_no"] is not None
-                            or delete_completed not in {0, 1}
-                        ):
-                            raise ClassroomFileServerError(
-                                "provisional cleanup state is inconsistent"
-                            )
-                        if delete_completed == 0:
-                            pending.append((row["attachment_id"], object_key))
                         continue
 
                     if state == "deleted":
@@ -1178,7 +1158,7 @@ class ClassroomFileServerSQLiteStore:
                 """
                 SELECT *
                 FROM classroom_file_server_attachments
-                WHERE transfer_state IN ('deleted','cancelled','expired')
+                WHERE transfer_state IN ('deleted','cancelled')
                   AND delete_completed=0
                 ORDER BY room_id, sequence_no, attachment_id
                 """
@@ -1205,13 +1185,6 @@ class ClassroomFileServerSQLiteStore:
                 db.execute(
                     "DELETE FROM classroom_file_server_attachments "
                     "WHERE attachment_id=?",
-                    (attachment,),
-                )
-                return
-            if row["transfer_state"] == "expired":
-                db.execute(
-                    "UPDATE classroom_file_server_attachments "
-                    "SET delete_completed=1 WHERE attachment_id=?",
                     (attachment,),
                 )
                 return
@@ -1280,7 +1253,7 @@ class ClassroomFileServerSQLiteStore:
             ):
                 self._canonical_row_object_key(row)
                 state = row["transfer_state"]
-                if state not in {"uploading", "cancelled", "expired"}:
+                if state not in {"uploading", "cancelled"}:
                     raise ClassroomFileServerError(
                         "stored upload reservation state is invalid"
                     )
@@ -1288,15 +1261,8 @@ class ClassroomFileServerSQLiteStore:
                     raise ClassroomFileServerError(
                         "provisional server attachment cannot own room sequence"
                     )
-                delete_completed = row["delete_completed"]
-                if (
-                    (state == "uploading" and delete_completed != 1)
-                    or (state == "cancelled" and delete_completed != 0)
-                    or (
-                        state == "expired"
-                        and delete_completed not in {0, 1}
-                    )
-                ):
+                expected_delete = 0 if state == "cancelled" else 1
+                if row["delete_completed"] != expected_delete:
                     raise ClassroomFileServerError(
                         "provisional cleanup state is inconsistent"
                     )
@@ -1788,8 +1754,8 @@ class ClassroomFileServerService:
 
         This trusted server/operator path deliberately bypasses participant
         authorization because room teardown can outlive every participant token.
-        It cannot target persistent retention. Terminal metadata tombstones and
-        provisional expired identity state commit before any object-store deletion, so a provider
+        It cannot target persistent retention. Metadata tombstones/cancelled
+        recovery state commit before any object-store deletion, so a provider
         failure is recoverable through drain_pending_deletions.
         """
 
