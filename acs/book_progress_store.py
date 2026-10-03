@@ -545,13 +545,24 @@ class BookProgressStore:
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
             self._require_private_data_metadata(after_read)
+            # Windows exposes incompatible/deprecated st_ctime semantics
+            # between pathname stat and descriptor fstat.  Binding a stable read
+            # to cross-interface ctime therefore turns valid publications into
+            # false IO_FAILURE/DURABILITY_UNKNOWN results on Windows.  Keep the
+            # portable identity/size/mtime checks across interfaces; descriptor
+            # metadata above still observes ctime on one interface while the
+            # exact inode remains open.
+            cross_interface_ctime_changed = (
+                os.name != "nt"
+                and getattr(after_read, "st_ctime_ns", None)
+                != getattr(final_metadata, "st_ctime_ns", None)
+            )
             if (
                 not self._same_file_identity(opened, after_read)
                 or after_read.st_size != final_metadata.st_size
                 or getattr(after_read, "st_mtime_ns", None)
                 != getattr(final_metadata, "st_mtime_ns", None)
-                or getattr(after_read, "st_ctime_ns", None)
-                != getattr(final_metadata, "st_ctime_ns", None)
+                or cross_interface_ctime_changed
             ):
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
