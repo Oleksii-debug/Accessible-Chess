@@ -274,7 +274,7 @@ class ClassroomChatServerSQLiteStore:
             )
         }
         if "redacted" in state_columns:
-            invalid_state_flag = db.execute(
+            invalid_hidden_flag = db.execute(
                 """
                 SELECT 1
                 FROM classroom_chat_server_state_updates
@@ -282,7 +282,22 @@ class ClassroomChatServerSQLiteStore:
                   AND (
                     typeof(hidden) != 'integer'
                     OR hidden NOT IN (0,1)
-                    OR typeof(redacted) != 'integer'
+                  )
+                LIMIT 1
+                """,
+                (room_id,),
+            ).fetchone()
+            if invalid_hidden_flag is not None:
+                raise ClassroomChatServerError(
+                    "stored moderation hidden flag is invalid"
+                )
+            invalid_redacted_flag = db.execute(
+                """
+                SELECT 1
+                FROM classroom_chat_server_state_updates
+                WHERE room_id=?
+                  AND (
+                    typeof(redacted) != 'integer'
                     OR redacted NOT IN (0,1)
                     OR (hidden=0 AND redacted=0)
                   )
@@ -290,6 +305,10 @@ class ClassroomChatServerSQLiteStore:
                 """,
                 (room_id,),
             ).fetchone()
+            if invalid_redacted_flag is not None:
+                raise ClassroomChatServerError(
+                    "stored chat redaction state is invalid"
+                )
         else:
             invalid_state_flag = db.execute(
                 """
@@ -304,10 +323,10 @@ class ClassroomChatServerSQLiteStore:
                 """,
                 (room_id,),
             ).fetchone()
-        if invalid_state_flag is not None:
-            raise ClassroomChatServerError(
-                "stored chat state flags are invalid"
-            )
+            if invalid_state_flag is not None:
+                raise ClassroomChatServerError(
+                    "stored moderation hidden flag is invalid"
+                )
 
         orphan_state = db.execute(
             """
@@ -326,7 +345,33 @@ class ClassroomChatServerSQLiteStore:
             )
 
         if "redacted" in state_columns and "redacted" in message_columns:
-            state_mismatch = db.execute(
+            hidden_mismatch = db.execute(
+                """
+                SELECT
+                    m.hidden AS message_hidden,
+                    COALESCE(MAX(s.hidden), 0) AS state_hidden
+                FROM classroom_chat_server_messages AS m
+                LEFT JOIN classroom_chat_server_state_updates AS s
+                  ON s.room_id=m.room_id AND s.message_id=m.message_id
+                WHERE m.room_id=?
+                GROUP BY m.message_id
+                HAVING m.hidden != COALESCE(MAX(s.hidden), 0)
+                LIMIT 1
+                """,
+                (room_id,),
+            ).fetchone()
+            if hidden_mismatch is not None:
+                if _stored_bool(
+                    hidden_mismatch["message_hidden"],
+                    "message hidden flag",
+                ):
+                    raise ClassroomChatServerError(
+                        "stored hidden message state is inconsistent"
+                    )
+                raise ClassroomChatServerError(
+                    "stored visible message state is inconsistent"
+                )
+            redacted_mismatch = db.execute(
                 """
                 SELECT 1
                 FROM classroom_chat_server_messages AS m
@@ -334,16 +379,14 @@ class ClassroomChatServerSQLiteStore:
                   ON s.room_id=m.room_id AND s.message_id=m.message_id
                 WHERE m.room_id=?
                 GROUP BY m.message_id
-                HAVING
-                    m.hidden != COALESCE(MAX(s.hidden), 0)
-                    OR m.redacted != COALESCE(MAX(s.redacted), 0)
+                HAVING m.redacted != COALESCE(MAX(s.redacted), 0)
                 LIMIT 1
                 """,
                 (room_id,),
             ).fetchone()
-            if state_mismatch is not None:
+            if redacted_mismatch is not None:
                 raise ClassroomChatServerError(
-                    "stored chat message state is inconsistent"
+                    "stored redacted message state is inconsistent"
                 )
             duplicate_transition = db.execute(
                 """
