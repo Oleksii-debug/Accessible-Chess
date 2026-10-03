@@ -857,7 +857,7 @@ class BookProgressStore:
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
             return descriptor
-        except BaseException:
+        except BaseException as error:
             # Preserve the validation/initialization failure as the public
             # authority. If this attempt exclusively created the lock, remove
             # only that exact inode after closing it so a transient write/fsync
@@ -872,6 +872,11 @@ class BookProgressStore:
                     self._lock_path,
                     created_lock_identity,
                 )
+            if isinstance(error, OSError):
+                raise BookProgressStoreError(
+                    "book progress storage lock is unavailable",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
             raise
 
     def _cleanup_stale_temps_unlocked(self) -> None:
