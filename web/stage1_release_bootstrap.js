@@ -145,6 +145,8 @@ function stableBoardAccessibleName(cell) {
     return detail ? `${square}, ${detail}` : square;
 }
 
+const STANDARD_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
 const NEW_GAME_IMPACT_MS = Object.freeze([
     160, 374, 748, 853, 1112, 1302, 1427, 1532,
     1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
@@ -238,6 +240,15 @@ function startNewGameVisualSequence() {
     const board = byId('board-application');
     const grid = byId('board-grid');
     if (!grid || !board || board.hidden) return false;
+    const currentState = typeof state !== 'undefined' ? state : null;
+    if (
+        !currentState
+        || Number(currentState.historyLength) !== 0
+        || String(currentState.fen || '') !== STANDARD_START_FEN
+    ) {
+        finishNewGameVisualSequence();
+        return false;
+    }
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         finishNewGameVisualSequence();
         return false;
