@@ -161,7 +161,9 @@ def _make_tree(root: Path) -> None:
         "full_product_books_training.js",
         "full_product_teacher.js",
         "full_product_education.js",
+        "full_product_classroom_media.js",
         "livekit_classroom_media.js",
+        "livekit_classroom_media_runtime.js",
         "version2_final_product_bootstrap.js",
         "version2_release_bootstrap.js",
     )
@@ -726,7 +728,9 @@ class Version2PackagePreflightTests(unittest.TestCase):
         required = (
             "full_product_teacher.js",
             "full_product_education.js",
+            "full_product_classroom_media.js",
             "livekit_classroom_media.js",
+            "livekit_classroom_media_runtime.js",
             "vendor/livekit/livekit-client.umd.js",
             "vendor/livekit/LICENSE",
             "vendor/livekit/NOTICE",
