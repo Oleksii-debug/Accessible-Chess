@@ -315,6 +315,8 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
 
         self.assertEqual(result.kind, "error")
         self.assertTrue(result.payload["recovery_required"])
+        self.assertIn("snapshot", result.payload)
+        self.assertIsNone(result.payload["snapshot"])
         self.assertIsNone(binder.active_lease)
         self.assertIsNotNone(binder.recovery_status)
         self.assertTrue(binder.recovery_status.provider_outcome_unknown)
