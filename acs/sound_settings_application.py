@@ -110,6 +110,8 @@ class SoundSettingsApplication:
                 raise TypeError("catalog must map text pack IDs to SoundPackCatalogEntry")
             if pack_id != entry.manifest.pack_id:
                 raise ValueError("catalog key must equal manifest pack_id")
+            if pack_id in normalized:
+                raise ValueError("sound pack catalog contains duplicate pack identity")
             normalized[pack_id] = entry
         if normalized and pack_coordinator is None:
             raise ValueError("catalog actions require a pack coordinator")
