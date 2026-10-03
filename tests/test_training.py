@@ -562,6 +562,72 @@ class ExerciseSessionTests(unittest.TestCase):
         authored[0] = "d4"
         self.assertEqual(frozenset({"e4"}), step.accepted_moves)
 
+    def test_identity_collections_cannot_hide_unbounded_iterators_behind_small_lengths(self):
+        step = ExerciseStep(frozenset({"e4"}))
+
+        class InfiniteMoves:
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                while True:
+                    yield "e4"
+
+        with self.assertRaisesRegex(ValueError, "accepted_moves changed"):
+            ExerciseStep(InfiniteMoves())  # type: ignore[arg-type]
+
+        class InfiniteSteps:
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                while True:
+                    yield step
+
+        with self.assertRaisesRegex(ValueError, "steps changed"):
+            ExerciseDefinition(
+                "infinite-steps",
+                Board.START,
+                InfiniteSteps(),  # type: ignore[arg-type]
+            )
+
+        class InfiniteTags:
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                while True:
+                    yield "opening"
+
+        with self.assertRaisesRegex(ValueError, "tags changed"):
+            ExerciseDefinition(
+                "infinite-tags",
+                Board.START,
+                (step,),
+                tags=InfiniteTags(),  # type: ignore[arg-type]
+            )
+
+        class InfiniteMetadata(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                while True:
+                    yield "difficulty"
+
+            def __getitem__(self, key):
+                if key != "difficulty":
+                    raise KeyError(key)
+                return "starter"
+
+        with self.assertRaisesRegex(ValueError, "metadata changed"):
+            ExerciseDefinition(
+                "infinite-metadata",
+                Board.START,
+                (step,),
+                metadata=InfiniteMetadata(),
+            )
+
     def test_full_definition_identity_ingress_is_bounded(self):
         oversized = "x" * 4097
         step = ExerciseStep(frozenset({"e4"}))
