@@ -136,6 +136,111 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertNotIn("line_path", serialized)
         self.assertNotIn("expected_record_digest", serialized)
 
+    def test_workspace_snapshot_exposes_only_stable_opaque_presentation_lease(self) -> None:
+        first = self.projection.snapshot()
+        second = self.projection.snapshot()
+        token = first["presentation_token"]
+
+        self.assertEqual(token, second["presentation_token"])
+        self.assertIs(type(token), str)
+        self.assertEqual(64, len(token))
+        self.assertTrue(all(character in "0123456789abcdef" for character in token))
+        self.assertNotEqual("a" * 64, token)
+        self.assertNotEqual("b" * 64, token)
+        serialized = repr(first)
+        self.assertNotIn("content_revision", serialized)
+        self.assertNotIn("current_record_digest", serialized)
+        self.assertNotIn("line_path", serialized)
+        self.assertNotIn("expected_record_digest", serialized)
+
+    def test_valid_presentation_lease_allows_canonical_game_navigation(self) -> None:
+        visible = self.projection.snapshot()
+        event = self.bridge.dispatch(
+            "pgn.next_game",
+            {"presentation_token": visible["presentation_token"]},
+        )
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual("pgn.next_game", self.calls[-1][0])
+        self.assertNotEqual(
+            visible["presentation_token"],
+            event.payload["snapshot"]["presentation_token"],
+        )
+
+    def test_hidden_application_snapshot_cannot_rebind_old_browser_lease(self) -> None:
+        visible = self.projection.snapshot()
+        old_token = visible["presentation_token"]
+        self.workspace.next_game()
+
+        # Version2Application.snapshot() performs this same projection snapshot.
+        # The host may therefore advance its internal presenter without the old
+        # browser DOM having received or rendered that newer snapshot.
+        hidden = self.projection.snapshot()
+        self.assertEqual(1, hidden["game"]["index"])
+        self.assertNotEqual(old_token, hidden["presentation_token"])
+        call_count = len(self.calls)
+
+        stale = self.bridge.dispatch(
+            "pgn.previous_game",
+            {"presentation_token": old_token},
+        )
+
+        self.assertEqual("selection", stale.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(1, stale.payload["snapshot"]["game"]["index"])
+        self.assertEqual(
+            stale.payload["snapshot"]["error_message"],
+            stale.payload["announcement"],
+        )
+
+    def test_presentation_lease_cannot_be_replayed_across_projection_instances(self) -> None:
+        visible = self.projection.snapshot()
+        token = visible["presentation_token"]
+
+        other_workspace = _Workspace()
+        other_calls: list[tuple[str, dict[str, object]]] = []
+
+        def other_dispatch(action_id: str, payload):
+            other_calls.append((action_id, dict(payload)))
+            if action_id == "pgn.next_game":
+                other_workspace.next_game()
+            return None
+
+        other_router = FullProductActionRouter(
+            AccessibleShellState(language=UILanguage.EN),
+            other_dispatch,
+        )
+        other_projection = PgnWorkspaceWebViewProjection(
+            other_workspace,
+            other_router,
+            language=UILanguage.EN,
+        )
+        other_bridge = PgnWebViewBridge(other_projection)
+
+        event = other_bridge.dispatch(
+            "pgn.next_game",
+            {"presentation_token": token},
+        )
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(0, other_workspace.selected_game_index)
+        self.assertEqual([], other_calls)
+        self.assertEqual(0, event.payload["snapshot"]["game"]["index"])
+
+    def test_malformed_presentation_lease_is_generic_and_never_mutates(self) -> None:
+        call_count = len(self.calls)
+        event = self.bridge.dispatch(
+            "pgn.next_game",
+            {"presentation_token": "not-a-valid-lease"},
+        )
+
+        self.assertEqual("error", event.kind)
+        self.assertEqual(0, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertNotIn("not-a-valid-lease", repr(event.payload))
+
     def test_browser_selection_updates_canonical_workspace_cursor(self) -> None:
         snapshot = self.projection.snapshot()
         second = snapshot["tree"][1]
