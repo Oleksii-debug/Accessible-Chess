@@ -9,6 +9,10 @@ application command dispatcher.
 """
 
 from collections.abc import Callable, Mapping
+from hashlib import sha256
+import hmac
+import json
+import secrets
 from typing import Any, Protocol, runtime_checkable
 
 from .full_product_actions import FullProductActionRouter
@@ -84,6 +88,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             raise TypeError("PGN workspace router must be FullProductActionRouter")
         self._workspace = workspace
         self._router = router
+        self._presentation_key = secrets.token_bytes(32)
         presenter, view = self._capture_presenter(language)
         self._workspace_view = view
         super().__init__(
@@ -133,6 +138,48 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             content_digest,
             record_digest,
         )
+
+    def _presentation_token(self, view: object) -> str:
+        identity = self._view_identity(view)
+        cursor = identity[2]
+        assert isinstance(cursor, GameTreeCursor)
+        payload = json.dumps(
+            {
+                "language": self._language.value,
+                "game_count": identity[0],
+                "selected_game_index": identity[1],
+                "line_path": tuple(
+                    (step.parent_move_index, step.variation_index)
+                    for step in cursor.line_path
+                ),
+                "next_move_index": cursor.next_move_index,
+                "dirty": identity[3],
+                "content_revision": identity[4],
+                "content_digest": identity[5],
+                "current_record_digest": identity[6],
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hmac.new(self._presentation_key, payload, sha256).hexdigest()
+
+    def browser_presentation_guard(
+        self,
+        token: str | None,
+    ) -> PgnWebViewEvent | None:
+        if token is None:
+            # Retain compatibility for non-browser callers. Current production
+            # WebView snapshots always carry an opaque lease and therefore get
+            # the stronger stale-render guarantee below.
+            return None
+        try:
+            expected = self._presentation_token(self._workspace_view)
+        except Exception:
+            return self._unavailable_event()
+        if not hmac.compare_digest(token, expected):
+            return self._resync_rejected_action()
+        return None
 
     def _capture_presenter(self, language: UILanguage) -> tuple[PgnTreePresenter, object]:
         before = self._workspace.view()
@@ -215,6 +262,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
 
     def _snapshot_current(self) -> dict[str, object]:
         snapshot = PgnWebViewProjection.snapshot(self)
+        snapshot["presentation_token"] = self._presentation_token(self._workspace_view)
         snapshot["workspace"] = {
             "dirty": bool(getattr(self._workspace_view, "dirty", False)),
         }

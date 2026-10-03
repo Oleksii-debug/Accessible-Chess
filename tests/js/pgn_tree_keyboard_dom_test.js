@@ -334,9 +334,11 @@ async function runUnavailableRecoveryRegression() {
     return { kind: "error", payload: { message: "unexpected" } };
   };
 
+  const previouslyLeased = snapshot();
+  previouslyLeased.presentation_token = "c".repeat(64);
   window.AccessibleChessPgnSurface.render(
     root,
-    snapshot(),
+    previouslyLeased,
     invoke,
     (message) => announcements.push(String(message)),
     "pgn-root"
@@ -372,6 +374,10 @@ async function runUnavailableRecoveryRegression() {
   await flush();
   check(calls.length === 1, "refresh control dispatched more than one command");
   check(calls[0][0] === "pgn.refresh", "refresh control bypassed the read-only PGN refresh command");
+  check(
+    Object.keys(calls[0][1]).length === 0,
+    "recovery refresh inherited a lease from the discarded stale PGN tree"
+  );
   const recovered = root.querySelectorAll('[role="treeitem"]');
   check(recovered.length === 4, "refresh did not restore canonical PGN tree");
   check(
@@ -379,6 +385,122 @@ async function runUnavailableRecoveryRegression() {
     "refresh restored the wrong canonical selection"
   );
   check(document.activeElement === recovered[0], "refresh did not restore canonical tree focus");
+}
+
+async function runPresentationLeaseRegression() {
+  const calls = [];
+  const announcements = [];
+  const root = new FakeElement("div");
+  const firstToken = "a".repeat(64);
+  const secondToken = "b".repeat(64);
+  const first = snapshot();
+  first.presentation_token = firstToken;
+
+  const invoke = (command, payload) => {
+    calls.push([command, payload || {}]);
+    const newer = selectIndex(snapshot(), 3);
+    newer.presentation_token = secondToken;
+    return {
+      kind: "selection",
+      payload: {
+        snapshot: newer,
+        focus_target: "pgn-last",
+        announcement: ""
+      }
+    };
+  };
+
+  window.AccessibleChessPgnSurface.render(
+    root,
+    first,
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-root"
+  );
+  const firstItems = root.querySelectorAll('[role="treeitem"]');
+  check(press(firstItems[0], "ArrowDown"), "leased ArrowDown was not consumed");
+  await flush();
+  await flush();
+
+  check(calls.length === 1, "leased command did not dispatch exactly once");
+  check(calls[0][0] === "pgn.move", "leased command changed canonical navigation");
+  check(calls[0][1].delta === 1, "leased command lost its navigation payload");
+  check(
+    calls[0][1].presentation_token === firstToken,
+    "browser command was not bound to the rendered presentation lease"
+  );
+  check(
+    !Object.prototype.hasOwnProperty.call(calls[0][1], "content_revision")
+      && !Object.prototype.hasOwnProperty.call(calls[0][1], "expected_record_digest")
+      && !Object.prototype.hasOwnProperty.call(calls[0][1], "line_path"),
+    "opaque presentation lease leaked canonical authority"
+  );
+
+  const newerItems = root.querySelectorAll('[role="treeitem"]');
+  check(newerItems[3].getAttribute("aria-selected") === "true", "leased result did not render");
+  check(press(newerItems[3], "ArrowUp"), "newer leased ArrowUp was not consumed");
+  await flush();
+  await flush();
+
+  check(calls.length === 2, "newer lease did not dispatch exactly once");
+  check(
+    calls[1][1].presentation_token === secondToken,
+    "browser kept using the superseded presentation lease"
+  );
+
+  const beforeItems = root.querySelectorAll('[role="treeitem"]');
+  const malformed = snapshot();
+  malformed.presentation_token = "invalid";
+  let rejected = false;
+  try {
+    window.AccessibleChessPgnSurface.render(
+      root,
+      malformed,
+      invoke,
+      (message) => announcements.push(String(message)),
+      "pgn-root"
+    );
+  } catch (_error) {
+    rejected = true;
+  }
+  check(rejected, "malformed presentation lease was accepted");
+  const afterItems = root.querySelectorAll('[role="treeitem"]');
+  check(afterItems.length === beforeItems.length, "malformed lease replaced stable PGN DOM");
+  check(
+    afterItems[3].getAttribute("aria-selected") === "true",
+    "malformed lease changed the stable PGN selection"
+  );
+
+  const lateMalformed = snapshot();
+  lateMalformed.presentation_token = "d".repeat(64);
+  lateMalformed.game.tags = [null];
+  rejected = false;
+  try {
+    window.AccessibleChessPgnSurface.render(
+      root,
+      lateMalformed,
+      invoke,
+      (message) => announcements.push(String(message)),
+      "pgn-root"
+    );
+  } catch (_error) {
+    rejected = true;
+  }
+  check(rejected, "late malformed PGN snapshot was accepted");
+  const stableItems = root.querySelectorAll('[role="treeitem"]');
+  check(
+    stableItems[3].getAttribute("aria-selected") === "true",
+    "late malformed snapshot replaced stable PGN DOM"
+  );
+  check(press(stableItems[3], "ArrowUp"), "stable PGN DOM did not remain operable");
+  await flush();
+  await flush();
+  check(calls.length === 3, "stable DOM command did not dispatch after rejected render");
+  check(
+    calls[2][1].presentation_token === secondToken,
+    "rejected late render rebound the old DOM to an uncommitted lease"
+  );
+  check(announcements.length === 0, "presentation lease regression produced live-region noise");
 }
 
 async function run() {
@@ -474,6 +596,7 @@ async function run() {
   await runFlightRaceRegression();
   await runCommentFlightRaceRegression();
   await runUnavailableRecoveryRegression();
+  await runPresentationLeaseRegression();
   console.log("PGN tree keyboard contract PASS");
 }
 

@@ -149,6 +149,14 @@ class PgnWebViewProjection:
     def language(self) -> UILanguage:
         return self._language
 
+    def browser_presentation_guard(
+        self,
+        token: str | None,
+    ) -> PgnWebViewEvent | None:
+        if token is not None:
+            raise ValueError("PGN presentation token is unexpected")
+        return None
+
     def _count(self, view: PgnGameView) -> int:
         value = self._game_count()
         if type(value) is not int or value < 0 or value > 1_000_000_000:
