@@ -294,9 +294,26 @@
           "media credential handoff callback is required"
         );
       }
-      this._adapter = adapter;
-      this._takeCredential = options.takeCredential;
-      this._busy = false;
+      Object.defineProperties(this, {
+        _adapter: {
+          value: adapter,
+          enumerable: false,
+          writable: false,
+          configurable: false
+        },
+        _takeCredential: {
+          value: options.takeCredential,
+          enumerable: false,
+          writable: false,
+          configurable: false
+        },
+        _busy: {
+          value: false,
+          enumerable: false,
+          writable: true,
+          configurable: false
+        }
+      });
     }
 
     get busy() {
