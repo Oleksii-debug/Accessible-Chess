@@ -133,68 +133,73 @@ class MediaProviderEffect:
             "value": command.value,
         }
 
-    def browser_payloads(self) -> tuple[Mapping[str, object], ...]:
-        """Return an ordered, bounded browser execution plan.
+    def browser_payload_count(self) -> int:
+        """Return the exact number of provider calls required by this effect."""
 
-        A moderation effect remains one canonical transaction even when its
-        provider execution needs multiple RPC-sized chunks. The coordinator
-        exposes only the next chunk and records each success through
-        acknowledge_provider_chunk_success; the final ordered acknowledgement
-        performs the canonical commit. Any partial/unknown outcome is
-        recovery-required.
-        """
+        if self.kind is MediaProviderEffectKind.MODERATION:
+            return (
+                len(self.commands) + MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK - 1
+            ) // MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK
+        return 1
+
+    def browser_payload_at(self, index: int) -> Mapping[str, object]:
+        """Materialize only one exact provider call from the ordered plan."""
+
+        if type(index) is not int or index < 0 or index >= self.browser_payload_count():
+            raise MediaHostTransactionError("media provider payload index is invalid")
 
         if self.kind is MediaProviderEffectKind.LOCAL_SOURCE:
-            return (
-                {
-                    "transaction_id": self.transaction_id,
-                    "operation": self.kind.value,
-                    "source": self.source.value,
-                    "enabled": self.enabled,
-                },
-            )
-        if self.kind is MediaProviderEffectKind.MODERATION:
-            chunks = tuple(
-                self.commands[index:index + MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK]
-                for index in range(
-                    0,
-                    len(self.commands),
-                    MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK,
-                )
-            )
-            chunk_count = len(chunks)
-            return tuple(
-                {
-                    "transaction_id": self.transaction_id,
-                    "operation": self.kind.value,
-                    "chunk_index": index,
-                    "chunk_count": chunk_count,
-                    "commands": [
-                        self._moderation_command_payload(command)
-                        for command in chunk
-                    ],
-                }
-                for index, chunk in enumerate(chunks)
-            )
-        return (
-            {
+            return {
                 "transaction_id": self.transaction_id,
                 "operation": self.kind.value,
-                "kind": self.device_kind.value,
-                "device_id": self.device_id,
-                "republish_enabled": self.republish_enabled,
-            },
+                "source": self.source.value,
+                "enabled": self.enabled,
+            }
+
+        if self.kind is MediaProviderEffectKind.MODERATION:
+            start = index * MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK
+            chunk = self.commands[
+                start:start + MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK
+            ]
+            return {
+                "transaction_id": self.transaction_id,
+                "operation": self.kind.value,
+                "chunk_index": index,
+                "chunk_count": self.browser_payload_count(),
+                "commands": [
+                    self._moderation_command_payload(command)
+                    for command in chunk
+                ],
+            }
+
+        return {
+            "transaction_id": self.transaction_id,
+            "operation": self.kind.value,
+            "kind": self.device_kind.value,
+            "device_id": self.device_id,
+            "republish_enabled": self.republish_enabled,
+        }
+
+    def browser_payloads(self) -> tuple[Mapping[str, object], ...]:
+        """Return the complete ordered plan for diagnostics/tests.
+
+        Runtime coordination uses browser_payload_at() so advancing a large
+        moderation action materializes only the next bounded provider chunk.
+        """
+
+        return tuple(
+            self.browser_payload_at(index)
+            for index in range(self.browser_payload_count())
         )
 
     def browser_payload(self) -> Mapping[str, object]:
         """Return one browser payload only when the effect needs one provider call."""
 
-        payloads = self.browser_payloads()
-        if len(payloads) != 1:
+        if self.browser_payload_count() != 1:
             raise MediaHostTransactionError(
                 "media effect requires multiple ordered browser payload chunks"
             )
-        return payloads[0]
+        return self.browser_payload_at(0)
 
 
 class _PreparedProviderEffect(Exception):
@@ -432,12 +437,12 @@ class ClassroomMediaHostTransactions:
         with self._lock:
             if self._pending is None:
                 return None
-            payloads = self._pending.effect.browser_payloads()
-            if self._pending.next_chunk_index >= len(payloads):
+            effect = self._pending.effect
+            if self._pending.next_chunk_index >= effect.browser_payload_count():
                 raise MediaHostTransactionError(
                     "media transaction provider plan is internally inconsistent"
                 )
-            return payloads[self._pending.next_chunk_index]
+            return effect.browser_payload_at(self._pending.next_chunk_index)
 
     def _assert_owner_thread(self) -> None:
         if get_ident() != self._owner_thread_id:
@@ -632,7 +637,7 @@ class ClassroomMediaHostTransactions:
             raise MediaHostTransactionError("media provider chunk index is invalid")
         with self._lock:
             pending = self._require_pending(transaction_id)
-            payloads = pending.effect.browser_payloads()
+            chunk_count = pending.effect.browser_payload_count()
             if chunk_index != pending.next_chunk_index:
                 if chunk_index < pending.next_chunk_index:
                     raise MediaHostTransactionError(
@@ -645,7 +650,7 @@ class ClassroomMediaHostTransactions:
                 )
 
             next_chunk = chunk_index + 1
-            if next_chunk < len(payloads):
+            if next_chunk < chunk_count:
                 self._pending = replace(
                     pending,
                     next_chunk_index=next_chunk,
@@ -675,7 +680,7 @@ class ClassroomMediaHostTransactions:
         self._assert_owner_thread()
         with self._lock:
             pending = self._require_pending(transaction_id)
-            if len(pending.effect.browser_payloads()) != 1:
+            if pending.effect.browser_payload_count() != 1:
                 raise MediaHostTransactionError(
                     "multi-chunk media effect requires per-chunk provider acknowledgement"
                 )
