@@ -989,6 +989,13 @@ async function run() {
     variationBlock.getAttribute("role") === "group",
     "structured VariationTree must remain a noninteractive group"
   );
+  const variationTitle = find(variationRoot, "H3", "Candidate line");
+  check(
+    variationTitle !== null &&
+      variationTitle.id === "book-block-20-title" &&
+      variationBlock.getAttribute("aria-labelledby") === variationTitle.id,
+    "structured VariationTree focus group is not named by its visible title"
+  );
   check(
     findRole(variationRoot, "tree") === null,
     "structured VariationTree exposed a false ARIA tree"
@@ -1083,6 +1090,140 @@ async function run() {
     malformedSemanticAnnouncements.length === 1 &&
       malformedSemanticAnnouncements[0] === "Semantic tree failed",
     "malformed semantic parent did not fail closed accessibly"
+  );
+
+  const staleAncestryRoot = new FakeElement("div");
+  const staleAncestryAnnouncements = [];
+  const staleAncestry = bookSnapshot(22, "Malformed ancestry target");
+  staleAncestry.block.kind = "Game";
+  staleAncestry.block.role = "group";
+  staleAncestry.block.title = "Malformed ancestry";
+  staleAncestry.actions[9].enabled = true;
+  staleAncestry.semantic_tree = semanticBookTree("game");
+  staleAncestry.semantic_tree.items.push({
+    kind: "move",
+    depth: 0,
+    parent_index: null,
+    label: "2 Nf3",
+    leading_comments: [],
+    comments_before: [],
+    comments_after: [],
+    trailing_comments: [],
+    result: ""
+  });
+  staleAncestry.semantic_tree.items.push({
+    kind: "variation",
+    depth: 1,
+    parent_index: 0,
+    label: "Variation 2",
+    leading_comments: [],
+    comments_before: [],
+    comments_after: [],
+    trailing_comments: [],
+    result: "*"
+  });
+  window.AccessibleChessBookSurface.render(
+    staleAncestryRoot,
+    bookSnapshot(22, "Stable ancestry reading"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: staleAncestry,
+        focus_target: "book-block-22"
+      }
+    }),
+    (message) => staleAncestryAnnouncements.push(String(message)),
+    "book-block-22",
+    "Semantic ancestry failed"
+  );
+  const staleAncestryBefore = staleAncestryRoot.querySelector("#book-block-22");
+  find(staleAncestryRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    staleAncestryRoot.querySelector("#book-block-22") === staleAncestryBefore,
+    "stale semantic ancestor reordered a malformed branch into the stable DOM"
+  );
+  check(
+    staleAncestryAnnouncements.length === 1 &&
+      staleAncestryAnnouncements[0] === "Semantic ancestry failed",
+    "stale semantic ancestor did not fail closed accessibly"
+  );
+
+  const moveEndingRoot = new FakeElement("div");
+  const moveEndingAnnouncements = [];
+  const moveEnding = bookSnapshot(23, "Malformed move ending target");
+  moveEnding.block.kind = "Game";
+  moveEnding.block.role = "group";
+  moveEnding.block.title = "Malformed move ending";
+  moveEnding.actions[9].enabled = true;
+  moveEnding.semantic_tree = semanticBookTree("game");
+  moveEnding.semantic_tree.items[0].trailing_comments = ["illegal move tail"];
+  moveEnding.semantic_tree.items[0].result = "*";
+  window.AccessibleChessBookSurface.render(
+    moveEndingRoot,
+    bookSnapshot(23, "Stable move ending reading"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: moveEnding,
+        focus_target: "book-block-23"
+      }
+    }),
+    (message) => moveEndingAnnouncements.push(String(message)),
+    "book-block-23",
+    "Semantic slot failed"
+  );
+  const moveEndingBefore = moveEndingRoot.querySelector("#book-block-23");
+  find(moveEndingRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    moveEndingRoot.querySelector("#book-block-23") === moveEndingBefore,
+    "move-owned variation ending replaced the stable semantic DOM"
+  );
+  check(
+    moveEndingAnnouncements.length === 1 &&
+      moveEndingAnnouncements[0] === "Semantic slot failed",
+    "move-owned variation ending did not fail closed accessibly"
+  );
+
+  const sparseCommentsRoot = new FakeElement("div");
+  const sparseCommentsAnnouncements = [];
+  const sparseComments = bookSnapshot(24, "Sparse comments target");
+  sparseComments.block.kind = "Game";
+  sparseComments.block.role = "group";
+  sparseComments.block.title = "Sparse comments";
+  sparseComments.actions[9].enabled = true;
+  sparseComments.semantic_tree = semanticBookTree("game");
+  sparseComments.semantic_tree.items[0].comments_before = Array(2);
+  sparseComments.semantic_tree.items[0].comments_before[1] = "late comment";
+  window.AccessibleChessBookSurface.render(
+    sparseCommentsRoot,
+    bookSnapshot(24, "Stable sparse comments reading"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: sparseComments,
+        focus_target: "book-block-24"
+      }
+    }),
+    (message) => sparseCommentsAnnouncements.push(String(message)),
+    "book-block-24",
+    "Semantic comments failed"
+  );
+  const sparseCommentsBefore = sparseCommentsRoot.querySelector("#book-block-24");
+  find(sparseCommentsRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    sparseCommentsRoot.querySelector("#book-block-24") === sparseCommentsBefore,
+    "sparse semantic comments replaced the stable readable DOM"
+  );
+  check(
+    sparseCommentsAnnouncements.length === 1 &&
+      sparseCommentsAnnouncements[0] === "Semantic comments failed",
+    "sparse semantic comments did not fail closed accessibly"
   );
 
   const inconsistentListRoot = new FakeElement("div");
