@@ -183,6 +183,26 @@ class ClassroomChatServerTests(unittest.TestCase):
             draft=draft,
         )
 
+    def test_store_rejects_ephemeral_database_targets(self) -> None:
+        for target in ("", ":memory:"):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "durable classroom chat server database path is required",
+                ):
+                    ClassroomChatServerSQLiteStore(target)
+
+    def test_store_sanitizes_database_open_failure(self) -> None:
+        missing_parent = Path(self.tmp.name) / "missing-parent" / "server.sqlite3"
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "database open failed",
+        ) as raised:
+            ClassroomChatServerSQLiteStore(missing_parent)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertFalse(missing_parent.exists())
+
     def test_schema_is_durable_and_integrity_checked(self) -> None:
         self.store.integrity_check()
         with closing(sqlite3.connect(self.path)) as db:
