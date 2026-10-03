@@ -220,6 +220,12 @@ class SoundPackManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._pack(files=files)
 
+    def test_audio_path_windows_utf16_units_are_bounded(self) -> None:
+        files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+        files["move"] = "audio/" + ("😀" * 126) + ".wav"
+        with self.assertRaisesRegex(ValueError, "resource limit"):
+            self._pack(files=files)
+
     def test_windows_drive_unc_and_unstable_paths_are_rejected(self) -> None:
         for unsafe in (
             r"C:\\temp\\move.wav",
