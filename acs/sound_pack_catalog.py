@@ -158,17 +158,21 @@ class SoundPackManager:
         signature_verifier: SoundPackSignatureVerifier | None = None,
         max_bytes: int = DEFAULT_MAX_SOUND_PACK_BYTES,
         fallback_pack_id: str = "classic",
+        external_fallback_available: bool = False,
     ) -> None:
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
             raise TypeError("max_bytes must be an integer")
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
+        if type(external_fallback_available) is not bool:
+            raise TypeError("external_fallback_available must be boolean")
         fallback_pack_id = SoundProfile(pack_id=fallback_pack_id).pack_id
         self._downloader = downloader
         self._storage = storage
         self._signature_verifier = signature_verifier
         self._max_bytes = max_bytes
         self._fallback_pack_id = fallback_pack_id
+        self._external_fallback_available = external_fallback_available
 
     @property
     def fallback_pack_id(self) -> str:
@@ -232,15 +236,25 @@ class SoundPackManager:
             raise SoundPackInstallError("installed sound pack metadata is invalid")
         return current
 
+    def _fallback_available(self, installed: Mapping[str, SoundPackManifest]) -> bool:
+        return (
+            self._fallback_pack_id in installed
+            or self._external_fallback_available
+        )
+
     def resolve_usable_pack(self, requested_pack_id: str) -> str:
-        """Implement the neutral resolver port consumed by SoundProfileManager."""
+        """Resolve against installed packs plus an optional external fallback authority."""
 
         requested = SoundProfile(pack_id=requested_pack_id).pack_id
         installed = dict(self._storage.installed())
         if requested in installed:
             return requested
-        if self._fallback_pack_id not in installed:
-            raise SoundPackInstallError("configured sound pack is missing and no fallback is installed")
+        if requested == self._fallback_pack_id and self._external_fallback_available:
+            return self._fallback_pack_id
+        if not self._fallback_available(installed):
+            raise SoundPackInstallError(
+                "configured sound pack is missing and no fallback is available"
+            )
         return self._fallback_pack_id
 
     def prepare_uninstall(
@@ -263,8 +277,13 @@ class SoundPackManager:
                 resulting_profile=self.resolve_profile(active_profile),
                 remove_from_storage=False,
             )
-        if active_profile.pack_id == pack_id and self._fallback_pack_id not in installed:
-            raise SoundPackInstallError("cannot remove active pack without an installed fallback")
+        if (
+            active_profile.pack_id == pack_id
+            and not self._fallback_available(installed)
+        ):
+            raise SoundPackInstallError(
+                "cannot remove active pack without an available fallback"
+            )
         resulting_profile = (
             active_profile.with_pack(self._fallback_pack_id)
             if active_profile.pack_id == pack_id
