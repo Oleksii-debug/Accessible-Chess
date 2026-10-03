@@ -27,8 +27,39 @@ from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION, Settings
 UPGRADE_JOURNAL_SCHEMA_VERSION = 2
 _BACKUP_MANIFEST_SCHEMA_VERSION = 2
 _PHASES = {"prepared", "migrating", "verifying", "committed", "rolled_back"}
-_CONTROL_NAMES = {".v2-upgrade.lock", ".v2-upgrade-state.json", "profile.json.lock"}
+_CONTROL_NAMES = {
+    ".v2-upgrade.lock",
+    ".v2-upgrade-state.json",
+    "profile.json.lock",
+    "gametree-resume.json.lock",
+    "book-progress.json.lock",
+    "sound-profile.json.lock",
+    "sound-packs.lock",
+}
 _CONTROL_NAME_KEYS = frozenset(name.casefold() for name in _CONTROL_NAMES)
+_DERIVED_ROOT_DIRECTORIES = {
+    ".gametree-resume-discard",
+    "sound-cache",
+}
+_DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
+    name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
+)
+
+
+def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
+    """Return whether a root file is crash residue from a canonical writer."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+    return (
+        name.startswith("gametree-resume.json.") and name.endswith(".tmp")
+    ) or (
+        name.startswith("gametree-resume.json.cas-") and name.endswith(".bak")
+    ) or (
+        name.startswith(".book-progress.json.") and name.endswith(".tmp")
+    )
+
+
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -635,7 +666,25 @@ class Version2UpgradeCoordinator:
             .casefold(),
         ):
             relative = _relative(self.layout.root, path)
+            relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
+                continue
+            # Derived runtime/control subtrees are not preservation-backed user
+            # state. Exclude only descendants of exact root runtime directories.
+            # The root object itself is still validated below, so a regular file
+            # using one of these names remains user data and a symlink/reparse
+            # point still fails closed.
+            if (
+                len(relative_path.parts) > 1
+                and relative_path.parts[0].casefold()
+                in _DERIVED_ROOT_DIRECTORY_KEYS
+            ):
+                continue
+            # Atomic GameTree/Book-progress writers may leave these exact-root
+            # temporary files behind only after abrupt process death. They are
+            # internal publication residue, not preservation-backed user data.
+            # Nested lookalikes and non-matching near names remain ordinary data.
+            if _is_generated_root_runtime_file(relative_path):
                 continue
             folded = relative.casefold()
             if folded in seen:
