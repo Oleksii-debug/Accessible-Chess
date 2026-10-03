@@ -4,6 +4,8 @@
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
   const MAX_BOOK_SEMANTIC_DEPTH = 256;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
+  const MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024;
+  const MAX_BOOK_LIST_ITEMS = MAX_BOOK_SEMANTIC_ITEMS;
   const MAX_BOOK_SEMANTIC_DETAILS = 4;
   const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
   const BOOK_SEMANTIC_DETAIL_KINDS = Object.freeze({
@@ -171,6 +173,9 @@
 
   function semanticText(value, name, budget) {
     if (typeof value !== "string") throw new TypeError(name + " must be text");
+    if (value.indexOf("\u0000") !== -1) {
+      throw new TypeError(name + " must not contain NUL");
+    }
     budget.entries += 1;
     if (budget.entries > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
       throw new TypeError("book semantic text-entry budget exceeded");
@@ -245,14 +250,26 @@
     return out;
   }
 
-  function requiredUiText(value, name, maxLength) {
-    if (typeof value !== "string" || !value.trim()) {
+  function boundedUiText(value, name, maxLength, requireVisible) {
+    if (typeof value !== "string") {
+      throw new TypeError(name + " must be text");
+    }
+    if (
+      !Number.isSafeInteger(maxLength) ||
+      maxLength < 1 ||
+      value.length > maxLength ||
+      value.indexOf("\u0000") !== -1
+    ) {
+      throw new TypeError(name + " exceeds its safe text contract");
+    }
+    if (requireVisible && !value.trim()) {
       throw new TypeError(name + " must contain visible text");
     }
-    if (!Number.isSafeInteger(maxLength) || maxLength < 1 || value.length > maxLength) {
-      throw new TypeError(name + " exceeds its text limit");
-    }
     return value;
+  }
+
+  function requiredUiText(value, name, maxLength) {
+    return boundedUiText(value, name, maxLength, true);
   }
 
   function validateBookActions(value) {
@@ -353,9 +370,9 @@
     ) {
       throw new TypeError("starter material booklet count is invalid");
     }
-    if (typeof value.description !== "string" || value.description.length > 2000) {
-      throw new TypeError("starter material description is invalid");
-    }
+    boundedUiText(
+      value.description, "starter material description", 2000, false
+    );
     return {
       heading: requiredUiText(value.heading, "starter material heading", MAX_STARTER_TEXT),
       label: requiredUiText(value.label, "starter material label", MAX_STARTER_TEXT),
@@ -395,17 +412,22 @@
     ) {
       throw new TypeError("Book block role is invalid");
     }
-    ["kind", "title", "text", "source_anchor", "source_label", "warning"].forEach(
-      function (name) {
-        if (
-          block[name] !== undefined &&
-          block[name] !== null &&
-          typeof block[name] !== "string"
-        ) {
-          throw new TypeError("Book block " + name + " must be text");
-        }
+    const blockTextLimits = {
+      kind: 80,
+      title: 360,
+      text: MAX_BOOK_BLOCK_VISIBLE_CHARS,
+      source_anchor: 160,
+      source_label: 360,
+      warning: 1000,
+      heading_path_label: 360
+    };
+    Object.keys(blockTextLimits).forEach(function (name) {
+      if (block[name] !== undefined && block[name] !== null) {
+        boundedUiText(
+          block[name], "Book block " + name, blockTextLimits[name], false
+        );
       }
-    );
+    });
     if (block.has_position !== undefined && typeof block.has_position !== "boolean") {
       throw new TypeError("Book block position flag is invalid");
     }
@@ -421,14 +443,14 @@
     if (!Array.isArray(block.heading_path)) {
       throw new TypeError("Book heading path must be an array");
     }
+    if (block.heading_path.length > MAX_BOOK_SEMANTIC_DEPTH) {
+      throw new TypeError("Book heading path is too deep");
+    }
     for (let index = 0; index < block.heading_path.length; index += 1) {
-      if (
-        !Object.prototype.hasOwnProperty.call(block.heading_path, index) ||
-        typeof block.heading_path[index] !== "string" ||
-        !block.heading_path[index].trim()
-      ) {
-        throw new TypeError("Book heading path is invalid");
+      if (!Object.prototype.hasOwnProperty.call(block.heading_path, index)) {
+        throw new TypeError("Book heading path must be dense");
       }
+      requiredUiText(block.heading_path[index], "Book heading path item", 360);
     }
     if (block.heading_path.length && (
       typeof block.heading_path_label !== "string" ||
@@ -450,17 +472,24 @@
       if (
         !Array.isArray(block.list.items) ||
         block.list.items.length < 1 ||
+        block.list.items.length > MAX_BOOK_LIST_ITEMS ||
         typeof block.list.ordered !== "boolean"
       ) {
         throw new TypeError("Book list contents are invalid");
       }
+      let visibleListChars = 0;
       for (let index = 0; index < block.list.items.length; index += 1) {
-        if (
-          !Object.prototype.hasOwnProperty.call(block.list.items, index) ||
-          typeof block.list.items[index] !== "string" ||
-          !block.list.items[index].trim()
-        ) {
-          throw new TypeError("Book list items are invalid");
+        if (!Object.prototype.hasOwnProperty.call(block.list.items, index)) {
+          throw new TypeError("Book list items must be dense");
+        }
+        const item = requiredUiText(
+          block.list.items[index],
+          "Book list item",
+          MAX_BOOK_BLOCK_VISIBLE_CHARS
+        );
+        visibleListChars += item.length;
+        if (visibleListChars > MAX_BOOK_BLOCK_VISIBLE_CHARS) {
+          throw new TypeError("Book list exceeds the visible-text budget");
         }
       }
       if (
@@ -512,9 +541,7 @@
     ) {
       throw new TypeError("Training status is invalid");
     }
-    if (typeof snapshot.message !== "string" || snapshot.message.length > 1200) {
-      throw new TypeError("Training message is invalid");
-    }
+    boundedUiText(snapshot.message, "Training message", 1200, false);
 
     const progress = snapshot.progress;
     if (!progress || typeof progress !== "object" || Array.isArray(progress)) {
