@@ -584,6 +584,94 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic tree must not steal reading focus");
 
+  const wrongParityMove = semanticGameSnapshot();
+  wrongParityMove.block.semantic_tree.items[2].depth = 1;
+  let wrongParityMoveRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      wrongParityMove,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    wrongParityMoveRejected = true;
+  }
+  check(wrongParityMoveRejected,
+    "move at variation-marker depth must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "wrong-parity move must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "wrong-parity move must not steal reading focus");
+
+  const wrongParityVariation = semanticGameSnapshot();
+  wrongParityVariation.block.semantic_tree.items[1].depth = 0;
+  let wrongParityVariationRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      wrongParityVariation,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    wrongParityVariationRejected = true;
+  }
+  check(wrongParityVariationRejected,
+    "variation marker at move depth must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "wrong-parity variation must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "wrong-parity variation must not steal reading focus");
+
+  const variationWithMoveComments = semanticGameSnapshot();
+  variationWithMoveComments.block.semantic_tree.items[1].comments_before = ["misplaced"];
+  let variationWithMoveCommentsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      variationWithMoveComments,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    variationWithMoveCommentsRejected = true;
+  }
+  check(variationWithMoveCommentsRejected,
+    "variation marker carrying move comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "variation move-comment slots must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "variation move-comment slots must not steal reading focus");
+
+  const moveWithLineTail = semanticGameSnapshot();
+  moveWithLineTail.block.semantic_tree.items[0].trailing_comments = ["misplaced"];
+  let moveWithLineTailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      moveWithLineTail,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    moveWithLineTailRejected = true;
+  }
+  check(moveWithLineTailRejected,
+    "move carrying line trailing comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "move line tail must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "move line tail must not steal reading focus");
+
   const coercedDepth = semanticGameSnapshot();
   coercedDepth.block.semantic_tree.items[0].depth = "0";
   let coercedDepthRejected = false;
