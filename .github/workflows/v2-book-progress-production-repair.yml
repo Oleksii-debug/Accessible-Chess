@@ -120,7 +120,10 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ] \
              && [ "$PR_BASE_REF" = "fix/delegated-focus-roundtrip-current-20261003" ] \
              && [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003" ]; then
-            test "$PR_BASE_SHA" = "4fab1b458895c91bccacf90c4836c4dc371ccc9c"
+            focus_parent_ref="refs/remotes/origin/$PR_BASE_REF"
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:$focus_parent_ref"
+            focus_parent="$(git rev-parse "$focus_parent_ref")"
+            test "$PR_BASE_SHA" = "$focus_parent"
             focus_recovery_expected="$(printf '%s\n' \
               '.github/workflows/d01-pgn-workspace-webview.yml' \
               '.github/workflows/p0-release-critical-triad-convergence.yml' \
