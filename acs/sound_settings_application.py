@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from .sound_pack_catalog import (
     SoundPackCatalogEntry,
+    SoundPackInstallError,
     SoundPackInstalledAudit,
     SoundPackRightsEvidence,
     SoundPackState,
@@ -562,7 +563,12 @@ class SoundSettingsApplication:
         else:
             if self._packs is None:
                 raise RuntimeError("sound pack management is unavailable")
-            manifest = self._packs.installed_manifest(pack_id)
+            try:
+                manifest = self._packs.installed_manifest(pack_id)
+            except SoundPackInstallError:
+                raise
+            except (TypeError, ValueError) as exc:
+                raise ValueError("unknown sound pack") from exc
             if manifest is None:
                 raise ValueError("unknown sound pack")
             if not self._local_pack_compatible(manifest):
