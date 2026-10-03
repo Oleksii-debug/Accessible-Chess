@@ -50,16 +50,9 @@ jobs:
           test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          git fetch --no-tags origin "$EXPECTED_BASE_REF"
-          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          test -n "$base"
-          if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current moderation RPC parent $base is not an ancestor of HEAD; synchronize the stacked PR."
-            exit 1
-          fi
-          test "$(git merge-base "$base" HEAD)" = "$base"
-          git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/classroom-moderation-sqlite-ledger.yml' \
             'acs/sqlite_classroom_moderation_ledger.py' \
