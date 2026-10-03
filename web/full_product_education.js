@@ -227,11 +227,15 @@
   function validCollaborationFileProgress(progressInfo) {
     if (!progressInfo || typeof progressInfo !== "object") return false;
     const transferKey = progressInfo.transfer_key;
+    const revision = progressInfo.progress_revision;
     const transferred = progressInfo.transferred_bytes;
     const total = progressInfo.total_bytes;
     const complete = progressInfo.complete;
     return (
       typeof transferKey === "string" &&
+      typeof revision === "number" &&
+      Number.isSafeInteger(revision) &&
+      revision >= 0 &&
       /^[0-9a-f]{64}$/.test(transferKey) &&
       typeof transferred === "number" &&
       typeof total === "number" &&
@@ -251,6 +255,15 @@
   function collaborationFileProgressCanFollow(previous, next) {
     if (!validCollaborationFileProgress(previous) || !validCollaborationFileProgress(next)) {
       return false;
+    }
+    if (next.progress_revision < previous.progress_revision) return false;
+    if (next.progress_revision === previous.progress_revision) {
+      return (
+        previous.transfer_key === next.transfer_key &&
+        previous.total_bytes === next.total_bytes &&
+        previous.transferred_bytes === next.transferred_bytes &&
+        previous.complete === next.complete
+      );
     }
     if (previous.transfer_key === next.transfer_key) {
       return (
@@ -279,6 +292,7 @@
     );
     const progress = {
       transfer_key: container.getAttribute("data-progress-key"),
+      progress_revision: Number(container.getAttribute("data-progress-revision")),
       name: container.getAttribute("data-progress-name"),
       transferred_bytes: Number(container.getAttribute("data-progress-transferred")),
       total_bytes: Number(container.getAttribute("data-progress-total")),
@@ -316,14 +330,49 @@
       ? snapshot.files
       : null;
     if (!files) return snapshot;
+    const snapshotRevision = files.progress_revision;
+    if (
+      typeof snapshotRevision !== "number" ||
+      !Number.isSafeInteger(snapshotRevision) ||
+      snapshotRevision < 0
+    ) {
+      return {
+        ...snapshot,
+        files: {
+          ...files,
+          progress_revision: previous.progress.progress_revision,
+          transfer_progress: { ...previous.progress }
+        }
+      };
+    }
+    if (snapshotRevision < previous.progress.progress_revision) {
+      return {
+        ...snapshot,
+        files: {
+          ...files,
+          progress_revision: previous.progress.progress_revision,
+          transfer_progress: { ...previous.progress }
+        }
+      };
+    }
     const incoming = files.transfer_progress;
     if (!incoming || typeof incoming !== "object") {
-      // Trusted sync can authoritatively clear terminal presentation state
-      // after a tombstone/removal. Absence is therefore not evidence of a
-      // stale redraw; only an explicitly older progress projection is.
-      return snapshot;
+      // A newer revision without a transfer projection is an authoritative
+      // presentation clear (for example, sync observed a tombstone).
+      if (snapshotRevision > previous.progress.progress_revision) return snapshot;
+      return {
+        ...snapshot,
+        files: {
+          ...files,
+          progress_revision: previous.progress.progress_revision,
+          transfer_progress: { ...previous.progress }
+        }
+      };
     }
-    if (collaborationFileProgressCanFollow(previous.progress, incoming)) {
+    if (
+      incoming.progress_revision === snapshotRevision &&
+      collaborationFileProgressCanFollow(previous.progress, incoming)
+    ) {
       return snapshot;
     }
     return {
@@ -362,6 +411,7 @@
     text.setAttribute("aria-live", "off");
     if (text.textContent) meter.setAttribute("aria-valuetext", text.textContent);
     container.setAttribute("data-progress-session", sessionKey);
+    container.setAttribute("data-progress-revision", String(progressInfo.progress_revision));
     container.setAttribute("data-progress-key", progressInfo.transfer_key);
     container.setAttribute("data-progress-name", name);
     container.setAttribute("data-progress-label", label);
@@ -394,6 +444,10 @@
     }
     const container = wrapper.querySelector("#collaboration-file-transfer-progress");
     if (!container || typeof container.replaceChildren !== "function") return false;
+    const baselineRevision = Number(container.getAttribute("data-progress-revision"));
+    const hasBaselineRevision = (
+      Number.isSafeInteger(baselineRevision) && baselineRevision >= 0
+    );
     const previous = collaborationFileProgressFromContainer(container);
     if (
       previous &&
@@ -403,6 +457,15 @@
       // UI commands are single-flight. A different transfer identity can only
       // start at zero after authoritative completion of the prior transfer.
       // Same-transfer byte counts are monotonic and terminal state cannot regress.
+      return false;
+    }
+    if (
+      !previous &&
+      hasBaselineRevision &&
+      progressInfo.progress_revision <= baselineRevision
+    ) {
+      // An authoritative clear keeps its revision on the empty container so
+      // a delayed pre-clear event cannot resurrect a removed transfer.
       return false;
     }
     return paintCollaborationFileProgress(container, progressInfo, sessionKey);
