@@ -563,15 +563,22 @@ class LibraryWebViewProjection:
             },
         )
 
-    def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
+    def _search_view(self, query: GameSearchQuery) -> LibraryView:
         if not isinstance(query, GameSearchQuery):
             raise TypeError("query must be GameSearchQuery")
         normalized = query.normalized()
         if normalized.after_game_id is not None:
             raise ValueError("browser search cannot supply a keyset cursor")
-        self._query = normalized
         view = self._presenter.search(normalized)
-        return self._render_event(view, announce=True)
+        # The presenter returns a transient error view without committing its
+        # prior page/selection state. Keep the visible filter query equally
+        # transactional: only a successful replacement search owns the new query.
+        if view.status is not SurfaceStatus.ERROR:
+            self._query = normalized
+        return view
+
+    def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
+        return self._render_event(self._search_view(query), announce=True)
 
     def reset_filters(self) -> LibraryWebViewEvent:
         return self.search(GameSearchQuery())
@@ -618,10 +625,17 @@ class LibraryWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        self._import.set_language(language)
-        return self._render_event(self._presenter.view(), announce=False)
+        previous = self._language
+        try:
+            self._language = language
+            self._presenter.set_language(language)
+            self._import.set_language(language)
+            return self._render_event(self._presenter.view(), announce=False)
+        except Exception:
+            self._language = previous
+            self._presenter.set_language(previous)
+            self._import.set_language(previous)
+            raise
 
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:
         try:

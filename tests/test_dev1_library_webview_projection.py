@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
+from acs.library_export_webview_projection import LibraryExportWebViewProjection
 from acs.library_webview_bridge import LibraryWebViewBridge
 from acs.library_webview_projection import LibraryWebViewProjection
 from acs.search_service import GameSearchItem, GameSearchPage, GameSearchQuery
@@ -176,6 +178,111 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         self.assertNotIn("c:\\", text)
         self.assertNotIn("private", text)
 
+    def test_failed_replacement_search_preserves_committed_query_page_and_selection(self) -> None:
+        service, presenter, projection, _bridge, _calls = self.build()
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        before = projection.search(committed_query).payload["snapshot"]
+        self.assertEqual("ready", before["status"])
+        self.assertEqual(1, before["selected_game_id"])
+
+        def fail_search(_query):
+            raise RuntimeError(r"sqlite failure at C:\private\library.db")
+
+        service.search = fail_search
+        attempted = projection.search(GameSearchQuery(player="Changed", limit=25))
+        self.assertEqual("error", attempted.payload["snapshot"]["status"])
+        self.assertEqual(committed_query, projection.query)
+
+        after = projection.snapshot()
+        self.assertEqual("ready", after["status"])
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(before["filters"], after["filters"])
+        self.assertEqual(SurfaceStatus.READY, presenter.view().status)
+
+    def test_failed_reset_preserves_committed_nondefault_filters(self) -> None:
+        service, _presenter, projection, _bridge, _calls = self.build()
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        before = projection.search(committed_query).payload["snapshot"]
+
+        def fail_search(_query):
+            raise PermissionError(r"C:\private\library.db")
+
+        service.search = fail_search
+        failed = projection.reset_filters()
+        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        self.assertEqual(committed_query, projection.query)
+        self.assertEqual(before, projection.snapshot())
+
+    def test_failed_export_search_preserves_export_selection_and_committed_query(self) -> None:
+        service = FakeSearchService()
+        presenter = LibraryPresenter(service, language=UILanguage.EN)
+        projection = LibraryExportWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        projection.search(committed_query)
+        projection.toggle_export_selection(2)
+        self.assertEqual((2,), projection.export_game_ids)
+
+        def fail_search(_query):
+            raise PermissionError(r"C:\\Users\\BlindTeacher\\private-library.sqlite")
+
+        service.search = fail_search
+        failed = projection.search(GameSearchQuery(player="Changed", limit=25))
+        failed_snapshot = failed.payload["snapshot"]
+        self.assertEqual("error", failed_snapshot["status"])
+        self.assertEqual(1, failed_snapshot["export_selection_count"])
+        failed_selected = next(
+            row for row in failed_snapshot["rows"] if row["game_id"] == 2
+        )
+        self.assertTrue(failed_selected["export_selected"])
+        self.assertEqual((2,), projection.export_game_ids)
+        self.assertEqual(committed_query, projection.query)
+        committed = projection.snapshot()
+        self.assertEqual(1, committed["export_selection_count"])
+        selected = next(row for row in committed["rows"] if row["game_id"] == 2)
+        self.assertTrue(selected["export_selected"])
+
+    def test_successful_export_search_clears_prior_export_selection(self) -> None:
+        service = FakeSearchService()
+        presenter = LibraryPresenter(service, language=UILanguage.EN)
+        projection = LibraryExportWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.toggle_export_selection(2)
+        self.assertEqual((2,), projection.export_game_ids)
+
+        completed = projection.search(GameSearchQuery(player="Gamma", limit=2))
+        self.assertEqual("ready", completed.payload["snapshot"]["status"])
+        self.assertEqual((), projection.export_game_ids)
+        self.assertEqual(0, completed.payload["snapshot"]["export_selection_count"])
+
+    def test_malformed_replacement_page_is_rejected_before_presenter_commit(self) -> None:
+        service, presenter, projection, _bridge, _calls = self.build()
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        before = projection.search(committed_query).payload["snapshot"]
+
+        def malformed_search(_query):
+            duplicate = item(7, white="Malformed", black="Page")
+            return GameSearchPage(
+                items=(duplicate, duplicate),
+                next_after_game_id=None,
+                has_more=False,
+            )
+
+        service.search = malformed_search
+        failed = projection.search(GameSearchQuery(player="Changed", limit=25))
+        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        self.assertEqual(committed_query, projection.query)
+        self.assertEqual(before, projection.snapshot())
+        self.assertEqual(SurfaceStatus.READY, presenter.view().status)
+
     def test_bridge_rejects_cursor_and_unknown_fields_without_reflecting_values(self) -> None:
         _service, _presenter, _projection, bridge, _calls = self.build()
         for payload in (
@@ -201,6 +308,28 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             [row["dom_id"] for row in en["rows"]],
         )
         self.assertEqual(ua["focus_target"], en["focus_target"])
+
+    def test_failed_language_render_rolls_back_library_presenter_and_import_language(self) -> None:
+        _service, presenter, projection, _bridge, _calls = self.build(
+            language=UILanguage.EN
+        )
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_render_event",
+            side_effect=RuntimeError("simulated render failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "render failure"):
+                projection.set_language(UILanguage.UA)
+
+        after = projection.snapshot()
+        self.assertEqual(UILanguage.EN, projection.language)
+        self.assertEqual(UILanguage.EN, presenter._language)
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["filters"], after["filters"])
+        self.assertEqual(before["import"]["heading"], after["import"]["heading"])
 
     def test_snapshot_does_not_mix_live_selection_changed_after_immutable_view_capture(self) -> None:
         service = FakeSearchService()

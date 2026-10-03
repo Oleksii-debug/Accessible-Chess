@@ -323,22 +323,54 @@ class LibraryPresenter:
     def set_language(self, language: UILanguage) -> None:
         self._language = language
 
+    @staticmethod
+    def _validate_page(page: GameSearchPage) -> GameSearchPage:
+        """Validate one backend page before publishing it into presenter state."""
+        if not isinstance(page, GameSearchPage):
+            raise TypeError("library search returned an invalid page")
+        if type(page.has_more) is not bool:
+            raise ValueError("library page has invalid continuation state")
+        ids: list[int] = []
+        for item in page.items:
+            if not isinstance(item, GameSearchItem):
+                raise TypeError("library page contains an invalid game")
+            if type(item.game_id) is not int or item.game_id <= 0:
+                raise ValueError("library page contains an invalid game identity")
+            ids.append(item.game_id)
+        if len(ids) != len(set(ids)):
+            raise ValueError("library page contains duplicate game identities")
+        cursor = page.next_after_game_id
+        if page.has_more:
+            if (
+                not ids
+                or type(cursor) is not int
+                or cursor <= 0
+                or cursor != ids[-1]
+            ):
+                raise ValueError("library page has an invalid keyset cursor")
+        elif cursor is not None:
+            raise ValueError("terminal library page must not expose a keyset cursor")
+        return page
+
     def search(self, query: GameSearchQuery | None = None) -> LibraryView:
         q = (query or GameSearchQuery()).normalized()
-        self._status = SurfaceStatus.LOADING
-        self._message = ""
         try:
-            page = self._service.search(q)
+            page = self._validate_page(self._service.search(q))
         except Exception as exc:
-            self._pages = []
-            self._page_index = -1
-            self._selected_game_id = None
-            self._status = SurfaceStatus.ERROR
-            self._message = concise_user_error(exc, language=self._language)
-            return self.view()
+            # Treat a failed replacement search as a rejected transaction.
+            # Preserve the last committed page, selection, status and cache so
+            # native/global callers cannot silently destroy hidden Library state.
+            # Return a transient error view for the attempted operation instead.
+            current = self.view()
+            return replace(
+                current,
+                status=SurfaceStatus.ERROR,
+                message=concise_user_error(exc, language=self._language),
+            )
         self._pages = [(q, page)]
         self._page_index = 0
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
+        self._message = ""
         self._stabilize_selection(page)
         return self.view()
 
@@ -361,19 +393,26 @@ class LibraryPresenter:
             cached = self.current_page()
             if cached is None:
                 raise RuntimeError("library page cache is inconsistent")
+            self._status = SurfaceStatus.READY if cached.items else SurfaceStatus.EMPTY
+            self._message = ""
             self._stabilize_selection(cached)
             return self.view()
         query = replace(
             self._pages[self._page_index][0],
             after_game_id=current.next_after_game_id,
         )
-        self._status = SurfaceStatus.LOADING
         try:
-            page = self._service.search(query)
+            page = self._validate_page(self._service.search(query))
         except Exception as exc:
-            self._status = SurfaceStatus.ERROR
-            self._message = concise_user_error(exc, language=self._language)
-            return self.view()
+            # A failed page fetch is only an error for this attempted action.
+            # Keep the last committed page/selection/status available for retry,
+            # matching replacement-search transaction semantics.
+            current_view = self.view()
+            return replace(
+                current_view,
+                status=SurfaceStatus.ERROR,
+                message=concise_user_error(exc, language=self._language),
+            )
         self._pages.append((query, page))
         self._page_index += 1
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
@@ -385,11 +424,11 @@ class LibraryPresenter:
         if self._page_index <= 0:
             raise LookupError("No previous library page")
         self._page_index -= 1
-        self._status = SurfaceStatus.READY
-        self._message = ""
         page = self.current_page()
         if page is None:
             raise RuntimeError("library page cache is inconsistent")
+        self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
+        self._message = ""
         self._stabilize_selection(page)
         return self.view()
 
