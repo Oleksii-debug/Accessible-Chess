@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -91,16 +92,17 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         before = reader.snapshot()
         game = self.semantic_game()
 
-        # One single-move browser snapshot contains exactly seven semantic text
-        # entries: section label, players label/value, result label/value, move
-        # label/result. Seven must pass; six must fail on the host before WebView.
+        # One single-move browser snapshot contains exactly eight semantic text
+        # entries: section label, players label/value, result label, variation-depth
+        # label, result value, move label/result. Eight must pass; seven must fail
+        # on the host before WebView.
         with (
             patch.object(
                 workflow,
                 "semantic_game_snapshot",
                 return_value=(BookBoardMode.GAME, game, ()),
             ),
-            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 7),
+            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 8),
         ):
             accepted = bridge.projection.snapshot()
         self.assertIsInstance(accepted["semantic_tree"], dict)
@@ -112,11 +114,62 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
                 "semantic_game_snapshot",
                 return_value=(BookBoardMode.GAME, game, ()),
             ),
-            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 6),
+            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 7),
         ):
             rejected = bridge.projection.snapshot()
 
         self.assert_accessible_fallback(rejected, reader, workflow, before)
+
+    def test_block_kind_mismatch_falls_back_before_browser_serialization(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.VARIATION, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_item_kind_depth_mismatch_falls_back_before_browser_serialization(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        malformed_view = SimpleNamespace(
+            game_index=0,
+            items=(
+                SimpleNamespace(
+                    kind="variation",
+                    depth=0,
+                    node_id="g0:main/v0",
+                    parent_id=None,
+                    label="Variation 1",
+                    comments=(),
+                    comments_before=(),
+                    comments_after=(),
+                    trailing_comments=(),
+                    result=None,
+                ),
+            ),
+        )
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
     def test_python_host_limits_match_the_browser_semantic_contract(self):
         script = (
@@ -129,6 +182,8 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         self.assertIn("const MAX_BOOK_SEMANTIC_ITEMS = 10000;", script)
         self.assertIn("const MAX_BOOK_SEMANTIC_DEPTH = 256;", script)
         self.assertIn("const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50000;", script)
+        self.assertIn('item.kind === "move" && item.depth % 2 !== 0', script)
+        self.assertIn('item.kind === "variation" && item.depth % 2 !== 1', script)
 
         scalar_contract = (
             (
@@ -142,6 +197,10 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
             (
                 book_workspace._MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
                 'semanticText(tree.players, "Book semantic players", false, 720);',
+            ),
+            (
+                book_workspace._MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS,
+                '"Book semantic variation depth label"',
             ),
             (
                 book_workspace._MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,

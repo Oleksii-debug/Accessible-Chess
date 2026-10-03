@@ -296,8 +296,8 @@
       throw new TypeError("Book semantic tree is invalid for this block");
     }
     const expectedTreeFields = [
-      "kind", "label", "players_label", "players", "result_label", "result",
-      "intro_comments", "outro_comments", "items"
+      "kind", "label", "players_label", "players", "result_label",
+      "variation_depth_label", "result", "intro_comments", "outro_comments", "items"
     ];
     const treeFields = Object.keys(tree);
     if (treeFields.length !== expectedTreeFields.length ||
@@ -339,6 +339,12 @@
     semanticText(tree.players_label, "Book semantic players label", false, 120);
     semanticText(tree.players, "Book semantic players", false, 720);
     semanticText(tree.result_label, "Book semantic result label", false, 120);
+    semanticText(
+      tree.variation_depth_label,
+      "Book semantic variation depth label",
+      false,
+      120
+    );
     if (["1-0", "0-1", "1/2-1/2", "*"].indexOf(tree.result) < 0) {
       throw new TypeError("Book semantic result is invalid");
     }
@@ -710,6 +716,13 @@
       if (item.kind === "variation") {
         const label = node("strong", item.label);
         entry.appendChild(label);
+        const variationLevel = (item.depth + 1) / 2;
+        entry.appendChild(
+          node(
+            "span",
+            " — " + tree.variation_depth_label + ": " + String(variationLevel)
+          )
+        );
         appendSemanticComments(entry, item.leading_comments);
       } else {
         entry.appendChild(node("span", item.label));

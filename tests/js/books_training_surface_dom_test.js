@@ -201,6 +201,7 @@ function semanticBookTree(kind) {
     players_label: "Players",
     players: "Alpha — Beta",
     result_label: "Result",
+    variation_depth_label: "Variation depth",
     result: "*",
     intro_comments: ["Intro"],
     outro_comments: ["Outro"],
@@ -237,6 +238,17 @@ function semanticBookTree(kind) {
         comments_after: [],
         trailing_comments: [],
         result: ""
+      },
+      {
+        kind: "variation",
+        depth: 3,
+        parent_index: 2,
+        label: "Nested variation",
+        leading_comments: [],
+        comments_before: [],
+        comments_after: [],
+        trailing_comments: [],
+        result: "*"
       }
     ]
   };
@@ -1072,8 +1084,17 @@ async function run() {
   const mainMove = find(variationRoot, "SPAN", "1 e4");
   const variationLabel = find(variationRoot, "STRONG", "Variation 1");
   const variationMove = find(variationRoot, "SPAN", "1 d4");
+  const variationDepth = find(variationLabel.parentNode, "SPAN", " — Variation depth: 1");
+  const nestedVariationLabel = find(variationRoot, "STRONG", "Nested variation");
+  const nestedVariationDepth = nestedVariationLabel
+    ? find(nestedVariationLabel.parentNode, "SPAN", " — Variation depth: 2")
+    : null;
   check(mainMove !== null && variationLabel !== null && variationMove !== null,
     "semantic nested move labels missing");
+  check(
+    variationDepth !== null && nestedVariationDepth !== null,
+    "semantic variation nesting depth is not explicitly readable"
+  );
   check(
     variationLabel.parentNode.parentNode.parentNode === mainMove.parentNode,
     "variation list is not nested under its parent move"
@@ -1125,6 +1146,20 @@ async function run() {
     43,
     "non-semantic block carrying semantic state",
     "Paragraph semantic drift failed"
+  );
+
+  const oversizedDepthLabel = bookSnapshot(54, "Oversized variation depth label");
+  oversizedDepthLabel.block.kind = "Game";
+  oversizedDepthLabel.block.role = "group";
+  oversizedDepthLabel.block.title = "Oversized variation depth label";
+  oversizedDepthLabel.actions[9].enabled = true;
+  oversizedDepthLabel.semantic_tree = semanticBookTree("game");
+  oversizedDepthLabel.semantic_tree.variation_depth_label = "x".repeat(121);
+  await expectBookSnapshotRejected(
+    oversizedDepthLabel,
+    54,
+    "semantic tree with oversized variation depth label",
+    "Variation depth label failed"
   );
 
   const extraTreeField = bookSnapshot(44, "Extra semantic tree field");
