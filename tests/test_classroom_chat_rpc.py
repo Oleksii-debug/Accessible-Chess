@@ -498,6 +498,25 @@ class ClassroomChatRpcTests(unittest.TestCase):
                         limit=10,
                     )
 
+    def test_history_rejects_missing_initial_prefix(self):
+        self.backend.history_override = (
+            ChatMessageMetadata(
+                "m1",
+                "room-1",
+                "student-2",
+                1,
+                "Missing sequence zero",
+                sent_at_unix_ms=1700000001000,
+            ),
+        )
+
+        with self.assertRaisesRegex(ClassroomChatRpcError, "sequence gap"):
+            self.student.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=10,
+            )
+
     def test_history_rejects_gap_after_known_local_baseline(self):
         self.backend.history_override = (
             ChatMessageMetadata(
