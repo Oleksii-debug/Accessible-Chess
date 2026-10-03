@@ -104,17 +104,19 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
     def _sound_state(self) -> dict[str, Any]:
         enabled = True
+        newgame_animation = True
         volume = 80
         tick_policy = "my_turn"
         tick_last_seconds = 0
         if self._settings is not None:
             try:
                 enabled = bool(self._settings.get("sounds", True))
+                newgame_animation = bool(self._settings.get("newgame_animation", True))
                 volume = int(self._settings.get("volume", 80))
                 tick_policy = str(self._settings.get("tick_policy", "my_turn"))
                 tick_last_seconds = int(self._settings.get("tick_last_seconds", 0))
             except Exception:
-                enabled, volume, tick_policy, tick_last_seconds = True, 80, "my_turn", 0
+                enabled, newgame_animation, volume, tick_policy, tick_last_seconds = True, True, 80, "my_turn", 0
 
         variants: dict[str, list[dict[str, str]]] = {}
         selected: dict[str, str] = {}
@@ -134,6 +136,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
         return {
             "enabled": enabled,
+            "newGameAnimation": newgame_animation,
             "volume": max(0, min(100, volume)),
             "tickPolicy": tick_policy if tick_policy in {"off", "my_turn", "both"} else "my_turn",
             "tickLastSeconds": max(0, min(3600, tick_last_seconds)),
@@ -222,6 +225,40 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "message": self._sound_message(
                 "Звуки увімкнено." if enabled else "Звуки вимкнено.",
                 "Sounds enabled." if enabled else "Sounds disabled.",
+            ),
+        }
+
+    def set_newgame_animation_enabled(self, enabled: bool) -> dict[str, Any]:
+        if not isinstance(enabled, bool) or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося змінити анімацію нової партії.",
+                    "New-game animation setting could not be changed.",
+                ),
+            }
+        try:
+            self._settings.set("newgame_animation", enabled)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти анімацію нової партії.",
+                    "New-game animation setting could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Анімацію нової партії увімкнено."
+                if enabled
+                else "Анімацію нової партії вимкнено.",
+                "New-game animation enabled."
+                if enabled
+                else "New-game animation disabled.",
             ),
         }
 
