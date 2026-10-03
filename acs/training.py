@@ -791,7 +791,15 @@ def _snapshot_counter(value: object, *, name: str) -> int:
 def _snapshot_move(value: object) -> str:
     if type(value) is not str:
         raise TypeError("exercise snapshot accepted_path entries must be strings")
-    return _normalize_move(value)
+    # Persisted accepted moves are emitted as short canonical SAN. Bound the raw
+    # wire value before whitespace normalization so malformed storage cannot force
+    # an unbounded split/join allocation during recovery.
+    if len(value) > _MAX_MOVE_TEXT:
+        raise ValueError("exercise snapshot accepted_path entry is too long")
+    normalized = _normalize_move(value)
+    if normalized != value:
+        raise ValueError("exercise snapshot accepted_path entry is not canonical text")
+    return value
 
 
 def _normalize_move(value: str) -> str:
