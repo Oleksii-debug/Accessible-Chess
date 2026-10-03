@@ -262,19 +262,26 @@ def _build_sound_pack_unchecked(
     if source.is_file():
         if source.suffix.casefold() != ".zip":
             raise SoundPackBuildError("sound-pack source file must be ZIP")
+        archive_sha256 = _sha256(source)
         if expected_source_archive_sha256 is not None:
             wanted = expected_source_archive_sha256.strip().casefold()
             if len(wanted) != 64 or any(character not in "0123456789abcdef" for character in wanted):
                 raise SoundPackBuildError("expected source archive SHA-256 is invalid")
-            actual = _sha256(source)
-            if actual != wanted:
+            if archive_sha256 != wanted:
                 raise SoundPackBuildError(
-                    f"sound-pack ZIP SHA-256 mismatch: actual={actual} expected={wanted}"
+                    f"sound-pack ZIP SHA-256 mismatch: actual={archive_sha256} expected={wanted}"
                 )
         with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
             extracted = Path(temp_dir)
             _extract_sound_zip(source, extracted)
-            return _build_sound_pack_unchecked(extracted, destination)
+            report = _build_sound_pack_unchecked(extracted, destination)
+            report["source_archive_sha256"] = archive_sha256
+            report["source_archive_bytes"] = source.stat().st_size
+            (destination / "inventory.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            return report
 
     sounds = _locate_sounds(source)
     if destination.exists():
