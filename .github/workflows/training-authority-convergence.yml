@@ -38,7 +38,7 @@ jobs:
       APPLICATION_BLOB: d035f1ce0b3f65e68f7e47e35e65b13f533ef91e
       BOOK_BRIDGE_BLOB: 247b7d4bbd2d9e0e7d7fc6a89c5cef45e63e65e7
       TRAINING_BRIDGE_BLOB: c3e6e52873f2ec1e2d5bdbc70d227a402963405b
-      CONVERGENCE_TEST_BLOB: ed3ef92c07937c4eb8841f177321807af48a657d
+      CONVERGENCE_TEST_BLOB: 78efa44bd7886e71127c0870c9d8c5b50de871c6
     steps:
       - uses: actions/checkout@v4
         with:
