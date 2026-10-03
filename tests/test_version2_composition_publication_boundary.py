@@ -104,7 +104,7 @@ class Version2CompositionPublicationBoundaryTests(unittest.TestCase):
                 stack.enter_context(
                     mock.patch.object(
                         release_app,
-                        "Version2ReleaseAccessibleChessAPI",
+                        "Version2ProfileAccessibleChessAPI",
                         return_value=api,
                     )
                 )

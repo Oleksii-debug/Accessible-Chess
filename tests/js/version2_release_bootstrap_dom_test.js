@@ -13,6 +13,9 @@ class FakeElement {
     this.id = "";
     this.textContent = "";
     this.hidden = false;
+    this.disabled = false;
+    this.open = false;
+    this.value = "";
     this.tabIndex = 0;
   }
 
@@ -20,6 +23,12 @@ class FakeElement {
     child.parentNode = this;
     this.children.push(child);
     return child;
+  }
+
+  append(...children) {
+    children.forEach((child) => {
+      if (child) this.appendChild(child);
+    });
   }
 
   insertBefore(child, reference) {
@@ -54,6 +63,19 @@ class FakeElement {
     documentRef.activeElement = this;
   }
 
+  select() {}
+
+  showModal() {
+    this.open = true;
+  }
+
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    const listener = this.listeners.close;
+    if (typeof listener === "function") listener({});
+  }
+
   contains(candidate) {
     if (candidate === this) return true;
     return this.children.some((child) => child.contains(candidate));
@@ -62,6 +84,18 @@ class FakeElement {
   descendants() {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
   }
+}
+
+const appendFixture = new FakeElement("div");
+const appendFixtureFirst = new FakeElement("button");
+const appendFixtureSecond = new FakeElement("button");
+appendFixture.append(appendFixtureFirst, appendFixtureSecond);
+if (
+  appendFixture.children.length !== 2 ||
+  appendFixtureFirst.parentNode !== appendFixture ||
+  appendFixtureSecond.parentNode !== appendFixture
+) {
+  throw new Error("FakeElement.append must preserve DOM child order and parent identity");
 }
 
 const container = new FakeElement("div");
@@ -81,6 +115,7 @@ container.appendChild(live);
 const documentListeners = {};
 const documentRef = {
   activeElement: null,
+  body: container,
   documentElement: { lang: "en" },
   createElement: (tagName) => new FakeElement(tagName),
   createDocumentFragment: () => new FakeElement("fragment"),
@@ -102,6 +137,24 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let libraryApplyCalls = 0;
 let stage1RefreshCalls = 0;
+let profileSnapshot = {
+  ok: true,
+  exists: true,
+  displayName: "Player-TEST0001",
+  generatedAlias: true,
+  recoveryRequired: false,
+  revision: 1,
+  announcement: ""
+};
+let profileRepairResult = {
+  ok: true,
+  exists: true,
+  displayName: "Player-TEST0001",
+  generatedAlias: true,
+  recoveryRequired: false,
+  revision: 1,
+  announcement: ""
+};
 const recordedFocus = [];
 
 function snapshot(route) {
@@ -150,6 +203,8 @@ const windowObject = {
         snapshotCalls += 1;
         return Promise.resolve(snapshot(currentRoute));
       },
+      profile_snapshot: () => Promise.resolve(Object.assign({}, profileSnapshot)),
+      profile_repair: () => Promise.resolve(Object.assign({}, profileRepairResult)),
       v2_browser_command: (area, command, payload) => {
         if (area !== "shell" || payload == null || Object.keys(payload).length !== 0) {
           return Promise.reject(new Error("unexpected browser command"));
@@ -347,6 +402,108 @@ async function clickRoute(routeId) {
   check(snapshotCalls === beforeStage1ActionSnapshots, "native Stage 1 action incorrectly used a V2-only snapshot refresh");
   check(originalMain.hidden === false, "native Stage 1 action hid the original main");
   check(documentRef.activeElement === moveInput, "native Stage 1 action disturbed the current Stage 1 keyboard focus");
+
+  const profileButton = documentRef.getElementById("v2-profile-button");
+  const profileDialog = documentRef.getElementById("v2-profile-dialog");
+  const profileRepair = documentRef.getElementById("v2-profile-repair");
+  const profileClose = documentRef.getElementById("v2-profile-close");
+  check(profileButton && profileDialog && profileRepair && profileClose, "profile recovery controls are missing");
+  profileSnapshot = {
+    ok: true,
+    exists: true,
+    displayName: "Recovered Player",
+    generatedAlias: false,
+    recoveryRequired: true,
+    revision: 2,
+    announcement: ""
+  };
+  profileButton.focus();
+  check(typeof profileButton.listeners.click === "function", "profile button click listener missing");
+  profileButton.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "recovery-required profile dialog did not open");
+  check(profileRepair.hidden === false, "recovery action remained hidden");
+  check(profileRepair.disabled === false, "recovery action was unexpectedly disabled");
+  check(documentRef.activeElement === profileRepair, "recovery-required dialog did not focus the required Repair action");
+
+  profileRepairResult = {
+    ok: false,
+    stateChanged: false,
+    announcement: "Recovery failed"
+  };
+  check(typeof profileRepair.listeners.click === "function", "profile repair click listener missing");
+  profileRepair.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "failed recovery unexpectedly closed the profile dialog");
+  check(profileRepair.disabled === false, "failed recovery left Repair disabled");
+  check(documentRef.activeElement === profileRepair, "failed recovery moved focus away from the required Repair action");
+
+  check(typeof profileClose.listeners.click === "function", "profile close listener missing");
+  profileClose.listeners.click({});
+  check(profileDialog.open === false, "profile dialog did not close");
+  check(documentRef.activeElement === profileButton, "closing recovery dialog did not restore profile-button focus");
+
+  const profileSkip = documentRef.getElementById("v2-profile-skip");
+  const boardNav = documentRef.getElementById("v2-nav-board");
+  check(profileSkip && boardNav, "first-launch profile controls are missing");
+
+  profileSnapshot = {
+    ok: true,
+    exists: false,
+    displayName: "",
+    generatedAlias: false,
+    recoveryRequired: false,
+    announcement: ""
+  };
+  windowObject.pywebview.api.profile_create = () => Promise.resolve({
+    ok: true,
+    exists: true,
+    displayName: "Recovered elsewhere",
+    generatedAlias: false,
+    recoveryRequired: true,
+    revision: 3,
+    announcement: "Current profile loaded"
+  });
+  profileButton.disabled = false;
+  profileButton.focus();
+  profileButton.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "concurrent-create profile dialog did not open");
+  profileSkip.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "recovery-required concurrent create incorrectly closed the profile dialog");
+  check(profileSkip.hidden === true, "concurrent create did not retire the obsolete Skip action");
+  check(profileRepair.hidden === false, "concurrent create did not expose the required Repair action");
+  check(documentRef.activeElement === profileRepair, "concurrent create left focus on an obsolete action instead of Repair");
+  profileClose.listeners.click({});
+  check(profileDialog.open === false, "concurrent-create recovery dialog did not close");
+  delete windowObject.pywebview.api.profile_create;
+
+  currentRoute = "board";
+  profileSnapshot = {
+    ok: true,
+    exists: false,
+    displayName: "",
+    generatedAlias: false,
+    recoveryRequired: false,
+    announcement: ""
+  };
+  profileButton.disabled = false;
+  profileButton.focus();
+  profileButton.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "first-launch profile dialog did not open");
+  check(profileSkip.hidden === false, "first-launch Skip action remained hidden");
+  check(typeof windowObject.pywebview.api.profile_create === "undefined", "fake host unexpectedly provides profile_create");
+  profileSkip.listeners.click({});
+  check(profileDialog.open === false, "missing profile mutation bridge trapped the modal dialog");
+  check(profileButton.disabled === true, "missing profile mutation bridge did not disable the unavailable profile entry point");
+  check(documentRef.activeElement === boardNav, "missing profile mutation bridge did not return focus to the active product navigation");
 
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {

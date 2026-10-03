@@ -34,6 +34,311 @@
   navList.id = "v2-navigation-list";
   nav.appendChild(navList);
 
+  let profileState = null;
+  let profileMutationPending = false;
+  let profileReturnFocusId = "";
+  const profileButton = documentRef.createElement("button");
+  profileButton.type = "button";
+  profileButton.id = "v2-profile-button";
+  nav.appendChild(profileButton);
+
+  const profileDialog = documentRef.createElement("dialog");
+  profileDialog.id = "v2-profile-dialog";
+  const profileHeading = documentRef.createElement("h2");
+  profileHeading.id = "v2-profile-heading";
+  profileDialog.setAttribute("aria-labelledby", profileHeading.id);
+  const profileDescription = documentRef.createElement("p");
+  profileDescription.id = "v2-profile-description";
+  const profileStatus = documentRef.createElement("p");
+  profileStatus.id = "v2-profile-status";
+  profileStatus.setAttribute("aria-live", "off");
+  const profileLabel = documentRef.createElement("label");
+  const profileName = documentRef.createElement("input");
+  profileName.type = "text";
+  profileName.id = "v2-profile-name";
+  profileName.maxLength = 80;
+  profileName.autocomplete = "off";
+  profileName.setAttribute("aria-describedby", "v2-profile-description v2-profile-status");
+  profileLabel.htmlFor = profileName.id;
+  const profileActions = documentRef.createElement("div");
+  profileActions.className = "row";
+  const profileSave = documentRef.createElement("button");
+  profileSave.type = "button";
+  profileSave.id = "v2-profile-save";
+  const profileSkip = documentRef.createElement("button");
+  profileSkip.type = "button";
+  profileSkip.id = "v2-profile-skip";
+  const profileRepair = documentRef.createElement("button");
+  profileRepair.type = "button";
+  profileRepair.id = "v2-profile-repair";
+  profileRepair.setAttribute("aria-describedby", "v2-profile-status");
+  profileRepair.hidden = true;
+  const profileClose = documentRef.createElement("button");
+  profileClose.type = "button";
+  profileClose.id = "v2-profile-close";
+  profileActions.append(profileSave, profileSkip, profileRepair, profileClose);
+  profileDialog.append(
+    profileHeading,
+    profileDescription,
+    profileStatus,
+    profileLabel,
+    documentRef.createElement("br"),
+    profileName,
+    profileActions
+  );
+  documentRef.body.appendChild(profileDialog);
+
+  function renderProfileState(state, preserveDraft) {
+    profileState = state && typeof state === "object" ? state : null;
+    profileHeading.textContent = uiText("Локальний профіль", "Local profile");
+    profileDescription.textContent = uiText(
+      "Вкажіть ім’я, яке буде показано в Accessible Chess. Можна пропустити: тоді програма створить випадковий локальний псевдонім. Ім’я можна змінити пізніше.",
+      "Choose the name shown in Accessible Chess. You may skip this step; the app will create a random local alias. You can rename it later."
+    );
+    profileLabel.textContent = uiText("Ім’я профілю", "Profile name");
+    profileSave.textContent = profileState && profileState.exists
+      ? uiText("Змінити ім’я", "Rename")
+      : uiText("Зберегти ім’я", "Save name");
+    profileSkip.textContent = uiText("Пропустити й створити псевдонім", "Skip and create an alias");
+    profileRepair.textContent = uiText("Перевірити або відновити профіль", "Check or recover profile");
+    profileClose.textContent = uiText("Закрити", "Close");
+    const exists = !!(profileState && profileState.exists);
+    const displayName = exists ? String(profileState.displayName || "") : "";
+    profileButton.textContent = exists
+      ? uiText("Профіль: ", "Profile: ") + displayName
+      : uiText("Налаштувати профіль", "Set up profile");
+    if (!preserveDraft) profileName.value = displayName;
+    profileSkip.hidden = exists;
+    const recoveryRequired = exists && profileState.recoveryRequired === true;
+    profileRepair.hidden = !recoveryRequired;
+    profileDialog.setAttribute("aria-busy", profileMutationPending ? "true" : "false");
+    profileSave.disabled = profileMutationPending || recoveryRequired;
+    profileSkip.disabled = profileMutationPending;
+    profileRepair.disabled = profileMutationPending;
+    profileClose.disabled = profileMutationPending;
+    profileName.disabled = profileMutationPending;
+    profileClose.hidden = !exists;
+    profileStatus.textContent = exists
+      ? (recoveryRequired
+        ? uiText("Профіль відкрито з резервної копії. Виберіть відновлення перед перейменуванням.", "The profile was opened from its recovery copy. Recover it before renaming.")
+        : profileState.generatedAlias
+        ? uiText("Використовується випадковий локальний псевдонім.", "A random local alias is in use.")
+        : uiText("Профіль збережено локально.", "The profile is stored locally."))
+      : uiText("Профіль ще не створено.", "No profile has been created yet.");
+  }
+
+  function focusProfilePrimaryAction() {
+    if (
+      profileState &&
+      profileState.recoveryRequired === true &&
+      !profileRepair.hidden &&
+      !profileRepair.disabled
+    ) {
+      profileRepair.focus({ preventScroll: true });
+      return;
+    }
+    profileName.focus();
+    profileName.select();
+  }
+
+  function showProfileDialog() {
+    if (!profileDialog.open) {
+      const active = documentRef.activeElement;
+      profileReturnFocusId = active && typeof active.id === "string" ? active.id : "";
+      profileDialog.showModal();
+    }
+    global.setTimeout(focusProfilePrimaryAction, 0);
+  }
+
+  function beginProfileMutation() {
+    if (profileMutationPending) return false;
+    profileMutationPending = true;
+    renderProfileState(profileState, true);
+    return true;
+  }
+
+  function endProfileMutation() {
+    profileMutationPending = false;
+    renderProfileState(profileState, true);
+  }
+
+  function profileFeatureUnavailable() {
+    const message = uiText(
+      "Локальний профіль недоступний. Наявні дані профілю не змінено.",
+      "Local profile is unavailable. Existing profile data was not changed."
+    );
+    profileStatus.textContent = message;
+    const wasOpen = profileDialog.open;
+    if (wasOpen) profileDialog.close();
+    profileButton.disabled = true;
+    if (wasOpen) {
+      focusById("v2-nav-" + currentRouteId) || focusById("board-launcher");
+    }
+    announce(message);
+    return false;
+  }
+
+  function applyProfileResult(result, closeOnSuccess) {
+    if (!result || result.ok !== true) {
+      if (result && result.stateChanged === true) renderProfileState(result);
+      announce(result && result.announcement
+        ? result.announcement
+        : uiText("Не вдалося оновити профіль.", "Could not update the profile."));
+      return false;
+    }
+    renderProfileState(result);
+    if (result.announcement) announce(result.announcement);
+    if (closeOnSuccess && result.recoveryRequired !== true && profileDialog.open) {
+      profileDialog.close();
+    }
+    return true;
+  }
+
+  function loadProfile(openIfMissing) {
+    const bridge = api();
+    if (!bridge || typeof bridge.profile_snapshot !== "function") {
+      return Promise.resolve(profileFeatureUnavailable());
+    }
+    return bridge.profile_snapshot().then(function (result) {
+      if (!result || result.ok !== true) {
+        renderProfileState(null);
+        profileButton.disabled = true;
+        announce(result && result.announcement
+          ? result.announcement
+          : uiText("Локальний профіль недоступний.", "Local profile is unavailable."));
+        return false;
+      }
+      profileButton.disabled = false;
+      renderProfileState(result);
+      if (openIfMissing && (!result.exists || result.recoveryRequired === true)) {
+        showProfileDialog();
+      }
+      return true;
+    }, function () {
+      profileButton.disabled = true;
+      announce(uiText("Локальний профіль недоступний.", "Local profile is unavailable."));
+      return false;
+    });
+  }
+
+  profileButton.addEventListener("click", function () {
+    loadProfile(false).then(function (ok) { if (ok) showProfileDialog(); });
+  });
+  profileDialog.addEventListener("cancel", function (event) {
+    if (profileMutationPending || !profileState || !profileState.exists) {
+      event.preventDefault();
+    }
+  });
+  profileDialog.addEventListener("close", function () {
+    const returnId = profileReturnFocusId;
+    profileReturnFocusId = "";
+    if (returnId && focusById(returnId)) return;
+    if (!profileButton.disabled) profileButton.focus({ preventScroll: true });
+  });
+  function saveProfileName() {
+    if (profileState && profileState.recoveryRequired === true) {
+      announce(uiText(
+        "Відновіть локальний профіль перед зміною імені.",
+        "Recover the local profile before renaming it."
+      ));
+      profileRepair.focus({ preventScroll: true });
+      return;
+    }
+    const bridge = api();
+    const rename = !!(profileState && profileState.exists);
+    const method = rename ? "profile_rename" : "profile_create";
+    if (!bridge || typeof bridge[method] !== "function") {
+      profileFeatureUnavailable();
+      return;
+    }
+    if (!beginProfileMutation()) return;
+    let call;
+    try {
+      call = rename
+        ? bridge.profile_rename(profileName.value)
+        : bridge.profile_create(profileName.value, false);
+    } catch (_error) {
+      endProfileMutation();
+      announce(uiText("Не вдалося оновити профіль.", "Could not update the profile."));
+      profileName.focus();
+      return;
+    }
+    Promise.resolve(call).then(function (result) {
+      const ok = applyProfileResult(result, true);
+      endProfileMutation();
+      if (!ok || profileDialog.open) focusProfilePrimaryAction();
+    }, function () {
+      endProfileMutation();
+      announce(uiText("Не вдалося оновити профіль.", "Could not update the profile."));
+      focusProfilePrimaryAction();
+    });
+  }
+  profileSave.addEventListener("click", saveProfileName);
+  profileName.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    saveProfileName();
+  });
+  profileSkip.addEventListener("click", function () {
+    const bridge = api();
+    if (!bridge || typeof bridge.profile_create !== "function") {
+      profileFeatureUnavailable();
+      return;
+    }
+    if (!beginProfileMutation()) return;
+    let call;
+    try {
+      call = bridge.profile_create("", true);
+    } catch (_error) {
+      endProfileMutation();
+      announce(uiText("Не вдалося створити псевдонім.", "Could not create an alias."));
+      profileName.focus();
+      return;
+    }
+    Promise.resolve(call).then(function (result) {
+      const ok = applyProfileResult(result, true);
+      endProfileMutation();
+      if (!ok || profileDialog.open) focusProfilePrimaryAction();
+    }, function () {
+      endProfileMutation();
+      announce(uiText("Не вдалося створити псевдонім.", "Could not create an alias."));
+      focusProfilePrimaryAction();
+    });
+  });
+  profileRepair.addEventListener("click", function () {
+    const bridge = api();
+    if (!bridge || typeof bridge.profile_repair !== "function") {
+      profileFeatureUnavailable();
+      return;
+    }
+    if (!beginProfileMutation()) return;
+    let call;
+    try {
+      call = bridge.profile_repair();
+    } catch (_error) {
+      endProfileMutation();
+      announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
+      focusProfilePrimaryAction();
+      return;
+    }
+    Promise.resolve(call).then(function (result) {
+      const ok = applyProfileResult(result, false);
+      endProfileMutation();
+      if (!ok) {
+        focusProfilePrimaryAction();
+        return;
+      }
+      focusProfilePrimaryAction();
+    }, function () {
+      endProfileMutation();
+      announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
+      focusProfilePrimaryAction();
+    });
+  });
+  profileClose.addEventListener("click", function () {
+    if (profileState && profileState.exists) profileDialog.close();
+  });
+
   const workspace = documentRef.createElement("main");
   workspace.id = "v2-workspace";
   workspace.setAttribute("aria-live", "off");
@@ -228,6 +533,7 @@
     nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
     navHeading.textContent = uiText("Розділи", "Sections");
     renderNavigation(snapshot);
+    if (profileState) renderProfileState(profileState, profileDialog.open);
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
@@ -344,7 +650,9 @@
     }
   }, true);
 
-  refresh(true).catch(function () {
+  refresh(true).then(function () {
+    return loadProfile(true);
+  }).catch(function () {
     announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
   });
   global.setInterval(drainEvents, 300);
