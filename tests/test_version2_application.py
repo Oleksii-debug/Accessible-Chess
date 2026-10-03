@@ -16,7 +16,11 @@ from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
 from acs.version2_application import Version2Application
-from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
+from acs.version2_windows_file_workflows import (
+    FileWorkflowEvent,
+    FileWorkflowEventKind,
+    Version2WindowsFileActionDelegate,
+)
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
@@ -83,6 +87,26 @@ class Version2ApplicationTests(unittest.TestCase):
         serialized = json.dumps(self.app.snapshot(), ensure_ascii=False)
         self.assertNotIn(str(self.root), serialized)
         self.assertNotIn("attempt_id", serialized)
+
+    def test_late_native_cancel_cannot_regress_completed_import_ui(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        before = self.app.snapshot()["library"]["import"]
+        self.assertEqual(before["phase"], "completed")
+        self.app.drain_events()
+
+        late_cancel = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.IMPORT_CANCELLING,
+            action_id="library.cancel_import",
+        )
+        self.app.bind_files(lambda action, payload: late_cancel)
+
+        result = self.app._delegate("library.cancel_import", {})
+
+        self.assertIs(result, late_cancel)
+        self.assertEqual(self.app.snapshot()["library"]["import"], before)
+        self.assertEqual(self.app.drain_events(), ())
 
     def test_empty_source_has_terminal_ui_and_can_retry(self):
         self.source.write_text("", encoding="utf-8")
