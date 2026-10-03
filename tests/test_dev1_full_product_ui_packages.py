@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from acs.bookdocument import (
     BookDocument,
@@ -18,6 +19,7 @@ from acs.full_product_actions import (
 from acs.full_product_presenters import (
     BookReaderPresenter,
     LibraryPresenter,
+    PgnTreeItem,
     PgnTreePresenter,
     SurfaceStatus,
     TrainingPresenter,
@@ -37,6 +39,35 @@ from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 
 
 class FullProductActionTests(unittest.TestCase):
+    def test_d01_gate_preserves_current_parent_and_training_presenter_successor(self):
+        source = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "d01-pgn-workspace-webview.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "b579ca0f59ba20f6b69b3a4b7d89589256d54852",
+            source,
+        )
+        self.assertIn(
+            "16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce",
+            source,
+        )
+        self.assertIn(
+            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592|b0b92c755f23df170fe90cb2380baa10796028cd|2ffd5d89988c82f5347d04144dd5575ed0700827|001fa6144d983059b627994577334c1bfe1c6349",
+            source,
+        )
+        self.assertIn(
+            "b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c",
+            source,
+        )
+        self.assertNotIn(
+            "acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f",
+            source,
+        )
+
     def test_one_registry_contains_stage1_and_full_product_actions_without_collisions(self):
         validate_full_product_actions()
         registry = build_full_product_action_registry()
@@ -124,13 +155,28 @@ class ShellDialogFocusTests(unittest.TestCase):
 
 
 class PgnPresenterTests(unittest.TestCase):
+    def test_pgn_tree_item_positional_signature_keeps_legacy_nags_slot(self):
+        item = PgnTreeItem(
+            "node",
+            "move",
+            0,
+            "1. e4 $1",
+            None,
+            "e4",
+            ("comment",),
+            ("$1",),
+        )
+        self.assertEqual(("$1",), item.nags)
+        self.assertEqual((), item.trailing_comments)
+        self.assertIsNone(item.result)
+
     def setUp(self):
         text = """[Event \"Accessible test\"]
 [White \"White\"]
 [Black \"Black\"]
 [Result \"*\"]
 
-1. e4 {main comment} e5 $1 (1... c5 {Sicilian} 2. Nf3 (2. Nc3)) 2. Nf3 *
+1. {before e4} e4 {after e4} e5 $1 (1... c5 {Sicilian} 2. Nf3 (2. Nc3) * {branch tail}) 2. Nf3 *
 """
         self.games = tuple(parse_games(text))
 
@@ -140,8 +186,17 @@ class PgnPresenterTests(unittest.TestCase):
         self.assertEqual("White — Black", view.title)
         self.assertTrue(any("e4" in item.label for item in view.items))
         self.assertTrue(any("$1" in item.label for item in view.items))
-        self.assertTrue(any(item.comments and "main comment" in item.comments for item in view.items))
-        self.assertTrue(any(item.kind == "variation" and item.label == "Variation 1" for item in view.items))
+        e4 = next(item for item in view.items if item.san == "e4")
+        self.assertEqual(("before e4",), e4.comments_before)
+        self.assertEqual(("after e4",), e4.comments_after)
+        self.assertEqual(("before e4", "after e4"), e4.comments)
+        variation = next(
+            item
+            for item in view.items
+            if item.kind == "variation" and item.label == "Variation 1"
+        )
+        self.assertEqual(("branch tail",), variation.trailing_comments)
+        self.assertEqual("*", variation.result)
         self.assertGreaterEqual(max(item.depth for item in view.items), 3)
 
     def test_keyboard_selection_parent_and_boundaries_are_explicit(self):
@@ -354,6 +409,58 @@ class TrainingPresenterTests(unittest.TestCase):
         self.assertEqual(before, presenter.snapshot())
         presenter.retry()
         self.assertEqual(before, presenter.snapshot())
+
+    def test_language_switch_relocalizes_only_presentation_owned_feedback(self):
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+        )
+
+        _rejected, view = presenter.submit("e3")
+        self.assertEqual("Try again.", view.message)
+        self.assertEqual("retry", presenter.message_key)
+        presenter.set_language(UILanguage.UA)
+        self.assertEqual("Спробуйте ще раз.", presenter.view().message)
+
+        presenter.retry()
+        _hint, view = presenter.request_hint()
+        self.assertEqual("Move the pawn two squares.", view.message)
+        presenter.set_language(UILanguage.EN)
+        self.assertEqual(
+            "Move the pawn two squares.",
+            presenter.view().message,
+        )
+
+        presenter.reveal_solution()
+        self.assertEqual("Solution revealed.", presenter.view().message)
+        presenter.set_language(UILanguage.UA)
+        self.assertEqual("Розв’язок показано.", presenter.view().message)
+
+        presenter.reset()
+        _accepted, view = presenter.submit("e4")
+        self.assertEqual("Good.", view.message)
+        presenter.set_language(UILanguage.EN)
+        self.assertEqual("Good.", presenter.view().message)
+
+        authored_collision = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+            message="Try again.",
+        )
+        self.assertIsNone(authored_collision.message_key)
+        authored_collision.set_language(UILanguage.UA)
+        self.assertEqual("Try again.", authored_collision.view().message)
+
+        restored_system = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+            message="ignored rollback copy",
+            message_key="retry",
+        )
+        self.assertEqual("Try again.", restored_system.view().message)
+        restored_system.set_language(UILanguage.UA)
+        self.assertEqual("Спробуйте ще раз.", restored_system.view().message)
+
 
     def test_snapshot_restore_preserves_progress_without_ui_side_state(self):
         presenter = TrainingPresenter(ExerciseSession(self.definition))

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
-from acs.bookdocument import BookDocument, Diagram, Heading, Paragraph
+from acs.bookdocument import BookDocument, Diagram, Heading, ListBlock, Paragraph
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
 from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
@@ -86,6 +88,155 @@ class BookProjectionTests(unittest.TestCase):
             self.projection.save_bookmark("   ")
         self.assertEqual(0, self.presenter.current().index)
 
+    def test_projection_rejects_nul_in_presenter_text(self) -> None:
+        block = replace(self.presenter.current(), title="Unsafe\x00heading")
+        with self.assertRaisesRegex(ValueError, "contains NUL"):
+            self.projection._snapshot_from_block(block)
+
+    def test_projection_rejects_role_coercion_and_malformed_position_token(self) -> None:
+        class CoercibleRole:
+            def __str__(self) -> str:
+                return "paragraph"
+
+        before_index = self.presenter.current().index
+        before_calls = tuple(self.calls)
+        current = self.presenter.current()
+
+        with self.assertRaisesRegex(TypeError, "role must be text"):
+            self.projection._snapshot_from_block(
+                replace(
+                    current,
+                    role=CoercibleRole(),
+                    heading_level=None,
+                    title="",
+                    text="Looks readable only after coercion.",
+                )
+            )
+
+        malformed_positions = (
+            object(),
+            "",
+            "   ",
+            "8/8/8/8/8/8/8/8 w - - 0 1\x00hidden",
+            "x" * 4097,
+        )
+        for value in malformed_positions:
+            with self.subTest(value_type=type(value).__name__, size=getattr(value, "__len__", lambda: -1)()):
+                with self.assertRaisesRegex(ValueError, "board-position token is invalid"):
+                    self.projection._snapshot_from_block(
+                        replace(current, position_fen=value)
+                    )
+
+        self.assertEqual(before_index, self.presenter.current().index)
+        self.assertEqual(before_calls, tuple(self.calls))
+
+    def test_projection_rejects_malformed_navigation_capabilities(self) -> None:
+        before = self.presenter.current().index
+        canonical = self.presenter.navigation_availability()
+
+        malformed = (
+            {**canonical, "next": "yes"},
+            {key: value for key, value in canonical.items() if key != "next"},
+            {**canonical, "unexpected": False},
+        )
+        for availability in malformed:
+            with self.subTest(keys=tuple(sorted(availability))):
+                with patch.object(
+                    self.presenter,
+                    "navigation_availability",
+                    return_value=availability,
+                ):
+                    with self.assertRaisesRegex(ValueError, "navigation availability is invalid"):
+                        self.projection.snapshot()
+
+        self.assertEqual(before, self.presenter.current().index)
+        self.assertEqual((), tuple(self.calls))
+
+    def test_projection_rejects_excessive_heading_path_depth(self) -> None:
+        current = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "heading path is invalid"):
+            self.projection._snapshot_from_block(
+                replace(current, heading_path=tuple("Chapter" for _ in range(257)))
+            )
+        self.assertEqual(0, self.presenter.current().index)
+
+    def test_projection_rejects_heading_level_role_mismatch(self) -> None:
+        heading = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "inconsistent with its role"):
+            self.projection._snapshot_from_block(
+                replace(heading, role="paragraph", heading_level=1)
+            )
+        with self.assertRaisesRegex(ValueError, "inconsistent with its role"):
+            self.projection._snapshot_from_block(
+                replace(heading, role="heading", heading_level=None)
+            )
+
+    def test_projection_rejects_empty_readable_role(self) -> None:
+        block = replace(
+            self.presenter.current(),
+            role="paragraph",
+            title="",
+            text=" ",
+            heading_level=None,
+        )
+        with self.assertRaisesRegex(ValueError, "expose readable content"):
+            self.projection._snapshot_from_block(block)
+
+    def test_projection_rejects_non_tuple_or_empty_heading_path(self) -> None:
+        block = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "heading path is invalid"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=["Chapter 1"])
+            )
+        with self.assertRaisesRegex(ValueError, "heading path is invalid"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=("Chapter 1", " "))
+            )
+
+    def test_list_projection_rejects_excessive_dom_item_count(self) -> None:
+        document = BookDocument(
+            title="Large accessible list",
+            blocks=[ListBlock(items=["item"] * 10_001)],
+        )
+        presenter = BookReaderPresenter(
+            BookReader(document),
+            language=UILanguage.EN,
+        )
+        projection = BookWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+
+        with self.assertRaisesRegex(ValueError, "item budget"):
+            projection.snapshot()
+
+    def test_list_projection_rejects_excessive_visible_text(self) -> None:
+        half_budget = (6 * 1024 * 1024) + 1
+        document = BookDocument(
+            title="Oversized accessible list",
+            blocks=[
+                ListBlock(
+                    items=[
+                        "a" * half_budget,
+                        "b" * half_budget,
+                    ]
+                )
+            ],
+        )
+        presenter = BookReaderPresenter(
+            BookReader(document),
+            language=UILanguage.EN,
+        )
+        projection = BookWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+
+        with self.assertRaisesRegex(ValueError, "visible-text budget"):
+            projection.snapshot()
+
     def test_language_switch_changes_labels_without_changing_location(self) -> None:
         before = self.projection.snapshot()
         after = self.projection.set_language(UILanguage.UA).payload["snapshot"]
@@ -134,6 +285,7 @@ class TrainingProjectionTests(unittest.TestCase):
 
         revealed = self.projection.reveal()
         self.assertEqual(("e4",), revealed.payload["solution"])
+        self.assertEqual("training-solution", revealed.payload["focus_target"])
         self.assertEqual(before["step_index"], self.presenter.snapshot()["step_index"])
         self.assertNotIn(FEN, repr(revealed))
 
@@ -154,6 +306,32 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertTrue(completed.payload["clear_answer"])
         self.assertTrue(completed.payload["snapshot"]["progress"]["completed"])
         self.assertTrue(completed.payload["snapshot"]["answer"]["disabled"])
+        self.assertEqual("training-action-reset", completed.payload["focus_target"])
+
+    def test_completed_submit_focuses_continue_when_successor_is_available(self) -> None:
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+        )
+        projection = TrainingWebViewProjection(
+            presenter,
+            language=UILanguage.EN,
+            can_continue=lambda: True,
+        )
+        projection.submit("e4")
+        completed = projection.submit("Kh2")
+        self.assertTrue(completed.payload["snapshot"]["progress"]["completed"])
+        self.assertTrue(
+            next(
+                action["enabled"]
+                for action in completed.payload["snapshot"]["actions"]
+                if action["command"] == "training.continue"
+            )
+        )
+        self.assertEqual(
+            "training-action-continue",
+            completed.payload["focus_target"],
+        )
 
     def test_answer_bound_and_type_fail_before_session_mutation(self) -> None:
         before = self.presenter.snapshot()
@@ -164,6 +342,74 @@ class TrainingProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.projection.submit("  ")
         self.assertEqual(before, self.presenter.snapshot())
+
+    def test_render_protocol_rejects_malformed_solution_clear_flag_and_focus(self) -> None:
+        view = self.presenter.view()
+        before = self.presenter.snapshot()
+
+        malformed_solutions = (
+            ["e4"],
+            tuple("e4" for _ in range(65)),
+            ("",),
+            ("e4\x00hidden",),
+            ("x" * 129,),
+            (object(),),
+        )
+        for solution in malformed_solutions:
+            with self.subTest(solution_type=type(solution).__name__, count=len(solution)):
+                with self.assertRaises((TypeError, ValueError)):
+                    self.projection._render(view, solution=solution)
+
+        with self.assertRaisesRegex(TypeError, "clear-answer flag"):
+            self.projection._render(view, clear_answer=1)
+        with self.assertRaisesRegex(TypeError, "focus target must be text"):
+            self.projection._render(view, focus_target={"id": "training-answer"})
+        with self.assertRaisesRegex(ValueError, "focus target is inconsistent"):
+            self.projection._render(view, focus_target="training-solution")
+
+        self.assertEqual(before, self.presenter.snapshot())
+
+    def test_projection_rejects_nul_presentation_text_instead_of_sanitizing_it(self) -> None:
+        view = replace(self.presenter.view(), message="Unsafe\x00training message")
+        with self.assertRaisesRegex(ValueError, "contains NUL"):
+            self.projection._snapshot_from_view(view)
+        self.assertEqual(0, self.presenter.snapshot()["step_index"])
+
+    def test_non_boolean_continuation_probe_fails_closed(self) -> None:
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+        )
+        projection = TrainingWebViewProjection(
+            presenter,
+            language=UILanguage.EN,
+            can_continue=lambda: object(),
+        )
+        projection.submit("e4")
+        completed = projection.submit("Kh2")
+        continue_action = next(
+            action
+            for action in completed.payload["snapshot"]["actions"]
+            if action["command"] == "training.continue"
+        )
+        self.assertFalse(continue_action["enabled"])
+        self.assertEqual("training-action-reset", completed.payload["focus_target"])
+
+    def test_failed_language_render_restores_projection_and_presenter_locale(self) -> None:
+        self.assertEqual(UILanguage.EN, self.projection.language)
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=RuntimeError("simulated Training render failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated Training render failure"):
+                self.projection.set_language(UILanguage.UA)
+
+        self.assertEqual(UILanguage.EN, self.projection.language)
+        snapshot = self.projection.snapshot()
+        self.assertEqual("en", snapshot["document"]["lang"])
+        self.assertEqual("Training", snapshot["heading"])
+        self.assertEqual(0, self.presenter.snapshot()["step_index"])
 
     def test_reset_requires_exact_true_and_resets_canonical_session(self) -> None:
         self.projection.submit("e3")

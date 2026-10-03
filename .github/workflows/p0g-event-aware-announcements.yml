@@ -115,16 +115,22 @@ jobs:
           expected = {
               'web/full_product_pgn.js': 2,
               'web/full_product_library.js': 2,
-              'web/full_product_books_training.js': 4,
+              'web/full_product_books_training.js': 12,
               'web/full_product_education.js': 2,
               'web/full_product_teacher.js': 2,
           }
-          # Each semantic announcement has exactly two lexical uses in its
-          # guarded `if (payload.announcement) announce(String(...))` statement:
-          # the condition and the announce argument. The P0 runtime may therefore
-          # attach event identity to that transient payload without allowing the
-          # internal marker to become visible document/status text.
+          # Simple surfaces consume the transient announcement only through the
+          # guarded String-normalizing statement. Books/Training has two event
+          # ingress functions; each first validates bounded/NUL-free text and
+          # only then announces that already-validated string.
           required_statement = 'if (payload.announcement) announce(String(payload.announcement));'
+          books_statement = 'if (payload.announcement) announce(payload.announcement);'
+          books_validation_tokens = (
+              'payload.announcement !== undefined &&',
+              'typeof payload.announcement !== "string" ||',
+              'payload.announcement.length > 1200 ||',
+              'payload.announcement.indexOf("\\u0000") !== -1',
+          )
           for raw_path, count in expected.items():
               path = Path(raw_path)
               text = path.read_text(encoding='utf-8')
@@ -133,11 +139,20 @@ jobs:
                   raise SystemExit(
                       f'P0_G_SURFACE_ANNOUNCEMENT_CONSUMER_DRIFT={raw_path}:{actual}!={count}'
                   )
-              statements = text.count(required_statement)
-              if statements * 2 != count:
-                  raise SystemExit(
-                      f'P0_G_SURFACE_ANNOUNCEMENT_BOUNDARY_DRIFT={raw_path}:{statements}'
-                  )
+              if raw_path == 'web/full_product_books_training.js':
+                  statements = text.count(books_statement)
+                  validations = tuple(text.count(part) for part in books_validation_tokens)
+                  if statements != 2 or validations != (2, 2, 2, 2):
+                      raise SystemExit(
+                          'P0_G_SURFACE_ANNOUNCEMENT_BOUNDARY_DRIFT='
+                          f'{raw_path}:consumers={statements}:validations={validations}'
+                      )
+              else:
+                  statements = text.count(required_statement)
+                  if statements * 2 != count:
+                      raise SystemExit(
+                          f'P0_G_SURFACE_ANNOUNCEMENT_BOUNDARY_DRIFT={raw_path}:{statements}'
+                      )
           print('P0_G_SURFACE_ANNOUNCEMENT_CONSUMPTION_BOUNDARY=PASS')
           PY
 

@@ -413,6 +413,13 @@ class TrainingProgressStore:
                     )
                 new_revision = _revision(data)
 
+                # An identical canonical payload is already durable, but the
+                # revision comparison above is still authoritative. Elide only
+                # the physical rewrite after proving under the peer lock that
+                # the caller's expected revision is still the current file.
+                if current_data == data:
+                    return new_revision
+
                 fd, raw_path = tempfile.mkstemp(
                     prefix=f".{self.path.name}.",
                     suffix=".tmp",
