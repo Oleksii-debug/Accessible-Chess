@@ -729,6 +729,56 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_missing_primary_recovery_rechecks_backup_after_temp_fsync(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:recovery-backup-race", reader)
+        reader.go_to(3)
+        self.store.save("book:recovery-backup-race", reader)
+
+        validated_backup = self.store.backup_path.read_bytes()
+        backup_revision = self.store.validated_backup_revision(
+            "book:recovery-backup-race",
+            self.original_document(),
+        )
+        newer_backup = self.path.read_bytes()
+        self.path.unlink()
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def backup_advances_during_primary_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.path.name}.":
+                self.store.backup_path.write_bytes(newer_backup)
+                injected = True
+            return descriptor, name
+
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=backup_advances_during_primary_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.recover_from_backup(
+                    expected_backup_revision=backup_revision,
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertNotEqual(validated_backup, newer_backup)
+        self.assertEqual(self.store.backup_path.read_bytes(), newer_backup)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
     def test_remove_does_not_report_missing_when_orphan_backup_contains_book(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
