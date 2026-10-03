@@ -248,6 +248,63 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_starter_material_render_failure_does_not_publish_or_persist_staged_book(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-render-atomic-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    catalogue = app.snapshot()["books"]["starter_materials"]
+                    booklet = next(
+                        item
+                        for item in catalogue["items"]
+                        if item["material_id"].startswith("starter-booklet-")
+                    )
+                    staged_key = app._starter_book_key(booklet["material_id"])
+                    self.assertFalse(app.progress_store.has(staged_key))
+
+                    before_reader = app.reader
+                    before_books = app.books
+                    before_workflow = app.book_workflow
+                    before_delegate = app.book_delegate
+                    before_key = app.book_key
+                    before_material = catalogue["current_id"]
+
+                    with patch(
+                        "acs.version2_book_workspace.Version2BookWebViewProjection.snapshot",
+                        side_effect=RuntimeError("simulated staged render failure"),
+                    ):
+                        result = app.browser_command(
+                            "books",
+                            "book.open_starter_material",
+                            {"material_id": booklet["material_id"]},
+                        )
+
+                    self.assertEqual("error", result["kind"])
+                    self.assertIs(before_reader, app.reader)
+                    self.assertIs(before_books, app.books)
+                    self.assertIs(before_workflow, app.book_workflow)
+                    self.assertIs(before_delegate, app.book_delegate)
+                    self.assertEqual(before_key, app.book_key)
+                    self.assertEqual(before_material, app._starter_current_material_id)
+                    self.assertFalse(app.progress_store.has(staged_key))
+                    self.assertEqual("books", app.shell.current_route.route_id)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
     def test_hidden_books_surface_cannot_replace_starter_material(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-hidden-books-") as raw:
             root = Path(raw)
