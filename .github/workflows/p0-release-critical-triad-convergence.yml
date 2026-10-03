@@ -52,6 +52,7 @@ jobs:
                 'tests/js/version2_release_bootstrap_dom_test.js' \
                 'tests/test_dev1_full_product_webview_adapter.py' \
                 'tests/test_version2_application.py' \
+                'tests/test_version2_book_board_refresh_focus_order_evidence.py' \
                 'tests/test_version2_release_accessibility_contract.py' \
                 'web/version2_release_bootstrap.js' | sort)"
               actual="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | sort)"
