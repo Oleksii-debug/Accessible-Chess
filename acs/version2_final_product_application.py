@@ -401,6 +401,28 @@ class Version2FinalProductApplication(Version2Application):
         self._events.append(rendered)
         return rendered
 
+    def resolve_classroom_media_recovery_after_authoritative_reconciliation(
+        self,
+        transaction_id: str,
+    ) -> dict[str, object]:
+        """Trusted host release after external provider reconciliation.
+
+        Browser commands cannot call this method.  The caller is responsible for
+        proving provider state through the canonical server/provider authority
+        before the exact recovery transaction is released.
+        """
+
+        self._assert_thread()
+        transactions = self.media_transactions
+        if transactions is None:
+            raise RuntimeError("Transactional classroom media is not bound")
+        event = transactions.resolve_recovery_after_authoritative_reconciliation(
+            transaction_id
+        )
+        rendered = asdict(event)
+        self._events.append(rendered)
+        return rendered
+
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
         if not isinstance(language, UILanguage):
