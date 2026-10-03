@@ -112,6 +112,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         library_end = BOOTSTRAP.index('    if (routeId === "books") {', library_start)
         library = BOOTSTRAP[library_start:library_end]
         self.assertIn('renderEmptyProduct(routeId, heading);', library)
+        self.assertIn(
+            'const requestedFocus = validFocusId(screen.focus_target)',
+            BOOTSTRAP,
+        )
+        self.assertIn('? screen.focus_target', BOOTSTRAP)
+        self.assertNotIn('const requestedFocus = String(screen.focus_target || "");', BOOTSTRAP)
         self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
