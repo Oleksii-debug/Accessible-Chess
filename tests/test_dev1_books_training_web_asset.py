@@ -168,6 +168,20 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('action.command !== commands[index]', text)
         self.assertIn('block.dom_id !== "book-block-" + String(block.index)', text)
         self.assertIn('catalogue.items.length !== catalogue.booklet_count + 1', text)
+        self.assertIn('const roleByKind = {', text)
+        self.assertIn('roleByKind[block.kind] !== block.role', text)
+        self.assertIn(
+            'throw new TypeError("Book snapshot block kind/role is inconsistent")',
+            text,
+        )
+        self.assertIn(
+            'block.has_position !== (positionKinds.indexOf(block.kind) >= 0)',
+            text,
+        )
+        self.assertIn(
+            'throw new TypeError("Book snapshot position flag disagrees with semantic kind")',
+            text,
+        )
 
     def test_browser_rechecks_canonical_snapshot_budgets(self) -> None:
         text = self.text
