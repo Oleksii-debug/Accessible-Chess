@@ -265,6 +265,69 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                     coordinator._read_json(target, "upgrade journal")
             opened.assert_not_called()
 
+    def test_restore_rejects_changed_backup_before_live_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            original = b'{"language":"en","volume":10}\n'
+            settings.write_bytes(original)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            upgrade_id = "restore-source-race"
+            backup, _manifest = coordinator._create_backup(upgrade_id)
+
+            owned = b'{"schema_version":2,"values":{"volume":97}}\n'
+            settings.write_bytes(owned)
+            coordinator._owned_states = {
+                coordinator.layout.settings_name: hashlib.sha256(owned).hexdigest()
+            }
+            coordinator._write_phase(
+                upgrade_id,
+                "migrating",
+                recovered=False,
+                notify=False,
+            )
+
+            real_manifest = coordinator._manifest
+            injected = False
+            corrupted = b"X" * len(original)
+
+            def validate_then_corrupt(identifier: str):
+                nonlocal injected
+                validated_backup, validated_manifest = real_manifest(identifier)
+                source = (
+                    validated_backup
+                    / "data"
+                    / coordinator.layout.settings_name
+                )
+                source.write_bytes(corrupted)
+                injected = True
+                return validated_backup, validated_manifest
+
+            with mock.patch.object(
+                coordinator,
+                "_manifest",
+                side_effect=validate_then_corrupt,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "source digest does not match expected copy",
+                ):
+                    coordinator._restore(upgrade_id)
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                owned,
+                settings.read_bytes(),
+                "changed backup source was published to live Settings before checksum rejection",
+            )
+            self.assertEqual(
+                corrupted,
+                (backup / "data" / coordinator.layout.settings_name).read_bytes(),
+            )
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
