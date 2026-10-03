@@ -1741,8 +1741,12 @@ class BookProgressStoreTests(unittest.TestCase):
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"")
 
-        with self.assertRaises(BookProgressStoreError) as caught:
-            self.store.has("book:one")
+        with mock.patch(
+            "acs.book_progress_store.time.sleep",
+            return_value=None,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
 
         self.assertEqual(
             caught.exception.code,
