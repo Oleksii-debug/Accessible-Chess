@@ -194,6 +194,55 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             app.set_master(enabled=False)
         self.assertEqual(initial, storage.payload)
 
+    def test_future_schema_blocks_all_pack_side_effects_but_allows_preview(self) -> None:
+        initial = {"schema_version": 999, "pack_id": "classic"}
+        classic = _manifest("classic")
+        installed = _manifest("soft")
+        candidate = _manifest("new.pack")
+        pack_storage = _PackStorage([classic, installed])
+        downloader = _Downloader()
+        pack_manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage(initial)
+        profiles = SoundProfileManager(profile_storage, pack_manager)
+        result = profiles.load()
+        self.assertTrue(result.writes_blocked)
+        playback = _AssetPlayback()
+        runtime = ProfiledSoundRuntime(playback, profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(pack_manager, profiles),
+            catalog={
+                "soft": _entry(installed),
+                "new.pack": _entry(candidate),
+            },
+            installed_pack_provider=lambda: dict(pack_storage.manifests),
+        )
+        before_inventory = dict(pack_storage.manifests)
+
+        mutations = (
+            lambda: app.set_event("move", enabled=False, language="en"),
+            lambda: app.select_pack("soft", language="en"),
+            lambda: app.install_pack("new.pack", activate=False, language="en"),
+            lambda: app.uninstall_pack("soft", language="en"),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=repr(mutation)), self.assertRaises(
+                SoundProfileWriteBlockedError
+            ):
+                mutation()
+
+        self.assertEqual([], downloader.entries)
+        self.assertEqual([], pack_storage.installed_payloads)
+        self.assertEqual([], pack_storage.uninstalled)
+        self.assertEqual(before_inventory, pack_storage.manifests)
+        self.assertEqual(initial, profile_storage.payload)
+
+        preview = app.preview("move", language="en")
+        self.assertTrue(preview.ok)
+        self.assertTrue(preview.snapshot["writes_blocked"])
+        self.assertEqual(1, len(playback.requests))
+
     def test_verified_local_installed_pack_is_discoverable_and_selectable_without_remote_catalog(self) -> None:
         base = _manifest("local.wood")
         files = dict(base.files)
