@@ -92,6 +92,26 @@ class FullProductWebViewAdapter:
             {"message": concise_user_error(source, language=self._shell.language)},
         )
 
+    @staticmethod
+    def _accessible_result_announcement(value: object) -> str:
+        """Project only a bounded user-facing action result across the UI seam.
+
+        Domain return values may contain paths, database identities or provider
+        details and therefore remain private. The canonical Stage-1 action
+        contract exposes its screen-reader result through a dedicated
+        announcement string; only that field is admitted here.
+        """
+
+        if not isinstance(value, Mapping):
+            return ""
+        message = value.get("announcement")
+        if not isinstance(message, str):
+            return ""
+        clean = " ".join(message.split())
+        if not clean or len(clean) > 600:
+            return ""
+        return clean
+
     def activate_action(
         self,
         action_id: str,
@@ -116,12 +136,16 @@ class FullProductWebViewAdapter:
                     "snapshot": self.snapshot(),
                 },
             )
+        announcement = self._accessible_result_announcement(result.value)
+        payload: dict[str, object] = {"action_id": result.action_id}
+        if announcement:
+            payload["announcement"] = announcement
         return WebViewCommand(
             "delegated",
-            # The trusted host owns the domain return value.  It may contain
-            # paths, database identities, engine-provider details or objects
-            # that are not a stable browser contract.
-            {"action_id": result.action_id},
+            # The trusted host owns the full domain return value. Paths,
+            # database identities and engine/provider details never cross this
+            # seam; only the bounded canonical accessible-result message does.
+            payload,
         )
 
     def open_dialog(
