@@ -214,6 +214,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $archive
           $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           if($actual -ne $wanted){throw "USER_SOUND_PACK_ZIP_SHA256_MISMATCH actual=$actual expected=$wanted"}
+          $env:USER_SOUND_PACK_ZIP_SHA256=$actual
 
           python scripts/build_user_sound_pack.py $archive release-inputs/sounds --expected-source-archive-sha256 $wanted
           if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_CANONICALIZATION_FAILED'}
@@ -232,6 +233,10 @@ jobs:
               raise SystemExit('USER_SOUND_PACK_WAV_COUNT_MISMATCH')
           if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
               raise SystemExit('USER_SOUND_PACK_INVENTORY_SHA256_MISMATCH')
+          if inventory.get('source_archive_sha256') != os.environ['USER_SOUND_PACK_ZIP_SHA256']:
+              raise SystemExit('USER_SOUND_PACK_SOURCE_ZIP_SHA256_MISMATCH')
+          if int(inventory.get('source_archive_bytes', -1)) != Path('release-inputs/user-sound-pack.zip').stat().st_size:
+              raise SystemExit('USER_SOUND_PACK_SOURCE_ZIP_SIZE_MISMATCH')
           if EXPECTED_SOURCE_WAV_COUNT != int(os.environ['USER_SOUND_WAV_COUNT']):
               raise SystemExit('USER_SOUND_PACK_WORKFLOW_COUNT_AUTHORITY_MISMATCH')
           if EXPECTED_SOURCE_INVENTORY_SHA256 != os.environ['USER_SOUND_INVENTORY_SHA256']:
