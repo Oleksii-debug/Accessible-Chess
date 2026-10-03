@@ -7,6 +7,7 @@ on:
       - 'acs/full_product_presenters.py'
       - 'acs/training_webview_projection.py'
       - 'acs/version2_training_workspace.py'
+      - 'acs/version2_application.py'
       - 'acs/book_webview_bridge.py'
       - 'acs/training_webview_bridge.py'
       - 'tests/test_training_authority_convergence.py'
@@ -33,10 +34,11 @@ jobs:
       TRAINING_BLOB: 14ef14908011fb567a37fc18e10d342ef12e5faf
       PRESENTER_BLOB: 9e1b11341359a17c80739e122d3265dd474c0d58
       PROJECTION_BLOB: d048fc83829a86b27f4412d7d183a04235b691d7
-      WORKSPACE_BLOB: 64ac597b39294c7c06336c61f80feebdfd03adc1
+      WORKSPACE_BLOB: 8bc4824204dab53f2ae471327cd04db4bfa401ca
+      APPLICATION_BLOB: d035f1ce0b3f65e68f7e47e35e65b13f533ef91e
       BOOK_BRIDGE_BLOB: 247b7d4bbd2d9e0e7d7fc6a89c5cef45e63e65e7
       TRAINING_BRIDGE_BLOB: c3e6e52873f2ec1e2d5bdbc70d227a402963405b
-      CONVERGENCE_TEST_BLOB: 5f97be4ea5bb2a71f50b087527b712767d4335b5
+      CONVERGENCE_TEST_BLOB: ed3ef92c07937c4eb8841f177321807af48a657d
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,6 +59,7 @@ jobs:
           test "$(git rev-parse "HEAD:acs/full_product_presenters.py")" = "$PRESENTER_BLOB"
           test "$(git rev-parse "HEAD:acs/training_webview_projection.py")" = "$PROJECTION_BLOB"
           test "$(git rev-parse "HEAD:acs/version2_training_workspace.py")" = "$WORKSPACE_BLOB"
+          test "$(git rev-parse "HEAD:acs/version2_application.py")" = "$APPLICATION_BLOB"
           test "$(git rev-parse "HEAD:acs/book_webview_bridge.py")" = "$BOOK_BRIDGE_BLOB"
           test "$(git rev-parse "HEAD:acs/training_webview_bridge.py")" = "$TRAINING_BRIDGE_BLOB"
           test "$(git rev-parse "HEAD:tests/test_training_authority_convergence.py")" = "$CONVERGENCE_TEST_BLOB"
@@ -69,6 +72,7 @@ jobs:
             'acs/training_webview_bridge.py' \
             'acs/training_webview_projection.py' \
             'acs/version2_training_workspace.py' \
+            'acs/version2_application.py' \
             'tests/test_training_authority_convergence.py' | sort)"
           test "$changed" = "$expected"
           git diff --check
@@ -80,6 +84,7 @@ jobs:
           acs/full_product_presenters.py
           acs/training_webview_projection.py
           acs/version2_training_workspace.py
+          acs/version2_application.py
           acs/book_webview_bridge.py
           acs/training_webview_bridge.py
           tests/test_training_authority_convergence.py
