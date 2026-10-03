@@ -90,16 +90,16 @@ jobs:
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:acs/version2_application.py)" = '67cd47c361e617fa22a3029555af6fcdc572fab7'
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = '78c0f464c463cad57c11726db07d8357b0537037'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = 'f13f7764cc1d9f5c91ebf4d1351058ef6d456c1a'
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '7bb116ea0587de51a191560cd39070aac9ead014'
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = '95419bcfb4962d6db9bf1d83d82b1aec070ca007'
           test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = '1e9b0e03c5c81ef187234a748bbd23c2759ad4cb'
           test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = '6a87f000bb2d6e3b39c07a8d2d22021776d56d48'
-          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = 'b91ec11dd370f7c1e30d3670f003ac2970c3f540'
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = '1bb879711d72ec7b91a1da2a6139dba20f787a36'
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = '2385b9748995f7dfdc97b10bf42ea916bb8ba46e'
           test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = '3ee6e5224538af82044f55fb7b817934b413a8a8'
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = '66ee8f2f4f560070fc320079ab7dfdf93a938693'
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = '9d46c93f16dc92b0e1991086bc6442c1d53cf3c4'
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = 'f64d3bc4c53c7b126977fa7932c19de10e0206b2'
 
           # Prove the exact-ingress parent content survived the merge byte-for-byte.
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '2e9263f2b21f53e28d483ed38fa961956c0d2622'
