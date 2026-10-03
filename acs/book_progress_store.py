@@ -895,18 +895,19 @@ class BookProgressStore:
                             "book progress storage lock changed while being initialized",
                             code=BookProgressStoreErrorCode.IO_FAILURE,
                         )
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    marker = os.read(descriptor, 2)
                 except OSError:
                     raise BookProgressStoreError(
                         "book progress storage lock could not be validated",
                         code=BookProgressStoreErrorCode.IO_FAILURE,
                     ) from None
-                if marker != b"\0":
-                    raise BookProgressStoreError(
-                        "book progress storage lock changed while being initialized",
-                        code=BookProgressStoreErrorCode.IO_FAILURE,
-                    )
+                # Do not reread byte 0 before acquiring the interprocess lock.
+                # On Windows a cooperating peer can observe the durable marker,
+                # open the same lock file, and acquire the msvcrt byte-range
+                # lock before this creator reaches a redundant os.read(). That
+                # legitimate peer lock makes the creator's read fail. The exact
+                # marker is revalidated by _require_lock_descriptor_current()
+                # immediately after this process acquires the OS lock, which is
+                # the only race-free point that matters for transaction entry.
             try:
                 final_path = os.lstat(self._lock_path)
             except OSError:
