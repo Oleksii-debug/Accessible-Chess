@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from acs.version2_upgrade_base import (
     Version2UpgradeError,
     _UpgradeLock,
     _atomic_bytes,
+    _sqlite_backup,
     _stable_copy,
 )
 
@@ -259,6 +261,136 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             assert temp_path is not None
             self.assertTrue(temp_path.exists())
             self.assertEqual(temp_path.read_bytes(), substitute_bytes)
+
+    def test_sqlite_backup_uses_memory_snapshot_before_atomic_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            destination = root / "backup" / "library.acsdb"
+            source_connection = sqlite3.connect(source)
+            try:
+                source_connection.execute("PRAGMA user_version=17")
+                source_connection.execute("CREATE TABLE sample(value TEXT NOT NULL)")
+                source_connection.execute(
+                    "INSERT INTO sample(value) VALUES (?)",
+                    ("canonical-state",),
+                )
+                source_connection.commit()
+            finally:
+                source_connection.close()
+
+            real_connect = sqlite3.connect
+            writable_targets: list[str] = []
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            def guarded_connect(database, *args, **kwargs):
+                raw = os.fspath(database)
+                if raw == str(source) or raw == ":memory:" or raw.startswith("file:"):
+                    if raw == ":memory:":
+                        writable_targets.append(raw)
+                    return real_connect(database, *args, **kwargs)
+                raise AssertionError(
+                    "SQLite backup must not reopen a pre-created temp pathname"
+                )
+
+            with mock.patch(
+                "acs.version2_upgrade_base.sqlite3.connect",
+                side_effect=guarded_connect,
+            ):
+                size, digest, version, state_digest = _sqlite_backup(
+                    source,
+                    destination,
+                    schema_validator=validate,
+                )
+
+            self.assertEqual([":memory:"], writable_targets)
+            self.assertEqual(destination.stat().st_size, size)
+            self.assertEqual(64, len(digest))
+            self.assertEqual(17, version)
+            self.assertEqual(64, len(state_digest))
+            restored = sqlite3.connect(destination)
+            try:
+                self.assertEqual(
+                    [("canonical-state",)],
+                    restored.execute("SELECT value FROM sample").fetchall(),
+                )
+                self.assertEqual(
+                    17,
+                    restored.execute("PRAGMA user_version").fetchone()[0],
+                )
+            finally:
+                restored.close()
+
+    def test_sqlite_backup_inherits_atomic_temp_identity_rejection(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            destination = root / "backup" / "library.acsdb"
+            source_connection = sqlite3.connect(source)
+            try:
+                source_connection.execute("PRAGMA user_version=3")
+                source_connection.execute("CREATE TABLE sample(value INTEGER)")
+                source_connection.execute("INSERT INTO sample(value) VALUES (7)")
+                source_connection.commit()
+            finally:
+                source_connection.close()
+
+            substitute = root / "foreign-sqlite-temp-substitute.bin"
+            substitute_bytes = b"preserve-foreign-sqlite-temp"
+            substitute.write_bytes(substitute_bytes)
+            real_mkstemp = tempfile.mkstemp
+            real_lstat = os.lstat
+            temp_path: Path | None = None
+            injected = False
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            def tracking_mkstemp(*args, **kwargs):
+                nonlocal temp_path
+                descriptor, name = real_mkstemp(*args, **kwargs)
+                temp_path = Path(name)
+                return descriptor, name
+
+            def substituting_lstat(path, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if (
+                    temp_path is not None
+                    and candidate == temp_path
+                    and not injected
+                ):
+                    os.replace(substitute, temp_path)
+                    injected = True
+                return real_lstat(path, *args, **kwargs)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.tempfile.mkstemp",
+                side_effect=tracking_mkstemp,
+            ), mock.patch(
+                "acs.version2_upgrade_base.os.lstat",
+                side_effect=substituting_lstat,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "temporary file changed before publication",
+                ):
+                    _sqlite_backup(
+                        source,
+                        destination,
+                        schema_validator=validate,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(destination.exists())
+            self.assertIsNotNone(temp_path)
+            assert temp_path is not None
+            self.assertTrue(temp_path.exists())
+            self.assertEqual(substitute_bytes, temp_path.read_bytes())
 
     def test_control_name_directory_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
