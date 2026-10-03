@@ -525,6 +525,38 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, tampered_origin)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
 
+    def test_mutated_origin_is_revalidated_before_export_materialization(self):
+        origin = self.material.origin
+        original_heading_path = origin.heading_path
+        original_target_key = origin.target_key
+
+        class HostileTuple(tuple):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile origin tuple length must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile origin tuple iteration must not execute")
+
+        try:
+            object.__setattr__(origin, "heading_path", HostileTuple(("Heading",)))
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+            self.assertFalse(HostileTuple.touched)
+
+            object.__setattr__(origin, "heading_path", original_heading_path)
+            object.__setattr__(origin, "target_key", "x" * 4_097)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+        finally:
+            object.__setattr__(origin, "heading_path", original_heading_path)
+            object.__setattr__(origin, "target_key", original_target_key)
+
     def test_mutated_definition_collections_fail_before_export_materialization(self):
         definition = self.material.definition
         original_steps = definition.steps
