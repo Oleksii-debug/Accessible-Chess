@@ -262,6 +262,20 @@ async function run() {
   check(calls[0][0] === "pgn.move" && calls[0][1].delta === 1, "ArrowDown used wrong bridge command");
   check(document.activeElement && document.activeElement.id === "pgn-node-bbbbbbbbbbbbbbbbbbbb", "tree focus was not restored after navigation");
 
+  for (const modifier of ["altKey", "ctrlKey", "shiftKey", "metaKey"]) {
+    const beforeModified = calls.length;
+    let modifiedPrevented = false;
+    const event = {
+      key: "ArrowDown",
+      preventDefault: () => { modifiedPrevented = true; }
+    };
+    event[modifier] = true;
+    items[0].listeners.keydown(event);
+    await flush();
+    check(!modifiedPrevented, modifier + "+ArrowDown was hijacked by PGN tree navigation");
+    check(calls.length === beforeModified, modifier + "+ArrowDown unexpectedly became a PGN command");
+  }
+
   const current = root.querySelectorAll('[role="treeitem"]')[1];
   const beforeCopy = calls.length;
   let ctrlPrevented = false;

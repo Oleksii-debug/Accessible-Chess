@@ -420,6 +420,7 @@
         );
       });
       treeItem.addEventListener("keydown", function (event) {
+        if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
         let command = "";
         let payload = {};
         if (event.key === "ArrowUp") {
