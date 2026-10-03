@@ -218,6 +218,37 @@
     }
   }
 
+  function collaborationOpenDisclosureIds(root) {
+    if (!root || typeof root.querySelector !== "function") return [];
+    const wrapper = root.querySelector("#classroom-collaboration");
+    if (!wrapper || typeof wrapper.querySelectorAll !== "function") return [];
+    const ids = [];
+    wrapper.querySelectorAll("DETAILS").forEach(function (details) {
+      if (!details.open || typeof details.querySelector !== "function") return;
+      const summary = details.querySelector("SUMMARY");
+      if (summary && typeof summary.id === "string" && summary.id) {
+        ids.push(summary.id);
+      }
+    });
+    return ids;
+  }
+
+  function restoreCollaborationOpenDisclosures(root, summaryIds) {
+    if (
+      !root ||
+      typeof root.querySelector !== "function" ||
+      !Array.isArray(summaryIds)
+    ) {
+      return;
+    }
+    summaryIds.forEach(function (summaryId) {
+      if (typeof summaryId !== "string" || !summaryId) return;
+      const summary = root.querySelector("#" + summaryId);
+      const details = summary ? summary.parentNode : null;
+      if (details && details.tagName === "DETAILS") details.open = true;
+    });
+  }
+
   function setCollaborationStatus(wrapper, message) {
     if (!wrapper || typeof wrapper.querySelector !== "function") return;
     const status = wrapper.querySelector("#classroom-collaboration-status");
@@ -499,6 +530,7 @@
     const collaborationWasFocused = collaborationOwnsFocus(root);
     const previousPending = collaborationPendingState(root);
     const previousDraft = collaborationDraftInside(root);
+    const previousOpenDisclosures = collaborationOpenDisclosureIds(root);
     const previousStatus = root.querySelector("#classroom-collaboration-status");
     const previousStatusText = previousStatus
       ? String(previousStatus.textContent || "")
@@ -530,6 +562,7 @@
         if (result.kind !== "collaboration.chat.sent") {
           restoreCollaborationDraft(root, previousDraft);
         }
+        restoreCollaborationOpenDisclosures(root, previousOpenDisclosures);
         if (
           previousPending &&
           previousPending.command !== String(settledCollaborationCommand || "")

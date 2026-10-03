@@ -225,7 +225,9 @@ const redactedSnapshot = {
     {
       dom_id: "collaboration-message-redacted",
       sender: "Student two",
-      body: "",
+      // A stale/malformed redraw may carry a pre-redaction body. The browser
+      // must trust the redacted semantic state and never render that stale body.
+      body: "STALE SECRET MUST NOT RENDER",
       redacted: true,
       redacted_label: "Message content is no longer available.",
       // Browser rendering must not revive unread semantics for a tombstone even
@@ -258,6 +260,10 @@ check(
   redactedLabel.getAttribute("data-message-redacted") === "true" &&
   redactedLabel.getAttribute("aria-live") === "off",
   "redacted chat content must remain visible/selectable and screen-reader readable without live-region spam"
+);
+check(
+  redactedMessage.querySelectorAll("BDI").length === 1,
+  "redacted chat rendering must ignore any stale pre-redaction body and retain only the sender bdi"
 );
 
 const fileProgressRegion = root.querySelector("#collaboration-file-transfer-progress");
@@ -979,6 +985,15 @@ check(
   disclosureSummary !== null,
   "message timestamp disclosure must expose a stable focus anchor"
 );
+const disclosureRetentionSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-retention"
+);
+check(
+  disclosureRetentionSummary !== null,
+  "message retention disclosure must expose a stable focus anchor"
+);
+disclosureSummary.parentNode.open = true;
+disclosureRetentionSummary.parentNode.open = true;
 disclosureSummary.focus();
 const oldDisclosureSummary = disclosureSummary;
 window.AccessibleChessEducationSurface.apply(
@@ -1000,9 +1015,18 @@ check(
   document.activeElement !== oldDisclosureSummary,
   "collaboration redraw must restore keyboard focus to the rebuilt message disclosure"
 );
+const rebuiltTimestampSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-timestamp"
+);
+const rebuiltRetentionSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-retention"
+);
 check(
-  disclosureFocusRoot.querySelector("#collaboration-message-one-retention") !== null,
-  "message retention disclosure must expose a stable focus anchor"
+  rebuiltTimestampSummary !== null &&
+  rebuiltRetentionSummary !== null &&
+  rebuiltTimestampSummary.parentNode.open === true &&
+  rebuiltRetentionSummary.parentNode.open === true,
+  "collaboration redraw must preserve open message timestamp and retention disclosures"
 );
 
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
