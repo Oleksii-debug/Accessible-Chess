@@ -30,7 +30,8 @@ Variant 1 is the default for every semantic sound event.
 - other game end (resignation/timeout/etc.): Server/Gong.WAV
 - checkmate default: Server/Gong.WAV; optional Russian/Notation/Mate.wav
 - draw default: Server/Gong.WAV; optional English/Draw.wav and Russian/Draw.wav
-- clock: Board/Tick.wav
+- clock tick: Board/Tick.wav
+- low-time warning default: Board/coach.wav; optional Board/failhigh.wav
 
 Distinct Board/Board3d alternatives and numbered move/capture alternatives are exposed through the persisted per-event sound variant settings. Byte-identical duplicates are not presented twice.
 
@@ -41,9 +42,10 @@ The full 330-file source library is retained in the built sound pack so future v
 - The legacy procedural WAV generator is no longer an audio fallback.
 - Missing/broken assets never fall back to a Windows system beep.
 - Multi-second NEWGAME and clock WAVs use non-blocking Windows playback so the keyboard and UI remain responsive.
-- Variant selection is persisted per event, including separate checkmate and draw choices.
+- Variant selection is persisted per event, including separate checkmate, draw, clock-tick and low-time-warning choices.
 - MOVE/MOVE2/MOVE3 and their Board3d counterparts play the matching MOVEHIT1/2/3 WAV immediately afterward as an ordered landing layer.
 - CAPTURE/CAPTURE2/CAPTURE3 and their Board3d counterparts play the matching CAPHIT1/2/3 WAV immediately afterward as an ordered landing layer.
+- Clock tick and low-time warning are independent semantic events. Tick remains clock ambience; low-time warning is a one-shot threshold event with its own side policy, threshold and sound choice.
 - Move/capture variants without a matching HIT asset stay single-file sounds; the runtime does not invent replacement effects.
 - NEWGAME visual placement uses 32 detected impact times for the default 2D WAV and a separate 32-impact timeline for the distinct 3D NEWGAME WAV. The selected start-sound variant chooses the matching animation timeline; both are emitted in newgame_impacts.json by the pack builder.
 - The NEWGAME visual placement animation is enabled by default, can be disabled independently from sound, persists across restarts, respects reduced-motion preference, and never changes the canonical chess/NVDA state.
