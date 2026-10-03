@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import acs.version2_upgrade_base as upgrade_base
 
 from acs.version2_upgrade_base import (
     UpgradeLimits,
@@ -221,6 +224,80 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertFalse((backup / "sound-profile.json.lock").exists())
             self.assertFalse((backup / "sound-packs.lock").exists())
             self.assertFalse((backup / "sound-cache").exists())
+
+    def test_recovery_accepts_legacy_backup_entries_without_replaying_sound_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en", "volume": 34}), encoding="utf-8"
+            )
+            profile_lock = root / "sound-profile.json.lock"
+            packs_lock = root / "sound-packs.lock"
+            cache_lock = root / "sound-cache" / ".playback.lock"
+            cache_file = root / "sound-cache" / "scaled" / "move.wav"
+            profile_lock.write_bytes(b"legacy-profile-lock")
+            packs_lock.write_bytes(b"legacy-packs-lock")
+            cache_file.parent.mkdir(parents=True)
+            cache_lock.write_bytes(b"legacy-cache-lock")
+            cache_file.write_bytes(b"legacy-cache")
+
+            old_control_keys = frozenset(
+                name.casefold()
+                for name in {
+                    ".v2-upgrade.lock",
+                    ".v2-upgrade-state.json",
+                    "profile.json.lock",
+                }
+            )
+
+            def crash(phase: str) -> None:
+                if phase == "settings-migrated":
+                    raise _Crash()
+
+            # Simulate the immediately preceding upgrader: sound artifacts were
+            # still ordinary preservation entries when its snapshot was made.
+            with (
+                patch.object(upgrade_base, "_CONTROL_NAME_KEYS", old_control_keys),
+                patch.object(
+                    upgrade_base,
+                    "_DERIVED_ROOT_DIRECTORY_KEYS",
+                    frozenset(),
+                ),
+                self.assertRaises(_Crash),
+            ):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash
+                ).run()
+
+            journal = json.loads(
+                (root / ".v2-upgrade-state.json").read_text(encoding="utf-8")
+            )
+            backup_data = (
+                root.parent
+                / "AccessibleChess.upgrade-backups"
+                / str(journal["backup_name"])
+                / "data"
+            )
+            self.assertTrue((backup_data / "sound-profile.json.lock").exists())
+            self.assertTrue((backup_data / "sound-packs.lock").exists())
+            self.assertTrue((backup_data / "sound-cache" / ".playback.lock").exists())
+            self.assertTrue((backup_data / "sound-cache" / "scaled" / "move.wav").exists())
+
+            profile_lock.write_bytes(b"new-profile-lock")
+            packs_lock.write_bytes(b"new-packs-lock")
+            cache_lock.write_bytes(b"new-cache-lock")
+            cache_file.write_bytes(b"new-cache")
+
+            recovered = Version2UpgradeCoordinator(
+                UserDataLayout(root)
+            ).recover_interrupted()
+
+            self.assertTrue(recovered)
+            self.assertEqual(profile_lock.read_bytes(), b"new-profile-lock")
+            self.assertEqual(packs_lock.read_bytes(), b"new-packs-lock")
+            self.assertEqual(cache_lock.read_bytes(), b"new-cache-lock")
+            self.assertEqual(cache_file.read_bytes(), b"new-cache")
 
     def test_disposable_cache_does_not_consume_backup_quota_but_pack_content_does(self):
         with tempfile.TemporaryDirectory() as td:
