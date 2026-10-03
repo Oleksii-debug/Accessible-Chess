@@ -396,7 +396,9 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("Standard position loaded.", text)
         self.assertIn("event.ctrlKey", text)
         self.assertIn("key === 'n'", text)
-        self.assertIn("action.actionId !== 'file.new'", text)
+        self.assertNotIn("action.actionId !== 'file.new'", text)
+        self.assertIn("if (!action || !action.actionId) return;", text)
+        self.assertIn("void execute(action.actionId)", text)
         self.assertIn("void execute(action.actionId)", text)
 
         menu = (self.root / "acs" / "ui_native_menu.py").read_text(encoding="utf-8")
