@@ -1167,7 +1167,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             self.assertFalse(before_sync["can_retry"])
             synced = second.refresh_classroom_files()
 
-        self.assertEqual("collaboration.file.synced", synced["kind"])
+        self.assertEqual("collaboration.files.synced", synced["kind"])
         self.assertEqual(operations, ["upload", "history", "state"])
         self.assertEqual(self.file_token_calls, 3)
         recovered = second_runtime.store.room_attachments("room-1")
