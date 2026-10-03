@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from threading import Thread
+import traceback
 import unittest
+from unittest import mock
 
 from acs.classroom_media_host_transactions import (
     ClassroomMediaHostTransactionPort,
@@ -304,7 +306,7 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(
             MediaHostRecoveryRequired,
             "provider result requires recovery",
-        ):
+        ) as caught:
             sessions.acknowledge_provider_success(
                 effect.transaction_id,
                 provider_snapshot(
@@ -315,10 +317,42 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
                 ),
             )
 
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn(TOKEN, "".join(traceback.format_exception(caught.exception)))
         self.assertEqual(controller.state.room_id, None)
         status = sessions.recovery_status
         self.assertIsNotNone(status)
         self.assertTrue(status.provider_outcome_unknown)
+
+    def test_commit_failure_drops_internal_cause_and_private_provider_detail(self):
+        controller, _roster, _gate, _nonsecret, sessions = self.make_composition()
+        effect = sessions.prepare_join(credential(), now=NOW + timedelta(seconds=1))
+        sessions.take_credential(effect.transaction_id)
+
+        with mock.patch.object(
+            sessions._session_port,
+            "_commit",
+            side_effect=RuntimeError("private provider detail " + TOKEN),
+        ):
+            with self.assertRaisesRegex(
+                MediaHostRecoveryRequired,
+                "^provider session succeeded but canonical commit requires recovery$",
+            ) as caught:
+                sessions.acknowledge_provider_success(
+                    effect.transaction_id,
+                    provider_snapshot(
+                        connected=True,
+                        room_id="room-1",
+                        participant_id="student-1",
+                    ),
+                )
+
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn("private provider detail", rendered)
+        self.assertNotIn(TOKEN, rendered)
+        self.assertEqual(controller.state.room_id, None)
+        self.assertFalse(sessions.recovery_status.provider_outcome_unknown)
 
     def test_cleanup_required_snapshot_never_commits_connected_state(self):
         controller, _roster, _gate, _nonsecret, sessions = self.make_composition()
