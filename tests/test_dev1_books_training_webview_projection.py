@@ -108,6 +108,26 @@ class BookProjectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "navigation availability flags"):
                 self.projection.snapshot()
 
+    def test_snapshot_rejects_semantics_that_sanitize_to_empty_webview_text(self) -> None:
+        block = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "empty visible part"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=("\x00",))
+            )
+
+        with self.assertRaisesRegex(ValueError, "empty visible item"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=("\x00",),
+                    list_ordered=False,
+                    list_start=None,
+                )
+            )
+
     def test_snapshot_rejects_oversized_list_before_element_scan(self) -> None:
         block = self.presenter.current()
         oversized = ("item",) * 65536 + (object(),)
