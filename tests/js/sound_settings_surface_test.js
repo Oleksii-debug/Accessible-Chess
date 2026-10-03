@@ -107,6 +107,9 @@ const initial = {
       author: "Accessible Chess",
       license_id: "CC0-1.0",
       provenance: "https://example.invalid/soft",
+      rights_auditable: true,
+      rights_source_uri: "https://example.invalid/source/soft/1.0.0",
+      license_uri: "https://creativecommons.org/publicdomain/zero/1.0/",
       compatible: true,
       installed_version: null,
       state: "not_installed",
@@ -268,6 +271,11 @@ async function run() {
     "pack license metadata must remain visible/selectable text");
   assert.ok(packMetadata.textContent.includes("https://example.invalid/soft"),
     "pack provenance must remain visible/selectable text");
+  assert.ok(packMetadata.textContent.includes("https://example.invalid/source/soft/1.0.0"),
+    "auditable rights source must remain visible/selectable text");
+  assert.ok(packMetadata.textContent.includes(
+    "https://creativecommons.org/publicdomain/zero/1.0/"
+  ), "auditable license reference must remain visible/selectable text");
   installPack.focus();
   installPack.dispatch("click");
   await Promise.resolve();
