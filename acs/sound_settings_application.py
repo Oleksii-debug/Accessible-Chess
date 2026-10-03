@@ -275,15 +275,25 @@ class SoundSettingsApplication:
                     if installed_manifest is None
                     else self._local_pack_compatible(installed_manifest)
                 )
+                display_manifest = (
+                    installed_manifest
+                    if installed_manifest is not None
+                    else manifest
+                )
                 represented.add(manifest.pack_id)
                 packs.append(
                     {
                         "pack_id": manifest.pack_id,
-                        "title": manifest.title,
-                        "version": manifest.version,
-                        "author": manifest.author,
-                        "license_id": manifest.license_id,
-                        "provenance": manifest.provenance,
+                        "title": display_manifest.title,
+                        "version": display_manifest.version,
+                        "author": display_manifest.author,
+                        "license_id": display_manifest.license_id,
+                        "provenance": display_manifest.provenance,
+                        "catalog_version": manifest.version,
+                        "catalog_title": manifest.title,
+                        "catalog_author": manifest.author,
+                        "catalog_license_id": manifest.license_id,
+                        "catalog_provenance": manifest.provenance,
                         "compatible": entry.compatible,
                         "installed_compatible": installed_compatible,
                         "installed_version": status.installed_version,
