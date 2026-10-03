@@ -1020,16 +1020,32 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 allow_insecure_loopback=False,
             )
 
-            sent = first.browser_command(
-                "classes",
-                "collaboration.chat.send",
-                {"body": "Shared over production HTTP"},
-            )
+            chat_errors: list[tuple[str, str]] = []
+            original_send_chat = first_runtime.controller.send_chat
+
+            def traced_send_chat(**kwargs):
+                try:
+                    return original_send_chat(**kwargs)
+                except Exception as error:
+                    chat_errors.append((type(error).__name__, str(error)))
+                    raise
+
+            with mock.patch.object(
+                first_runtime.controller,
+                "send_chat",
+                side_effect=traced_send_chat,
+            ):
+                sent = first.browser_command(
+                    "classes",
+                    "collaboration.chat.send",
+                    {"body": "Shared over production HTTP"},
+                )
             self.assertEqual(
                 "collaboration.chat.sent",
                 sent["kind"],
                 (
-                    f"chat HTTP trace: {ChatConnection.trace!r}; "
+                    f"chat errors: {chat_errors!r}; "
+                    f"HTTP trace: {ChatConnection.trace!r}; "
                     f"responses: {ChatConnection.responses!r}"
                 ),
             )
