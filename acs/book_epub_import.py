@@ -39,6 +39,10 @@ MAX_EPUB_XML_BYTES = 4 * 1024 * 1024
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
 MAX_EPUB_WARNINGS = 4_096
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
+_CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
+_CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
+_ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
+_ROOTFILE_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfile"
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
@@ -474,13 +478,43 @@ def _resolve_package_href(
 
 
 def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
+    if (
+        container.tag != _CONTAINER_TAG
+        or container.attrib.get("version") != "1.0"
+    ):
+        raise _error(
+            "EPUB container metadata has an invalid root element or version",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    rootfiles_sections = [
+        child for child in container if child.tag == _ROOTFILES_TAG
+    ]
+    if len(rootfiles_sections) != 1:
+        raise _error(
+            "EPUB container must contain exactly one rootfiles section",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     candidates: list[ET.Element] = []
-    for element in container.iter():
-        if _local_name(element.tag) != "rootfile":
+    for element in rootfiles_sections[0]:
+        # Foreign-namespace extension elements are ignored. Only a direct
+        # rootfile in the canonical OCF container namespace can identify an OPF.
+        if element.tag != _ROOTFILE_TAG:
             continue
-        media_type = (element.attrib.get("media-type") or "").strip().casefold()
-        if not media_type or media_type == _OPF_MEDIA_TYPE:
-            candidates.append(element)
+        if len(element) or (element.text or "").strip():
+            raise _error(
+                "EPUB rootfile element must be empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        media_type = element.attrib.get("media-type")
+        if media_type != _OPF_MEDIA_TYPE:
+            raise _error(
+                "EPUB rootfile has a missing or invalid package media type",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        candidates.append(element)
+
     if not candidates:
         raise _error(
             "EPUB container has no supported package document",
