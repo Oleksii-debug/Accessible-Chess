@@ -130,7 +130,7 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             (outside / "packs").mkdir()
             with self.assertRaisesRegex(SoundPackStoreError, "redirected"):
                 store.installed()
-            self.assertEqual([], list(outside / "packs"))
+            self.assertEqual([], list((outside / "packs").iterdir()))
 
     @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
     def test_redirected_download_staging_ancestor_is_rejected(self) -> None:
