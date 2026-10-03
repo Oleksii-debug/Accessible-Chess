@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
+import tempfile
 import unittest
 
 from acs.classroom_chat_rpc import (
@@ -14,11 +16,55 @@ from acs.classroom_collaboration import (
     ChatModerationAction,
     ChatModerationCommand,
 )
+from acs.classroom_collaboration_chat_server import (
+    ClassroomChatServerService,
+    ClassroomChatServerSQLiteStore,
+)
 from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ChatMessageStateUpdate,
 )
 from acs.classroom_domain import MAX_WIRE_INTEGER
+
+
+class RealServerAuthorization:
+    def __init__(self) -> None:
+        self.members = {"teacher-1", "student-1"}
+
+    def authorize_chat_send(
+        self,
+        *,
+        room_id,
+        caller_identity,
+        sender_id,
+    ):
+        if (
+            room_id != "room-1"
+            or caller_identity not in self.members
+            or sender_id != caller_identity
+        ):
+            raise RuntimeError("not authorized")
+        return None
+
+    def authorize_chat_history(self, *, room_id, caller_identity):
+        if room_id != "room-1" or caller_identity not in self.members:
+            raise RuntimeError("not authorized")
+        return None
+
+    def authorize_chat_moderation(
+        self,
+        *,
+        room_id,
+        caller_identity,
+        commands,
+    ):
+        if (
+            room_id != "room-1"
+            or caller_identity != "teacher-1"
+            or any(command.actor_id != caller_identity for command in commands)
+        ):
+            raise RuntimeError("not authorized")
+        return None
 
 
 class FakeBackend:
@@ -193,6 +239,111 @@ class ClassroomChatRpcTests(unittest.TestCase):
             participant_id="student-1",
             transport=self.student_call,
         )
+
+    def test_real_trusted_server_round_trip_hide_and_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "chat-server.sqlite3"
+            authorization = RealServerAuthorization()
+            ticks = iter((1700000000000, 1700000001000))
+
+            server = ClassroomChatServerService(
+                store=ClassroomChatServerSQLiteStore(database),
+                authorization=authorization,
+                clock_unix_ms=lambda: next(ticks),
+            )
+            endpoint = ClassroomChatRpcService(backend=server)
+            student = ClassroomChatRpcClient(
+                room_id="room-1",
+                participant_id="student-1",
+                transport=BoundCall(
+                    endpoint,
+                    room_id="room-1",
+                    participant_id="student-1",
+                ),
+            )
+            teacher = ClassroomChatRpcClient(
+                room_id="room-1",
+                participant_id="teacher-1",
+                transport=BoundCall(
+                    endpoint,
+                    room_id="room-1",
+                    participant_id="teacher-1",
+                ),
+            )
+
+            sent = student.send_message(
+                ChatDraft(
+                    "real-rpc-message",
+                    "room-1",
+                    "student-1",
+                    "Durable through RPC",
+                )
+            )
+            self.assertEqual(0, sent.sequence_no)
+            self.assertEqual(1700000000000, sent.sent_at_unix_ms)
+            self.assertEqual(
+                (sent,),
+                teacher.history_after(
+                    room_id="room-1",
+                    after_sequence=None,
+                    limit=10,
+                ),
+            )
+
+            teacher.apply_moderation(
+                (
+                    ChatModerationCommand(
+                        operation_id="real-rpc-hide",
+                        room_id="room-1",
+                        actor_id="teacher-1",
+                        target_id=None,
+                        action=ChatModerationAction.HIDE_MESSAGE,
+                        message_id=sent.message_id,
+                    ),
+                )
+            )
+            updates = student.state_updates_after(
+                room_id="room-1",
+                after_revision=None,
+                limit=10,
+            )
+            self.assertEqual(1, len(updates))
+            self.assertEqual(sent.message_id, updates[0].message_id)
+            self.assertTrue(updates[0].hidden)
+
+            restarted_server = ClassroomChatServerService(
+                store=ClassroomChatServerSQLiteStore(database),
+                authorization=authorization,
+                clock_unix_ms=lambda: 1700000001000,
+            )
+            restarted_endpoint = ClassroomChatRpcService(
+                backend=restarted_server,
+            )
+            reconnected_student = ClassroomChatRpcClient(
+                room_id="room-1",
+                participant_id="student-1",
+                transport=BoundCall(
+                    restarted_endpoint,
+                    room_id="room-1",
+                    participant_id="student-1",
+                ),
+            )
+            history = reconnected_student.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=10,
+            )
+            self.assertEqual(1, len(history))
+            self.assertEqual(sent.message_id, history[0].message_id)
+            self.assertTrue(history[0].hidden)
+            self.assertEqual(
+                updates,
+                reconnected_student.state_updates_after(
+                    room_id="room-1",
+                    after_revision=None,
+                    limit=10,
+                ),
+            )
 
     def test_send_round_trip_is_idempotent_and_preserves_authoritative_timestamp(self):
         draft = ChatDraft("msg-1", "room-1", "student-1", "Hello")
