@@ -86,6 +86,27 @@
       .then(finish, finish);
   }
 
+  function requireHostEvent(result, allowedKinds, surface) {
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new TypeError(surface + " host result must be an object");
+    }
+    if (typeof result.kind !== "string" || allowedKinds.indexOf(result.kind) < 0) {
+      throw new TypeError(surface + " host result kind is invalid");
+    }
+    if (!result.payload || typeof result.payload !== "object" || Array.isArray(result.payload)) {
+      throw new TypeError(surface + " host result payload must be an object");
+    }
+    if (
+      result.kind === "render" &&
+      (!result.payload.snapshot ||
+        typeof result.payload.snapshot !== "object" ||
+        Array.isArray(result.payload.snapshot))
+    ) {
+      throw new TypeError(surface + " render result requires a snapshot");
+    }
+    return result.payload;
+  }
+
   function renderBookBlock(host, block) {
     const role = String(block.role || "group");
     let content;
@@ -148,9 +169,8 @@
   }
 
   function applyBookEvent(root, result, invoke, announce, fallbackMessage) {
-    if (!result || typeof result !== "object") return;
-    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
-    if (result.kind === "render" && payload.snapshot) {
+    const payload = requireHostEvent(result, ["render", "error", "delegated"], "Book");
+    if (result.kind === "render") {
       renderBookSurface(root, payload.snapshot, invoke, announce, payload.focus_target || "", fallbackMessage);
     }
     if (payload.announcement) announce(String(payload.announcement));
@@ -311,8 +331,7 @@
   }
 
   function applyTrainingEvent(root, result, invoke, announce, fallbackMessage) {
-    if (!result || typeof result !== "object") return;
-    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    const payload = requireHostEvent(result, ["render", "error"], "Training");
     let priorAnswer = "";
     const prior = root.querySelector("#training-answer");
     if (prior && typeof prior.value === "string") priorAnswer = prior.value;
