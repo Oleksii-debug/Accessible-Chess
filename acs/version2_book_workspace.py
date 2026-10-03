@@ -15,6 +15,7 @@ from .book_webview_projection import (
     BookWebViewProjection,
     _MAX_BOOK_BLOCK_VISIBLE_CHARS,
     _safe_text,
+    _utf16_units,
 )
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
@@ -115,7 +116,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticProjectionError("semantic GameTree text is invalid") from exc
             if not allow_empty and not text:
                 raise _BookSemanticProjectionError("semantic GameTree text is empty")
-            visible_total += len(text)
+            visible_total += _utf16_units(text)
             if visible_total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                 raise _BookSemanticProjectionError("semantic GameTree text budget exceeded")
             return text
