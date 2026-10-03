@@ -48,6 +48,15 @@
     });
   }
 
+  function semanticResult(value, name) {
+    if (value === undefined || value === null || value === "") return "";
+    if (typeof value !== "string") throw new TypeError(name + " must be text");
+    if (!["1-0", "0-1", "1/2-1/2", "*"].includes(value)) {
+      throw new TypeError(name + " is invalid");
+    }
+    return value;
+  }
+
   function appendSemanticTextList(container, label, items, headingId) {
     if (!items.length) return;
     const heading = node("h4", label || "");
@@ -77,11 +86,9 @@
       container.appendChild(node("p", String(semantic.players_label || "Players") + ": " + semantic.players));
     }
 
-    if (semantic.result) {
-      if (typeof semantic.result !== "string") {
-        throw new TypeError("book semantic result must be text");
-      }
-      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + semantic.result));
+    const gameResult = semanticResult(semantic.result, "book semantic result");
+    if (gameResult) {
+      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + gameResult));
     }
 
     appendSemanticTextList(
@@ -173,12 +180,10 @@
         item.trailing_comments,
         "book semantic item trailing comments"
       );
-      const itemResult = item.result === undefined || item.result === null
-        ? ""
-        : item.result;
-      if (typeof itemResult !== "string") {
-        throw new TypeError("book semantic item result must be text");
-      }
+      const itemResult = semanticResult(
+        item.result,
+        "book semantic item result"
+      );
       if (item.kind !== "variation" && itemResult) {
         throw new TypeError("book semantic move must not carry a line result");
       }
