@@ -83,6 +83,42 @@ def _staged_download(
 
 
 class FilesystemSoundPackStoreTests(unittest.TestCase):
+    def test_new_pack_directory_chain_is_durably_linked_parent_first(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store_root = root / "data" / "sound-packs"
+            store_root.parent.mkdir(parents=True)
+            store = FilesystemSoundPackStore(store_root)
+            calls = []
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=lambda path: calls.append(Path(path)),
+            ):
+                pack_dir, versions = store._ensure_pack_parent("soft.wood")
+
+            self.assertEqual(
+                [store_root.parent, store_root, pack_dir],
+                calls,
+            )
+            self.assertEqual(pack_dir / "versions", versions)
+
+    def test_uninstall_flushes_sound_pack_root_after_top_level_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory"
+            ) as sync_directory:
+                store.uninstall(manifest.pack_id)
+
+            sync_directory.assert_called_once_with(store.root)
+            self.assertNotIn(manifest.pack_id, store.installed())
+
     def test_install_rehashes_staged_bytes_and_publishes_active_version(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
