@@ -88,6 +88,15 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 ["1", "2", "3", "4", "5", "3d-1", "3d-2", "3d-3", "3d-4"],
             )
 
+            rebuilt = Path(td) / "rebuilt"
+            with patch(
+                "scripts.build_user_sound_pack.EXPECTED_SOURCE_INVENTORY_SHA256",
+                expected,
+            ):
+                rebuilt_report = build_sound_pack(destination, rebuilt)
+            self.assertEqual(rebuilt_report["file_count"], 330)
+            self.assertTrue((rebuilt / "library" / "Board" / "NEWGAME.WAV").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
