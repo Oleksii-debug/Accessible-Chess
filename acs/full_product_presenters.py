@@ -691,11 +691,12 @@ class TrainingPresenter:
         self._language = language
 
     def view(self) -> TrainingView:
-        total = len(self._session.definition.steps)
+        definition = self._session.canonical_definition
+        total = len(definition.steps)
         visible_step = min(self._session.step_index + 1, total)
         return TrainingView(
             status=self._session.status,
-            title=self._session.definition.title,
+            title=definition.title,
             step_number=visible_step,
             total_steps=total,
             attempts=self._session.attempts,
