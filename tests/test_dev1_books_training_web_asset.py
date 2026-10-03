@@ -178,7 +178,9 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('solutionSection.id = "training-solution"', text)
         self.assertIn('solutionSection.tabIndex = -1', text)
         self.assertIn('solutionSection.setAttribute("aria-labelledby", solutionHeading.id)', text)
-        self.assertIn('Object.prototype.hasOwnProperty.call(payload.solution, index)', text)
+        self.assertIn('function requireTrainingSolution(solution)', text)
+        self.assertIn('Object.prototype.hasOwnProperty.call(solution, index)', text)
+        self.assertIn('solution = requireTrainingSolution(solution)', text)
         self.assertIn('canonicalTrainingFocusTarget(snapshot)', text)
         self.assertIn('allowed.add("training-solution")', text)
         self.assertIn(
