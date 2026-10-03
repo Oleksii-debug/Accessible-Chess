@@ -94,6 +94,7 @@ function trainingSnapshot(completed, canContinue) {
     document: { lang: "en" },
     heading: "Training",
     title: "Opening line",
+    status: completed ? "completed" : "ready",
     progress: {
       step_label: "Step",
       step: 1,
@@ -111,6 +112,7 @@ function trainingSnapshot(completed, canContinue) {
     answer: { label: "Your move", max_length: 128, submit_label: "Check", disabled: completed },
     actions: [
       { command: "training.hint", label: "Hint", enabled: !completed },
+      { command: "training.reveal", label: "Reveal", enabled: !completed },
       { command: "training.retry", label: "Retry", enabled: !completed },
       { command: "training.continue", label: "Continue", enabled: completed && canContinue },
       { command: "training.reset.request", label: "Reset", enabled: true }
@@ -363,6 +365,89 @@ async function run() {
   cancel.listeners.click();
   check(!dialog.open, "reset dialog did not close on cancel");
   check(document.activeElement === reset, "reset cancel did not restore opener focus");
+
+  const trainingSnapshotRoot = new FakeElement("div");
+  window.AccessibleChessTrainingSurface.render(
+    trainingSnapshotRoot,
+    trainingSnapshot(),
+    trainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const trainingSnapshotReplaceCount = trainingSnapshotRoot.replaceChildrenCalls;
+  const trainingSnapshotFocus = document.activeElement;
+
+  const malformedTrainingCounter = trainingSnapshot();
+  malformedTrainingCounter.progress.attempts = "0";
+  let malformedTrainingCounterRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      trainingSnapshotRoot,
+      malformedTrainingCounter,
+      trainingInvoke,
+      announce,
+      "training-answer",
+      "Action failed",
+      []
+    );
+  } catch (error) {
+    malformedTrainingCounterRejected = true;
+  }
+  check(malformedTrainingCounterRejected,
+    "string Training progress counter must fail closed");
+  check(trainingSnapshotRoot.replaceChildrenCalls === trainingSnapshotReplaceCount,
+    "malformed Training progress must preserve prior readable DOM");
+  check(document.activeElement === trainingSnapshotFocus,
+    "malformed Training progress must preserve focus");
+
+  const malformedTrainingAction = trainingSnapshot();
+  const swap = malformedTrainingAction.actions[0];
+  malformedTrainingAction.actions[0] = malformedTrainingAction.actions[1];
+  malformedTrainingAction.actions[1] = swap;
+  let malformedTrainingActionRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      trainingSnapshotRoot,
+      malformedTrainingAction,
+      trainingInvoke,
+      announce,
+      "training-answer",
+      "Action failed",
+      []
+    );
+  } catch (error) {
+    malformedTrainingActionRejected = true;
+  }
+  check(malformedTrainingActionRejected,
+    "reordered Training actions must fail closed");
+  check(trainingSnapshotRoot.replaceChildrenCalls === trainingSnapshotReplaceCount,
+    "reordered Training actions must preserve prior readable DOM");
+  check(document.activeElement === trainingSnapshotFocus,
+    "reordered Training actions must preserve focus");
+
+  const impossibleTrainingFocus = trainingSnapshot();
+  let impossibleTrainingFocusRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      trainingSnapshotRoot,
+      impossibleTrainingFocus,
+      trainingInvoke,
+      announce,
+      "training-action-continue",
+      "Action failed",
+      []
+    );
+  } catch (error) {
+    impossibleTrainingFocusRejected = true;
+  }
+  check(impossibleTrainingFocusRejected,
+    "focus on a disabled Training action must fail closed");
+  check(trainingSnapshotRoot.replaceChildrenCalls === trainingSnapshotReplaceCount,
+    "invalid Training focus target must preserve prior readable DOM");
+  check(document.activeElement === trainingSnapshotFocus,
+    "invalid Training focus target must preserve focus");
 
   const malformedTrainingRoot = new FakeElement("div");
   const malformedTrainingInvoke = () => ({
