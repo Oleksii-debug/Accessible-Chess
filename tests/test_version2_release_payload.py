@@ -444,6 +444,8 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 "duplicate member names",
             ),
             ("device", (("stockfish/src/CON.txt", b"no"),), "Windows device path"),
+            ("superscript-device", (("stockfish/src/COM¹.txt", b"no"),), "Windows device path"),
+            ("console-device", (("stockfish/src/CONOUT$.txt", b"no"),), "Windows device path"),
         )
         for label, members, expected in cases:
             with self.subTest(label=label):
