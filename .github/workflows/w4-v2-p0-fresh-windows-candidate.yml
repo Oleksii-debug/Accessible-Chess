@@ -396,6 +396,11 @@ jobs:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH')
           if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH')
+          expected_archive_sha = os.environ['USER_SOUND_PACK_ZIP_SHA256'].strip().lower()
+          if inventory.get('source_archive_sha256') != expected_archive_sha:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SHA256_MISMATCH')
+          if int(inventory.get('source_archive_bytes', -1)) <= 0:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING')
           wavs = [
               path for path in (sound_root / 'library').rglob('*')
               if path.is_file() and path.suffix.lower() == '.wav'
