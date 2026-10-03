@@ -226,7 +226,9 @@
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
         bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
           if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          refresh(true);
+          return refresh(true).catch(function () {
+            announce(uiText("Не вдалося відкрити розділ.", "Could not open the section."));
+          });
         }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
       });
       row.appendChild(button);
