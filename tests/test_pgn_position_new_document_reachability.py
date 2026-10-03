@@ -288,7 +288,7 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         with patch.object(api, "_display_board", return_value=visible):
             position = _current_display_position(api)
 
-        self.assertIsInstance(position, PositionState)
+        self.assertIs(type(position), PositionState)
         self.assertEqual(position.to_fen(), CUSTOM_FEN)
 
 
