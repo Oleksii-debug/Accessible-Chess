@@ -329,9 +329,8 @@ class ClassroomModerationRpcService:
     ) -> None:
         if authorization is None or provider_admin is None or ledger is None:
             raise TypeError("moderation RPC service ports are required")
-        if provider_state_verifier is not None and not hasattr(
-            provider_state_verifier,
-            "moderation_effect_matches",
+        if provider_state_verifier is not None and not callable(
+            getattr(provider_state_verifier, "moderation_effect_matches", None)
         ):
             raise TypeError("moderation provider state verifier is invalid")
         self._authorization = authorization
