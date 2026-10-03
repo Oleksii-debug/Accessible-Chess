@@ -284,6 +284,21 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             },
         )
 
+    def _trusted_current_target(self) -> dict[str, object]:
+        identity = self._view_identity(self._workspace.view())
+        cursor = identity[2]
+        assert isinstance(cursor, GameTreeCursor)
+        return {
+            "game_index": identity[1],
+            "line_path": tuple(
+                (step.parent_move_index, step.variation_index)
+                for step in cursor.line_path
+            ),
+            "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
+            "expected_record_digest": identity[6],
+            "content_revision": identity[4],
+        }
+
     def _trusted_target(
         self,
         node_id: str,
@@ -414,16 +429,18 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         rejected = self._prepare_browser_action()
         if rejected is not None:
             return rejected
+        payload = self._trusted_current_target()
         return self._operate_and_render(
-            lambda: self._dispatch_registered("pgn.previous_game", {})
+            lambda: self._dispatch_registered("pgn.previous_game", payload)
         )
 
     def next_game(self) -> PgnWebViewEvent:
         rejected = self._prepare_browser_action()
         if rejected is not None:
             return rejected
+        payload = self._trusted_current_target()
         return self._operate_and_render(
-            lambda: self._dispatch_registered("pgn.next_game", {})
+            lambda: self._dispatch_registered("pgn.next_game", payload)
         )
 
     def _mutate_and_render(self, operation: Callable[[], PgnWebViewEvent]) -> PgnWebViewEvent:
