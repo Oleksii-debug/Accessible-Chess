@@ -445,6 +445,31 @@ async function clickRoute(routeId) {
   check(profileDialog.open === false, "profile dialog did not close");
   check(documentRef.activeElement === profileButton, "closing recovery dialog did not restore profile-button focus");
 
+  const profileSkip = documentRef.getElementById("v2-profile-skip");
+  const boardNav = documentRef.getElementById("v2-nav-board");
+  check(profileSkip && boardNav, "first-launch profile controls are missing");
+  currentRoute = "board";
+  profileSnapshot = {
+    ok: true,
+    exists: false,
+    displayName: "",
+    generatedAlias: false,
+    recoveryRequired: false,
+    announcement: ""
+  };
+  profileButton.disabled = false;
+  profileButton.focus();
+  profileButton.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "first-launch profile dialog did not open");
+  check(profileSkip.hidden === false, "first-launch Skip action remained hidden");
+  check(typeof windowObject.pywebview.api.profile_create === "undefined", "fake host unexpectedly provides profile_create");
+  profileSkip.listeners.click({});
+  check(profileDialog.open === false, "missing profile mutation bridge trapped the modal dialog");
+  check(profileButton.disabled === true, "missing profile mutation bridge did not disable the unavailable profile entry point");
+  check(documentRef.activeElement === boardNav, "missing profile mutation bridge did not return focus to the active product navigation");
+
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
