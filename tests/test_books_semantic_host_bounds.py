@@ -522,6 +522,38 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         presenter.assert_not_called()
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_presenter_game_index_subclass_is_rejected_before_comparison(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileIndex(int):
+            def __eq__(self, other):
+                raise AssertionError("hostile presenter index must not be compared")
+
+            def __ne__(self, other):
+                raise AssertionError("hostile presenter index must not be compared")
+
+        malformed_view = SimpleNamespace(
+            game_index=HostileIndex(0),
+            items=(),
+        )
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_presenter_comment_slots_are_bounded_before_aggregate_comparison(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
