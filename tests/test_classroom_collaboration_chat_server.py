@@ -277,6 +277,114 @@ class ClassroomChatServerTests(unittest.TestCase):
         ):
             self.store.integrity_check()
 
+    def test_hide_rejects_hidden_target_without_state_event(self) -> None:
+        sent = self.send(self.draft("hidden-without-write-event"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET hidden=1
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+
+        hide = self.moderation(
+            "hide-corrupt-hidden-target",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored hidden message state is inconsistent",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(hide,),
+            )
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_moderation_ops
+                    WHERE room_id=? AND operation_id=?
+                    """,
+                    (ROOM, hide.operation_id),
+                ).fetchone()
+            )
+            self.assertEqual(
+                0,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
+    def test_hide_rejects_visible_target_with_orphan_state_event(self) -> None:
+        sent = self.send(self.draft("visible-with-orphan-state"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, sent.message_id),
+            )
+
+        hide = self.moderation(
+            "hide-corrupt-visible-target",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored visible message state is inconsistent",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(hide,),
+            )
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(
+                0,
+                db.execute(
+                    """
+                    SELECT hidden FROM classroom_chat_server_messages
+                    WHERE message_id=?
+                    """,
+                    (sent.message_id,),
+                ).fetchone()[0],
+            )
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_moderation_ops
+                    WHERE room_id=? AND operation_id=?
+                    """,
+                    (ROOM, hide.operation_id),
+                ).fetchone()
+            )
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
     def test_semantic_integrity_accepts_atomic_hide_state(self) -> None:
         sent = self.send(self.draft("integrity-hide-message"))
         hide = self.moderation(
