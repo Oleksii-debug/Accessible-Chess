@@ -233,6 +233,7 @@ const workspace = new FakeElement("section");
 workspace.id = "v2-workspace";
 workspace.hidden = false;
 main.appendChild(workspace);
+let activeWorkspace = workspace;
 const live = new FakeElement("div");
 live.id = "live";
 main.appendChild(live);
@@ -249,7 +250,6 @@ let currentRoute = pgnNav;
 const documentRef = {
   getElementById(id) {
     if (id === main.id) return main;
-    if (id === workspace.id) return workspace;
     if (id === navigation.id) return navigation;
     if (id === live.id) return live;
     for (const root of [main, navigation]) {
@@ -319,8 +319,27 @@ vm.runInContext(source, context, { filename: "p0_accessibility_runtime.js" });
 function setContent(text) {
   const content = new FakeElement("p");
   content.textContent = text;
-  workspace.replaceChildren(content);
+  activeWorkspace.replaceChildren(content);
   return content;
+}
+
+function replaceWorkspaceRoot(text) {
+  const replacement = new FakeElement("section");
+  replacement.id = "v2-workspace";
+  replacement.hidden = false;
+  const content = new FakeElement("p");
+  content.textContent = text;
+  replacement.appendChild(content);
+  const old = activeWorkspace;
+  const index = main.children.indexOf(old);
+  assert.ok(index >= 0, "active workspace must be attached before replacement");
+  if (selection) selection.collapseForMutation(old);
+  old.parentNode = null;
+  replacement.parentNode = main;
+  main.children[index] = replacement;
+  activeWorkspace = replacement;
+  notify({ type: "childList", target: main });
+  return replacement;
 }
 
 function selectText(root, text, occurrence) {
@@ -358,16 +377,16 @@ function absoluteSelectionStart(root) {
 // invalidate the old retained selection before a later same-route content
 // mutation can resurrect it.
 setContent("Persistent semantic passage");
-selectText(workspace, "semantic", 0);
+selectText(activeWorkspace, "semantic", 0);
 currentRoute = libraryNav;
 libraryNav.setAttribute("aria-current", "page");
-workspace.hidden = true;
-workspace.setAttribute("hidden", "");
+activeWorkspace.hidden = true;
+activeWorkspace.setAttribute("hidden", "");
 selection.removeAllRanges(); // simulate browser clearing the visual selection without selectionchange
 currentRoute = pgnNav;
 pgnNav.setAttribute("aria-current", "page");
-workspace.hidden = false;
-workspace.removeAttribute("hidden");
+activeWorkspace.hidden = false;
+activeWorkspace.removeAttribute("hidden");
 setContent("Updated semantic passage");
 assert.strictEqual(
   selection.toString(),
@@ -379,16 +398,31 @@ assert.strictEqual(
 // with the new browser range. Otherwise a later rerender can retarget the
 // selection to a decoy that matches obsolete pre-rerender context.
 setContent("OLD-BEFORE target OLD-AFTER");
-selectText(workspace, "target", 0);
+selectText(activeWorkspace, "target", 0);
 setContent("NEW-BEFORE target NEW-AFTER");
 assert.strictEqual(selection.toString(), "target", "first relocation failed");
 setContent("OLD-BEFORE target OLD-AFTER || NEW-BEFORE target NEW-AFTER");
 assert.strictEqual(selection.toString(), "target", "second relocation lost the selected text");
 assert.strictEqual(
-  absoluteSelectionStart(workspace),
-  workspace.textContent.lastIndexOf("target"),
+  absoluteSelectionStart(activeWorkspace),
+  activeWorkspace.textContent.lastIndexOf("target"),
   "successive rerenders must follow refreshed semantic context, not an obsolete decoy"
 );
 
+// Reusing the same DOM id after replacing the entire semantic root must not
+// transfer a retained selection into the new root. Parent childList records
+// are the only mutation signal at replacement time.
+setContent("Original root semantic passage");
+selectText(activeWorkspace, "semantic", 0);
+replaceWorkspaceRoot("Replacement root semantic passage");
+assert.strictEqual(selection.toString(), "", "root replacement must clear the browser selection");
+setContent("Later replacement semantic passage");
+assert.strictEqual(
+  selection.toString(),
+  "",
+  "a retained selection must not cross semantic-root identity merely because id/route/text are reused"
+);
+
+console.log("P0_SEMANTIC_ROOT_IDENTITY_EPOCH=PASS");
 console.log("P0_ROUTE_ATTRIBUTE_SELECTION_INVALIDATION=PASS");
 console.log("P0_RELOCATED_SELECTION_CONTEXT_REFRESH=PASS");
