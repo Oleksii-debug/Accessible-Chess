@@ -6,6 +6,7 @@ from acs.book_training import (
     BOOK_TRAINING_SCHEMA_VERSION,
     BookTrainingError,
     BookTrainingErrorCode,
+    BookTrainingOrigin,
     build_book_training_material,
     build_current_book_training_material,
     resolve_book_training_origin,
@@ -171,6 +172,31 @@ class BookTrainingCanonicalConversionTests(unittest.TestCase):
 
 
 class BookTrainingOriginTests(unittest.TestCase):
+    def test_direct_origin_enforces_heading_depth_and_round_trips_at_limit(self):
+        common = {
+            "target_key": "index:0",
+            "block_digest": "0" * 64,
+            "index_at_export": 0,
+            "block_id": None,
+            "source_anchor": None,
+            "book_fingerprint": "1" * 64,
+        }
+        accepted = BookTrainingOrigin(
+            heading_path=tuple(f"Chapter {index}" for index in range(6)),
+            **common,
+        )
+        self.assertEqual(
+            accepted,
+            BookTrainingOrigin.from_dict(accepted.as_dict()),
+        )
+
+        with self.assertRaises(BookTrainingError) as caught:
+            BookTrainingOrigin(
+                heading_path=tuple(f"Chapter {index}" for index in range(7)),
+                **common,
+            )
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
     def test_semantic_origin_survives_surrounding_reorder_and_returns_reader(self):
         exercise = Exercise(
             fen=KING_FEN,
