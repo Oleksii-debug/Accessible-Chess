@@ -225,6 +225,7 @@ class SqliteClassroomModerationLedger:
             connection.close()
 
     def _connect(self) -> sqlite3.Connection:
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(
                 str(self._path),
@@ -237,6 +238,11 @@ class SqliteClassroomModerationLedger:
             connection.execute(f"PRAGMA busy_timeout={int(self._timeout_seconds * 1000)}")
             return connection
         except sqlite3.Error:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
             raise ClassroomModerationLedgerError(
                 "moderation ledger storage is unavailable"
             ) from None
