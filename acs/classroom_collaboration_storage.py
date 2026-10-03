@@ -1283,14 +1283,15 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationConflictError(
                     "file authority arrived outside active upload transition"
                 )
-            expected_sequence = _next_authoritative_attachment_sequence(
-                db,
-                current.room_id,
-            )
-            if attachment.sequence_no > expected_sequence:
-                raise CollaborationSequenceGapError(
-                    "attachment sequence has an unresolved gap"
+            if attachment.transfer_state in {"stored", "deleted"}:
+                expected_sequence = _next_authoritative_attachment_sequence(
+                    db,
+                    current.room_id,
                 )
+                if attachment.sequence_no > expected_sequence:
+                    raise CollaborationSequenceGapError(
+                        "attachment sequence has an unresolved gap"
+                    )
             _validate_transfer_transition(
                 current.transfer_state,
                 attachment.transfer_state,
