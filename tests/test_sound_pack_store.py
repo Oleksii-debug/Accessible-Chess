@@ -518,6 +518,43 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual("1.0.0", store.active_version(first.pack_id))
             self.assertEqual(first, store.installed()[first.pack_id])
 
+    def test_inventory_asset_swap_after_lstat_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, payloads = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+            target = (
+                store.root
+                / manifest.pack_id
+                / "versions"
+                / manifest.version
+                / manifest.files["move"]
+            )
+            replacement = target.with_name("replacement.wav")
+            replacement.write_bytes(payloads[manifest.files["move"]])
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_pack_store.os.open",
+                side_effect=swap_before_open,
+            ):
+                inventory = store.installed()
+
+            self.assertTrue(swapped)
+            self.assertNotIn(manifest.pack_id, inventory)
+
     def test_verified_asset_snapshot_returns_digest_bound_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
