@@ -194,8 +194,9 @@ class ExerciseSession:
     """
 
     def __init__(self, definition: ExerciseDefinition) -> None:
-        _require_exact_definition(definition)
+        definition = _validated_definition(definition)
         self.definition = definition
+        self._definition_authority_digest = _definition_authority_digest(definition)
         self._board = Board(definition.start_fen)
         self._accepted_path: list[str] = []
         self._step_index = 0
@@ -239,16 +240,17 @@ class ExerciseSession:
         return tuple(self._accepted_path)
 
     def current_step(self) -> ExerciseStep | None:
+        definition = self._bound_definition()
         if self.completed:
             return None
-        return self.definition.steps[self._step_index]
+        return definition.steps[self._step_index]
 
     def submit(self, move: str) -> ExerciseResult:
-        _require_exact_definition(self.definition)
+        definition = self._bound_definition()
         if self.completed:
             raise ValueError("exercise is already completed")
         submitted = _normalize_move(move)
-        step = self.definition.steps[self._step_index]
+        step = definition.steps[self._step_index]
 
         # Validate authored accepted answers before touching counters or state.
         accepted = _resolved_accepted_moves(step, self._board)
@@ -272,15 +274,15 @@ class ExerciseSession:
 
         # Fail atomically if the newly reached step contains chess content that
         # cannot be interpreted by the canonical core in this exact position.
-        if next_index < len(self.definition.steps):
-            _resolved_accepted_moves(self.definition.steps[next_index], candidate)
+        if next_index < len(definition.steps):
+            _resolved_accepted_moves(definition.steps[next_index], candidate)
 
         explanation = step.explanation
         self._board = candidate
         self._accepted_path.append(canonical_san)
         self._attempts += 1
         self._step_index = next_index
-        if self._step_index == len(self.definition.steps):
+        if self._step_index == len(definition.steps):
             self._status = ExerciseStatus.COMPLETED
         else:
             self._status = ExerciseStatus.IN_PROGRESS
@@ -312,20 +314,20 @@ class ExerciseSession:
         )
 
     def request_hint(self) -> HintResult:
-        _require_exact_definition(self.definition)
+        definition = self._bound_definition()
         if self.completed:
             return HintResult(False, self._step_index, None, self._hints_used)
-        step = self.definition.steps[self._step_index]
+        step = definition.steps[self._step_index]
         if step.hint is None:
             return HintResult(False, self._step_index, None, self._hints_used)
         self._hints_used += 1
         return HintResult(True, self._step_index, step.hint, self._hints_used)
 
     def reset(self) -> None:
-        _require_exact_definition(self.definition)
+        definition = self._bound_definition()
         # Reconstruct from the authored start position through canonical core;
         # reset never reuses a potentially mutated hidden board object.
-        board = Board(self.definition.start_fen)
+        board = Board(definition.start_fen)
         self._board = board
         self._accepted_path = []
         self._step_index = 0
@@ -336,11 +338,11 @@ class ExerciseSession:
 
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v3 progress with deterministic chess identity."""
-        _require_exact_definition(self.definition)
+        definition = self._bound_definition()
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
-            "exercise_id": self.definition.exercise_id,
-            "definition_digest": _definition_digest(self.definition),
+            "exercise_id": definition.exercise_id,
+            "definition_digest": _definition_digest(definition),
             "accepted_path": list(self._accepted_path),
             "position_fen": self._board.fen(),
             "step_index": self._step_index,
@@ -349,6 +351,12 @@ class ExerciseSession:
             "hints_used": self._hints_used,
             "status": self._status.value,
         }
+
+    def _bound_definition(self) -> ExerciseDefinition:
+        definition = _validated_definition(self.definition)
+        if _definition_authority_digest(definition) != self._definition_authority_digest:
+            raise ValueError("exercise definition changed during session")
+        return definition
 
     @classmethod
     def restore(
@@ -363,7 +371,7 @@ class ExerciseSession:
         the reconstructed position. Distinct alternatives fail closed instead
         of guessing which position the learner actually reached.
         """
-        _require_exact_definition(definition)
+        definition = _validated_definition(definition)
         if type(snapshot) is not dict:
             raise TypeError("exercise snapshot must be an exact dict")
         if "schema_version" not in snapshot:
@@ -470,6 +478,71 @@ def _require_exact_definition(definition: object) -> None:
         raise TypeError("definition must be an exact ExerciseDefinition")
 
 
+def _canonical_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
+    _require_exact_definition(definition)
+    if type(definition.steps) is not tuple:
+        raise TypeError("exercise steps must be an exact tuple")
+    if not definition.steps:
+        raise ValueError("exercise requires at least one step")
+    if len(definition.steps) > _MAX_EXERCISE_STEPS:
+        raise ValueError("exercise has too many steps")
+
+    steps: list[ExerciseStep] = []
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise TypeError("exercise steps must contain exact ExerciseStep values")
+        steps.append(
+            ExerciseStep(
+                step.accepted_moves,
+                hint=step.hint,
+                explanation=step.explanation,
+            )
+        )
+
+    return ExerciseDefinition(
+        definition.exercise_id,
+        definition.start_fen,
+        tuple(steps),
+        title=definition.title,
+        tags=definition.tags,
+        source_id=definition.source_id,
+        metadata=definition.metadata,
+    )
+
+
+def _validated_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
+    canonical = _canonical_definition(definition)
+    if canonical != definition:
+        raise ValueError("exercise definition is not canonical")
+    return canonical
+
+
+def _definition_authority_digest(definition: ExerciseDefinition) -> str:
+    payload = {
+        "exercise_id": definition.exercise_id,
+        "start_fen": definition.start_fen,
+        "title": definition.title,
+        "tags": list(definition.tags),
+        "source_id": definition.source_id,
+        "metadata": definition.metadata,
+        "steps": [
+            {
+                "accepted_moves": sorted(step.accepted_moves),
+                "hint": step.hint,
+                "explanation": step.explanation,
+            }
+            for step in definition.steps
+        ],
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _restore_common(
     definition: ExerciseDefinition,
     snapshot: dict[str, object],
@@ -540,6 +613,10 @@ def _require_snapshot_fields(
     snapshot: dict[str, object],
     expected: frozenset[str],
 ) -> None:
+    if type(snapshot) is not dict:
+        raise TypeError("exercise snapshot must be an exact dict")
+    if len(snapshot) > len(expected):
+        raise ValueError("invalid exercise snapshot fields (too many fields)")
     fields = set(snapshot)
     if fields == expected:
         return
@@ -577,6 +654,7 @@ def _move_key(move: Move) -> tuple[int, int, str | None, bool, bool]:
 
 
 def _definition_digest(definition: ExerciseDefinition) -> str:
+    definition = _validated_definition(definition)
     semantic_payload = {
         "start_fen": definition.start_fen,
         "steps": [sorted(step.accepted_moves) for step in definition.steps],
