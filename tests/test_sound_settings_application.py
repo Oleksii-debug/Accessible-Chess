@@ -240,12 +240,30 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             )
 
         self.assertIn("mate", custom_ids)
-        self.assertNotIn("draw", custom_ids)
+        self.assertIn(
+            "draw",
+            custom_ids,
+            "new canonical owner event must stay configurable through exact classic fallback",
+        )
         with mock.patch(
             "acs.sound_settings_application.SoundEvent",
             owner_events,
-        ), self.assertRaisesRegex(ValueError, "unknown sound event"):
-            custom.set_event("draw", enabled=False, language="en")
+        ):
+            draw_result = custom.set_event(
+                "draw",
+                enabled=False,
+                volume_percent=37,
+                language="en",
+            )
+        draw = next(
+            item
+            for item in draw_result.snapshot["events"]
+            if item["event_id"] == "draw"
+        )
+        self.assertFalse(draw["enabled"])
+        self.assertEqual(37, draw["volume_percent"])
+        self.assertEqual("draw", draw["sound_id"])
+        self.assertIn("draw", draw["sound_choices"])
 
     def test_master_and_per_event_edits_persist_through_single_profile_manager(self) -> None:
         storage, manager, _playback, runtime = self._profile_runtime()
