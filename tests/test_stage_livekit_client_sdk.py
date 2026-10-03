@@ -25,6 +25,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
                 sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
+                sdk.LIVEKIT_CLIENT_NOTICE_SHA256,
             ),
             (
                 release_payload._LIVEKIT_CLIENT_VERSION,
@@ -32,6 +33,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 release_payload._LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 release_payload._LIVEKIT_CLIENT_NPM_INTEGRITY,
                 release_payload._LIVEKIT_CLIENT_BUNDLE_SHA256,
+                release_payload._LIVEKIT_CLIENT_NOTICE_SHA256,
             ),
         )
         self.assertEqual(
@@ -41,6 +43,7 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
                 sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
+                sdk.LIVEKIT_CLIENT_NOTICE_SHA256,
             ),
             (
                 package_preflight._LIVEKIT_CLIENT_VERSION,
@@ -48,11 +51,16 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 package_preflight._LIVEKIT_CLIENT_SOURCE,
                 package_preflight._LIVEKIT_CLIENT_INTEGRITY,
                 package_preflight._LIVEKIT_CLIENT_BUNDLE_SHA256,
+                package_preflight._LIVEKIT_CLIENT_NOTICE_SHA256,
             ),
         )
         self.assertEqual(
             sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
             "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d",
+        )
+        self.assertEqual(
+            sdk.LIVEKIT_CLIENT_NOTICE_SHA256,
+            "8838e252d2ca1151ac60c9742c2c110ccf85b46f7dbf1ad59fa841c43bf9fe27",
         )
 
     def setUp(self) -> None:
