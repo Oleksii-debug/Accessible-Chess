@@ -216,6 +216,50 @@ check(
   collaborationStatus.getAttribute("aria-live") === "off",
   "available collaboration must expose a visible non-live status transcript"
 );
+const redactedRoot = new FakeElement("div");
+const redactedSnapshot = {
+  document: { lang: "en", heading: "Classes" },
+  sections: [],
+  detail: null,
+  collaboration: collaboration([
+    {
+      dom_id: "collaboration-message-redacted",
+      sender: "Student two",
+      body: "",
+      redacted: true,
+      redacted_label: "Message content is no longer available.",
+      // Browser rendering must not revive unread semantics for a tombstone even
+      // if a stale host snapshot carries an obsolete unread presentation bit.
+      unread: true,
+      retention_label: "Retention: session"
+    }
+  ], 0)
+};
+window.AccessibleChessEducationSurface.render(
+  redactedRoot,
+  redactedSnapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+const redactedMessage = redactedRoot.querySelector("#collaboration-message-redacted");
+const redactedLabel = redactedRoot.querySelector(
+  "#collaboration-message-redacted-redacted"
+);
+check(
+  redactedMessage !== null &&
+  redactedMessage.getAttribute("data-unread") === null,
+  "retention-redacted tombstones must never render as unread"
+);
+check(
+  redactedLabel !== null &&
+  redactedLabel.textContent === "Message content is no longer available." &&
+  redactedLabel.getAttribute("data-message-redacted") === "true" &&
+  redactedLabel.getAttribute("aria-live") === "off",
+  "redacted chat content must remain visible/selectable and screen-reader readable without live-region spam"
+);
+
 const fileProgressRegion = root.querySelector("#collaboration-file-transfer-progress");
 check(
   fileProgressRegion !== null &&

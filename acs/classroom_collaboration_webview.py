@@ -125,6 +125,7 @@ _LABELS = {
         "new_many": "Нових повідомлень: {count}.",
         "unread": "Непрочитаних: {count}",
         "unread_message": "Непрочитане",
+        "redacted_message": "Вміст повідомлення більше недоступний.",
         "type": "Тип",
         "size": "Розмір",
         "status": "Стан",
@@ -207,6 +208,7 @@ _LABELS = {
         "new_many": "New messages: {count}.",
         "unread": "Unread: {count}",
         "unread_message": "Unread",
+        "redacted_message": "Message content is no longer available.",
         "type": "Type",
         "size": "Size",
         "status": "Status",
@@ -557,8 +559,13 @@ class ClassroomCollaborationWebView:
         )
         sender_label = self._label(item.sender_id)
         action_sender = self._announcement_body(sender_label)
+        presentation_body = (
+            _LABELS[self._language]["redacted_message"]
+            if item.redacted
+            else item.body
+        )
         action_message = self._announcement_body(
-            f"{sender_label}: {item.body}"
+            f"{sender_label}: {presentation_body}"
         )
         view: dict[str, object] = {
             "dom_id": self._dom_id("message", item.message_id),
@@ -566,11 +573,15 @@ class ClassroomCollaborationWebView:
             "action_sender": action_sender,
             "action_message": action_message,
             "body": item.body,
+            "redacted": item.redacted,
             "retention_label": (
                 f"{_LABELS[self._language]['retention']}: "
                 f"{_RETENTION_LABELS[self._language][item.retention]}"
             ),
-            "unread": item.message_id in self._unread_message_ids,
+            "unread": (
+                not item.redacted
+                and item.message_id in self._unread_message_ids
+            ),
             "can_hide": moderator,
             "can_moderate_sender": sender_moderatable,
             "can_remove_sender": (
@@ -579,6 +590,8 @@ class ClassroomCollaborationWebView:
                 and self._participant_moderation_ready()
             ),
         }
+        if item.redacted:
+            view["redacted_label"] = _LABELS[self._language]["redacted_message"]
         if item.sent_at_unix_ms is not None:
             timestamp_text, timestamp_datetime = self._message_timestamp(item.sent_at_unix_ms)
             view["timestamp_text"] = timestamp_text
@@ -809,8 +822,12 @@ class ClassroomCollaborationWebView:
             can_older_files,
             can_newer_files,
         ) = self._file_page_projection(attachments)
-        visible_ids = {item.message_id for item in messages}
-        self._unread_message_ids.intersection_update(visible_ids)
+        readable_ids = {
+            item.message_id
+            for item in messages
+            if not item.redacted
+        }
+        self._unread_message_ids.intersection_update(readable_ids)
         unread_count = len(self._unread_message_ids)
         moderation_available = self._moderator()
         return {
@@ -1126,7 +1143,7 @@ class ClassroomCollaborationWebView:
         visible_message_ids = {
             item.message_id
             for item in current_messages
-            if not item.hidden
+            if not item.hidden and not item.redacted
         }
         self._unread_message_ids.intersection_update(visible_message_ids)
         recovered_fingerprints: list[str] = []
@@ -1138,7 +1155,10 @@ class ClassroomCollaborationWebView:
             if (
                 item.sender_id == self._controller.local_participant_id
                 and item.retention == self._chat_retention
-                and self._chat_draft_fingerprint(item.body) == fingerprint
+                and (
+                    item.redacted
+                    or self._chat_draft_fingerprint(item.body) == fingerprint
+                )
             ):
                 recovered_fingerprints.append(fingerprint)
             else:
@@ -1156,6 +1176,7 @@ class ClassroomCollaborationWebView:
             for item in incoming
             if item.message_id not in before
             and not item.hidden
+            and not item.redacted
             and item.sender_id != self._controller.local_participant_id
         )
         self._unread_message_ids.update(item.message_id for item in new_remote)
