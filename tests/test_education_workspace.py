@@ -1,6 +1,8 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -315,12 +317,30 @@ class EducationWorkspaceStoreTests(unittest.TestCase):
             revision = store.save(workspace, expected_revision=None)
             original = path.read_bytes()
 
-            store._lock_path.mkdir()
+            script = (
+                "import sys\n"
+                "from acs.education_workspace_store import EducationWorkspaceStore\n"
+                "store = EducationWorkspaceStore(sys.argv[1])\n"
+                "with store._peer_lock():\n"
+                "    print('locked', flush=True)\n"
+                "    sys.stdin.readline()\n"
+            )
+            holder = subprocess.Popen(
+                [sys.executable, "-c", script, str(path)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
             try:
+                self.assertEqual(holder.stdout.readline().strip(), "locked")
                 with self.assertRaises(ews.EducationWorkspaceBusyError):
                     store.save(submit(workspace), expected_revision=revision)
             finally:
-                store._lock_path.rmdir()
+                holder.stdin.write("\n")
+                holder.stdin.flush()
+                _, stderr = holder.communicate(timeout=15)
+                self.assertEqual(holder.returncode, 0, stderr)
             self.assertEqual(path.read_bytes(), original)
 
             changed = submit(workspace)
@@ -328,8 +348,93 @@ class EducationWorkspaceStoreTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     store.save(changed, expected_revision=revision)
             self.assertEqual(path.read_bytes(), original)
-            self.assertFalse(store._lock_path.exists())
+            self.assertTrue(store._lock_path.is_file())
             self.assertEqual(list(Path(tmp).glob(".education-workspace.json.*.tmp")), [])
+
+    def test_store_peer_lock_is_released_by_process_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+
+            script = (
+                "import os, sys\n"
+                "from acs.education_workspace_store import EducationWorkspaceStore\n"
+                "store = EducationWorkspaceStore(sys.argv[1])\n"
+                "with store._peer_lock():\n"
+                "    os._exit(0)\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", script, str(path)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(store._lock_path.is_file())
+
+            revision = store.save(workspace, expected_revision=None)
+            self.assertEqual(store.load().revision, revision)
+
+    def test_store_durability_barrier_failure_requires_reload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+            revision = store.save(workspace, expected_revision=None)
+            changed = submit(workspace)
+
+            with patch(
+                "acs.education_workspace_store._sync_published_path",
+                side_effect=OSError("durability barrier failed"),
+            ):
+                with self.assertRaisesRegex(
+                    ews.EducationWorkspaceDurabilityError,
+                    "reload before retrying",
+                ):
+                    store.save(changed, expected_revision=revision)
+
+            reloaded = store.load()
+            self.assertEqual(reloaded.workspace, changed)
+            self.assertNotEqual(reloaded.revision, revision)
+            with self.assertRaises(ews.EducationWorkspaceConflictError):
+                store.save(changed, expected_revision=revision)
+
+    def test_store_canonical_serialization_streams_and_bounds_before_full_text(self):
+        workspace = ew.EducationWorkspace.empty(sample_classroom())
+        envelope = {
+            "schema_version": ews.EDUCATION_WORKSPACE_STORE_VERSION,
+            "workspace": workspace.to_record(),
+        }
+        expected = json.dumps(
+            envelope,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        with patch.object(
+            ews.json,
+            "dumps",
+            side_effect=AssertionError("full JSON text must not be built"),
+        ) as dumps:
+            self.assertEqual(ews._canonical_bytes(envelope), expected)
+            dumps.assert_not_called()
+
+        with (
+            patch.object(ews, "MAX_WORKSPACE_STORE_BYTES", len(expected) - 1),
+            patch.object(
+                ews.json,
+                "dumps",
+                side_effect=AssertionError("full JSON text must not be built"),
+            ) as dumps,
+        ):
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceStoreError,
+                "size limit",
+            ):
+                ews._canonical_bytes(envelope)
+            dumps.assert_not_called()
 
     def test_store_rejects_oversize_corruption_and_unknown_schema(self):
         with tempfile.TemporaryDirectory() as tmp:
