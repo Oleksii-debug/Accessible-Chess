@@ -9,6 +9,7 @@ from acs.sound_pack_catalog import (
     SoundPackCatalogEntry,
     SoundPackInstallError,
     SoundPackManager,
+    SoundPackRightsEvidence,
     SoundPackState,
 )
 from acs.sound_profiles import CORE_SOUND_EVENTS, SoundEventPreference, SoundPackManifest, SoundProfile
@@ -64,7 +65,15 @@ def make_manifest(pack_id="soft.wood", version="1.0.0"):
     )
 
 
-def make_entry(manifest=None, *, signature=None, compatible=True):
+def make_rights(manifest):
+    return SoundPackRightsEvidence(
+        license_id=manifest.license_id,
+        source_uri=f"https://example.invalid/source/{manifest.pack_id}/{manifest.version}",
+        license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+    )
+
+
+def make_entry(manifest=None, *, signature=None, compatible=True, rights=True):
     manifest = manifest or make_manifest()
     assets = {}
     for index, path in enumerate(sorted(set(manifest.files.values())), start=1):
@@ -75,6 +84,7 @@ def make_entry(manifest=None, *, signature=None, compatible=True):
         total_bytes=sum(item.size_bytes for item in assets.values()),
         signature=signature,
         compatible=compatible,
+        rights_evidence=make_rights(manifest) if rights else None,
     )
 
 
@@ -159,6 +169,56 @@ class SoundPackCatalogTests(unittest.TestCase):
                 total_bytes=1,
                 payload_ref=object(),
             )
+
+    def test_rights_evidence_requires_auditable_https_or_urn_references(self):
+        manifest = make_manifest()
+        for field, value in (
+            ("source_uri", "C:/private/sounds"),
+            ("source_uri", "http://example.invalid/source"),
+            ("source_uri", "https://user:secret@example.invalid/source"),
+            ("license_uri", "relative/license.txt"),
+            ("license_uri", "javascript:alert(1)"),
+        ):
+            values = {
+                "license_id": manifest.license_id,
+                "source_uri": "urn:accessible-chess:test:source",
+                "license_uri": "urn:accessible-chess:test:license",
+            }
+            values[field] = value
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(
+                ValueError,
+                "HTTPS URL or URN",
+            ):
+                SoundPackRightsEvidence(**values)
+
+    def test_rights_evidence_license_must_match_downloaded_manifest_authority(self):
+        manifest = make_manifest()
+        entry = make_entry(manifest)
+        with self.assertRaisesRegex(ValueError, "must match manifest"):
+            SoundPackCatalogEntry(
+                manifest=manifest,
+                assets=entry.assets,
+                total_bytes=entry.total_bytes,
+                rights_evidence=SoundPackRightsEvidence(
+                    license_id="MIT",
+                    source_uri="urn:accessible-chess:test:source",
+                    license_uri="https://opensource.org/license/mit",
+                ),
+            )
+
+    def test_install_without_auditable_rights_evidence_fails_before_download(self):
+        entry = make_entry(rights=False)
+        downloader = FakeDownloader(make_download(entry))
+        storage = FakeStorage({"classic": make_manifest("classic")})
+
+        with self.assertRaisesRegex(
+            SoundPackInstallError,
+            "auditable license/provenance evidence",
+        ):
+            SoundPackManager(downloader, storage).install(entry)
+
+        self.assertEqual([], downloader.calls)
+        self.assertEqual([], storage.install_calls)
 
     def test_catalog_signature_rejects_control_character_spoofing(self):
         for signature in ("signed\nextra", "signed\tshadow", "signed\u2028second-line"):
