@@ -6,6 +6,7 @@ on:
       - 'fix/books-training-toolbar-keyboard-20261003'
     paths:
       - 'acs/book_webview_projection.py'
+      - 'acs/full_product_presenters.py'
       - 'web/full_product_books_training.js'
       - 'tests/test_dev1_books_training_webview_projection.py'
       - 'tests/js/books_training_surface_dom_test.js'
@@ -58,6 +59,7 @@ jobs:
             expected="$(printf '%s\n' \
               '.github/workflows/books-variation-noninteractive-semantics.yml' \
               'acs/book_webview_projection.py' \
+              'acs/full_product_presenters.py' \
               'tests/js/books_training_surface_dom_test.js' \
               'tests/test_dev1_books_training_webview_projection.py' \
               'web/full_product_books_training.js' | sort)"
@@ -68,6 +70,7 @@ jobs:
           fi
 
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "9e8d81b2db35782b8ce610272c3d4d1081d1797f"
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "c9e2f6506ddaf161acdfd71522412c2542abbfa4"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "22aaafd44b1006837c88f007ab10694e615c48d9"
           test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "a0dda4f08bdc9980a8e837f7b9ee5dcbed10866b"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "28643d6acb759a5d3563cac714c0337596ede707"
@@ -84,7 +87,7 @@ jobs:
 
       - name: Compile and retain Books projection flow
         run: |
-          python -m compileall -q acs/book_webview_projection.py tests/test_dev1_books_training_webview_projection.py
+          python -m compileall -q acs/book_webview_projection.py acs/full_product_presenters.py tests/test_dev1_books_training_webview_projection.py
           python -m unittest -v \
             tests.test_dev1_books_training_webview_projection \
             tests.test_version2_book_workspace
