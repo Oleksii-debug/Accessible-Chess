@@ -131,8 +131,16 @@ def _truncate_utf16(value: str, limit: int) -> str:
 def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
-    if not isinstance(value, str):
+    # Exact built-in strings only: presentation ingress must never execute
+    # overridden replace/strip/iteration hooks from a hostile str subclass.
+    if type(value) is not str:
         raise TypeError("book presentation text must be text")
+    # Keep every sanitizer scan behind the canonical imported-content ceiling.
+    # Small WebView fields may still be deterministically truncated to their
+    # field-specific limit, but malformed trusted-side state cannot make that
+    # sanitizer traverse an unbounded scalar first.
+    if len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+        raise ValueError("book presentation text exceeds the raw text budget")
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
     return _truncate_utf16(text, limit)
@@ -140,9 +148,12 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
 
 def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
     # Imported Book content is already bounded by the same 12 MiB release
-    # envelope. Reject an oversized malformed presentation string from O(1)
-    # Python length metadata before NUL stripping/path redaction scan it.
-    if isinstance(value, str) and len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+    # envelope. Reject wrong scalar types before even asking them for length,
+    # then reject oversized text from O(1) Python length metadata before NUL
+    # stripping/path redaction scan it.
+    if type(value) is not str:
+        raise TypeError("book presentation text must be text")
+    if len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
         raise ValueError("book presentation block exceeds the visible-text budget")
     # Two UTF-16 units are enough to retain one complete non-BMP scalar beyond
     # the canonical WebView budget, making oversize detection exact without
