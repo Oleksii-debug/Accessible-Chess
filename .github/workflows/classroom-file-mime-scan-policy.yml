@@ -1,0 +1,86 @@
+name: Classroom File MIME Scan Policy
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-http-server-runtime-20261003
+    paths:
+      - '.github/workflows/classroom-file-mime-scan-policy.yml'
+      - 'acs/classroom_file_scan_policy.py'
+      - 'acs/classroom_file_server.py'
+      - 'tests/test_classroom_file_scan_policy.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-file-mime-scan-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact MIME-scan scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "feature/classroom-http-server-runtime-20261003"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-file-mime-scan-policy.yml'
+            'acs/classroom_file_scan_policy.py'
+            'acs/classroom_file_server.py'
+            'tests/test_classroom_file_scan_policy.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected MIME-scan policy scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'CLASSROOM_FILE_MIME_SCAN_POLICY_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile file scan policy
+        run: >-
+          python -m py_compile
+          acs/classroom_file_scan_policy.py
+          acs/classroom_file_server.py
+          tests/test_classroom_file_scan_policy.py
+
+      - name: Run file scan and transport regressions
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_file_scan_policy
+          tests.test_classroom_file_server
+          tests.test_classroom_file_rpc
+          tests.test_classroom_http_server_runtime
+
+      - name: Core selftest
+        run: python -m acs.selftest
