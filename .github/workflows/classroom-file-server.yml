@@ -1,0 +1,67 @@
+name: Classroom File Server Contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/classroom-file-server.yml"
+      - "acs/classroom_file_server.py"
+      - "tests/test_classroom_file_server.py"
+      - "acs/classroom_collaboration.py"
+      - "acs/classroom_collaboration_storage.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact additive PR scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "${EVENT_BASE_REF}"
+          LIVE_BASE_SHA="$(git rev-parse "origin/${EVENT_BASE_REF}")"
+          git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD
+          test "$(git merge-base "$LIVE_BASE_SHA" HEAD)" = "$LIVE_BASE_SHA"
+          git diff --check "$LIVE_BASE_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$LIVE_BASE_SHA" HEAD | sort)
+          expected=(
+            ".github/workflows/classroom-file-server.yml"
+            "acs/classroom_file_server.py"
+            "tests/test_classroom_file_server.py"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${changed[*]}" = "${expected_sorted[*]}"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Compile trusted file-server boundary
+        run: python -m py_compile acs/classroom_file_server.py tests/test_classroom_file_server.py
+
+      - name: Run focused file-server and canonical collaboration contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_file_server
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
