@@ -476,7 +476,7 @@ def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
     expected_events = {event.value for event in SoundEvent}
     if len(expected_events) != 9 or set(events) != expected_events:
         raise Version2ReleasePayloadError(
-            "sound provenance must declare exactly all nine semantic sound events"
+            "sound provenance must declare exactly all semantic sound events"
         )
     if not isinstance(manifest_raw, dict) or not isinstance(manifest_raw.get("files"), dict):
         raise Version2ReleasePayloadError("sound manifest files must be an object")
