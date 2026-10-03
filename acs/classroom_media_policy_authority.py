@@ -652,17 +652,19 @@ class _SqliteProviderEffectScope:
         )
         try:
             self._connection = await asyncio.shield(acquisition)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as cancelled:
             # The worker thread cannot be cancelled while sqlite is waiting.
             # Recover its connection and release any lock it acquired before
             # propagating cancellation, otherwise a cancelled waiter could
-            # strand every later moderation mutation.
+            # strand every later moderation mutation. If acquisition itself
+            # later fails, the caller's already-observed cancellation remains
+            # authoritative rather than being rewritten as a storage failure.
             try:
                 connection = await acquisition
             except Exception:
-                raise
+                raise cancelled from None
             await _release_effect_lock_async(connection)
-            raise
+            raise cancelled
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
