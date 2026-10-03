@@ -25,7 +25,10 @@ from .classroom_join_credentials import (
 JOIN_CREDENTIAL_PATH = "/v1/classroom/join-credential"
 MAX_AUTHORIZATION_BYTES = 8192
 MAX_REQUEST_HEADER_BYTES = 16 * 1024
-# Bound ASGI fragmentation independently of request byte size so authenticated\n# peers cannot consume unbounded event-loop turns with zero-byte frames.\nMAX_REQUEST_BODY_EVENTS = 16 * 1024\n_BEARER_CHALLENGE = (
+# Bound ASGI fragmentation independently of request byte size so authenticated
+# peers cannot consume unbounded event-loop turns with zero-byte frames.
+MAX_REQUEST_BODY_EVENTS = 16 * 1024
+_BEARER_CHALLENGE = (
     (
         b"www-authenticate",
         b'Bearer realm="accessible-chess-classroom"',
@@ -516,5 +519,6 @@ __all__ = [
     "ClassroomJoinHttpEndpoint",
     "JOIN_CREDENTIAL_PATH",
     "MAX_AUTHORIZATION_BYTES",
+    "MAX_REQUEST_BODY_EVENTS",
     "MAX_REQUEST_HEADER_BYTES",
 ]
