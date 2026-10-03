@@ -243,6 +243,33 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
 
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_hostile_tag_key_falls_back_before_named_lookup(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileTagKey:
+            def __hash__(self):
+                return hash("White")
+
+            def __eq__(self, other):
+                raise AssertionError("hostile tag key must not participate in named lookup")
+
+        game.tags = {
+            HostileTagKey(): "Alpha",
+            "Black": "Beta",
+            "Result": "*",
+        }
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.GAME, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_malformed_root_line_falls_back_before_result_property_access(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
