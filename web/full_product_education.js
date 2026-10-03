@@ -25,14 +25,17 @@
       .then(function () { return invoke(command, payload || {}); })
       .then(onResult)
       .catch(function () {
+        let shouldAnnounceFailure = true;
         if (typeof onFailure === "function") {
           try {
-            onFailure();
+            if (onFailure() === false) shouldAnnounceFailure = false;
           } catch (_error) {
             // Recovery cleanup must not hide the bounded user-facing failure.
           }
         }
-        if (fallbackMessage) announce(String(fallbackMessage));
+        if (shouldAnnounceFailure && fallbackMessage) {
+          announce(String(fallbackMessage));
+        }
       });
   }
 
@@ -501,21 +504,23 @@
       );
       if (wrapper.parentNode) releasePendingState();
     }, announce, fallbackMessage, function () {
-      releasePendingState();
       const current = (
         root && typeof root.querySelector === "function"
           ? root.querySelector("#classroom-collaboration")
           : null
       );
       if (
-        current &&
+        sessionKey &&
         (
-          !sessionKey ||
-          current.getAttribute("data-collaboration-session") === sessionKey
+          !current ||
+          current.getAttribute("data-collaboration-session") !== sessionKey
         )
       ) {
-        setCollaborationStatus(current, fallbackMessage || "");
+        return false;
       }
+      releasePendingState();
+      if (current) setCollaborationStatus(current, fallbackMessage || "");
+      return true;
     });
     return true;
   }
