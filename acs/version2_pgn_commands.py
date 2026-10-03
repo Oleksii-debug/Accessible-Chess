@@ -49,7 +49,10 @@ class Version2PgnCommands:
         request, cursor = self._target(asdict(request), workspace=workspace)
         game = workspace.current_game()
         if not cursor.line_path:
-            return game
+            # Freeze the validated root game before it crosses this command
+            # boundary. Returning the live GameTree object would let callers
+            # mutate canonical document state without workspace validation.
+            return deepcopy(game)
         # A RAV begins before its owning move. The canonical legality projection
         # supplies that exact FEN; no move replay or chess rules are copied here.
         step = cursor.line_path[-1]
