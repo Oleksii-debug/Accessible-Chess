@@ -493,6 +493,31 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_livekit_bundle_and_provenance_coordinated_substitution_fails_pin(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            vendor = root / "AccessibleChess/web/vendor/livekit"
+            bundle = vendor / "livekit-client.umd.js"
+            bundle.write_bytes(bundle.read_bytes() + b"coordinated-substitution")
+            provenance_path = vendor / "provenance.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["bundle_sha256"] = hashlib.sha256(bundle.read_bytes()).hexdigest()
+            provenance_bytes = (
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n"
+            ).encode("utf-8")
+            provenance_path.write_bytes(provenance_bytes)
+            (
+                root / "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json"
+            ).write_bytes(provenance_bytes)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "bundle_sha256 does not match pinned release",
+            ):
+                _validate_tree(root)
+
     def test_livekit_central_notice_divergence_fails_independent_preflight(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
