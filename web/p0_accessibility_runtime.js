@@ -242,11 +242,16 @@
 
   if (typeof global.MutationObserver === "function") {
     const observer = new global.MutationObserver(function (records) {
-      if (!retainedSelection || !mutationTouchesRetainedRoot(records)) return;
+      if (!retainedSelection) return;
+      // Route identity is part of the retained selection authority. A V2
+      // transition can be represented entirely by aria-current/hidden
+      // attribute changes, so reject stale selection before requiring a
+      // content mutation inside the old semantic root.
       if (retainedSelection.route !== routeToken()) {
         retainedSelection = null;
         return;
       }
+      if (!mutationTouchesRetainedRoot(records)) return;
       const root = documentRef.getElementById(retainedSelection.rootId);
       if (!root || root.hidden || String(root.textContent || "").indexOf(retainedSelection.text) < 0) {
         retainedSelection = null;
@@ -254,14 +259,28 @@
       }
       restoringSelection = true;
       try {
-        if (!restoreSemanticSelection(retainedSelection)) retainedSelection = null;
+        if (!restoreSemanticSelection(retainedSelection)) {
+          retainedSelection = null;
+        } else {
+          // Successful relocation establishes a new canonical browser range.
+          // Refresh its bounded semantic context so a later rerender follows
+          // that range instead of an obsolete pre-rerender context.
+          retainedSelection = captureSemanticSelection();
+        }
       } finally {
         restoringSelection = false;
       }
     });
-    observer.observe(main, { subtree: true, childList: true, characterData: true });
-    if (workspace) observer.observe(workspace, { subtree: true, childList: true, characterData: true });
-    if (navigation) observer.observe(navigation, { subtree: true, childList: true, characterData: true });
+    const observerOptions = {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["hidden", "aria-current"]
+    };
+    observer.observe(main, observerOptions);
+    if (workspace) observer.observe(workspace, observerOptions);
+    if (navigation) observer.observe(navigation, observerOptions);
   }
 
   let lastAnnouncement = "";
