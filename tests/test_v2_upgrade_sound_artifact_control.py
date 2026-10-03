@@ -147,100 +147,6 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             for name in near_misses:
                 self.assertIn(name, paths)
 
-
-    def test_training_progress_runtime_artifacts_are_derived_but_durable_progress_is_preserved(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "AccessibleChess"
-            root.mkdir()
-            progress = root / "training-progress"
-            progress.mkdir()
-            digest = "a" * 64
-            second_digest = "b" * 64
-
-            durable = progress / f"{digest}.json"
-            durable.write_bytes(b'{"durable":"training-progress"}\n')
-            runtime_lock = progress / f".{digest.upper()}.JSON.LOCK"
-            runtime_lock.write_bytes(b"training-lock")
-            runtime_temp = progress / f".{digest}.json.abcd_123.tmp"
-            runtime_temp.write_bytes(b"training-temp")
-
-            near_misses = (
-                progress / f".{digest[:-1]}.json.lock",
-                progress / f".{digest}.json.custom.note.tmp",
-                progress / f".{digest}.json.abcd.tmp.keep",
-            )
-            for candidate in near_misses:
-                candidate.write_bytes(b"preserve-near-miss")
-
-            nested = progress / "user-content"
-            nested.mkdir()
-            nested_lock = nested / f".{digest}.json.lock"
-            nested_lock.write_bytes(b"nested-user-data")
-
-            lock_named_directory = progress / f".{second_digest}.json.lock"
-            lock_named_directory.mkdir()
-            (lock_named_directory / "keep.bin").write_bytes(b"directory-user-data")
-
-            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
-            coordinator._ensure_roots()
-            files = self._relative_files(coordinator)
-
-            self.assertIn(f"training-progress/{digest}.json", files)
-            self.assertNotIn(
-                f"training-progress/.{digest.upper()}.JSON.LOCK",
-                files,
-            )
-            self.assertNotIn(
-                f"training-progress/.{digest}.json.abcd_123.tmp",
-                files,
-            )
-            for candidate in near_misses:
-                self.assertIn(candidate.relative_to(root).as_posix(), files)
-            self.assertIn(
-                f"training-progress/user-content/.{digest}.json.lock",
-                files,
-            )
-            self.assertIn(
-                f"training-progress/.{second_digest}.json.lock/keep.bin",
-                files,
-            )
-
-            backup, manifest = coordinator._create_backup("training-progress-derived")
-            paths = {str(item["path"]) for item in manifest["entries"]}
-            self.assertIn(f"training-progress/{digest}.json", paths)
-            self.assertNotIn(
-                f"training-progress/.{digest.upper()}.JSON.LOCK",
-                paths,
-            )
-            self.assertNotIn(
-                f"training-progress/.{digest}.json.abcd_123.tmp",
-                paths,
-            )
-            self.assertEqual(
-                (backup / "data" / "training-progress" / f"{digest}.json").read_bytes(),
-                b'{"durable":"training-progress"}\n',
-            )
-            self.assertEqual(
-                (
-                    backup
-                    / "data"
-                    / "training-progress"
-                    / "user-content"
-                    / f".{digest}.json.lock"
-                ).read_bytes(),
-                b"nested-user-data",
-            )
-            self.assertEqual(
-                (
-                    backup
-                    / "data"
-                    / "training-progress"
-                    / f".{second_digest}.json.lock"
-                    / "keep.bin"
-                ).read_bytes(),
-                b"directory-user-data",
-            )
-
     def test_exact_root_sound_cache_subtree_is_derived_and_nested_names_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
@@ -328,6 +234,115 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 b"book-progress-directory-data",
             )
 
+    def test_exact_root_gametree_discard_control_subtree_is_derived_and_nested_names_are_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+
+            guard_root = root / ".GaMeTrEe-ReSuMe-DiScArD"
+            guard_root.mkdir()
+            (guard_root / ("a" * 64 + ".guard")).write_bytes(b"discard-control")
+            (guard_root / "unknown-control.bin").write_bytes(b"reserved-control")
+
+            nested_guard = root / "user-content" / ".gametree-resume-discard"
+            nested_guard.mkdir(parents=True)
+            (nested_guard / "keep.bin").write_bytes(b"nested-user-data")
+
+            near_guard = root / ".gametree-resume-discard.keep"
+            near_guard.mkdir()
+            (near_guard / "keep.bin").write_bytes(b"near-name-user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            self.assertFalse(
+                any(
+                    name.casefold().startswith(".gametree-resume-discard/")
+                    for name in files
+                )
+            )
+            self.assertIn("user-content/.gametree-resume-discard/keep.bin", files)
+            self.assertIn(".gametree-resume-discard.keep/keep.bin", files)
+
+            backup, manifest = coordinator._create_backup("resume-discard-control")
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertFalse(
+                any(
+                    name.casefold().startswith(".gametree-resume-discard/")
+                    for name in paths
+                )
+            )
+            self.assertIn("user-content/.gametree-resume-discard/keep.bin", paths)
+            self.assertIn(".gametree-resume-discard.keep/keep.bin", paths)
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "user-content"
+                    / ".gametree-resume-discard"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"nested-user-data",
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".gametree-resume-discard.keep"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"near-name-user-data",
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
+    def test_root_gametree_discard_control_symlink_still_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            outside = Path(td) / "outside-discard-control"
+            outside.mkdir()
+            (outside / "foreign.guard").write_bytes(b"outside")
+            os.symlink(
+                outside,
+                root / ".gametree-resume-discard",
+                target_is_directory=True,
+            )
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "symlink or reparse point",
+            ):
+                coordinator._files()
+
+    def test_root_regular_file_named_gametree_discard_control_remains_user_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            payload = root / ".gametree-resume-discard"
+            payload.write_bytes(b"user-owned-regular-file")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            self.assertIn(
+                ".gametree-resume-discard",
+                self._relative_files(coordinator),
+            )
+
+            backup, manifest = coordinator._create_backup("resume-discard-file")
+            self.assertIn(
+                ".gametree-resume-discard",
+                {str(item["path"]) for item in manifest["entries"]},
+            )
+            self.assertEqual(
+                (backup / "data" / ".gametree-resume-discard").read_bytes(),
+                b"user-owned-regular-file",
+            )
+
     @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
     def test_root_sound_cache_symlink_still_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -377,18 +392,11 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock = root / "sound-packs.lock"
             resume_lock = root / "gametree-resume.json.lock"
             book_lock = root / "book-progress.json.lock"
-            training = root / "training-progress"
-            training.mkdir()
-            training_digest = "a" * 64
-            training_lock = training / f".{training_digest}.json.lock"
-            training_temp = training / f".{training_digest}.json.abcd_123.tmp"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
             profile_lock.write_bytes(b"old-profile-lock")
             packs_lock.write_bytes(b"old-packs-lock")
             resume_lock.write_bytes(b"old-resume-lock")
             book_lock.write_bytes(b"old-book-lock")
-            training_lock.write_bytes(b"old-training-lock")
-            training_temp.write_bytes(b"old-training-temp")
             cache_file.parent.mkdir(parents=True)
             cache_file.write_bytes(b"old-cache")
 
@@ -405,8 +413,6 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock.write_bytes(b"new-live-packs-lock")
             resume_lock.write_bytes(b"new-live-resume-lock")
             book_lock.write_bytes(b"new-live-book-lock")
-            training_lock.write_bytes(b"new-live-training-lock")
-            training_temp.write_bytes(b"new-live-training-temp")
             cache_file.write_bytes(b"new-live-cache")
 
             recovered = Version2UpgradeCoordinator(UserDataLayout(root)).run()
@@ -416,8 +422,6 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertEqual(packs_lock.read_bytes(), b"new-live-packs-lock")
             self.assertEqual(resume_lock.read_bytes(), b"new-live-resume-lock")
             self.assertEqual(book_lock.read_bytes(), b"new-live-book-lock")
-            self.assertEqual(training_lock.read_bytes(), b"new-live-training-lock")
-            self.assertEqual(training_temp.read_bytes(), b"new-live-training-temp")
             self.assertEqual(cache_file.read_bytes(), b"new-live-cache")
 
             backup = (
@@ -430,16 +434,6 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertFalse((backup / "sound-packs.lock").exists())
             self.assertFalse((backup / "gametree-resume.json.lock").exists())
             self.assertFalse((backup / "book-progress.json.lock").exists())
-            self.assertFalse(
-                (backup / "training-progress" / f".{training_digest}.json.lock").exists()
-            )
-            self.assertFalse(
-                (
-                    backup
-                    / "training-progress"
-                    / f".{training_digest}.json.abcd_123.tmp"
-                ).exists()
-            )
             self.assertFalse((backup / "sound-cache").exists())
 
     def test_recovery_accepts_legacy_backup_entries_without_replaying_sound_artifacts(self):
@@ -453,22 +447,22 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock = root / "sound-packs.lock"
             resume_lock = root / "gametree-resume.json.lock"
             book_lock = root / "book-progress.json.lock"
-            training = root / "training-progress"
-            training.mkdir()
-            training_digest = "a" * 64
-            training_lock = training / f".{training_digest}.json.lock"
-            training_temp = training / f".{training_digest}.json.abcd_123.tmp"
             cache_lock = root / "sound-cache" / ".playback.lock"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
+            discard_guard = (
+                root
+                / ".gametree-resume-discard"
+                / ("b" * 64 + ".guard")
+            )
             profile_lock.write_bytes(b"legacy-profile-lock")
             packs_lock.write_bytes(b"legacy-packs-lock")
             resume_lock.write_bytes(b"legacy-resume-lock")
             book_lock.write_bytes(b"legacy-book-lock")
-            training_lock.write_bytes(b"legacy-training-lock")
-            training_temp.write_bytes(b"legacy-training-temp")
             cache_file.parent.mkdir(parents=True)
             cache_lock.write_bytes(b"legacy-cache-lock")
             cache_file.write_bytes(b"legacy-cache")
+            discard_guard.parent.mkdir()
+            discard_guard.write_bytes(b"legacy-discard-guard")
 
             old_control_keys = frozenset(
                 name.casefold()
@@ -492,11 +486,6 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                     "_DERIVED_ROOT_DIRECTORY_KEYS",
                     frozenset(),
                 ),
-                patch.object(
-                    upgrade_base,
-                    "_is_generated_training_progress_file",
-                    lambda relative_path: False,
-                ),
                 self.assertRaises(_Crash),
             ):
                 Version2UpgradeCoordinator(
@@ -516,31 +505,23 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertTrue((backup_data / "sound-packs.lock").exists())
             self.assertTrue((backup_data / "gametree-resume.json.lock").exists())
             self.assertTrue((backup_data / "book-progress.json.lock").exists())
-            self.assertTrue(
-                (
-                    backup_data
-                    / "training-progress"
-                    / f".{training_digest}.json.lock"
-                ).exists()
-            )
-            self.assertTrue(
-                (
-                    backup_data
-                    / "training-progress"
-                    / f".{training_digest}.json.abcd_123.tmp"
-                ).exists()
-            )
             self.assertTrue((backup_data / "sound-cache" / ".playback.lock").exists())
             self.assertTrue((backup_data / "sound-cache" / "scaled" / "move.wav").exists())
+            self.assertTrue(
+                (
+                    backup_data
+                    / ".gametree-resume-discard"
+                    / ("b" * 64 + ".guard")
+                ).exists()
+            )
 
             profile_lock.write_bytes(b"new-profile-lock")
             packs_lock.write_bytes(b"new-packs-lock")
             resume_lock.write_bytes(b"new-resume-lock")
             book_lock.write_bytes(b"new-book-lock")
-            training_lock.write_bytes(b"new-training-lock")
-            training_temp.write_bytes(b"new-training-temp")
             cache_lock.write_bytes(b"new-cache-lock")
             cache_file.write_bytes(b"new-cache")
+            discard_guard.write_bytes(b"new-discard-guard")
 
             recovered = Version2UpgradeCoordinator(
                 UserDataLayout(root)
@@ -551,10 +532,12 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertEqual(packs_lock.read_bytes(), b"new-packs-lock")
             self.assertEqual(resume_lock.read_bytes(), b"new-resume-lock")
             self.assertEqual(book_lock.read_bytes(), b"new-book-lock")
-            self.assertEqual(training_lock.read_bytes(), b"new-training-lock")
-            self.assertEqual(training_temp.read_bytes(), b"new-training-temp")
             self.assertEqual(cache_lock.read_bytes(), b"new-cache-lock")
             self.assertEqual(cache_file.read_bytes(), b"new-cache")
+            self.assertEqual(
+                discard_guard.read_bytes(),
+                b"new-discard-guard",
+            )
 
     def test_disposable_cache_does_not_consume_backup_quota_but_pack_content_does(self):
         with tempfile.TemporaryDirectory() as td:
@@ -567,11 +550,9 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             (root / "gametree-resume.json.deadbeef.tmp").write_bytes(b"t" * 4096)
             (root / "gametree-resume.json.cas-deadbeef.bak").write_bytes(b"c" * 4096)
             (root / ".book-progress.json.deadbeef.tmp").write_bytes(b"p" * 4096)
-            training = root / "training-progress"
-            training.mkdir()
-            training_digest = "a" * 64
-            (training / f".{training_digest}.json.lock").write_bytes(b"l" * 4096)
-            (training / f".{training_digest}.json.abcd_123.tmp").write_bytes(b"m" * 4096)
+            discard_guard = root / ".gametree-resume-discard" / ("c" * 64 + ".guard")
+            discard_guard.parent.mkdir()
+            discard_guard.write_bytes(b"g" * 4096)
             durable_profile = root / "sound-profile.json"
             durable_profile.write_bytes(b"x")
 
