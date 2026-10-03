@@ -357,6 +357,7 @@ def _read_verified_asset_bytes(
     flags |= getattr(os, "O_NOINHERIT", 0)
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
@@ -1002,26 +1003,7 @@ class FilesystemSoundPackStore:
                     "installed sound pack exceeds the local size limit"
                 )
 
-            sha = hashlib.sha256()
-            prefix = bytearray()
-            try:
-                with path.open("rb") as handle:
-                    while True:
-                        chunk = handle.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        if len(prefix) < 16:
-                            prefix.extend(chunk[: 16 - len(prefix)])
-                        sha.update(chunk)
-            except OSError as exc:
-                raise SoundPackStoreError(
-                    "installed sound asset could not be read"
-                ) from exc
-            if sha.hexdigest() != digest.sha256:
-                raise SoundPackStoreError(
-                    "installed sound asset checksum mismatch"
-                )
-            _validate_audio_header(relative, bytes(prefix))
+            _read_verified_asset_bytes(path, digest)
         return manifest, digests
 
     @staticmethod
