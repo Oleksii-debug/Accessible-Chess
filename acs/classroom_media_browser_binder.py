@@ -533,10 +533,14 @@ class ClassroomMediaBrowserBinder:
                 raise ClassroomMediaBrowserBinderError(
                     "clean connection failure applies only to session transactions"
                 )
-            self._session.provider_connection_failed_clean(
-                active.prepared.transaction_id,
-                provider_snapshot,
-            )
+            try:
+                self._session.provider_connection_failed_clean(
+                    active.prepared.transaction_id,
+                    provider_snapshot,
+                )
+            except MediaHostRecoveryRequired as exc:
+                self._latch_coordinator_recovery(active)
+                raise ClassroomMediaBrowserRecoveryRequired(str(exc)) from exc
             self._arbiter.release_after_verified_clean_failure(
                 active.prepared.lease_id
             )
