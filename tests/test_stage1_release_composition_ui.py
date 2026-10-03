@@ -322,6 +322,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("window.startNewGameVisualSequence = startNewGameVisualSequence", text)
         self.assertIn("stage1-new-game-animating", text)
         self.assertIn("STANDARD_START_FEN", text)
+        self.assertIn("Стандартну позицію встановлено.", text)
+        self.assertIn("Standard position loaded.", text)
         self.assertIn("event.ctrlKey", text)
         self.assertIn("key === 'n'", text)
         self.assertIn("action.actionId !== 'file.new'", text)
