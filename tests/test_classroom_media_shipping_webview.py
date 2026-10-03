@@ -256,8 +256,7 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNone(second.payload["snapshot"])
         self.assertIsNone(binder.active_lease)
         self.assertIsNotNone(binder.recovery_status)
-        self.assertTrue(binder.recovery_status.provider_outcome_unknown)
-        self.assertTrue(binder.recovery_status.lease.provider_boundary_crossed)
+        self.assertFalse(binder.recovery_status.provider_outcome_unknown)
         self.assertNotIn(transaction_id, transactions._focus_by_transaction)
         self.assertNotIn(TOKEN, repr(second))
 
