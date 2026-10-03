@@ -26,6 +26,7 @@ from .bookdocument import (
     Position,
 )
 from .chesscore import Board
+from .legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -85,7 +86,7 @@ def _optional_text(value: object, field: str) -> str | None:
     return _required_text(value, field)
 
 
-def _source_text(source: object) -> tuple[str, bytes]:
+def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
         try:
             raw = source.encode("utf-8")
@@ -99,7 +100,7 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 "Text book source exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, raw
+        return source, raw, False
     if type(source) is bytes:
         if len(source) > MAX_TEXT_SOURCE_BYTES:
             raise BookTextImportError(
@@ -107,12 +108,13 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
         try:
-            return source.decode("utf-8-sig"), source
-        except UnicodeDecodeError as exc:
+            decoded = decode_book_text_bytes(source)
+        except LegacyTextEncodingError as exc:
             raise BookTextImportError(
-                "Text book source must use UTF-8 encoding",
+                "Text book source must use UTF-8 or qualified Windows-1251 encoding",
                 code=BookTextImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        return decoded.text, source, decoded.legacy
     raise BookTextImportError(
         "Text book source must be text or bytes",
         code=BookTextImportErrorCode.INVALID_ARGUMENT,
@@ -527,7 +529,7 @@ def import_text_book(
     author: str | None = None,
     language: str | None = None,
 ) -> BookTextImportResult:
-    """Import UTF-8 TXT or Markdown into an existing semantic ``BookDocument``.
+    """Import UTF-8 or qualified Windows-1251 TXT/Markdown into ``BookDocument``.
 
     The adapter performs no filesystem or network access. Plain TXT is readable
     text only: it never guesses headings, games, FENs, or ASCII chess diagrams.
@@ -539,8 +541,10 @@ def import_text_book(
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
     override_language = _optional_text(language, "language")
-    text, raw = _source_text(source)
+    text, raw, legacy_windows_1251 = _source_text(source)
     builder = _Builder(resolved_format)
+    if legacy_windows_1251:
+        builder.warning("Legacy Windows-1251 book text was decoded losslessly.")
 
     if resolved_format is BookTextFormat.TXT:
         _parse_txt(text, builder)
@@ -585,13 +589,13 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
     {
         "TXT": {
             "status": "SUPPORTED",
-            "encoding": "UTF-8",
+            "encoding": "UTF-8; evidence-gated Windows-1251",
             "semantics": ("Paragraph",),
             "chess_inference": "NONE",
         },
         "Markdown": {
             "status": "PARTIAL",
-            "encoding": "UTF-8",
+            "encoding": "UTF-8; evidence-gated Windows-1251",
             "semantics": (
                 "Heading",
                 "Paragraph",
@@ -608,7 +612,7 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
             "DOCX",
             "EPUB",
             "PDF/OCR",
-            "arbitrary legacy encodings",
+            "legacy encodings other than qualified Windows-1251",
             "ASCII-diagram recognition",
             "implicit PGN/FEN recognition from prose",
             "network or filesystem source fetching",
