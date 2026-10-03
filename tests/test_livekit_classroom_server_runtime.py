@@ -185,6 +185,84 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(BadClient.instances), 1)
         self.assertEqual(BadClient.instances[0].close_calls, 1)
 
+    async def test_initialization_failure_with_failed_cleanup_retains_retryable_owner(self):
+        secret = "initial-cleanup-secret"
+
+        class BadClient(FakeLiveKitClient):
+            instances = []
+
+            def __init__(self, url, *, api_key, api_secret):
+                super().__init__(url, api_key=api_key, api_secret=api_secret)
+                self.room = object()
+
+            async def aclose(self):
+                self.close_calls += 1
+                if self.close_calls == 1:
+                    raise RuntimeError(secret)
+
+        class BadApi(ModerationFakeApi):
+            LiveKitAPI = BadClient
+
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "^LiveKit server runtime initialization failed$",
+        ) as caught:
+            await self.open(
+                api_module=BadApi,
+                sdk_version=LIVEKIT_API_VERSION,
+                api_secret=secret,
+            )
+
+        error = caught.exception
+        self.assertIsNone(error.__cause__)
+        self.assertNotIn(secret, "".join(traceback.format_exception(error)))
+        cleanup = error.cleanup_runtime
+        self.assertIsNotNone(cleanup)
+        self.assertIn("state='cleanup_required'", repr(cleanup))
+        self.assertNotIn(secret, repr(cleanup))
+        self.assertFalse(cleanup.closed)
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            _ = cleanup.moderation_admin
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            await cleanup.__aenter__()
+
+        client = BadClient.instances[0]
+        self.assertEqual(client.close_calls, 1)
+        await cleanup.aclose()
+        self.assertEqual(client.close_calls, 2)
+        self.assertTrue(cleanup.closed)
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "runtime is closed",
+        ):
+            _ = cleanup.moderation_admin
+
+    async def test_successful_initialization_cleanup_does_not_publish_cleanup_owner(self):
+        class BadClient(FakeLiveKitClient):
+            instances = []
+
+            def __init__(self, url, *, api_key, api_secret):
+                super().__init__(url, api_key=api_key, api_secret=api_secret)
+                self.room = object()
+
+        class BadApi(ModerationFakeApi):
+            LiveKitAPI = BadClient
+
+        with self.assertRaises(LiveKitClassroomServerRuntimeError) as caught:
+            await self.open(
+                api_module=BadApi,
+                sdk_version=LIVEKIT_API_VERSION,
+            )
+
+        self.assertIsNone(caught.exception.cleanup_runtime)
+        self.assertEqual(BadClient.instances[0].close_calls, 1)
+
     async def test_provider_constructor_failure_is_sanitized(self):
         secret = "provider-constructor-secret"
 
@@ -206,6 +284,16 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertNotIn(secret, "".join(traceback.format_exception(caught.exception)))
         self.assertIsNone(caught.exception.__cause__)
+
+    async def test_ordinary_runtime_errors_do_not_expose_cleanup_owner(self):
+        runtime = await self.open()
+        client = FakeLiveKitClient.instances[-1]
+        client.close_error = RuntimeError("close-detail")
+        with self.assertRaises(LiveKitClassroomServerRuntimeError) as caught:
+            await runtime.aclose()
+        self.assertIsNone(caught.exception.cleanup_runtime)
+        client.close_error = None
+        await runtime.aclose()
 
     async def test_close_is_idempotent_and_closed_runtime_hides_adapter(self):
         runtime = await self.open()
