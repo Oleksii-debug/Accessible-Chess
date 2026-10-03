@@ -15,6 +15,7 @@ from acs.book_progress_store import (
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
+from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
 from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
@@ -158,6 +159,34 @@ class Version2ApplicationTests(unittest.TestCase):
                     self.app.shell.restore_focus_target(),
                     "board-square-e4",
                 )
+
+    def test_backend_reset_failure_preserves_committed_library_state(self):
+        committed_query = GameSearchQuery(player="Petrenko", limit=25).normalized()
+        self.app.library.projection.search(committed_query)
+        before = self.app.library.projection.snapshot()
+        self.app.shell.open_route("board")
+        self.app.record_focus("board-square-e4")
+
+        with patch.object(
+            AcsDatabase,
+            "search_games",
+            side_effect=PermissionError(
+                r"C:\\Users\\BlindTeacher\\private-library.sqlite"
+            ),
+        ):
+            command = self.app.adapter.activate_action(
+                "library.reset_filters",
+                current_focus_id="board-square-e4",
+            )
+
+        self.assertEqual(command.kind, "error")
+        self.assertEqual(committed_query, self.app.library.projection.query)
+        self.assertEqual(before, self.app.library.projection.snapshot())
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "board-square-e4",
+        )
 
     def test_malformed_library_projection_result_fails_closed_before_route_commit(self):
         invalid_results = (
