@@ -472,14 +472,60 @@ class ProfiledWindowsSoundPlaybackAdapter:
             prefix=f".{destination.name}.",
             suffix=".tmp",
         )
-        os.close(descriptor)
         temporary = Path(temporary_name)
         try:
-            with wave.open(str(temporary), "wb") as writer:
-                writer.setparams(params)
-                writer.writeframes(scaled)
+            opened = os.fstat(descriptor)
+            if (
+                stat.S_ISLNK(opened.st_mode)
+                or _is_reparse_point(opened)
+                or not stat.S_ISREG(opened.st_mode)
+                or int(getattr(opened, "st_nlink", 1)) != 1
+            ):
+                raise ValueError(
+                    "profiled sound cache temporary is not a private regular file"
+                )
+
+            # Write through the exact descriptor returned by mkstemp. Closing it
+            # and reopening the pathname would let a local pathname swap redirect
+            # WAV output through a symlink/hardlink before publication.
+            with os.fdopen(descriptor, "w+b", closefd=False) as stream:
+                with wave.open(stream, "wb") as writer:
+                    writer.setparams(params)
+                    writer.writeframes(scaled)
+                stream.flush()
+                os.fsync(stream.fileno())
+
+            written = os.fstat(descriptor)
+            current = os.lstat(temporary)
+            if (
+                stat.S_ISLNK(current.st_mode)
+                or _is_reparse_point(current)
+                or not stat.S_ISREG(current.st_mode)
+                or int(getattr(current, "st_nlink", 1)) != 1
+                or _regular_file_identity(current)
+                != _regular_file_identity(written)
+            ):
+                raise ValueError(
+                    "profiled sound cache temporary changed before publication"
+                )
             os.replace(temporary, destination)
+            if not self._cached_scaled_wave_is_valid(
+                destination,
+                params,
+                scaled,
+            ):
+                try:
+                    destination.unlink()
+                except OSError:
+                    pass
+                raise ValueError(
+                    "profiled sound cache publication changed before validation"
+                )
         finally:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
             try:
                 temporary.unlink()
             except FileNotFoundError:
