@@ -520,31 +520,17 @@ class Version2Application:
             # release that ownership; a second open must not replace it.
             if self.book_workflow is not None and self.book_workflow.active:
                 return self.books.projection.generic_error()
-            # Persist the exact reading origin before Board ownership is
-            # published. This is the shared browser/native/NVDA durability
-            # boundary: a failed write must leave the user in Book Reader.
-            try:
-                self.save_book_progress()
-            except Exception:
-                if self.books is None:
-                    return self._error()
-                return self.books.projection.generic_error()
+            # The router delegate below is the one durability owner for
+            # browser, native-menu and NVDA ingress. Do not pre-save here: the
+            # Book WebView dispatches its open through that same delegate, and a
+            # second write would advance BookProgress twice for one transition.
             return self.books.dispatch(command_id, payload)
         if command_id == "book.return_from_board":
-            # Return first discards only transient Board review and restores the
-            # exact canonical Book origin. Re-publish that origin through the
-            # same persistence boundary used by native/NVDA and browser paths;
-            # failure remains sanitized after the workflow has safely returned.
-            result = self.books.dispatch(command_id, payload)
-            if result.kind == "error":
-                return result
-            try:
-                self.save_book_progress()
-            except Exception:
-                if self.books is None:
-                    return self._error()
-                return self.books.projection.generic_error()
-            return result
+            # The canonical workflow unwinds through the shared router delegate,
+            # which re-publishes the exact Book origin once after safe Return.
+            # Keeping persistence in that one owner also makes browser/native
+            # failure behavior identical.
+            return self.books.dispatch(command_id, payload)
         if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
