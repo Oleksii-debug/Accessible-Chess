@@ -352,6 +352,24 @@ class ExerciseSession:
             "status": self._status.value,
         }
 
+    def restore_state(self, snapshot: dict[str, object]) -> None:
+        """Restore one previously validated progress snapshot in place.
+
+        Validation and canonical replay complete on a detached candidate before
+        any live field is replaced, so presentation rollback cannot publish a
+        half-restored Training session. The ExerciseSession object identity is
+        preserved for callers that retain a reference to the active session.
+        """
+        definition = self._bound_definition()
+        restored = ExerciseSession.restore(definition, snapshot)
+        self._board = restored._board
+        self._accepted_path = list(restored._accepted_path)
+        self._step_index = restored._step_index
+        self._attempts = restored._attempts
+        self._mistakes = restored._mistakes
+        self._hints_used = restored._hints_used
+        self._status = restored._status
+
     def _bound_definition(self) -> ExerciseDefinition:
         definition = _validated_definition(self.definition)
         if _definition_authority_digest(definition) != self._definition_authority_digest:
