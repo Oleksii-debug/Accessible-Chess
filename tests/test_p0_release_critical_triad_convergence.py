@@ -5,8 +5,6 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_FULL_PRODUCT_BASE = "codex/v2-runtime-completion-20260907"
-
 REQUIRED_QA_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
     "tests/test_p0_packaged_document_copy_probe.py",
@@ -33,11 +31,19 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
-    def test_current_w4_release_base_is_explicitly_admitted(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml").read_text(encoding="utf-8")
-        self.assertIn("release/w4-v2-current-p0-candidate-20260926", workflow)
-        self.assertIn(CANONICAL_FULL_PRODUCT_BASE, workflow)
-        self.assertNotIn("base='*'", workflow)
+    def test_pull_request_identity_is_proven_structurally_not_by_branch_allowlist(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("EVENT_BASE_SHA:", workflow)
+        self.assertIn("EVENT_HEAD_SHA:", workflow)
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
+        self.assertIn('git merge-base --is-ancestor "$EVENT_HEAD_SHA" HEAD', workflow)
+        self.assertIn('git show -s --format=%P HEAD', workflow)
+        self.assertIn('git diff --check "$EVENT_BASE_SHA..HEAD"', workflow)
+        self.assertIn("fetch-depth: 0", workflow)
+        self.assertNotIn('case "$base" in', workflow)
+        self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
