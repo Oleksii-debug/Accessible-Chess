@@ -18,10 +18,12 @@ from .sound_pack_catalog import (
     SoundPackState,
 )
 from .sound_pack_profile import SoundPackProfileCoordinator
+from .sound_events import SoundEvent
 from .sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
 from .sound_profiles import (
     CORE_SOUND_EVENTS,
     OPTIONAL_CLASSROOM_SOUND_EVENTS,
+    OPTIONAL_OWNER_SOUND_EVENTS,
     SoundEventPreference,
     SoundPackManifest,
     SoundProfile,
@@ -253,7 +255,22 @@ class SoundSettingsApplication:
         active_manifest: SoundPackManifest | None,
     ) -> tuple[str, ...]:
         event_ids = list(CORE_SOUND_EVENTS)
-        if profile.pack_id != "classic" and active_manifest is not None:
+        semantic_owner_events = {event.value for event in SoundEvent}
+        if profile.pack_id == "classic":
+            event_ids.extend(
+                event_id
+                for event_id in OPTIONAL_OWNER_SOUND_EVENTS
+                if event_id in semantic_owner_events
+            )
+        elif active_manifest is not None:
+            event_ids.extend(
+                event_id
+                for event_id in OPTIONAL_OWNER_SOUND_EVENTS
+                if (
+                    event_id in semantic_owner_events
+                    and event_id in active_manifest.files
+                )
+            )
             event_ids.extend(
                 event_id
                 for event_id in OPTIONAL_CLASSROOM_SOUND_EVENTS
