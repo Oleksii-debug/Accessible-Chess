@@ -21,7 +21,9 @@
   ];
 
   function plainObject(value) {
-    return !!value && typeof value === "object" && !Array.isArray(value);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
   }
 
   function requireBoundedText(value, name, allowEmpty, limit) {
@@ -125,6 +127,284 @@
     return payload;
   }
 
+  const LIBRARY_STATUS = new Set(["ready", "loading", "empty", "error"]);
+  const LIBRARY_FILTERS = [
+    ["player", "text"],
+    ["event", "text"],
+    ["eco", "text"],
+    ["opening", "text"],
+    ["result", "select"],
+    ["source_id", "number"],
+    ["source_name", "text"],
+    ["limit", "select"]
+  ];
+  const LIBRARY_ACTIONS = [
+    "library.previous_page",
+    "library.next_page",
+    "library.open_game",
+    "library.reset_filters"
+  ];
+  const LIBRARY_EXPORT_ACTIONS = [
+    "library.export_selected",
+    "library.export_filtered",
+    "library.clear_export_selection"
+  ];
+  const GAME_DOM_PATTERN = /^library-game-[0-9a-f]{20}$/;
+
+  function requireSafePositiveInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError(name + " is invalid");
+    }
+    return value;
+  }
+
+  function requireFilterOption(option) {
+    requireExactFields(option, ["value", "label"], "Library filter option");
+    requireBoundedText(option.value, "Library filter option value", true, 256);
+    requireBoundedText(option.label, "Library filter option label", true, 240);
+  }
+
+  function requireLibraryFilter(filter, index) {
+    const expected = LIBRARY_FILTERS[index];
+    const fields = expected[1] === "select"
+      ? ["id", "kind", "label", "value", "options"]
+      : expected[1] === "number"
+        ? ["id", "kind", "label", "value", "minimum"]
+        : ["id", "kind", "label", "value"];
+    requireExactFields(filter, fields, "Library filter");
+    if (filter.id !== expected[0] || filter.kind !== expected[1]) {
+      throw new TypeError("Library filter identity is invalid");
+    }
+    requireBoundedText(filter.label, "Library filter label", false, 240);
+    requireBoundedText(filter.value, "Library filter value", true, 256);
+    if (filter.kind === "number") {
+      if (filter.minimum !== 1 ||
+          (filter.value !== "" &&
+           (!/^[0-9]{1,19}$/.test(filter.value) || Number(filter.value) <= 0))) {
+        throw new TypeError("Library numeric filter is invalid");
+      }
+    }
+    if (filter.kind === "select") {
+      const expectedCount = filter.id === "result" ? 5 : 4;
+      if (!Array.isArray(filter.options) || filter.options.length !== expectedCount) {
+        throw new TypeError("Library select options are invalid");
+      }
+      filter.options.forEach(requireFilterOption);
+      if (filter.id === "result") {
+        const values = ["", "1-0", "0-1", "1/2-1/2", "*"];
+        if (filter.options.some(function (option, optionIndex) {
+          return option.value !== values[optionIndex];
+        }) || values.indexOf(filter.value) < 0) {
+          throw new TypeError("Library result filter is invalid");
+        }
+      } else {
+        const values = ["25", "50", "100", "200"];
+        if (filter.options.some(function (option, optionIndex) {
+          return option.value !== values[optionIndex];
+        }) || values.indexOf(filter.value) < 0) {
+          throw new TypeError("Library limit filter is invalid");
+        }
+      }
+    }
+  }
+
+  function requireLibraryRow(row, index, exportMode) {
+    const fields = exportMode
+      ? [
+          "dom_id",
+          "game_id",
+          "position",
+          "selected",
+          "label",
+          "source_label",
+          "result",
+          "export_selected",
+          "export_dom_id",
+          "export_label"
+        ]
+      : [
+          "dom_id",
+          "game_id",
+          "position",
+          "selected",
+          "label",
+          "source_label",
+          "result"
+        ];
+    requireExactFields(row, fields, "Library row");
+    requireSafePositiveInteger(row.game_id, "Library game id");
+    if (row.position !== index + 1 || typeof row.selected !== "boolean") {
+      throw new TypeError("Library row position/selection is invalid");
+    }
+    if (typeof row.dom_id !== "string" || !GAME_DOM_PATTERN.test(row.dom_id)) {
+      throw new TypeError("Library row DOM id is invalid");
+    }
+    requireBoundedText(row.label, "Library row label", true, 520);
+    requireBoundedText(row.source_label, "Library row source label", true, 160);
+    requireBoundedText(row.result, "Library row result", true, 32);
+    if (exportMode) {
+      if (typeof row.export_selected !== "boolean" ||
+          row.export_dom_id !== row.dom_id + "-export") {
+        throw new TypeError("Library export row identity is invalid");
+      }
+      requireBoundedText(row.export_label, "Library export row label", false, 760);
+    }
+  }
+
+  function requireLibraryAction(action, expectedAction) {
+    requireExactFields(
+      action,
+      ["action", "label", "enabled"],
+      "Library action"
+    );
+    if (action.action !== expectedAction || typeof action.enabled !== "boolean") {
+      throw new TypeError("Library action identity/state is invalid");
+    }
+    requireBoundedText(action.label, "Library action label", false, 240);
+  }
+
+  function requireLibraryFocusTarget(snapshot, target, allowEmpty) {
+    if (typeof target !== "string" || target.length > 96 || target.indexOf("\x00") >= 0) {
+      throw new TypeError("Library focus target is invalid");
+    }
+    if (!target && allowEmpty) return target;
+    const allowed = new Set(["library-search-player", "library-import-file", "library-import-cancel"]);
+    snapshot.rows.forEach(function (row) {
+      allowed.add(row.dom_id);
+      if (row.export_dom_id) allowed.add(row.export_dom_id);
+    });
+    if (!allowed.has(target)) throw new TypeError("Library focus target is invalid");
+    return target;
+  }
+
+  function requireLibrarySnapshot(snapshot) {
+    if (!plainObject(snapshot)) throw new TypeError("Library snapshot is required");
+    const exportMode =
+      Object.prototype.hasOwnProperty.call(snapshot, "export_selection_heading") ||
+      Object.prototype.hasOwnProperty.call(snapshot, "export_selection_count");
+    const fields = [
+      "document",
+      "status",
+      "heading",
+      "description",
+      "filters_heading",
+      "results_heading",
+      "search_label",
+      "transport_error_message",
+      "import",
+      "filters",
+      "rows",
+      "selected_game_id",
+      "focus_target",
+      "message",
+      "summary",
+      "actions"
+    ];
+    if (exportMode) {
+      fields.push("export_selection_heading", "export_selection_count");
+    }
+    requireExactFields(snapshot, fields, "Library snapshot");
+
+    requireExactFields(snapshot.document, ["lang", "landmark"], "Library document");
+    if ((snapshot.document.lang !== "uk" && snapshot.document.lang !== "en") ||
+        snapshot.document.landmark !== "main") {
+      throw new TypeError("Library document metadata is invalid");
+    }
+    if (!LIBRARY_STATUS.has(snapshot.status)) {
+      throw new TypeError("Library status is invalid");
+    }
+    [
+      ["heading", false, 240],
+      ["description", true, 500],
+      ["filters_heading", false, 240],
+      ["results_heading", false, 240],
+      ["search_label", false, 240],
+      ["transport_error_message", false, 500],
+      ["message", true, 500],
+      ["summary", true, 500]
+    ].forEach(function (spec) {
+      requireBoundedText(snapshot[spec[0]], "Library " + spec[0], spec[1], spec[2]);
+    });
+    requireImportSnapshot(snapshot.import);
+
+    if (!Array.isArray(snapshot.filters) || snapshot.filters.length !== LIBRARY_FILTERS.length) {
+      throw new TypeError("Library filters are invalid");
+    }
+    snapshot.filters.forEach(requireLibraryFilter);
+
+    if (!Array.isArray(snapshot.rows) || snapshot.rows.length > 200) {
+      throw new TypeError("Library rows are invalid");
+    }
+    let selectedRow = null;
+    snapshot.rows.forEach(function (row, index) {
+      requireLibraryRow(row, index, exportMode);
+      if (row.selected) {
+        if (selectedRow !== null) throw new TypeError("Library selection is ambiguous");
+        selectedRow = row;
+      }
+    });
+    if (snapshot.selected_game_id === null) {
+      if (selectedRow !== null) throw new TypeError("Library selection is inconsistent");
+    } else {
+      requireSafePositiveInteger(snapshot.selected_game_id, "Library selected game id");
+      if (selectedRow === null || selectedRow.game_id !== snapshot.selected_game_id) {
+        throw new TypeError("Library selection is inconsistent");
+      }
+    }
+
+    const expectedActions = exportMode
+      ? LIBRARY_ACTIONS.concat(LIBRARY_EXPORT_ACTIONS)
+      : LIBRARY_ACTIONS;
+    if (!Array.isArray(snapshot.actions) || snapshot.actions.length !== expectedActions.length) {
+      throw new TypeError("Library actions are invalid");
+    }
+    snapshot.actions.forEach(function (action, index) {
+      requireLibraryAction(action, expectedActions[index]);
+    });
+
+    if (exportMode) {
+      requireBoundedText(
+        snapshot.export_selection_heading,
+        "Library export selection heading",
+        false,
+        240
+      );
+      if (!Number.isSafeInteger(snapshot.export_selection_count) ||
+          snapshot.export_selection_count < 0 ||
+          snapshot.export_selection_count > 5000) {
+        throw new TypeError("Library export selection count is invalid");
+      }
+    }
+
+    requireLibraryFocusTarget(snapshot, snapshot.focus_target, false);
+    if (selectedRow === null && snapshot.focus_target !== "library-search-player") {
+      throw new TypeError("Library focus/selection is inconsistent");
+    }
+    if (selectedRow !== null && snapshot.focus_target !== selectedRow.dom_id) {
+      throw new TypeError("Library focus/selection is inconsistent");
+    }
+    return snapshot;
+  }
+
+  function requireLibraryRenderEvent(result) {
+    requireExactFields(result, ["kind", "payload"], "Library event");
+    if (result.kind !== "render") throw new TypeError("Library render event kind is invalid");
+    requireExactFields(
+      result.payload,
+      ["snapshot", "focus_target", "announcement"],
+      "Library render payload"
+    );
+    const snapshot = requireLibrarySnapshot(result.payload.snapshot);
+    requireLibraryFocusTarget(snapshot, result.payload.focus_target, false);
+    requireBoundedText(
+      result.payload.announcement,
+      "Library render announcement",
+      true,
+      500
+    );
+    return result.payload;
+  }
+
   function node(tag, text) {
     const element = document.createElement(tag);
     if (text !== undefined && text !== null) element.textContent = String(text);
@@ -153,8 +433,17 @@
   function applyEvent(root, result, invoke, announce) {
     if (!result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
-    if (result.kind === "render" && payload.snapshot) {
-      renderLibrarySurface(root, payload.snapshot, invoke, announce, payload.focus_target || "");
+    if (result.kind === "render") {
+      const renderPayload = requireLibraryRenderEvent(result);
+      renderLibrarySurface(
+        root,
+        renderPayload.snapshot,
+        invoke,
+        announce,
+        renderPayload.focus_target
+      );
+      if (renderPayload.announcement) announce(renderPayload.announcement);
+      return;
     }
     if (result.kind === "render-import") {
       const importPayload = requireImportEvent(result);
@@ -188,7 +477,9 @@
   }
 
   function invokeCommand(root, invoke, announce, snapshot, command, payload) {
-    const generic = snapshot && snapshot.transport_error_message ? String(snapshot.transport_error_message) : "";
+    const generic = snapshot && typeof snapshot.transport_error_message === "string"
+      ? snapshot.transport_error_message
+      : "";
     return Promise.resolve().then(function () {
       return invoke(command, payload || {});
     }).then(function (result) {
@@ -384,7 +675,8 @@
     }
     requireFunction(invoke, "Library invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Library announce");
-    if (!snapshot || typeof snapshot !== "object") throw new TypeError("Library snapshot is required");
+    snapshot = requireLibrarySnapshot(snapshot);
+    requireLibraryFocusTarget(snapshot, requestedFocus || snapshot.focus_target, true);
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
