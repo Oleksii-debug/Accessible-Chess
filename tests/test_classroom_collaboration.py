@@ -1627,7 +1627,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         repaired = controller.sync_files()
 
-        self.assertEqual(repaired, history)
+        self.assertEqual(repaired, history[:2])
+        self.assertNotIn(history[2], repaired)
         self.assertEqual(self.store.room_attachments("room-1"), history)
         self.assertEqual(controller.sync_files(), ())
 
