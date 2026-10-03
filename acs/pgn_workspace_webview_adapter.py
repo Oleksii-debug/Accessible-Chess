@@ -296,6 +296,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             ),
             "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
             "expected_record_digest": identity[6],
+            "expected_content_digest": identity[5],
             "content_revision": identity[4],
         }
 
