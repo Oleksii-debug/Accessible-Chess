@@ -3,12 +3,10 @@ name: Books Semantic Tree Contract
 on:
   pull_request:
     branches:
-      - 'feature/books-semantic-game-dom-20261003'
+      - 'fix/books-semantic-contract-current-20261003'
     paths:
       - 'acs/version2_book_workspace.py'
-      - 'web/full_product_books_training.js'
       - 'tests/test_version2_book_workspace.py'
-      - 'tests/js/books_training_surface_dom_test.js'
       - '.github/workflows/books-semantic-tree-contract.yml'
   workflow_dispatch:
 
@@ -39,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
-          parent_branch='feature/books-semantic-game-dom-20261003'
+          parent_branch='fix/books-semantic-contract-current-20261003'
           test "$(git rev-parse HEAD)" = "$expected_head"
 
           if [ '${{ github.event_name }}' = 'pull_request' ]; then
@@ -58,18 +56,16 @@ jobs:
             expected="$(printf '%s\n' \
               '.github/workflows/books-semantic-tree-contract.yml' \
               'acs/version2_book_workspace.py' \
-              'tests/js/books_training_surface_dom_test.js' \
-              'tests/test_version2_book_workspace.py' \
-              'web/full_product_books_training.js' | sort)"
+              'tests/test_version2_book_workspace.py' | sort)"
             test "$changed" = "$expected"
             git diff --check "$live_parent" HEAD
           else
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "b98d2f7bd6ca4f8c95c3698d5777c9d4618f0d08"
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "cccbc04eb4c36da1dd60d149e12e4b87dd29ada5"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "10c487b3ff94464807eeca68e8238a9435c808c7"
-          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "a94fa5cba8d53706f6f3b3e4687a4a3f3a39cf35"
+          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "fe5b7d03fc3d480c5186a0ac12f702086d184327"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "80a2b0cbeed29313b5365752c06ba7cd6bd723d3"
           test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "128c7b5c158a2cd0e5286d12c1bd52f99aa3189b"
 
