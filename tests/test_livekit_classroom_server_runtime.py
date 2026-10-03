@@ -94,8 +94,8 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_local_plain_http_is_allowed_only_for_loopback_development(self):
         for endpoint in (
-            "http://localhost:7880",
             "http://127.0.0.1:7880",
+            "http://127.0.0.42:7880",
             "http://[::1]:7880",
         ):
             with self.subTest(endpoint=endpoint):
@@ -105,6 +105,7 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         before = len(FakeLiveKitClient.instances)
         for endpoint in (
+            "http://localhost:7880",
             "http://classroom.example.invalid",
             "http://10.0.0.4:7880",
             "http://192.168.1.10:7880",
