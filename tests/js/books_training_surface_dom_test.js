@@ -1273,6 +1273,53 @@ async function run() {
     "inactive V2 Book snapshot exposed Return to book"
   );
 
+  const unavailableGameRoot = new FakeElement("div");
+  const unavailableGameSnapshot = bookSnapshot(41, "Readable unavailable game");
+  unavailableGameSnapshot.block.kind = "Game";
+  unavailableGameSnapshot.block.role = "group";
+  unavailableGameSnapshot.block.title = "Readable unavailable game";
+  unavailableGameSnapshot.block.warning = "Game content is unavailable";
+  unavailableGameSnapshot.board_active = false;
+  unavailableGameSnapshot.actions[9].enabled = false;
+  unavailableGameSnapshot.actions[10].enabled = false;
+  window.AccessibleChessBookSurface.render(
+    unavailableGameRoot,
+    unavailableGameSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-41",
+    "Unavailable game fallback failed"
+  );
+  check(
+    unavailableGameRoot.querySelector("#book-block-41") !== null &&
+      find(unavailableGameRoot, "BUTTON", "Open game").disabled === true,
+    "safe disabled Game handoff discarded the readable fallback"
+  );
+
+  const unavailableVariationRoot = new FakeElement("div");
+  const unavailableVariationSnapshot = bookSnapshot(42, "Readable unavailable variation");
+  unavailableVariationSnapshot.block.kind = "VariationTree";
+  unavailableVariationSnapshot.block.role = "group";
+  unavailableVariationSnapshot.block.title = "Readable unavailable variation";
+  unavailableVariationSnapshot.block.has_position = true;
+  unavailableVariationSnapshot.block.warning = "Variation content is unavailable";
+  unavailableVariationSnapshot.board_active = false;
+  unavailableVariationSnapshot.actions[8].enabled = false;
+  unavailableVariationSnapshot.actions[10].enabled = false;
+  window.AccessibleChessBookSurface.render(
+    unavailableVariationRoot,
+    unavailableVariationSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-42",
+    "Unavailable variation fallback failed"
+  );
+  check(
+    unavailableVariationRoot.querySelector("#book-block-42") !== null &&
+      find(unavailableVariationRoot, "BUTTON", "Open position").disabled === true,
+    "safe disabled Variation handoff discarded the readable fallback"
+  );
+
   const activeGameRoot = new FakeElement("div");
   const activeGameSnapshot = bookSnapshot(27, "Active game board state");
   activeGameSnapshot.block.kind = "Game";
