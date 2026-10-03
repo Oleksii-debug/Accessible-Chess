@@ -235,11 +235,29 @@ class ProfiledWindowsSoundPlaybackAdapter:
             # Keep the shipped packaged manifest as the sole classic authority.
             event = self._classic_event(request)
             return self._packaged.resolve(event), f"classic-{event.value}"
+        manifest = self._installed.installed_manifest(request.pack_id)
+        if manifest is None:
+            raise FileNotFoundError("selected sound pack is unavailable")
+        if request.sound_id not in manifest.files:
+            if request.sound_id != request.event_id:
+                raise FileNotFoundError("selected sound-pack asset is unavailable")
+            try:
+                fallback_event = SoundEvent(request.event_id)
+            except ValueError as exc:
+                raise FileNotFoundError(
+                    "selected sound-pack asset is unavailable"
+                ) from exc
+            return (
+                self._packaged.resolve(fallback_event),
+                f"classic-fallback-{fallback_event.value}",
+            )
         snapshot = self._installed.read_asset_snapshot(
             request.pack_id,
             request.sound_id,
         )
         if snapshot is None:
+            # The manifest declared this asset. Missing/unreadable bytes are an
+            # integrity failure and must never be masked by classic fallback.
             raise FileNotFoundError("selected sound-pack asset is unavailable")
         if Path(snapshot.relative_path).suffix.casefold() != ".wav":
             raise ValueError("Windows profile playback currently requires WAV assets")
