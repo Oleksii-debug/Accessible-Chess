@@ -239,7 +239,70 @@ class Version2Application:
     def save_book_progress(self):
         self._assert_thread()
         if self.reader is not None:
-            self._persist_book_progress(self.book_key, self.reader)
+            try:
+                self._persist_book_progress(self.book_key, self.reader)
+            except BookProgressStoreError as error:
+                if error.code == BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._reload_book_progress_after_durability_ambiguity()
+                raise
+
+    def _reload_book_progress_after_durability_ambiguity(self):
+        """Rebind to visible canonical progress after post-replace uncertainty."""
+
+        reader = self.reader
+        books = self.books
+        key = self.book_key
+        training_was_active = self.training_workspace is not None or self.training is not None
+        book_board_was_active = (
+            self.book_workflow is not None and self.book_workflow.active
+        )
+        if reader is not None and books is not None and key is not None:
+            language = books.projection.language
+            bookmark_name = books.projection.bookmark_name
+            try:
+                reloaded = self.progress_store.restore_primary(key, reader.document)
+                self._restore_book_progress(
+                    reloaded.snapshot(),
+                    language=language,
+                    bookmark_name=bookmark_name,
+                    restore_training=training_was_active,
+                )
+                # Book Board is transient state over the old reader/workflow and
+                # is not part of the durable BookReader snapshot. If ambiguity
+                # recovery replaced that owner while Board was visible, return
+                # to the canonical Books surface instead of leaving keyboard
+                # focus on a stale/dead Board route.
+                if (
+                    book_board_was_active
+                    and self.shell.current_route.route_id == "board"
+                ):
+                    self._focus = self.shell.open_route("books")
+                    self._events.append(
+                        {"kind": "route", "payload": {"route_id": "books"}}
+                    )
+                return
+            except Exception:
+                pass
+
+        # The durable primary cannot be re-read safely. Continuing to expose the
+        # old or speculative reader would split UI authority from disk. Fail the
+        # Book-owned surfaces closed and move focus to a stable route. A visible
+        # PGN Board is unrelated and is intentionally left alone.
+        self.reader = None
+        self.book_key = None
+        self.book_workflow = None
+        self.book_delegate = None
+        self.books = None
+        self.training_workspace = None
+        self.training = None
+        current_route = self.shell.current_route.route_id
+        if current_route in {"books", "training"} or (
+            current_route == "board" and book_board_was_active
+        ):
+            self._focus = self.shell.open_route("library")
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "library"}}
+            )
 
     def save_training_progress(self):
         self._assert_thread()
@@ -339,6 +402,15 @@ class Version2Application:
         if command == "training.continue" and result.kind != "error":
             try:
                 self.save_book_progress()
+            except BookProgressStoreError as error:
+                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                    )
+                raise
             except Exception:
                 self._restore_book_progress(
                     before_reader,
@@ -411,6 +483,16 @@ class Version2Application:
                 return result
             try:
                 self.save_book_progress()
+            except BookProgressStoreError as error:
+                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._restore_book_progress(
+                        before,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                    )
+                if self.books is None:
+                    return self._error()
+                return self.books.projection.generic_error()
             except Exception:
                 self._restore_book_progress(
                     before,
@@ -577,6 +659,20 @@ class Version2Application:
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED and opening_board:
                         try:
                             self.save_book_progress()
+                        except BookProgressStoreError as error:
+                            # DURABILITY_UNKNOWN has already rebound Books to the
+                            # visible canonical store state (or failed the Books
+                            # surface closed). Do not overwrite that authority with
+                            # the pre-open in-memory snapshot.
+                            if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                                self._restore_book_progress(
+                                    before_reader,
+                                    language=before_language,
+                                    bookmark_name=before_bookmark,
+                                )
+                            raise ValueError(
+                                concise_user_error("", language=self.shell.language)
+                            ) from None
                         except Exception:
                             self._restore_book_progress(
                                 before_reader,
