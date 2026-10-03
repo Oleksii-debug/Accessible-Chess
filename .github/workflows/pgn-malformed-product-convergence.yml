@@ -1,0 +1,104 @@
+name: PGN Malformed Whole Product Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'web/full_product_pgn.js'
+      - 'tests/test_dev1_pgn_webview_projection.py'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - '.github/workflows/pgn-malformed-product-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-malformed-product-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      EXACT_PARENT: cf676d406e070ac6617cd9c2c749075d329e8932
+      SOURCE_PGN_HEAD: 8839fe5b0492a0f77fcb13a7d8dc1a07827c02c6
+      PROJECTION_BLOB: 127037cb6cf264f579516df599bf8c1ad44e8985
+      BRIDGE_BLOB: 25b3d03179f42b4565a4dd6d7a2ccd283607e09c
+      WEB_BLOB: 39077a843aefc424801bd96b41bfc81e784ac597
+      PY_TEST_BLOB: c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e
+      JS_TEST_BLOB: 61a148bf2a1282f4eba11104aab462f10e6c263c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prove exact PGN successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:acs/pgn_webview_projection.py")" = "$PROJECTION_BLOB"
+          test "$(git rev-parse "HEAD:acs/pgn_webview_bridge.py")" = "$BRIDGE_BLOB"
+          test "$(git rev-parse "HEAD:web/full_product_pgn.js")" = "$WEB_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_pgn_webview_projection.py")" = "$PY_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/js/pgn_surface_dom_test.js")" = "$JS_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/pgn-malformed-product-convergence.yml' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+          echo "SOURCE_PGN_HEAD=$SOURCE_PGN_HEAD"
+
+      - name: Compile PGN host boundary
+        run: >-
+          python -m compileall -q
+          acs/pgn_webview_projection.py
+          acs/pgn_webview_bridge.py
+          tests/test_dev1_pgn_webview_projection.py
+
+      - name: Validate PGN and current whole-product DOM
+        run: |
+          node --check web/full_product_pgn.js
+          node --check web/version2_release_bootstrap.js
+          node --check web/full_product_books_training.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Validate PGN and application regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_pgn_webview_projection
+          tests.test_version2_application
+          tests.test_version2_release_accessibility_contract
+          tests.test_version2_book_board_refresh_focus_order_evidence
+          tests.test_training_authority_convergence
+          tests.test_v2_book_training_route_rollback
+
+      - name: Core selftest
+        run: python -m acs.selftest
