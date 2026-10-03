@@ -355,6 +355,12 @@ jobs:
           tests.test_bookreader
           tests.test_bookdocument
 
+      - name: Book Board persistence transaction regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_board_progress_failure_exact
+          tests.test_book_reverse_progress_failure_exact
+
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
 
