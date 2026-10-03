@@ -27,6 +27,11 @@ from .training import ExerciseDefinition, ExerciseStep
 BOOK_TRAINING_SCHEMA_VERSION = 1
 _MAX_SOLUTION_PGN_TEXT = 256_000
 _MAX_ORIGIN_TEXT = 4096
+_MAX_HEADING_PATH_PARTS = 6
+_MAX_EXERCISE_STEPS = 2048
+_MAX_ACCEPTED_MOVES_PER_STEP = 64
+_MAX_WIRE_TAGS = 64
+_MAX_WIRE_METADATA_ENTRIES = 64
 _MATERIAL_FIELDS = frozenset({"schema_version", "origin", "definition"})
 _ORIGIN_FIELDS = frozenset(
     {
@@ -220,6 +225,11 @@ class BookTrainingOrigin:
                 "book training heading_path must be a list",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
+        if len(heading_path) > _MAX_HEADING_PATH_PARTS:
+            raise BookTrainingError(
+                "book training heading_path exceeds the semantic depth limit",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
         return cls(
             target_key=payload["target_key"],  # type: ignore[arg-type]
             block_digest=payload["block_digest"],  # type: ignore[arg-type]
@@ -308,6 +318,11 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             "book training definition steps must be a list",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
+    if not steps_value or len(steps_value) > _MAX_EXERCISE_STEPS:
+        raise BookTrainingError(
+            "book training definition has an invalid step count",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
     steps: list[ExerciseStep] = []
     for raw_step in steps_value:
         if not isinstance(raw_step, Mapping):
@@ -320,6 +335,11 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
         if type(accepted) is not list or any(type(move) is not str for move in accepted):
             raise BookTrainingError(
                 "book training accepted_moves must be a list of text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        if not accepted or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP:
+            raise BookTrainingError(
+                "book training accepted_moves has an invalid item count",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         hint = raw_step["hint"]
@@ -349,11 +369,21 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             "book training tags must be a list of text",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
+    if len(tags) > _MAX_WIRE_TAGS:
+        raise BookTrainingError(
+            "book training tags exceed the wire item limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
     if not isinstance(metadata, Mapping) or any(
         type(key) is not str or type(value) is not str for key, value in metadata.items()
     ):
         raise BookTrainingError(
             "book training metadata must map text keys to text values",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if len(metadata) > _MAX_WIRE_METADATA_ENTRIES:
+        raise BookTrainingError(
+            "book training metadata exceeds the wire item limit",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     source_id = payload["source_id"]
