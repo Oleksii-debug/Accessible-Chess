@@ -157,7 +157,31 @@ def _sha256(path: Path) -> str:
 
 
 MAX_ARCHIVE_MEMBER_COUNT = 2048
+MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+
+
+def _snapshot_sound_zip(source: Path, destination: Path) -> int:
+    total = 0
+    try:
+        with source.open("rb") as reader, destination.open("xb") as writer:
+            while True:
+                block = reader.read(1024 * 1024)
+                if not block:
+                    break
+                total += len(block)
+                if total > MAX_ARCHIVE_BYTES:
+                    raise SoundPackBuildError(
+                        "sound-pack ZIP exceeds the compressed size limit"
+                    )
+                writer.write(block)
+    except SoundPackBuildError:
+        raise
+    except OSError as exc:
+        raise SoundPackBuildError("sound-pack ZIP could not be snapshotted") from exc
+    if total <= 0:
+        raise SoundPackBuildError("sound-pack ZIP is empty")
+    return total
 
 
 def _safe_archive_member(name: str) -> PurePosixPath:
@@ -285,11 +309,7 @@ def _build_sound_pack_unchecked(
         with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
             snapshot_root = Path(temp_dir)
             archive_snapshot = snapshot_root / "source.zip"
-            try:
-                shutil.copyfile(source, archive_snapshot)
-            except OSError as exc:
-                raise SoundPackBuildError("sound-pack ZIP could not be snapshotted") from exc
-
+            archive_bytes = _snapshot_sound_zip(source, archive_snapshot)
             archive_sha256 = _sha256(archive_snapshot)
             if expected_source_archive_sha256 is not None:
                 wanted = expected_source_archive_sha256.strip().casefold()
@@ -311,7 +331,7 @@ def _build_sound_pack_unchecked(
                 extracted,
                 destination,
                 _source_archive_sha256=archive_sha256,
-                _source_archive_bytes=archive_snapshot.stat().st_size,
+                _source_archive_bytes=archive_bytes,
             )
 
     sounds = _locate_sounds(source)
