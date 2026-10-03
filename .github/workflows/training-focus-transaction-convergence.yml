@@ -6,6 +6,7 @@ on:
       - 'web/full_product_books_training.js'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/test_dev1_books_training_web_asset.py'
+      - 'tests/test_dev1_books_training_webview_projection.py'
       - '.github/workflows/training-focus-transaction-convergence.yml'
   workflow_dispatch:
 
@@ -30,6 +31,7 @@ jobs:
       WEB_BLOB: 5ae8f56915377438e50e3e09eb463381140bf36d
       DOM_TEST_BLOB: 5635c605c52f1eca40eaae7bc7b3eca23c58ad94
       ASSET_TEST_BLOB: 4b2aaed73cd7c8ceae289318501144fa13c51d34
+      PROJECTION_TEST_BLOB: 04f9503708d70ca0b3d7b671f866ff582b28ee83
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,11 +55,13 @@ jobs:
           test "$(git rev-parse "HEAD:web/full_product_books_training.js")" = "$WEB_BLOB"
           test "$(git rev-parse "HEAD:tests/js/books_training_surface_dom_test.js")" = "$DOM_TEST_BLOB"
           test "$(git rev-parse "HEAD:tests/test_dev1_books_training_web_asset.py")" = "$ASSET_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_books_training_webview_projection.py")" = "$PROJECTION_TEST_BLOB"
           changed="$(git diff --name-only "$TRANSACTION_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/training-focus-transaction-convergence.yml' \
             'tests/js/books_training_surface_dom_test.js' \
             'tests/test_dev1_books_training_web_asset.py' \
+            'tests/test_dev1_books_training_webview_projection.py' \
             'web/full_product_books_training.js' | sort)"
           test "$changed" = "$expected"
           git diff --check
