@@ -29,7 +29,7 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_workflow_binds_scope_to_live_moderation_parent_fail_closed(self):
+    def test_workflow_binds_scope_to_immutable_pull_request_base(self):
         workflow = (
             Path(__file__).parents[1]
             / ".github"
@@ -41,14 +41,16 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
             workflow,
         )
         self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
-        self.assertIn('git fetch --no-tags origin "$EXPECTED_BASE_REF"', workflow)
         self.assertIn(
-            'base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            'test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"',
             workflow,
         )
-        self.assertIn('git merge-base --is-ancestor "$base" HEAD', workflow)
-        self.assertIn('git diff --name-only "$base...HEAD"', workflow)
-        self.assertNotIn('git diff --name-only "$EXPECTED_BASE_SHA" HEAD', workflow)
+        self.assertIn('git diff --check "$EVENT_BASE_SHA...HEAD"', workflow)
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", workflow)
 
     def test_constructor_and_read_path_have_complete_connection_lifecycle_imports(self):
         second_path = Path(self.temp.name) / "constructor-read.sqlite3"
