@@ -2480,7 +2480,12 @@ class Version2UpgradeCoordinator:
         if not stat.S_ISREG(info.st_mode):
             raise Version2UpgradeError("settings path must be a file")
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            payload = _read_exact_regular_bytes(
+                path,
+                label="settings file",
+                max_bytes=_MAX_RECOVERY_JSON_BYTES,
+            )
+            raw = json.loads(payload.decode("utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError
             candidate = self.settings_factory(
@@ -2507,18 +2512,34 @@ class Version2UpgradeCoordinator:
         info = _safe_stat(path, "library file")
         if not stat.S_ISREG(info.st_mode):
             raise Version2UpgradeError("library path must be a file")
+
+        def require_library_identity() -> None:
+            current = _safe_stat(path, "library file")
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or not _same_file_identity(info, current)
+            ):
+                raise Version2UpgradeError(
+                    "library file changed during validation"
+                )
+
         connection = None
         try:
+            resolved = path.resolve(strict=True)
+            require_library_identity()
             connection = sqlite3.connect(
-                path.resolve(strict=True).as_uri() + "?mode=ro",
+                resolved.as_uri() + "?mode=ro",
                 uri=True,
                 timeout=0.0,
             )
+            require_library_identity()
             connection.execute("PRAGMA busy_timeout=0")
-            return self._validate_library_schema(connection)
+            schema = self._validate_library_schema(connection)
+            require_library_identity()
+            return schema
         except Version2UpgradeError:
             raise
-        except sqlite3.DatabaseError as exc:
+        except (OSError, sqlite3.DatabaseError) as exc:
             raise Version2UpgradeError("library validation failed") from exc
         finally:
             if connection is not None:
@@ -2546,11 +2567,16 @@ class Version2UpgradeCoordinator:
             return False
         path = self.layout.settings_path
         try:
+            source_payload = _read_exact_regular_bytes(
+                path,
+                label="settings migration source",
+                max_bytes=_MAX_RECOVERY_JSON_BYTES,
+            )
             candidate = self.settings_factory(
                 path.parent / f".{path.name}.upgrade-validate"
             )
             candidate.import_json(
-                path.read_text(encoding="utf-8"), persist=False
+                source_payload.decode("utf-8"), persist=False
             )
             payload = (candidate.export_json() + "\n").encode("utf-8")
         except Exception as exc:
