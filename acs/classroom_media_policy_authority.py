@@ -139,6 +139,10 @@ class SqliteClassroomMediaPolicyAuthority:
                 "media policy authority requires durable file storage"
             )
         try:
+            # Derive policy + provider-effect lock storage from one canonical
+            # filesystem spelling. Otherwise two services can open the same
+            # policy database through different symlink aliases while taking
+            # different companion locks, defeating cross-process serialization.
             storage_path = storage_path.resolve(strict=False)
         except (OSError, RuntimeError):
             raise ClassroomMediaPolicyError("media policy path is invalid") from None
@@ -197,6 +201,7 @@ class SqliteClassroomMediaPolicyAuthority:
         participant_id: str,
     ) -> "_SqliteProviderEffectScope":
         """Serialize provider mutations across processes sharing this policy path."""
+
         room = _identifier(room_id, "room id")
         participant = _identifier(participant_id, "participant id")
         return _SqliteProviderEffectScope(
@@ -312,6 +317,7 @@ class SqliteClassroomMediaPolicyAuthority:
             or any(type(item) is not ModerationCommand for item in commands)
         ):
             raise ClassroomMediaPolicyError("moderation command batch is invalid")
+
         roster, participants = self._roster(room)
         if caller not in participants:
             raise ClassroomMediaPolicyError(
@@ -324,6 +330,7 @@ class SqliteClassroomMediaPolicyAuthority:
         if caller_policy.blocked:
             raise ClassroomMediaPolicyError("blocked participant cannot moderate media")
         actor_role = caller_policy.role
+
         for command in commands:
             if command.actor_id != caller:
                 raise ClassroomMediaPolicyError(
@@ -350,6 +357,7 @@ class SqliteClassroomMediaPolicyAuthority:
         command: ModerationCommand,
     ) -> None:
         """Persist durable semantics before an already-authorized provider effect."""
+
         if type(command) is not ModerationCommand:
             raise ClassroomMediaPolicyError("moderation command is invalid")
         room = _identifier(room_id, "room id")
@@ -358,6 +366,7 @@ class SqliteClassroomMediaPolicyAuthority:
             caller_identity=command.actor_id,
             commands=(command,),
         )
+
         if command.action is ModerationAction.PUBLISH_PERMISSION:
             source = command.source
             value = command.value
@@ -373,6 +382,8 @@ class SqliteClassroomMediaPolicyAuthority:
             )
         elif command.action is ModerationAction.REMOVE and command.value is True:
             self._set_blocked(room, command.target_id)
+        # Soft mute is session-only. REMOVE(block=False) is a kick, not an
+        # unblock, and cannot erase an existing durable block.
 
     def _roster(
         self,
@@ -644,6 +655,9 @@ class _SqliteProviderEffectScope:
             try:
                 self._connection = await asyncio.shield(acquisition)
             except asyncio.CancelledError as error:
+                # The worker thread cannot be cancelled while sqlite is waiting.
+                # Remember caller cancellation and keep the Future shielded until
+                # its terminal result can be explicitly released.
                 if cancelled is None:
                     cancelled = error
                 if acquisition.done() and acquisition.cancelled():
@@ -651,6 +665,8 @@ class _SqliteProviderEffectScope:
                 continue
             except Exception:
                 if cancelled is not None:
+                    # Once cancellation was observed it remains caller authority,
+                    # even if the eventually completed acquisition itself fails.
                     raise cancelled from None
                 raise
 
@@ -676,6 +692,8 @@ class _SqliteProviderEffectScope:
         except ClassroomMediaPolicyError:
             if exc_type is None:
                 raise
+            # Preserve the original provider/policy failure after best-effort
+            # close has already released the SQLite file lock.
             return
 
     def __repr__(self) -> str:
@@ -732,6 +750,7 @@ async def _release_effect_lock_async(connection: sqlite3.Connection) -> None:
     try:
         await asyncio.shield(cleanup)
     except asyncio.CancelledError:
+        # A cancellation during cleanup must not leak the cross-process lock.
         await cleanup
         raise
 
@@ -800,7 +819,15 @@ class ClassroomMediaPolicyProviderAdmin:
         room_id: str,
         command: ModerationCommand,
     ) -> asyncio.CancelledError | None:
-        """Keep caller cancellation from abandoning an in-flight provider effect."""
+        """Keep caller cancellation from abandoning an in-flight provider effect.
+
+        The provider task is shielded from caller cancellation. If cancellation
+        arrives, remember it and continue consuming later cancellation requests
+        until the provider reaches a known terminal outcome. The caller can then
+        re-propagate cancellation only after any required durable post-provider
+        publication is complete and while the effect mutex is still held.
+        """
+
         operation = asyncio.create_task(
             self._provider_admin.apply_moderation_command(
                 room_id=room_id,
@@ -821,6 +848,7 @@ class ClassroomMediaPolicyProviderAdmin:
             except Exception:
                 provider_failed = True
                 break
+
         if operation.cancelled():
             provider_failed = True
         elif not provider_failed:
@@ -828,6 +856,7 @@ class ClassroomMediaPolicyProviderAdmin:
                 operation.result()
             except Exception:
                 provider_failed = True
+
         if provider_failed:
             if cancelled is not None:
                 raise cancelled from None
@@ -848,6 +877,12 @@ class ClassroomMediaPolicyProviderAdmin:
             command.action is ModerationAction.PUBLISH_PERMISSION
             and command.value is True
         )
+
+        # The provider adapter performs a read/modify/write of the participant's
+        # complete permission state. Distinct operation ids must therefore share
+        # one cross-process effect order or two stale reads can each re-enable
+        # the source revoked by the other. The companion SQLite writer lock is
+        # held across durable-policy ordering and the provider await.
         async with self._authority.provider_effect_scope(
             room_id=room_id,
             participant_id=command.target_id,
@@ -863,6 +898,9 @@ class ClassroomMediaPolicyProviderAdmin:
                     commands=(command,),
                 )
             else:
+                # Persist restrictive semantics *inside* the same serialized
+                # order but before the provider effect. If provider mutation
+                # fails, reconnect remains fail-closed.
                 self._authority.record_authorized_command(
                     room_id=room_id,
                     command=command,
@@ -874,12 +912,18 @@ class ClassroomMediaPolicyProviderAdmin:
             )
 
             if restore_after_provider:
+                # A failed provider grant must never become a reconnect grant.
+                # Persist restoration only after provider success and before
+                # releasing the serialized effect order, so a later revoke
+                # cannot be overwritten by an earlier restore.
                 self._authority.record_authorized_command(
                     room_id=room_id,
                     command=command,
                 )
 
             if cancelled is not None:
+                # The requested cancellation becomes observable only after the
+                # provider outcome and any durable restore are both committed.
                 raise cancelled
 
 
