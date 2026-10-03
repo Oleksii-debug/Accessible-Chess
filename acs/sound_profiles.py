@@ -35,9 +35,22 @@ SOUND_PACK_SCHEMA1_REQUIRED_EVENTS = (
 # installed schema-1 custom packs.
 CORE_SOUND_EVENTS = SOUND_PACK_SCHEMA1_REQUIRED_EVENTS
 
-OPTIONAL_OWNER_SOUND_EVENTS = (
+_FORWARD_OWNER_EVENT_IDS = (
     "mate",
     "draw",
+)
+
+OPTIONAL_OWNER_SOUND_EVENTS = tuple(
+    dict.fromkeys(
+        (
+            *_FORWARD_OWNER_EVENT_IDS,
+            *(
+                event_id
+                for event_id in _PACKAGED_SEMANTIC_EVENT_IDS
+                if event_id not in CORE_SOUND_EVENTS
+            ),
+        )
+    )
 )
 
 OPTIONAL_CLASSROOM_SOUND_EVENTS = (
