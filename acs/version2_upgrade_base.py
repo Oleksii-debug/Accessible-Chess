@@ -376,6 +376,32 @@ def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
 
+def _require_published_temp_identity(
+    path: Path,
+    expected: os.stat_result | None,
+    *,
+    label: str,
+) -> None:
+    """Require a published pathname to remain the exact prepared private inode."""
+    try:
+        current = os.lstat(path)
+    except OSError as exc:
+        raise Version2UpgradeError(
+            f"{label} changed before durability confirmation"
+        ) from exc
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or _reparse(current)
+        or not stat.S_ISREG(current.st_mode)
+        or int(getattr(current, "st_nlink", 1)) != 1
+        or expected is None
+        or not _same_file_identity(expected, current)
+    ):
+        raise Version2UpgradeError(
+            f"{label} changed before durability confirmation"
+        )
+
+
 def _dir_chain(
     root: Path,
     directory: Path,
@@ -477,7 +503,17 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
             )
         os.replace(temp, path)
         temp = None
+        _require_published_temp_identity(
+            path,
+            temp_identity,
+            label="atomic write publication",
+        )
         _fsync_dir(path.parent)
+        _require_published_temp_identity(
+            path,
+            temp_identity,
+            label="atomic write publication",
+        )
     finally:
         if fd >= 0:
             try:
@@ -662,7 +698,17 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
             )
         os.replace(temp, destination)
         temp = None
+        _require_published_temp_identity(
+            destination,
+            temp_identity,
+            label="backup copy publication",
+        )
         _fsync_dir(destination.parent)
+        _require_published_temp_identity(
+            destination,
+            temp_identity,
+            label="backup copy publication",
+        )
         return int(after.st_size), digest.hexdigest()
     finally:
         if source_fd >= 0:
