@@ -244,9 +244,20 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
             canonical_file_nodes.add(parent_node)
 
         mode = (info.external_attr >> 16) & 0xFFFF
-        if mode and stat.S_ISLNK(mode):
+        file_type = stat.S_IFMT(mode)
+        if file_type and file_type not in {stat.S_IFREG, stat.S_IFDIR}:
             raise _error(
-                "EPUB package links are not supported",
+                "EPUB package contains an unsupported special entry type",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+        if file_type == stat.S_IFDIR and not is_directory:
+            raise _error(
+                "EPUB package directory metadata contradicts its entry name",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+        if file_type == stat.S_IFREG and is_directory:
+            raise _error(
+                "EPUB package file metadata contradicts its entry name",
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
         if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
