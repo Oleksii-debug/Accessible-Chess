@@ -1,3 +1,5 @@
+import hashlib
+import json
 import unittest
 
 from acs.chesscore import Board
@@ -29,6 +31,7 @@ class ExerciseSessionTests(unittest.TestCase):
             title="Two-step opening exercise",
             tags=("Opening", "Calculation"),
             source_id="local-pack-1",
+            metadata={"difficulty": "starter", "locale": "en"},
         )
 
     def test_definition_normalizes_tags_and_preserves_source(self):
@@ -106,7 +109,7 @@ class ExerciseSessionTests(unittest.TestCase):
         session.submit("Nf3")
         session.submit("e2e4")
         snapshot = session.snapshot()
-        self.assertEqual(snapshot["schema_version"], 3)
+        self.assertEqual(snapshot["schema_version"], 4)
         self.assertEqual(snapshot["accepted_path"], ["e4"])
         restored = ExerciseSession.restore(definition, snapshot)
         self.assertEqual(restored.step_index, 1)
@@ -117,6 +120,146 @@ class ExerciseSessionTests(unittest.TestCase):
         self.assertEqual(restored.accepted_path, ("e4",))
         self.assertEqual(restored.current_fen, session.current_fen)
         self.assertEqual(restored.snapshot(), snapshot)
+
+    def test_v4_snapshot_rejects_full_definition_identity_drift(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        snapshot = session.snapshot()
+
+        first = definition.steps[0]
+        second = definition.steps[1]
+        mutations = {
+            "title": ExerciseDefinition(
+                definition.exercise_id,
+                definition.start_fen,
+                definition.steps,
+                title=definition.title + " revised",
+                tags=definition.tags,
+                source_id=definition.source_id,
+                metadata=definition.metadata,
+            ),
+            "tags": ExerciseDefinition(
+                definition.exercise_id,
+                definition.start_fen,
+                definition.steps,
+                title=definition.title,
+                tags=(*definition.tags, "tactical"),
+                source_id=definition.source_id,
+                metadata=definition.metadata,
+            ),
+            "source_id": ExerciseDefinition(
+                definition.exercise_id,
+                definition.start_fen,
+                definition.steps,
+                title=definition.title,
+                tags=definition.tags,
+                source_id="local-pack-2",
+                metadata=definition.metadata,
+            ),
+            "metadata": ExerciseDefinition(
+                definition.exercise_id,
+                definition.start_fen,
+                definition.steps,
+                title=definition.title,
+                tags=definition.tags,
+                source_id=definition.source_id,
+                metadata={**definition.metadata, "difficulty": "advanced"},
+            ),
+            "hint": ExerciseDefinition(
+                definition.exercise_id,
+                definition.start_fen,
+                (
+                    ExerciseStep(
+                        first.accepted_moves,
+                        hint="A different hint.",
+                        explanation=first.explanation,
+                    ),
+                    second,
+                ),
+                title=definition.title,
+                tags=definition.tags,
+                source_id=definition.source_id,
+                metadata=definition.metadata,
+            ),
+            "explanation": ExerciseDefinition(
+                definition.exercise_id,
+                definition.start_fen,
+                (
+                    ExerciseStep(
+                        first.accepted_moves,
+                        hint=first.hint,
+                        explanation="A different explanation.",
+                    ),
+                    second,
+                ),
+                title=definition.title,
+                tags=definition.tags,
+                source_id=definition.source_id,
+                metadata=definition.metadata,
+            ),
+        }
+
+        for field, changed in mutations.items():
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, "different exercise revision"):
+                    ExerciseSession.restore(changed, snapshot)
+
+    def test_v4_snapshot_detects_mutated_metadata_on_same_definition_object(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        self.assertIsInstance(definition.metadata, dict)
+        definition.metadata["difficulty"] = "mutated"
+
+        with self.assertRaisesRegex(ValueError, "different exercise revision"):
+            ExerciseSession.restore(definition, snapshot)
+
+    def test_schema_v3_snapshot_remains_readable_and_upgrades_to_v4(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        session.request_hint()
+        session.submit("Nf3")
+        session.submit("e4")
+        snapshot = session.snapshot()
+
+        legacy_payload = {
+            "start_fen": definition.start_fen,
+            "steps": [sorted(step.accepted_moves) for step in definition.steps],
+        }
+        legacy_digest = hashlib.sha256(
+            json.dumps(
+                legacy_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        snapshot["schema_version"] = 3
+        snapshot["definition_digest"] = legacy_digest
+
+        restored = ExerciseSession.restore(definition, snapshot)
+        self.assertEqual(restored.step_index, 1)
+        self.assertEqual(restored.accepted_path, ("e4",))
+        upgraded = restored.snapshot()
+        self.assertEqual(upgraded["schema_version"], 4)
+        self.assertNotEqual(upgraded["definition_digest"], legacy_digest)
+
+    def test_v4_definition_digest_is_deterministic_across_metadata_order(self):
+        first = self.make_definition()
+        second = ExerciseDefinition(
+            first.exercise_id,
+            first.start_fen,
+            first.steps,
+            title=first.title,
+            tags=first.tags,
+            source_id=first.source_id,
+            metadata={"locale": "en", "difficulty": "starter"},
+        )
+
+        self.assertEqual(
+            ExerciseSession(first).snapshot()["definition_digest"],
+            ExerciseSession(second).snapshot()["definition_digest"],
+        )
 
     def test_snapshot_from_other_exercise_is_rejected(self):
         definition = self.make_definition()
