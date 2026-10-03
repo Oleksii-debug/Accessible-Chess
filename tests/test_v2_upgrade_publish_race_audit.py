@@ -328,6 +328,66 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             ):
                 upgrade_base_module._remove_publication_guard(guard)
 
+    def test_settings_same_bytes_candidate_inode_swap_preserves_old_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_text(
+                json.dumps({"language": "en", "volume": 10}),
+                encoding="utf-8",
+            )
+            original_bytes = settings.read_bytes()
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            _backup, manifest = coordinator._create_backup(
+                "settings-candidate-inode-swap"
+            )
+
+            real_replace = upgrade_base_module.os.replace
+            injected = False
+
+            def swap_candidate_at_replace(source: object, destination: object) -> None:
+                nonlocal injected
+                source_path = Path(source)
+                destination_path = Path(destination)
+                if (
+                    destination_path == settings
+                    and source_path.name.startswith(".settings.json.")
+                    and source_path.name.endswith(".tmp")
+                    and not injected
+                ):
+                    substitute = root / "same-bytes-settings-substitute.tmp"
+                    shutil.copyfile(source_path, substitute)
+                    real_replace(substitute, source_path)
+                    injected = True
+                real_replace(source, destination)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "replace",
+                side_effect=swap_candidate_at_replace,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "atomic write publication changed before durability confirmation",
+                ):
+                    coordinator._migrate_settings(manifest)
+
+            self.assertTrue(injected)
+            guards = list(root.glob(".settings.json.publish-guard-*"))
+            self.assertEqual(
+                1,
+                len(guards),
+                "ambiguous Settings publication discarded the authenticated old inode",
+            )
+            self.assertEqual(
+                original_bytes,
+                guards[0].read_bytes(),
+                "preserved Settings guard no longer contains the pre-migration bytes",
+            )
+
     def test_settings_publication_fails_if_guard_disappears_after_final_hash(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
