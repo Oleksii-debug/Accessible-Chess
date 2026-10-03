@@ -194,8 +194,7 @@ class ExerciseSession:
     """
 
     def __init__(self, definition: ExerciseDefinition) -> None:
-        if not isinstance(definition, ExerciseDefinition):
-            raise TypeError("definition must be an ExerciseDefinition")
+        _require_exact_definition(definition)
         self.definition = definition
         self._board = Board(definition.start_fen)
         self._accepted_path: list[str] = []
@@ -245,6 +244,7 @@ class ExerciseSession:
         return self.definition.steps[self._step_index]
 
     def submit(self, move: str) -> ExerciseResult:
+        _require_exact_definition(self.definition)
         if self.completed:
             raise ValueError("exercise is already completed")
         submitted = _normalize_move(move)
@@ -312,6 +312,7 @@ class ExerciseSession:
         )
 
     def request_hint(self) -> HintResult:
+        _require_exact_definition(self.definition)
         if self.completed:
             return HintResult(False, self._step_index, None, self._hints_used)
         step = self.definition.steps[self._step_index]
@@ -321,6 +322,7 @@ class ExerciseSession:
         return HintResult(True, self._step_index, step.hint, self._hints_used)
 
     def reset(self) -> None:
+        _require_exact_definition(self.definition)
         # Reconstruct from the authored start position through canonical core;
         # reset never reuses a potentially mutated hidden board object.
         board = Board(self.definition.start_fen)
@@ -334,6 +336,7 @@ class ExerciseSession:
 
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v3 progress with deterministic chess identity."""
+        _require_exact_definition(self.definition)
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": self.definition.exercise_id,
@@ -360,6 +363,7 @@ class ExerciseSession:
         the reconstructed position. Distinct alternatives fail closed instead
         of guessing which position the learner actually reached.
         """
+        _require_exact_definition(definition)
         if type(snapshot) is not dict:
             raise TypeError("exercise snapshot must be an exact dict")
         if "schema_version" not in snapshot:
@@ -459,6 +463,11 @@ class ExerciseSession:
         session._hints_used = hints_used
         session._status = status
         return session
+
+
+def _require_exact_definition(definition: object) -> None:
+    if type(definition) is not ExerciseDefinition:
+        raise TypeError("definition must be an exact ExerciseDefinition")
 
 
 def _restore_common(
