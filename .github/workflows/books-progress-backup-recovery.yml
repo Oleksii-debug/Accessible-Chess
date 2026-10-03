@@ -8,6 +8,9 @@ on:
     paths:
       - 'acs/book_progress_store.py'
       - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_v2_book_transaction_current_runtime.py'
       - 'acs/version2_application.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
@@ -17,6 +20,7 @@ on:
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/p0-release-critical-triad-convergence.yml'
       - '.github/workflows/v2-composition-publication-boundary.yml'
       - 'tests/test_composition_publication_boundary_workflow.py'
   workflow_dispatch:
@@ -61,9 +65,13 @@ jobs:
             '.github/workflows/book-progress-orphan-backup-recovery.yml'
             '.github/workflows/books-progress-backup-recovery.yml'
             '.github/workflows/v2-book-progress-production-repair.yml'
+            '.github/workflows/p0-release-critical-triad-convergence.yml'
             'acs/book_progress_store.py'
             'acs/version2_application.py'
             'tests/test_v2_book_progress_store.py'
+            'tests/test_v2_book_progress_store_production.py'
+            'tests/test_v2_book_training_route_rollback.py'
+            'tests/test_v2_book_transaction_current_runtime.py'
             'tests/test_version2_application.py'
           )
           for workflow in "${workflows[@]}"; do
@@ -103,14 +111,24 @@ jobs:
               '.github/workflows/book-progress-orphan-backup-recovery.yml' \
               '.github/workflows/books-progress-backup-recovery.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
+              '.github/workflows/p0-release-critical-triad-convergence.yml' \
               'acs/book_progress_store.py' \
               'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' \
+              'tests/test_v2_book_training_route_rollback.py' \
+              'tests/test_v2_book_transaction_current_runtime.py' \
               'tests/test_version2_application.py' | sort)"
             if [ "$books_delta" = "$books_expected" ]; then
               test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "eafbb8ea36204b51d02342db04ddcd265516a9b8"
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "da0ebdc4fbf30c7963270a4c35f660a4044e9312"
+              test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "1e4d3539fe62a7e82a7c1d8c306545fe207621c7"
+              test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "141416d4c33ccfd70e4947db33f2ea8267259f5f"
+              test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "87583407365588a16259b8baee4e7b4dce8b4864"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "5ecb4db12fa95522018290d06ccb6ada5e6e52aa"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "6aa9cddc68a630228e3a2266c5dcf3382b86a674"
+              test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "526c01f61f672e89c0206a0da31f39d7af1b5b0f"
+              test "$(git rev-parse HEAD:tests/test_v2_book_transaction_current_runtime.py)" = "10e9590d8d6ce0d469d51958f95b6cca3fd1b18e"
               test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "9705793acb3ee458e01482e9aab5d46c9a8b4844"
               current_books_recovery=true
             fi
@@ -141,18 +159,26 @@ jobs:
             '.github/workflows/book-progress-orphan-backup-recovery.yml' \
             '.github/workflows/books-progress-backup-recovery.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
+            '.github/workflows/p0-release-critical-triad-convergence.yml' \
             'acs/book_progress_store.py' \
             'acs/version2_application.py' \
             'tests/test_v2_book_progress_store.py' \
+            'tests/test_v2_book_progress_store_production.py' \
+            'tests/test_v2_book_training_route_rollback.py' \
+            'tests/test_v2_book_transaction_current_runtime.py' \
             'tests/test_version2_application.py' | sort)"
           if [ "$current_delta" = "$orphan_expected" ]; then
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
-            test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "83484849f6c52cc653512dd2f3c0192acd90988e"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "fe9a19072230971a077c84b8fae5d873f3bf1bdb"
+            test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "1e4d3539fe62a7e82a7c1d8c306545fe207621c7"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "141416d4c33ccfd70e4947db33f2ea8267259f5f"
+            test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "87583407365588a16259b8baee4e7b4dce8b4864"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "eafbb8ea36204b51d02342db04ddcd265516a9b8"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "da0ebdc4fbf30c7963270a4c35f660a4044e9312"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "5ecb4db12fa95522018290d06ccb6ada5e6e52aa"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "6aa9cddc68a630228e3a2266c5dcf3382b86a674"
+            test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "526c01f61f672e89c0206a0da31f39d7af1b5b0f"
+            test "$(git rev-parse HEAD:tests/test_v2_book_transaction_current_runtime.py)" = "10e9590d8d6ce0d469d51958f95b6cca3fd1b18e"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "9705793acb3ee458e01482e9aab5d46c9a8b4844"
             orphan_backup_successor=true
           fi
@@ -234,6 +260,8 @@ jobs:
           acs/version2_windows_native_dialog_ownership.py
           tests/test_version2_application.py
           tests/test_v2_native_dialog_language.py
+          tests/test_v2_book_training_route_rollback.py
+          tests/test_v2_book_transaction_current_runtime.py
           tests/test_books_progress_backup_recovery_workflow.py
 
       - name: Run Book recovery and adjacent persistence regressions
@@ -244,6 +272,8 @@ jobs:
           tests.test_v2_native_dialog_language
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
+          tests.test_v2_book_training_route_rollback
+          tests.test_v2_book_transaction_current_runtime
           tests.test_book_board_progress_failure_exact
 
       - name: Full repository unittest
