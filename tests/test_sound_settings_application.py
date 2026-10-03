@@ -642,6 +642,10 @@ class SoundSettingsApplicationTests(unittest.TestCase):
 
         self.assertEqual("catalog_older", item["state"])
         self.assertEqual("2.0.0", item["installed_version"])
+        self.assertEqual("2.0.0", item["version"])
+        self.assertEqual("1.5.0", item["catalog_version"])
+        self.assertEqual(installed.provenance, item["provenance"])
+        self.assertEqual(stale.provenance, item["catalog_provenance"])
         self.assertFalse(item["can_install"])
         selected = app.select_pack("soft", language="en")
         self.assertTrue(selected.ok)
@@ -684,6 +688,8 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertFalse(item["compatible"])
         self.assertTrue(item["installed_compatible"])
         self.assertEqual("1.0.0", item["installed_version"])
+        self.assertEqual("1.0.0", item["version"])
+        self.assertEqual("2.0.0", item["catalog_version"])
         self.assertFalse(item["can_install"])
 
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
