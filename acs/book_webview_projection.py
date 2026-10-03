@@ -249,9 +249,11 @@ class BookWebViewProjection:
             raise ValueError("non-heading book block contains a heading level")
         if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
             raise ValueError("book block position presence disagrees with semantic kind")
-        if type(block.list_items) is not tuple or any(
-            type(item) is not str or not item.strip() for item in block.list_items
-        ):
+        if type(block.list_items) is not tuple:
+            raise ValueError("book list items are invalid")
+        if len(block.list_items) > _MAX_BOOK_LIST_ITEMS:
+            raise ValueError("book presentation list exceeds the item-count budget")
+        if any(type(item) is not str or not item.strip() for item in block.list_items):
             raise ValueError("book list items are invalid")
         if type(block.list_ordered) is not bool:
             raise ValueError("book list ordered flag is invalid")
