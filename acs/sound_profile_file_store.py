@@ -247,6 +247,11 @@ class JsonSoundProfileStorage:
     @contextmanager
     def _exclusive_access(self) -> Iterator[None]:
         with self._process_lock:
+            # Validate every existing ancestor before mkdir(parents=True).  Without
+            # this preflight, a missing child below a symlink/reparse ancestor can
+            # be materialized outside the intended profile storage root before the
+            # post-create redirect check rejects the write.
+            _require_real_directory_chain(self.path.parent)
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
