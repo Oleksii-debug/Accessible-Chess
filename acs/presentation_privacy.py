@@ -24,7 +24,7 @@ _PUBLIC_WEB_URL = re.compile(r"(?i)\bhttps?://[^\s\r\n\t]+")
 # Once a real file-URI start is proven, redact the remainder of
 # that physical line because valid local filesystem components may contain spaces.
 _FILE_LOCAL_URI = re.compile(
-    r"(?i)(?<![\\w])file:(?=[/\\\\]|[a-z](?::|%3a)|%(?:2f|5c))[^\\r\\n\\t]+"
+    r"(?i)(?<![\w])file:(?=[/\\]|[a-z](?::|%3a)|%(?:2f|5c))[^\r\n\t]+"
 )
 
 # Windows forms covered here:
@@ -50,7 +50,7 @@ _WINDOWS_LOCAL_PATH = re.compile(
 # ``/home``, ``/var`` or ``/Volumes`` are not sufficient evidence of a workstation
 # path.
 _POSIX_LOCAL_PATH = re.compile(
-    r"(?i)(?<![\\w:/])/(?:home|users|tmp|var|private|opt|usr|mnt|etc|srv|run|root|Applications|Volumes|Library|System)/"
+    r"(?i)(?<![\w:/])/(?:home|users|tmp|var|private|opt|usr|mnt|etc|srv|run|root|Applications|Volumes|Library|System)/"
     r"[^\r\n\t]*"
 )
 
