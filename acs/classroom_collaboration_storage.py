@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -65,6 +65,7 @@ class ChatMessageMetadata:
     retention: str = "session"
     hidden: bool = False
     sent_at_unix_ms: int | None = None
+    redacted: bool = False
 
     def __post_init__(self) -> None:
         _canonical_id(self.message_id, "message id")
@@ -75,12 +76,20 @@ class ChatMessageMetadata:
             or not 0 <= self.sequence_no <= MAX_WIRE_INTEGER
         ):
             raise ValueError("sequence_no must be a bounded JSON-safe integer")
-        if type(self.body) is not str or not self.body.strip():
-            raise ValueError("message body must be non-empty text")
-        if len(self.body) > MAX_CHAT_BODY_CHARS or "\x00" in self.body:
-            raise ValueError("message body exceeds safety boundary")
-        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in self.body):
-            raise ValueError("message body contains invalid Unicode surrogate")
+        if type(self.body) is not str:
+            raise ValueError("message body must be text")
+        if type(self.redacted) is not bool:
+            raise ValueError("redacted flag must be boolean")
+        if self.redacted:
+            if self.body != "":
+                raise ValueError("redacted message body must be empty")
+        else:
+            if not self.body.strip():
+                raise ValueError("message body must be non-empty text")
+            if len(self.body) > MAX_CHAT_BODY_CHARS or "\x00" in self.body:
+                raise ValueError("message body exceeds safety boundary")
+            if any(0xD800 <= ord(ch) <= 0xDFFF for ch in self.body):
+                raise ValueError("message body contains invalid Unicode surrogate")
         if self.retention not in {"transient", "session", "persistent"}:
             raise ValueError("unsupported retention policy")
         if type(self.hidden) is not bool:
@@ -98,6 +107,7 @@ class ChatMessageStateUpdate:
     message_id: str
     revision: int
     hidden: bool = True
+    redacted: bool = False
 
     def __post_init__(self) -> None:
         _canonical_id(self.room_id, "room id")
@@ -107,8 +117,10 @@ class ChatMessageStateUpdate:
             or not 0 <= self.revision <= MAX_WIRE_INTEGER
         ):
             raise ValueError("state revision must be a bounded JSON-safe integer")
-        if self.hidden is not True:
-            raise ValueError("chat message state updates are monotonic hide operations")
+        if type(self.hidden) is not bool or type(self.redacted) is not bool:
+            raise ValueError("chat message state flags must be boolean")
+        if not self.hidden and not self.redacted:
+            raise ValueError("chat message state update must be monotonic")
 
 
 @dataclass(frozen=True)
@@ -629,6 +641,20 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=8 WHERE key='schema_version'"
                 )
                 version = 8
+            if version < 9:
+                # Retention redaction is a distinct monotonic state from
+                # moderation hide. Redaction clears the replicated body while
+                # preserving message identity, sequence and timestamp so
+                # reconnect remains gap-free without retaining expired content.
+                db.execute(
+                    "ALTER TABLE collaboration_messages "
+                    "ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0 "
+                    "CHECK(redacted IN (0,1))"
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=9 WHERE key='schema_version'"
+                )
+                version = 9
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -643,12 +669,15 @@ class ClassroomCollaborationSQLiteStore:
                     "room_id",
                     "sender_id",
                     "sequence_no",
-                    "body",
                     "retention",
                 )
                 if any(
                     getattr(loaded, field) != getattr(message, field)
                     for field in immutable_fields
+                ) or (
+                    not loaded.redacted
+                    and not message.redacted
+                    and loaded.body != message.body
                 ):
                     raise CollaborationConflictError(
                         "message identity reused with different payload"
@@ -663,19 +692,32 @@ class ClassroomCollaborationSQLiteStore:
                     )
 
                 hidden = loaded.hidden or message.hidden
+                redacted = loaded.redacted or message.redacted
+                body = "" if redacted else loaded.body
                 sent_at = (
                     loaded.sent_at_unix_ms
                     if loaded.sent_at_unix_ms is not None
                     else message.sent_at_unix_ms
                 )
-                if hidden != loaded.hidden or sent_at != loaded.sent_at_unix_ms:
+                if (
+                    hidden != loaded.hidden
+                    or redacted != loaded.redacted
+                    or body != loaded.body
+                    or sent_at != loaded.sent_at_unix_ms
+                ):
                     db.execute(
                         """
                         UPDATE collaboration_messages
-                        SET hidden=?, sent_at_unix_ms=?
+                        SET body=?, hidden=?, sent_at_unix_ms=?, redacted=?
                         WHERE message_id=?
                         """,
-                        (int(hidden), sent_at, loaded.message_id),
+                        (
+                            body,
+                            int(hidden),
+                            sent_at,
+                            int(redacted),
+                            loaded.message_id,
+                        ),
                     )
                     existing = db.execute(
                         "SELECT * FROM collaboration_messages WHERE message_id=?",
@@ -710,12 +752,13 @@ class ClassroomCollaborationSQLiteStore:
                     """
                     INSERT INTO collaboration_messages(
                         message_id, room_id, sender_id, sequence_no, body,
-                        retention, hidden, sent_at_unix_ms
-                    ) VALUES(?,?,?,?,?,?,?,?)
+                        retention, hidden, sent_at_unix_ms, redacted
+                    ) VALUES(?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         message.message_id, message.room_id, message.sender_id, message.sequence_no,
-                        message.body, message.retention, int(message.hidden), message.sent_at_unix_ms,
+                        message.body, message.retention, int(message.hidden),
+                        message.sent_at_unix_ms, int(message.redacted),
                     ),
                 )
             except sqlite3.IntegrityError as exc:
@@ -778,12 +821,15 @@ class ClassroomCollaborationSQLiteStore:
                             "room_id",
                             "sender_id",
                             "sequence_no",
-                            "body",
                             "retention",
                         )
                         if any(
                             getattr(loaded, field) != getattr(message, field)
                             for field in immutable_fields
+                        ) or (
+                            not loaded.redacted
+                            and not message.redacted
+                            and loaded.body != message.body
                         ):
                             raise CollaborationConflictError(
                                 "message identity reused with different payload"
@@ -797,19 +843,32 @@ class ClassroomCollaborationSQLiteStore:
                                 "message identity reused with different authoritative timestamp"
                             )
                         hidden = loaded.hidden or message.hidden
+                        redacted = loaded.redacted or message.redacted
+                        body = "" if redacted else loaded.body
                         sent_at = (
                             loaded.sent_at_unix_ms
                             if loaded.sent_at_unix_ms is not None
                             else message.sent_at_unix_ms
                         )
-                        if hidden != loaded.hidden or sent_at != loaded.sent_at_unix_ms:
+                        if (
+                            hidden != loaded.hidden
+                            or redacted != loaded.redacted
+                            or body != loaded.body
+                            or sent_at != loaded.sent_at_unix_ms
+                        ):
                             db.execute(
                                 """
                                 UPDATE collaboration_messages
-                                SET hidden=?, sent_at_unix_ms=?
+                                SET body=?, hidden=?, sent_at_unix_ms=?, redacted=?
                                 WHERE message_id=?
                                 """,
-                                (int(hidden), sent_at, loaded.message_id),
+                                (
+                                    body,
+                                    int(hidden),
+                                    sent_at,
+                                    int(redacted),
+                                    loaded.message_id,
+                                ),
                             )
                             existing = db.execute(
                                 "SELECT * FROM collaboration_messages WHERE message_id=?",
@@ -834,8 +893,8 @@ class ClassroomCollaborationSQLiteStore:
                             """
                             INSERT INTO collaboration_messages(
                                 message_id, room_id, sender_id, sequence_no, body,
-                                retention, hidden, sent_at_unix_ms
-                            ) VALUES(?,?,?,?,?,?,?,?)
+                                retention, hidden, sent_at_unix_ms, redacted
+                            ) VALUES(?,?,?,?,?,?,?,?,?)
                             """,
                             (
                                 message.message_id,
@@ -846,6 +905,7 @@ class ClassroomCollaborationSQLiteStore:
                                 message.retention,
                                 int(message.hidden),
                                 message.sent_at_unix_ms,
+                                int(message.redacted),
                             ),
                         )
                     except sqlite3.IntegrityError as exc:
@@ -878,19 +938,30 @@ class ClassroomCollaborationSQLiteStore:
                             "message state updates have an unresolved revision gap"
                         )
                     message_row = db.execute(
-                        "SELECT room_id, hidden FROM collaboration_messages WHERE message_id=?",
+                        "SELECT room_id, hidden, redacted FROM collaboration_messages WHERE message_id=?",
                         (update.message_id,),
                     ).fetchone()
                     if message_row is None or message_row["room_id"] != room_id:
                         raise CollaborationStorageError(
                             "message state update references unknown room message"
                         )
-                    if not _stored_boolean(
+                    hidden = _stored_boolean(
                         message_row["hidden"],
                         "message hidden flag",
-                    ):
+                    )
+                    redacted = _stored_boolean(
+                        message_row["redacted"],
+                        "message redacted flag",
+                    )
+                    if update.hidden and not hidden:
                         db.execute(
                             "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
+                            (update.message_id,),
+                        )
+                    if update.redacted and not redacted:
+                        db.execute(
+                            "UPDATE collaboration_messages "
+                            "SET body='', redacted=1 WHERE message_id=?",
                             (update.message_id,),
                         )
                     db.execute(
@@ -994,7 +1065,7 @@ class ClassroomCollaborationSQLiteStore:
                         )
                     message = db.execute(
                         """
-                        SELECT room_id, hidden FROM collaboration_messages
+                        SELECT room_id, hidden, redacted FROM collaboration_messages
                         WHERE message_id=?
                         """,
                         (update.message_id,),
@@ -1003,12 +1074,23 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "message state update references unknown room message"
                         )
-                    if not _stored_boolean(
+                    hidden = _stored_boolean(
                         message["hidden"],
                         "message hidden flag",
-                    ):
+                    )
+                    redacted = _stored_boolean(
+                        message["redacted"],
+                        "message redacted flag",
+                    )
+                    if update.hidden and not hidden:
                         db.execute(
                             "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
+                            (update.message_id,),
+                        )
+                    if update.redacted and not redacted:
+                        db.execute(
+                            "UPDATE collaboration_messages "
+                            "SET body='', redacted=1 WHERE message_id=?",
                             (update.message_id,),
                         )
                     db.execute(
@@ -1937,6 +2019,7 @@ class ClassroomCollaborationSQLiteStore:
                     if row["sent_at_unix_ms"] is not None
                     else None
                 ),
+                _stored_boolean(row["redacted"], "message redacted flag"),
             )
         except CollaborationStorageError:
             raise
