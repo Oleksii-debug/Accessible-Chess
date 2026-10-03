@@ -181,6 +181,7 @@ function semanticGameSnapshot() {
         depth: 1,
         label: "Variation 1",
         comments: [],
+        result: "*",
         trailing_comments: ["Branch tail <b>literal</b>"]
       },
       { kind: "move", depth: 2, label: "1. d4 $1", comments: ["<img onerror=bad()>"] },
@@ -415,12 +416,21 @@ async function run() {
   const branchMoves = find(variationItem, "OL");
   check(branchMoves !== null && branchMoves.children.length === 2,
     "variation moves are not nested in authored order");
+  const variationResult = find(variationItem, "P", "Result: *");
+  check(variationResult !== null, "nested variation result is not visible");
   const variationTail = find(variationItem, "LI", "Branch tail <b>literal</b>");
   check(variationTail !== null, "variation trailing comment is not visible");
   check(semanticBlock.descendants().every((item) => !["B", "EM", "STRONG"].includes(item.tagName)),
     "semantic comments must remain literal text");
-  check(variationItem.children[variationItem.children.length - 1].tagName === "UL",
-    "variation trailing comment must follow its nested move list");
+  const branchChildren = variationItem.children;
+  const nestedIndex = branchChildren.indexOf(branchMoves);
+  const resultIndex = branchChildren.indexOf(variationResult);
+  const tailList = variationTail.parentNode;
+  const tailIndex = branchChildren.indexOf(tailList);
+  check(nestedIndex >= 0 && resultIndex > nestedIndex && tailIndex > resultIndex,
+    "variation result/tail must follow nested moves in authored order");
+  check(branchChildren[branchChildren.length - 1].tagName === "UL",
+    "variation trailing comment must remain the final variation child");
   check(find(semanticBlock, "LI", "<img onerror=bad()>") !== null,
     "semantic comment must remain literal selectable text");
   check(semanticBlock.descendants().every((item) => item.tagName !== "IMG"),
