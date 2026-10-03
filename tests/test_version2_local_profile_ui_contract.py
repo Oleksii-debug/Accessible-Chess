@@ -133,6 +133,19 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertGreaterEqual(repair.count("focusProfilePrimaryAction();"), 3)
         self.assertNotIn("profileName.focus();", repair)
 
+    def test_unavailable_profile_bridge_fails_visible_without_trapping_core_product(self) -> None:
+        source = self.source
+        self.assertIn("function profileFeatureUnavailable()", source)
+        self.assertIn("profileDialog.close();", source)
+        self.assertIn("profileButton.disabled = true;", source)
+        self.assertIn('focusById("v2-nav-" + currentRouteId)', source)
+        self.assertIn('focusById("board-launcher")', source)
+        self.assertGreaterEqual(source.count("profileFeatureUnavailable();"), 3)
+        self.assertIn(
+            "return Promise.resolve(profileFeatureUnavailable());",
+            source,
+        )
+
     def test_recovery_required_state_routes_rename_to_repair(self) -> None:
         source = self.source
         self.assertIn(
