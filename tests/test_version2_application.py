@@ -888,25 +888,68 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.INVALID_ARGUMENT)
         self.assertEqual(store.path.read_bytes(), corrupt_primary)
 
-    def test_book_board_open_is_storage_independent_after_persisted_navigation(self):
+    def test_book_board_open_republishes_exact_durable_origin_before_ownership(self):
         _book, origin = self._open_book_game()
         before = self.app.reader.snapshot()
+        real_save = self.app.progress_store.save
 
         with patch.object(
             self.app.progress_store,
             "save",
-            side_effect=AssertionError(
-                "read-only Book Board open must not rewrite Book progress"
-            ),
+            wraps=real_save,
         ) as save:
             opened = self.app.browser_command("books", "book.open_position")
 
         self.assertEqual("delegated", opened["kind"])
-        save.assert_not_called()
+        save.assert_called_once_with(self.app.book_key, self.app.reader)
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual("board", self.app.shell.current_route.route_id)
         self.assertEqual(origin, self.app.reader.location())
         self.assertEqual(before, self.app.reader.snapshot())
+
+    def test_native_book_board_open_progress_failure_is_atomic_and_sanitized(self):
+        _book, origin = self._open_book_game()
+        before = self.app.reader.snapshot()
+        self.app.drain_events()
+
+        with patch.object(
+            self.app.progress_store,
+            "save",
+            side_effect=OSError(r"C:\private\book-progress.json failed"),
+        ):
+            result = self.app.adapter.activate_action(
+                "book.open_position",
+                current_focus_id="book-block-2",
+            )
+
+        self.assertEqual("error", result.kind)
+        self.assertNotIn("private", result.payload["message"].casefold())
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+        self.assertEqual(before, self.app.reader.snapshot())
+
+    def test_native_book_board_return_progress_failure_keeps_safe_return_and_sanitizes(self):
+        _book, origin = self._open_book_game()
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual("delegated", opened["kind"])
+        self.assertTrue(self.app.book_workflow.active)
+
+        with patch.object(
+            self.app.progress_store,
+            "save",
+            side_effect=OSError(r"C:\private\return-progress.json failed"),
+        ):
+            result = self.app.adapter.activate_action(
+                "book.return",
+                current_focus_id="board-launcher",
+            )
+
+        self.assertEqual("error", result.kind)
+        self.assertNotIn("private", result.payload["message"].casefold())
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
 
     def test_book_open_fails_closed_when_release_board_rejects_position(self):
         _book, origin = self._open_book_game()
