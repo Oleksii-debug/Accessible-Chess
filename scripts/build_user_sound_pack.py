@@ -252,7 +252,7 @@ def _validate_event_paths(destination: Path) -> None:
                 )
 
 
-def build_sound_pack(
+def _build_sound_pack_unchecked(
     source: Path,
     destination: Path,
     *,
@@ -274,7 +274,7 @@ def build_sound_pack(
         with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
             extracted = Path(temp_dir)
             _extract_sound_zip(source, extracted)
-            return build_sound_pack(extracted, destination)
+            return _build_sound_pack_unchecked(extracted, destination)
 
     sounds = _locate_sounds(source)
     if destination.exists():
@@ -469,6 +469,27 @@ def build_sound_pack(
         encoding="utf-8",
     )
     return inventory_doc
+
+
+def build_sound_pack(
+    source: Path,
+    destination: Path,
+    *,
+    expected_source_archive_sha256: str | None = None,
+) -> dict[str, object]:
+    destination = Path(destination)
+    if destination.exists():
+        raise SoundPackBuildError("destination already exists")
+    try:
+        return _build_sound_pack_unchecked(
+            source,
+            destination,
+            expected_source_archive_sha256=expected_source_archive_sha256,
+        )
+    except Exception:
+        if destination.exists():
+            shutil.rmtree(destination, ignore_errors=True)
+        raise
 
 
 def main() -> int:
