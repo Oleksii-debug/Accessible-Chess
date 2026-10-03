@@ -294,10 +294,54 @@
       );
     }
 
+    _localRecovery(transactionIdValue) {
+      return {
+        kind: "error",
+        payload: {
+          snapshot: null,
+          recovery_required: true,
+          transaction_id: transactionIdValue
+        }
+      };
+    }
+
+    async _outcomeUnknown(transactionIdValue) {
+      try {
+        const result = await this._call(
+          "media.provider_outcome_unknown",
+          { transaction_id: transactionIdValue }
+        );
+        if (result && typeof result === "object" &&
+            result.payload && typeof result.payload === "object" &&
+            result.payload.recovery_required === true) {
+          return result;
+        }
+      } catch (_error) {
+        // Fall through to a local fail-closed presentation. The Python owner may
+        // already have latched recovery even if this WebView lost its response.
+      }
+      return this._localRecovery(transactionIdValue);
+    }
+
+    async _retireFailure(transactionIdValue, providerBoundaryCrossed) {
+      if (providerBoundaryCrossed) {
+        return await this._outcomeUnknown(transactionIdValue);
+      }
+      try {
+        return await this._notStarted(transactionIdValue);
+      } catch (_error) {
+        // The cancellation acknowledgement itself is ambiguous. Escalate rather
+        // than allowing stale controls to remain actionable around a stranded
+        // execution lease.
+        return await this._outcomeUnknown(transactionIdValue);
+      }
+    }
+
     async _executeOne(result, refreshConfig) {
       const dispatch = dispatchEvent(result);
       const id = dispatch.transactionId;
       let executor;
+      let providerBoundaryCrossed = false;
       try {
         executor = await this._ensureExecutor(refreshConfig === true);
 
@@ -312,6 +356,7 @@
             ),
             id
           );
+          providerBoundaryCrossed = true;
         }
 
         const receipt = receiptForTransaction(
@@ -322,6 +367,9 @@
             ? dispatch.provider.chunk_index
             : null
         );
+        if (credentialSession && this._credentialTransaction === id) {
+          providerBoundaryCrossed = true;
+        }
 
         if (receipt.status === "success") {
           if (SESSION_OPERATIONS.has(operation)) {
@@ -359,12 +407,10 @@
           { transaction_id: id }
         );
       } catch (_error) {
-        // The Python owner decides whether this is still a true pre-provider
-        // cancellation or whether a credential/dispatch boundary had already
-        // crossed and must become recovery. This single callback is therefore
-        // safe across setup failures, credential handoff failures and lost
-        // provider-ready responses.
-        return await this._notStarted(id);
+        return await this._retireFailure(
+          id,
+          providerBoundaryCrossed || this._credentialTransaction === id
+        );
       } finally {
         if (this._credentialTransaction === id) {
           this._credentialTransaction = null;
