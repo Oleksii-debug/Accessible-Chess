@@ -15,6 +15,7 @@ from acs.book_progress_store import (
     BookProgressStore,
     BookProgressStoreError,
     BookProgressStoreErrorCode,
+    _sync_published_path,
 )
 from acs.bookdocument import BookDocument, Diagram, Heading, Paragraph
 from acs.bookreader import BookReader
@@ -1339,6 +1340,22 @@ class BookProgressStoreTests(unittest.TestCase):
                 for item in self.path.parent.iterdir()
             )
         )
+
+    def test_windows_publication_sync_reopens_file_with_write_access(self) -> None:
+        handle = mock.MagicMock()
+        handle.fileno.return_value = 73
+        context = mock.MagicMock()
+        context.__enter__.return_value = handle
+
+        with (
+            mock.patch("acs.book_progress_store.os.name", "nt"),
+            mock.patch.object(Path, "open", return_value=context) as open_path,
+            mock.patch("acs.book_progress_store.os.fsync") as fsync,
+        ):
+            _sync_published_path(self.path)
+
+        open_path.assert_called_once_with("r+b")
+        fsync.assert_called_once_with(73)
 
     def test_post_replace_canonical_change_reports_durability_unknown(self) -> None:
         self.path.parent.mkdir(parents=True)
