@@ -8,7 +8,7 @@ from .library_webview_projection import LibraryWebViewEvent, LibraryWebViewProje
 from .search_service import GameSearchQuery
 
 
-class LibraryWebViewBridge:
+_BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\nclass LibraryWebViewBridge:
     _SEARCH_FIELDS = frozenset(
         {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit"}
     )
