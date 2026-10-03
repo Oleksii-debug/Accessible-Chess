@@ -25,8 +25,8 @@ jobs:
     timeout-minutes: 45
     env:
       EXACT_PARENT: 5252e582358deb25fe5d01fbf547d4e21a8fbcb1
-      TRAINING_BLOB: bf55c46218ae9d6662352e50f8676cd7b295b33a
-      RESUME_TEST_BLOB: 53c04ca58ba750ddbb272fd471b11ad9b686544e
+      TRAINING_BLOB: 012c60dfe08a9c3e93f4d7d7208025e83e316f2f
+      RESUME_TEST_BLOB: 6022ee36ecbb056bd55642067e9f7779f013d3f4
     steps:
       - uses: actions/checkout@v4
         with:
