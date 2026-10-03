@@ -57,11 +57,32 @@ _LIVEKIT_FIXTURE_BUNDLE_SHA256 = hashlib.sha256(
 ).hexdigest()
 
 
+def _livekit_fixture_notice() -> bytes:
+    return (
+        b"Copyright 2021 LiveKit, Inc.\n"
+        b"Apache License, Version 2.0\n"
+        b"fixture redistribution notice\n"
+        b"Distributed on an AS IS basis without warranties or conditions.\n"
+    )
+
+
+_LIVEKIT_FIXTURE_NOTICE_SHA256 = hashlib.sha256(
+    _livekit_fixture_notice()
+).hexdigest()
+
+
 def _validate_tree(root, **kwargs):
-    with patch.object(
-        package_preflight,
-        "_LIVEKIT_CLIENT_BUNDLE_SHA256",
-        _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+    with (
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+        ),
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            _LIVEKIT_FIXTURE_NOTICE_SHA256,
+        ),
     ):
         return validate_version2_package_tree(
             root, expected_integration_sha=_SHA, **kwargs
@@ -69,10 +90,17 @@ def _validate_tree(root, **kwargs):
 
 
 def _validate_zip(archive, **kwargs):
-    with patch.object(
-        package_preflight,
-        "_LIVEKIT_CLIENT_BUNDLE_SHA256",
-        _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+    with (
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+        ),
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            _LIVEKIT_FIXTURE_NOTICE_SHA256,
+        ),
     ):
         return validate_version2_package_zip(
             archive, expected_integration_sha=_SHA, **kwargs
@@ -143,12 +171,7 @@ def _make_tree(root: Path) -> None:
     livekit.mkdir(parents=True)
     livekit_bundle = _livekit_fixture_bundle()
     livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
-    livekit_notice = (
-        b"Copyright 2021 LiveKit, Inc.\n"
-        b"Apache License, Version 2.0\n"
-        b"fixture redistribution notice\n"
-        b"Distributed on an AS IS basis without warranties or conditions.\n"
-    )
+    livekit_notice = _livekit_fixture_notice()
     (livekit / "livekit-client.umd.js").write_bytes(livekit_bundle)
     (livekit / "LICENSE").write_bytes(livekit_license)
     (livekit / "NOTICE").write_bytes(livekit_notice)
