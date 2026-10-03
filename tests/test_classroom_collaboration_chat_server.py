@@ -542,6 +542,53 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_gapped_message_stream_blocks_new_send_without_partial_insert(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "gapped-before-send",
+                    ROOM,
+                    STUDENT,
+                    1,
+                    "Gap before write",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored message sequence is not contiguous",
+        ):
+            self.send(self.draft("must-not-append-after-gap"))
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_messages
+                    WHERE message_id=?
+                    """,
+                    ("must-not-append-after-gap",),
+                ).fetchone()
+            )
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
     def test_corrupt_sequence_counter_blocks_new_send_without_partial_insert(self) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("PRAGMA ignore_check_constraints=ON")
@@ -585,6 +632,74 @@ class ClassroomChatServerTests(unittest.TestCase):
                 db.execute(
                     """
                     SELECT COUNT(*) FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
+    def test_gapped_revision_stream_rolls_back_hide_and_operation(self) -> None:
+        represented = self.send(self.draft("represented-before-gap"))
+        target = self.send(self.draft("target-after-gap"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET hidden=1
+                WHERE message_id=?
+                """,
+                (represented.message_id,),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 1, represented.message_id),
+            )
+
+        hide = self.moderation(
+            "hide-after-revision-gap",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=target.message_id,
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored moderation revision is not contiguous",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(hide,),
+            )
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(
+                0,
+                db.execute(
+                    """
+                    SELECT hidden FROM classroom_chat_server_messages
+                    WHERE message_id=?
+                    """,
+                    (target.message_id,),
+                ).fetchone()[0],
+            )
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_moderation_ops
+                    WHERE room_id=? AND operation_id=?
+                    """,
+                    (ROOM, hide.operation_id),
+                ).fetchone()
+            )
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_state_updates
                     WHERE room_id=?
                     """,
                     (ROOM,),
