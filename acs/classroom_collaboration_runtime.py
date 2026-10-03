@@ -10,6 +10,7 @@ and browser presentation remain in their existing canonical owners.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from .classroom_chat_http_endpoint import ClassroomChatHttpRpcCall
 from .classroom_chat_rpc import ClassroomChatRpcClient
@@ -26,6 +27,37 @@ from .classroom_file_http_transport import ClassroomFileHttpRpcCall
 from .classroom_file_rpc import ClassroomFileRpcClient, MAX_RPC_UPLOAD_BYTES
 from .classroom_realtime_media import ClassroomMediaController, ClassroomRosterPort
 from .full_product_ui_shell import UILanguage
+
+
+class _DeferredCollaborationStore:
+    """One-shot proxy that keeps canonical binding validation side-effect free.
+
+    ClassroomCollaborationController owns the roster/member validation contract.
+    The controller is therefore constructed against this unbound proxy first. Its
+    constructor may validate identity/roster state but cannot touch durable local
+    metadata. Only after that canonical constructor succeeds do we materialize the
+    SQLite store and bind this proxy to it for the controller's normal lifetime.
+    """
+
+    __slots__ = ("_target",)
+
+    def __init__(self) -> None:
+        self._target: ClassroomCollaborationSQLiteStore | None = None
+
+    def bind(self, target: ClassroomCollaborationSQLiteStore) -> None:
+        if not isinstance(target, ClassroomCollaborationSQLiteStore):
+            raise TypeError("deferred collaboration store requires SQLite target")
+        if self._target is not None:
+            raise RuntimeError("deferred collaboration store is already bound")
+        self._target = target
+
+    def __getattr__(self, name: str) -> object:
+        target = self._target
+        if target is None:
+            raise RuntimeError(
+                "durable collaboration store is unavailable during binding validation"
+            )
+        return getattr(target, name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +167,7 @@ def build_classroom_collaboration_http_runtime(
     else:
         raise TypeError("store_path must be a non-empty path")
 
-    # Validate every network/identity input before opening the local SQLite store.
+    # Validate network inputs before any local persistence is created.
     chat_call = ClassroomChatHttpRpcCall(
         endpoint_url=chat_endpoint_url,
         bearer_token_provider=chat_bearer_token_provider,
@@ -160,17 +192,22 @@ def build_classroom_collaboration_http_runtime(
         max_upload_bytes=quota.max_file_bytes,
     )
 
-    store = ClassroomCollaborationSQLiteStore(str(path))
+    # Reuse the canonical controller constructor as the sole roster/member
+    # authority, but keep its store side-effect free until that validation passes.
+    deferred_store = _DeferredCollaborationStore()
     controller = ClassroomCollaborationController(
         room_id=room_id,
         local_participant_id=participant_id,
         roster=roster,
         chat=chat_client,
         files=file_client,
-        store=store,
+        store=cast(ClassroomCollaborationSQLiteStore, deferred_store),
         file_store=file_client,
         quota=quota,
     )
+
+    store = ClassroomCollaborationSQLiteStore(str(path))
+    deferred_store.bind(store)
     webview = ClassroomCollaborationWebView(
         controller,
         store,
