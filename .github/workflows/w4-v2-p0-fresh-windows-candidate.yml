@@ -329,6 +329,9 @@ jobs:
         working-directory: product-source
         run: |
           $ErrorActionPreference='Stop'
+          python scripts/stage_livekit_client_sdk.py 'release-inputs\livekit-client.tgz' 'run_accessible_chess_v2.dist\web\vendor\livekit' --verify-existing
+          if($LASTEXITCODE -ne 0){throw 'PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK_VERIFY_FAILURE'}
+          Write-Host 'PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK=PASS'
           @'
           from pathlib import Path
           import shutil
