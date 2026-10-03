@@ -231,6 +231,22 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
                 if path is missing_parent_path:
                     self.assertFalse(path.exists())
 
+    def test_insecure_dns_loopback_name_is_not_accepted_as_literal_loopback(self) -> None:
+        cases = (
+            {"chat_endpoint_url": "http://localhost/v1/classroom/chat"},
+            {"file_endpoint_url": "http://localhost/v1/classroom/files"},
+        )
+        for index, overrides in enumerate(cases):
+            with self.subTest(overrides=overrides):
+                path = self.root / f"dns-loopback-{index}.sqlite3"
+                with self.assertRaisesRegex(ValueError, "must use HTTPS"):
+                    self.build(
+                        roster=FakeRoster(),
+                        path=path,
+                        **overrides,
+                    )
+                self.assert_no_persistence_or_credentials(path)
+
     def test_invalid_transport_timeout_fails_before_durable_store_creation(self) -> None:
         cases = (
             {"chat_timeout_seconds": 0},
