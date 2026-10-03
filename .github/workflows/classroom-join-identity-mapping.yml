@@ -1,0 +1,84 @@
+name: Classroom Join Identity Mapping
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-media-policy-authority-20261002
+    paths:
+      - 'acs/classroom_media_policy_authority.py'
+      - 'tests/test_classroom_media_policy_authority.py'
+      - '.github/workflows/classroom-join-identity-mapping.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-join-identity-mapping-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact successor scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_BASE_REF" = "feature/classroom-media-policy-authority-20261002"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-join-identity-mapping.yml' \
+            'acs/classroom_media_policy_authority.py' \
+            'tests/test_classroom_media_policy_authority.py' | sort)"
+          test "$changed" = "$allowed"
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile identity boundary
+        run: >-
+          python -m py_compile
+          acs/classroom_media_policy_authority.py
+          tests/test_classroom_media_policy_authority.py
+
+      - name: Run media-policy and join contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_media_policy_authority
+          tests.test_classroom_join_credentials
+          tests.test_classroom_realtime_media
+
+      - name: Prove caller and room participant remain distinct authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'class ClassroomJoinIdentityResolverPort' acs/classroom_media_policy_authority.py
+          grep -Fq 'participant_for_caller' acs/classroom_media_policy_authority.py
+          grep -Fq 'canonical join identity lookup failed' acs/classroom_media_policy_authority.py
+          grep -Fq 'requested participant is not authorized for caller' acs/classroom_media_policy_authority.py
+          ! grep -Fq 'if caller != participant' acs/classroom_media_policy_authority.py
+          grep -Fq 'trusted_caller_identity="account-17"' tests/test_classroom_media_policy_authority.py
+          grep -Fq 'requested_participant_id="student-1"' tests/test_classroom_media_policy_authority.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
