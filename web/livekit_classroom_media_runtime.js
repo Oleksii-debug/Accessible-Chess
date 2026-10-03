@@ -214,6 +214,7 @@
       this._config = null;
       this._busy = false;
       this._activeTransaction = null;
+      this._cleanupRetryPending = false;
       this._transportLossSnapshot = null;
       this._transportRetryAt = 0;
     }
@@ -350,10 +351,13 @@
 
     _rememberTransportLossSnapshot(snapshot) {
       if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-        return;
+        return false;
       }
       this._transportLossSnapshot = snapshot;
+      this._cleanupRetryPending =
+        snapshot.connected === true || snapshot.cleanup_required === true;
       this._transportRetryAt = 0;
+      return true;
     }
 
     async _settleCleanSessionFailure(invoke, transaction, operation, snapshot) {
@@ -419,8 +423,11 @@
 
       const result = await this._providerFailed(invoke, transaction);
       // Keep retrying provider teardown from the existing transport reconciler.
-      // It will retain the eventual clean snapshot while trusted recovery is
-      // still latched and only clear it after Python returns media-updated.
+      // Snapshot collection itself can fail while a provider Room remains live;
+      // retain an independent cleanup latch so recovery never hides the only
+      // path that can stop microphone/camera publication.
+      this._cleanupRetryPending = true;
+      this._transportRetryAt = 0;
       this._rememberTransportLossSnapshot(snapshot);
       return result;
     }
@@ -565,12 +572,16 @@
 
     async _deliverTransportLoss(invoke) {
       let snapshot = this._transportLossSnapshot;
-      if (snapshot === null) return null;
+      if (snapshot === null && !this._cleanupRetryPending) return null;
 
-      // Provider-side room moves can leave a still-live Room that is no longer
-      // canonical. Retry only teardown until the adapter proves a clean
-      // disconnected state; never publish a false clean loss to Python.
-      if (snapshot.connected === true || snapshot.cleanup_required === true) {
+      // Provider-side room moves or failed session rollback can leave a
+      // still-live Room that is no longer canonical. Retry teardown even when
+      // provider snapshot collection itself previously failed.
+      if (
+        this._cleanupRetryPending ||
+        (snapshot !== null &&
+          (snapshot.connected === true || snapshot.cleanup_required === true))
+      ) {
         if (this._adapter === null || typeof this._adapter.disconnect !== "function") {
           this._deferTransportRetry();
           return null;
@@ -579,22 +590,29 @@
           await this._adapter.disconnect();
           snapshot = this._adapter.snapshot();
           this._transportLossSnapshot = snapshot;
+          this._cleanupRetryPending = !isCleanDisconnectedSnapshot(snapshot);
           this._transportRetryAt = 0;
         } catch (_error) {
           // A validated active Room can still publish media even though its
           // snapshot is not cleanup-only. Preserve the latest provider truth
           // and keep retrying teardown instead of hiding it behind recovery.
           try {
-            this._transportLossSnapshot = this._adapter.snapshot();
-          } catch (_snapshotError) {}
+            snapshot = this._adapter.snapshot();
+            this._transportLossSnapshot = snapshot;
+            this._cleanupRetryPending = !isCleanDisconnectedSnapshot(snapshot);
+          } catch (_snapshotError) {
+            this._cleanupRetryPending = true;
+          }
           this._deferTransportRetry();
           return null;
         }
       }
       if (!isCleanDisconnectedSnapshot(snapshot)) {
+        this._cleanupRetryPending = true;
         this._deferTransportRetry();
         return null;
       }
+      this._cleanupRetryPending = false;
 
       let result;
       try {
@@ -609,6 +627,7 @@
       }
       if (this._transportLossSnapshot === snapshot) {
         this._transportLossSnapshot = null;
+        this._cleanupRetryPending = false;
         this._transportRetryAt = 0;
       }
       return result;
@@ -616,7 +635,10 @@
 
     async reconcileTransport(invoke) {
       invoke = requireInvoke(invoke);
-      if (this._busy || this._transportLossSnapshot === null) return null;
+      if (
+        this._busy ||
+        (this._transportLossSnapshot === null && !this._cleanupRetryPending)
+      ) return null;
       if (this._transportRetryAt > Date.now()) return null;
       this._busy = true;
       try {
@@ -659,7 +681,7 @@
       // newly prepared transaction before reconciling that older transport fact,
       // so stale canonical "connected" state cannot authorize a second provider
       // mutation.
-      if (this._transportLossSnapshot !== null) {
+      if (this._transportLossSnapshot !== null || this._cleanupRetryPending) {
         let parsed;
         try {
           parsed = providerInstruction(event);
@@ -719,7 +741,7 @@
     }
   }
 
-  // The runtime has mutable execution state (_busy, _activeTransaction, _adapter, _config).
+  // The runtime has mutable execution state (_busy, _activeTransaction, _cleanupRetryPending, _adapter, _config).
   // Seal its shape without freezing those state slots.
   global.AccessibleChessClassroomMediaProviderRuntime = Object.seal(
     new ClassroomMediaProviderRuntime()
