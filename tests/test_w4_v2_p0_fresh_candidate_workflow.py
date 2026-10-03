@@ -18,7 +18,9 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
     def test_workflow_is_manual_single_candidate_wip(self) -> None:
         self.assertIn("workflow_dispatch:", self.text)
         self.assertIn("product_sha:", self.text)
-        self.assertIn("required: true", self.text)
+        self.assertIn("sound_pack_url:", self.text)
+        self.assertIn("sound_pack_sha256:", self.text)
+        self.assertGreaterEqual(self.text.count("required: true"), 3)
         self.assertIn("group: w4-v2-p0-fresh-windows-candidate", self.text)
         self.assertIn("cancel-in-progress: false", self.text)
         self.assertNotIn("schedule:", self.text)
@@ -41,6 +43,39 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn('live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"', self.text)
         self.assertIn('test "$requested" = "$live"', self.text)
         self.assertIn("product_sha must be one exact 40-hex commit", self.text)
+
+    def test_candidate_requires_exact_user_sound_pack_and_never_generates_fallback_tones(self) -> None:
+        self.assertIn("sound_pack_url:", self.text)
+        self.assertIn("sound_pack_sha256:", self.text)
+        self.assertIn("USER_SOUND_WAV_COUNT: '330'", self.text)
+        self.assertIn(
+            "USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920",
+            self.text,
+        )
+        self.assertIn("USER_SOUND_PACK_URL_MUST_BE_HTTPS", self.text)
+        self.assertIn("USER_SOUND_PACK_SHA256_INVALID", self.text)
+        self.assertIn("USER_SOUND_PACK_ZIP_SHA256_MISMATCH", self.text)
+        self.assertIn("scripts/build_user_sound_pack.py", self.text)
+        self.assertIn("USER_SOUND_PACK_EXACT=PASS", self.text)
+        self.assertIn("USER_SOUND_PACK_CANONICAL=PASS", self.text)
+        self.assertIn("USER_SOUND_PACK_330_WAV=YES", self.text)
+        self.assertIn("library/Board/MOVEHIT1.WAV", self.text)
+        self.assertIn("library/Board/CAPHIT1.WAV", self.text)
+        self.assertNotIn("Build deterministic nine-event sound input with provenance", self.text)
+        self.assertNotIn("generated-tone:v1", self.text)
+        self.assertNotIn("frequencies = (330, 220, 660, 440", self.text)
+        self.assertNotIn("deterministic tone generator", self.text)
+
+    def test_sound_identity_is_retained_in_run_metadata_before_publication(self) -> None:
+        validation = self.text.index("USER_SOUND_PACK_EXACT=PASS")
+        metadata = self.text.index('"user_sound_pack_zip_sha256"')
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(validation, metadata)
+        self.assertLess(metadata, upload)
+        self.assertIn('"user_sound_inventory_sha256"', self.text)
+        self.assertIn('"user_sound_wav_count"', self.text)
+        self.assertIn('os.environ["USER_SOUND_PACK_ZIP_SHA256"]', self.text)
+        self.assertIn('os.environ["USER_SOUND_INVENTORY_SHA256"]', self.text)
 
     def test_build_reuses_qualified_nuitka_and_v2_release_authorities(self) -> None:
         self.assertIn("NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29", self.text)
@@ -197,6 +232,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(checkpoint, upload)
         self.assertLess(self.text.index("HUMAN_TESTED=NO"), upload)
         self.assertLess(self.text.index("NVDA_VERIFIED=NO"), upload)
+        self.assertLess(self.text.index("USER_SOUND_PACK_330_WAV=YES"), upload)
 
     def test_successful_run_does_not_rebind_freshness_after_artifact_upload(self) -> None:
         upload = self.text.index(UPLOAD_ARTIFACT_V462)
