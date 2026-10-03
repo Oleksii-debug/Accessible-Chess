@@ -63,10 +63,17 @@ class _PackStorage:
         self.manifests[downloaded.manifest.pack_id] = downloaded.manifest
         self.installed_payloads.append(downloaded.payload_ref)
 
-    def uninstall(self, pack_id: str) -> None:
+    def uninstall(self, pack_id: str, *, expected_manifest=None) -> None:
         self.uninstalled.append(pack_id)
         if self.fail_uninstall:
             raise OSError("uninstall failed")
+        current = self.manifests.get(pack_id)
+        if (
+            expected_manifest is not None
+            and current is not None
+            and current != expected_manifest
+        ):
+            raise OSError("sound pack changed before conditional uninstall")
         self.manifests.pop(pack_id, None)
 
 
