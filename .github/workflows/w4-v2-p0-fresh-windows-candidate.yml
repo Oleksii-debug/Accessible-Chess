@@ -215,10 +215,7 @@ jobs:
           $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           if($actual -ne $wanted){throw "USER_SOUND_PACK_ZIP_SHA256_MISMATCH actual=$actual expected=$wanted"}
 
-          $source='release-inputs\user-sound-source'
-          if(Test-Path $source){Remove-Item -Recurse -Force $source}
-          Expand-Archive -LiteralPath $archive -DestinationPath $source
-          python scripts/build_user_sound_pack.py $source release-inputs/sounds
+          python scripts/build_user_sound_pack.py $archive release-inputs/sounds --expected-source-archive-sha256 $wanted
           if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_CANONICALIZATION_FAILED'}
 
           @'
