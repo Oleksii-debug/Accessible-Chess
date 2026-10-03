@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.classroom_collaboration import (
+    MAX_SYNC_MESSAGES,
     ChatDraft,
     ClassroomCollaborationController,
     CollaborationError,
