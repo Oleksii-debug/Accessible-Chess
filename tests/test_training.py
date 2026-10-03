@@ -534,6 +534,21 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too many fields"):
             ExerciseSession.restore(definition, oversized)
 
+    def test_restore_keeps_unsupported_schema_error_bounded(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        # A hostile custom Mapping can supply an already-materialized arbitrary
+        # precision int. Error reporting must not stringify that value.
+        snapshot["schema_version"] = 1 << 20000
+
+        with self.assertRaises(ValueError) as caught:
+            ExerciseSession.restore(definition, snapshot)
+
+        self.assertEqual(
+            str(caught.exception),
+            "unsupported exercise snapshot schema_version",
+        )
+
     def test_restore_bounds_snapshot_field_names_before_value_reads(self):
         definition = self.make_definition()
         payload = ExerciseSession(definition).snapshot()
