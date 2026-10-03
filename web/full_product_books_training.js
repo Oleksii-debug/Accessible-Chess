@@ -108,13 +108,27 @@
     });
   }
 
-  function safeInvoke(root, invoke, command, payload, onResult, announce, fallbackMessage) {
+  function safeInvoke(
+    root,
+    invoke,
+    command,
+    payload,
+    onResult,
+    announce,
+    fallbackMessage,
+    onFailure
+  ) {
     const startedAtEpoch = renderEpoch(root);
     const activeFlight = inFlightRoots.get(root);
-    if (activeFlight && activeFlight.epoch === startedAtEpoch) return;
+    if (activeFlight && activeFlight.epoch === startedAtEpoch) return false;
     const flight = { epoch: startedAtEpoch };
     inFlightRoots.set(root, flight);
     setBusy(root, true);
+
+    function isCurrent() {
+      return inFlightRoots.get(root) === flight &&
+        renderEpoch(root) === startedAtEpoch;
+    }
 
     function finish() {
       if (inFlightRoots.get(root) !== flight) return;
@@ -122,27 +136,28 @@
       setBusy(root, false);
     }
 
+    function fail() {
+      if (!isCurrent()) return;
+      if (fallbackMessage) announce(String(fallbackMessage));
+      if (typeof onFailure === "function") onFailure();
+    }
+
     let result;
     try {
       result = invoke(command, payload || {});
     } catch (_) {
+      fail();
       finish();
-      if (renderEpoch(root) === startedAtEpoch && fallbackMessage) {
-        announce(String(fallbackMessage));
-      }
-      return;
+      return true;
     }
     Promise.resolve(result)
       .then(function (value) {
-        if (renderEpoch(root) !== startedAtEpoch) return;
+        if (!isCurrent()) return;
         return onResult(value);
       })
-      .catch(function () {
-        if (renderEpoch(root) === startedAtEpoch && fallbackMessage) {
-          announce(String(fallbackMessage));
-        }
-      })
+      .catch(fail)
       .then(finish, finish);
+    return true;
   }
 
   function requireHostEvent(result, allowedKinds, surface) {
@@ -1016,11 +1031,39 @@
       if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
     }
 
+    let resetPending = false;
     confirm.addEventListener("click", function () {
-      safeInvoke(root, invoke, "training.reset", { confirmed: true }, function (result) {
-        applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
-        if (result && result.kind === "render" && dialog.open) dialog.close();
-      }, announce, fallbackMessage);
+      if (resetPending) return;
+      resetPending = true;
+      confirm.disabled = true;
+      const started = safeInvoke(
+        root,
+        invoke,
+        "training.reset",
+        { confirmed: true },
+        function (result) {
+          applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+          if (result && result.kind === "error") {
+            resetPending = false;
+            confirm.disabled = false;
+            if (dialog.open) confirm.focus({ preventScroll: true });
+            return;
+          }
+          if (dialog.open) dialog.close();
+        },
+        announce,
+        fallbackMessage,
+        function () {
+          resetPending = false;
+          confirm.disabled = false;
+          if (dialog.open) confirm.focus({ preventScroll: true });
+        }
+      );
+      if (!started) {
+        resetPending = false;
+        confirm.disabled = false;
+        if (dialog.open) confirm.focus({ preventScroll: true });
+      }
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -1032,6 +1075,8 @@
     return {
       dialog: dialog,
       open: function (button) {
+        const activeFlight = inFlightRoots.get(root);
+        if (activeFlight && activeFlight.epoch === renderEpoch(root)) return;
         opener = button;
         dialog.showModal();
         confirm.focus();
