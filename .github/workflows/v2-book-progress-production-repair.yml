@@ -48,7 +48,7 @@ jobs:
       CURRENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
       CURRENT_ROUTE_ROLLBACK_TEST_BLOB: 526c01f61f672e89c0206a0da31f39d7af1b5b0f
       CURRENT_TRANSACTION_RUNTIME_TEST_BLOB: 10e9590d8d6ce0d469d51958f95b6cca3fd1b18e
-      CURRENT_TRIAD_WORKFLOW_BLOB: adac7a10ca0f20f50f619fb1adc70b6578a72dc8
+      CURRENT_TRIAD_WORKFLOW_BLOB: 97b9f1dd181bd00ea95bc5afe6b65f0ac40e874b
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -144,7 +144,8 @@ jobs:
               'tests/test_v2_book_progress_store_production.py' \
               'tests/test_v2_book_training_route_rollback.py' \
               'tests/test_v2_book_transaction_current_runtime.py' \
-              'tests/test_version2_application.py' | sort)"
+              'tests/test_version2_application.py' \
+              'tests/test_p0_release_critical_triad_convergence.py' | sort)"
             if [ "$current_delta" = "$orphan_expected" ]; then
               test "$(git rev-parse "$current_product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
               test "$(git rev-parse "$current_product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
@@ -183,7 +184,8 @@ jobs:
               'tests/test_v2_book_progress_store_production.py' \
               'tests/test_v2_book_training_route_rollback.py' \
               'tests/test_v2_book_transaction_current_runtime.py' \
-              'tests/test_version2_application.py' | sort)"
+              'tests/test_version2_application.py' \
+              'tests/test_p0_release_critical_triad_convergence.py' | sort)"
             if [ "$books_delta" = "$books_expected" ]; then
               test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
