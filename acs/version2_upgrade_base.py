@@ -96,6 +96,20 @@ def _is_tempfile_token(value: str) -> bool:
     )
 
 
+def _is_generated_education_workspace_file(
+    relative_path: PurePosixPath,
+) -> bool:
+    """Classify crash residue from the current EducationWorkspaceStore writer."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+    prefix = ".education-workspace.json."
+    if not name.startswith(prefix) or not name.endswith(".tmp"):
+        return False
+    token = name[len(prefix) : -len(".tmp")]
+    return _is_tempfile_token(token)
+
+
 def _is_upgrade_generated_root_runtime_file(
     relative_path: PurePosixPath,
     *,
@@ -767,6 +781,7 @@ class Version2UpgradeCoordinator:
             if (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
+                or _is_generated_education_workspace_file(relative_path)
                 or _is_upgrade_generated_root_runtime_file(
                     relative_path,
                     settings_name=self.layout.settings_name,
