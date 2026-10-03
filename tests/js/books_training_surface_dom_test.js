@@ -501,6 +501,48 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed trailing comments must not steal reading focus");
 
+  const malformedBefore = semanticGameSnapshot();
+  malformedBefore.block.semantic_tree.items[0].comments_before = { text: "bad" };
+  let malformedBeforeRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedBefore,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedBeforeRejected = true;
+  }
+  check(malformedBeforeRejected, "non-array before-move comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed before-move comments must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed before-move comments must not steal reading focus");
+
+  const malformedAfter = semanticGameSnapshot();
+  malformedAfter.block.semantic_tree.items[0].comments_after = ["ok", { text: "bad" }];
+  let malformedAfterRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedAfter,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedAfterRejected = true;
+  }
+  check(malformedAfterRejected, "non-text after-move comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed after-move comments must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed after-move comments must not steal reading focus");
+
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {
     check(command === "book.open_starter_material", "unexpected starter material command");
