@@ -15,6 +15,7 @@ from acs.classroom_collaboration import (
 )
 from acs.classroom_collaboration_storage import AttachmentMetadata
 from acs.classroom_file_http_endpoint import (
+    FILE_HTTP_UPLOAD_CHUNK_BYTES,
     FILE_RPC_MEDIA_TYPE,
     FILE_RPC_PATH,
     FRAME_MAGIC,
@@ -186,9 +187,11 @@ class StaticOpener:
 class AsgiOpener:
     """In-memory urllib-compatible bridge proving desktop -> ASGI composition."""
 
-    def __init__(self, endpoint):
+    def __init__(self, endpoint, *, before_endpoint=None):
         self.endpoint = endpoint
+        self.before_endpoint = before_endpoint
         self.calls = []
+        self.request_bodies = []
 
     def open(self, request, *, timeout):
         self.calls.append((request, timeout))
@@ -199,6 +202,15 @@ class AsgiOpener:
             )
             for name, value in request.header_items()
         ]
+        raw_data = request.data or b""
+        body = (
+            raw_data
+            if type(raw_data) is bytes
+            else b"".join(raw_data)
+        )
+        self.request_bodies.append(body)
+        if self.before_endpoint is not None:
+            self.before_endpoint()
         scope = {
             "type": "http",
             "scheme": "https",
@@ -214,7 +226,7 @@ class AsgiOpener:
         events = [
             {
                 "type": "http.request",
-                "body": request.data or b"",
+                "body": body,
                 "more_body": False,
             }
         ]
@@ -227,7 +239,7 @@ class AsgiOpener:
             sent.append(event)
 
         asyncio.run(self.endpoint(scope, receive, send))
-        status, raw_response_headers, body = response(sent)
+        status, raw_response_headers, response_body = response(sent)
         headers = {
             key.decode("ascii").lower(): value.decode("ascii")
             for key, value in raw_response_headers.items()
@@ -235,8 +247,28 @@ class AsgiOpener:
         return FakeHttpResponse(
             status=status,
             headers=headers,
-            body=body,
+            body=response_body,
         )
+
+
+class PartialSendFailureOpener:
+    """Consume enough iterable body to prove partial progress, then fail."""
+
+    def __init__(self):
+        self.calls = []
+
+    def open(self, request, *, timeout):
+        self.calls.append((request, timeout))
+        data = request.data
+        if type(data) is bytes:
+            raise AssertionError("tracked upload must use iterable HTTP body")
+        iterator = iter(data)
+        # Prefix reports zero; first content chunk is then consumed. Advancing
+        # once more records that first chunk before the simulated socket fault.
+        next(iterator)
+        next(iterator)
+        next(iterator)
+        raise OSError("network failed after partial upload")
 
 
 class AllowMembers:
@@ -425,7 +457,28 @@ class ClassroomFileHttpEndpointTests(unittest.TestCase):
 
     def test_concrete_desktop_http_transport_composes_with_rpc_client_and_endpoint(self):
         bearer = StaticBearer()
-        opener = AsgiOpener(self.endpoint)
+        samples = []
+        content = b"\x00\xffdesktop to HTTPS to RPC"
+
+        def assert_progress_precedes_server_response():
+            self.assertEqual(
+                samples,
+                [
+                    FileTransferProgress("att-1", 0, len(content)),
+                    FileTransferProgress(
+                        "att-1",
+                        len(content),
+                        len(content),
+                    ),
+                ],
+            )
+            self.assertTrue(all(not sample.complete for sample in samples))
+            self.assertEqual(self.backend.upload_calls, [])
+
+        opener = AsgiOpener(
+            self.endpoint,
+            before_endpoint=assert_progress_precedes_server_response,
+        )
         transport = ClassroomFileHttpCallTransport(
             endpoint_url="https://127.0.0.1/v1/classroom/file-rpc",
             bearer=bearer,
@@ -437,12 +490,10 @@ class ClassroomFileHttpEndpointTests(unittest.TestCase):
             transport=transport,
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            content = b"\x00\xffdesktop to HTTPS to RPC"
             path = Path(temp_dir) / "opaque.bin"
             path.write_bytes(content)
             metadata = metadata_for(content)
             prepared = PreparedFile(path, metadata)
-            samples = []
             stored = client.upload(prepared, on_progress=samples.append)
 
         self.assertEqual(stored.transfer_state, "stored")
@@ -450,11 +501,12 @@ class ClassroomFileHttpEndpointTests(unittest.TestCase):
         self.assertEqual(
             samples,
             [
+                FileTransferProgress("att-1", 0, len(content)),
                 FileTransferProgress(
                     "att-1",
                     len(content),
                     len(content),
-                )
+                ),
             ],
         )
         self.assertEqual(bearer.calls, 1)
@@ -465,8 +517,93 @@ class ClassroomFileHttpEndpointTests(unittest.TestCase):
             "Bearer good-token",
         )
         self.assertEqual(request.get_method(), "POST")
-        self.assertTrue((request.data or b"").startswith(FRAME_MAGIC))
+        self.assertTrue(opener.request_bodies[0].startswith(FRAME_MAGIC))
+        self.assertTrue(opener.request_bodies[0].endswith(content))
+        self.assertNotIn("Transfer-encoding", dict(request.header_items()))
+        self.assertEqual(
+            int(request.get_header("Content-length")),
+            len(opener.request_bodies[0]),
+        )
         self.assertNotIn("good-token", repr(transport))
+
+    def test_desktop_http_progress_tracks_multiple_file_chunks_before_response(self):
+        total = FILE_HTTP_UPLOAD_CHUNK_BYTES * 2 + 17
+        content = bytes((index % 251 for index in range(total)))
+        samples = []
+
+        def assert_progress_precedes_server_response():
+            self.assertEqual(
+                [sample.transferred_bytes for sample in samples],
+                [
+                    0,
+                    FILE_HTTP_UPLOAD_CHUNK_BYTES,
+                    FILE_HTTP_UPLOAD_CHUNK_BYTES * 2,
+                    total,
+                ],
+            )
+            self.assertEqual(self.backend.upload_calls, [])
+
+        opener = AsgiOpener(
+            self.endpoint,
+            before_endpoint=assert_progress_precedes_server_response,
+        )
+        client = ClassroomFileRpcClient(
+            room_id="room-1",
+            participant_id="student-1",
+            transport=ClassroomFileHttpCallTransport(
+                endpoint_url="https://127.0.0.1/v1/classroom/file-rpc",
+                bearer=StaticBearer(),
+                opener=opener,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "large.bin"
+            path.write_bytes(content)
+            prepared = PreparedFile(path, metadata_for(content))
+            stored = client.upload(prepared, on_progress=samples.append)
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(self.backend.upload_calls[-1][2], content)
+        self.assertEqual(
+            [sample.transferred_bytes for sample in samples],
+            [
+                0,
+                FILE_HTTP_UPLOAD_CHUNK_BYTES,
+                FILE_HTTP_UPLOAD_CHUNK_BYTES * 2,
+                total,
+            ],
+        )
+        self.assertTrue(all(not sample.complete for sample in samples))
+
+    def test_partial_http_send_reports_partial_progress_then_fails_safely(self):
+        total = FILE_HTTP_UPLOAD_CHUNK_BYTES * 2 + 17
+        content = b"x" * total
+        samples = []
+        client = ClassroomFileRpcClient(
+            room_id="room-1",
+            participant_id="student-1",
+            transport=ClassroomFileHttpCallTransport(
+                endpoint_url="https://127.0.0.1/v1/classroom/file-rpc",
+                bearer=StaticBearer(),
+                opener=PartialSendFailureOpener(),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "partial.bin"
+            path.write_bytes(content)
+            prepared = PreparedFile(path, metadata_for(content))
+            with self.assertRaisesRegex(
+                ClassroomFileRpcError,
+                "HTTP request failed",
+            ):
+                client.upload(prepared, on_progress=samples.append)
+
+        self.assertEqual(
+            [sample.transferred_bytes for sample in samples],
+            [0, FILE_HTTP_UPLOAD_CHUNK_BYTES],
+        )
+        self.assertTrue(all(not sample.complete for sample in samples))
+        self.assertEqual(self.backend.upload_calls, [])
 
     def test_desktop_transport_url_policy_rejects_credentials_queries_and_remote_http(self):
         bearer = StaticBearer()
