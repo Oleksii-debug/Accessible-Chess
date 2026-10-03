@@ -1174,6 +1174,8 @@ class BookProgressStore:
                 self.backup_path,
                 previous_raw,
                 expected_target_raw=backup_base_raw,
+                expected_guard_path=self._path,
+                expected_guard_raw=previous_raw,
             )
 
         current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
