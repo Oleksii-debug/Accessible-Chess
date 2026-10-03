@@ -244,9 +244,9 @@ class EducationLedger:
         )
 
         # Decode and bound attacker-controlled collections before hashing the
-        # record body.  The decoded canonical object is the digest authority,
-        # so a direct from_record() caller cannot force an unbounded JSON
-        # materialization merely to reach the later collection validators.
+        # record body.  Integrity is checked against the exact validated wire
+        # record below, so a direct from_record() caller cannot force an
+        # unbounded JSON materialization merely to reach these validators.
         ledger = cls(
             version=data["version"],
             classroom_digest=data["classroom_digest"],
