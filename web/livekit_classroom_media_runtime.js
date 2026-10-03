@@ -377,10 +377,18 @@
         const payload = result && result.payload && typeof result.payload === "object"
           ? result.payload
           : {};
-        if (result && result.kind === "error" && payload.recovery_required === true) {
-          // Provider teardown is already exact and clean, but canonical commit
-          // still requires trusted reconciliation. Preserve that clean fact for
-          // the existing transport-loss path after the latch is released.
+        const terminal = operation === "disconnect"
+          ? Boolean(result && result.kind === "media-updated")
+          : Boolean(
+              result &&
+              result.kind === "error" &&
+              payload.recovery_required !== true
+            );
+        if (!terminal) {
+          // Provider teardown is already exact and clean, but canonical
+          // acknowledgement is missing, malformed, or still requires trusted
+          // reconciliation. Preserve that clean fact for the existing
+          // transport-loss path after the latch is released.
           this._rememberTransportLossSnapshot(snapshot);
         }
         return result;
