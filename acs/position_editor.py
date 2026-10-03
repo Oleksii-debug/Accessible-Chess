@@ -8,9 +8,11 @@ from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
+MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
+_COORDINATE_TOKEN_RE = re.compile(r"[^,\s]+")
 
 
 class PositionValidationError(ValueError):
@@ -219,11 +221,20 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
 
     position = empty_position(turn=turn)
     used: set[str] = set()
+    token_budget = [0]
     position = _fill_coordinate_section(
-        position, match.group("white"), white=True, used=used
+        position,
+        match.group("white"),
+        white=True,
+        used=used,
+        token_budget=token_budget,
     )
     position = _fill_coordinate_section(
-        position, match.group("black"), white=False, used=used
+        position,
+        match.group("black"),
+        white=False,
+        used=used,
+        token_budget=token_budget,
     )
 
     white_kings = sum(piece == "K" for piece in position.pieces)
@@ -239,8 +250,18 @@ def _fill_coordinate_section(
     *,
     white: bool,
     used: set[str],
+    token_budget: list[int],
 ) -> PositionState:
-    tokens = chunk.replace(",", " ").split()
+    # The compact grammar can describe at most 64 occupied squares: one piece
+    # token and one square token per square. Scan incrementally and stop at the
+    # first impossible token instead of allocating an unbounded split() result
+    # from pasted/untrusted text.
+    tokens: list[str] = []
+    for match in _COORDINATE_TOKEN_RE.finditer(chunk):
+        token_budget[0] += 1
+        if token_budget[0] > MAX_COORDINATE_POSITION_TOKENS:
+            raise ValueError("position text contains too many piece-square tokens")
+        tokens.append(match.group(0))
     if len(tokens) % 2:
         raise ValueError("each piece must be followed by a square, for example N f3")
 
