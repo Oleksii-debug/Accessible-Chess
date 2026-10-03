@@ -11,6 +11,7 @@ commit a pack. Playback remains owned by ``SoundRuntime``/``GameSoundRuntime``.
 from dataclasses import dataclass, replace
 from enum import Enum
 import re
+import unicodedata
 from types import MappingProxyType
 from typing import Mapping, Protocol
 from urllib.parse import urlsplit
@@ -71,6 +72,7 @@ def _auditable_rights_uri(label: str, value: object) -> str:
         or ord(ch) < 32
         or ord(ch) == 127
         or ch in {"\u2028", "\u2029"}
+        or unicodedata.category(ch) == "Cf"
         for ch in text
     ):
         raise ValueError(f"sound pack rights {label} contains whitespace or control characters")
@@ -130,7 +132,10 @@ class SoundPackRightsEvidence:
         if len(license_id) > _MAX_RIGHTS_EVIDENCE_LICENSE_CHARS:
             raise ValueError("sound pack rights license_id exceeds the resource limit")
         if any(
-            ord(ch) < 32 or ord(ch) == 127 or ch in {"\u2028", "\u2029"}
+            ord(ch) < 32
+            or ord(ch) == 127
+            or ch in {"\u2028", "\u2029"}
+            or unicodedata.category(ch) == "Cf"
             for ch in license_id
         ):
             raise ValueError("sound pack rights license_id contains control characters")
