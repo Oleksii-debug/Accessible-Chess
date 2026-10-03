@@ -213,7 +213,11 @@
 
   function eventRow(item, writesBlocked) {
     const eventId = String(item.event_id || "");
-    const safeId = eventId.replace(/[^a-z0-9_-]/g, "-");
+    // Backend event IDs are canonical lowercase ASCII [a-z0-9_.-]. Preserve the
+    // exact identity in DOM ids just like pack IDs: normalizing "." to "-" would
+    // make distinct valid semantics such as "future.alert" and "future-alert"
+    // share controls/focus targets.
+    const safeId = eventId;
     const group = documentRef.createElement("fieldset");
     group.className = "sound-event";
     const groupLegend = documentRef.createElement("legend");
