@@ -113,6 +113,7 @@ jobs:
           rm -rf "$output"
           python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$url" "$archive"
           python scripts/stage_livekit_client_sdk.py "$archive" "$output"
+          python scripts/stage_livekit_client_sdk.py "$archive" "$output" --verify-existing
           test -s "$output/livekit-client.umd.js"
           test -s "$output/LICENSE"
           test -s "$output/NOTICE"
@@ -120,6 +121,7 @@ jobs:
           python -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); assert p["component"]=="livekit-client"; assert p["version"]=="2.22.3"; assert p["license_id"]=="Apache-2.0"' "$output/provenance.json"
           node -e 'const path=require("node:path"); const sdk=require(path.resolve(process.argv[1])); if(!sdk || typeof sdk.Room!=="function") throw new Error("LiveKit Room export unavailable"); console.log("LIVEKIT_UMD_COMMONJS_EXPORT=PASS")' "$output/livekit-client.umd.js"
           echo 'REAL_PINNED_LIVEKIT_NPM_STAGE=PASS'
+          echo 'REAL_PINNED_LIVEKIT_NPM_TREE_VERIFY=PASS'
 
       - name: Prove real staged SDK reaches canonical final resource owner
         shell: bash
