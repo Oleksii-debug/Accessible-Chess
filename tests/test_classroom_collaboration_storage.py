@@ -512,6 +512,9 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 (snapshot.attachment_id,),
             )
 
+        with self.assertRaises(CollaborationStorageError):
+            self.store.integrity_check()
+
         with self.assertRaisesRegex(
             CollaborationStorageError,
             "stored state revision must be a bounded non-negative integer",
