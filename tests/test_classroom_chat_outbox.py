@@ -10,6 +10,9 @@ from acs.classroom_chat_outbox import ChatOutboxError, SecretStoreChatOutbox
 from acs.secret_store import WindowsDpapiSecretStore
 
 
+SCOPE = "https://chat.example.test/v1/classroom/chat"
+
+
 class MemorySecretStore:
     def __init__(self) -> None:
         self.values: dict[str, bytes] = {}
@@ -46,9 +49,26 @@ class ClassroomChatOutboxTests(unittest.TestCase):
         ).slot_name)
         self.assertNotEqual(
             slot,
-            SecretStoreChatOutbox(self.secrets, "room-2", "student-1").slot_name,
+            SecretStoreChatOutbox(self.secrets, SCOPE, "room-2", "student-1").slot_name,
         )
         self.assertEqual(repr(self.outbox), "SecretStoreChatOutbox(<bound>)")
+
+    def test_transport_scope_is_part_of_slot_and_document_binding(self) -> None:
+        self.outbox.reserve(
+            message_id="message-one",
+            body="Deployment-bound draft",
+            retention="session",
+        )
+        other = SecretStoreChatOutbox(
+            self.secrets,
+            "https://other-chat.example.test/v1/classroom/chat",
+            "room-1",
+            "student-1",
+        )
+        self.assertNotEqual(self.outbox.slot_name, other.slot_name)
+        self.secrets.values[other.slot_name] = self.secrets.values[self.outbox.slot_name]
+        with self.assertRaisesRegex(ChatOutboxError, "identity binding"):
+            other.entries()
 
     def test_exact_pending_payload_reuses_stable_message_identity(self) -> None:
         reserved = self.outbox.reserve(
@@ -56,7 +76,7 @@ class ClassroomChatOutboxTests(unittest.TestCase):
             body="Retry after restart",
             retention="session",
         )
-        reopened = SecretStoreChatOutbox(self.secrets, "room-1", "student-1")
+        reopened = SecretStoreChatOutbox(self.secrets, SCOPE, "room-1", "student-1")
         found = reopened.find(body="Retry after restart", retention="session")
         second = reopened.reserve(
             message_id="message-two",
@@ -131,14 +151,14 @@ class ClassroomChatOutboxTests(unittest.TestCase):
 
     def test_duplicate_json_members_and_unknown_fields_fail_closed(self) -> None:
         self.secrets.values[self.outbox.slot_name] = (
-            b'{"v":1,"v":1,"room_id":"room-1","participant_id":"student-1","entries":[]}'
+            b'{"v":1,"v":1,"scope_id":"https://chat.example.test/v1/classroom/chat","room_id":"room-1","participant_id":"student-1","entries":[]}'
         )
         with self.assertRaisesRegex(ChatOutboxError, "JSON object") as duplicate:
             self.outbox.entries()
         self.assertIsNone(duplicate.exception.__cause__)
 
         self.secrets.values[self.outbox.slot_name] = (
-            b'{"v":1,"room_id":"room-1","participant_id":"student-1","entries":[],"extra":1}'
+            b'{"v":1,"scope_id":"https://chat.example.test/v1/classroom/chat","room_id":"room-1","participant_id":"student-1","entries":[],"extra":1}'
         )
         with self.assertRaisesRegex(ChatOutboxError, "shape"):
             self.outbox.entries()
@@ -146,6 +166,7 @@ class ClassroomChatOutboxTests(unittest.TestCase):
     def test_duplicate_message_or_payload_identity_fails_closed(self) -> None:
         document = {
             "v": 1,
+            "scope_id": SCOPE,
             "room_id": "room-1",
             "participant_id": "student-1",
             "entries": [
@@ -196,6 +217,7 @@ class ClassroomChatOutboxTests(unittest.TestCase):
 
         outbox = SecretStoreChatOutbox(
             FailingSecretStore(),
+            SCOPE,
             "room-1",
             "student-1",
         )
@@ -213,6 +235,7 @@ class WindowsDpapiChatOutboxIntegrationTests(unittest.TestCase):
             secret_store = WindowsDpapiSecretStore(Path(td) / "secure")
             outbox = SecretStoreChatOutbox(
                 secret_store,
+                SCOPE,
                 "room-1",
                 "student-1",
             )
@@ -231,6 +254,7 @@ class WindowsDpapiChatOutboxIntegrationTests(unittest.TestCase):
 
             reopened = SecretStoreChatOutbox(
                 WindowsDpapiSecretStore(Path(td) / "secure"),
+                SCOPE,
                 "room-1",
                 "student-1",
             )
