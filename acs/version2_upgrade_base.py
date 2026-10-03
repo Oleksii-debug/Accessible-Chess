@@ -167,6 +167,37 @@ def _is_upgrade_generated_root_runtime_file(
     return False
 
 
+def _generated_runtime_file_allows_multiple_links(
+    relative_path: PurePosixPath,
+    *,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Return whether the canonical writer intentionally creates a hard link."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+
+    gametree_prefix = "gametree-resume.json.cas-"
+    if name.startswith(gametree_prefix) and name.endswith(".bak"):
+        token = name[len(gametree_prefix) : -len(".bak")]
+        if _is_tempfile_token(token):
+            return True
+
+    settings = settings_name.casefold()
+    library = library_name.casefold()
+    for target in (settings, library):
+        prefix = f".{target}.publish-guard-"
+        if not name.startswith(prefix):
+            continue
+        token = name[len(prefix) :]
+        if len(token) == 12 and all(
+            character in _HEX_CHARACTERS for character in token
+        ):
+            return True
+    return False
+
+
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -795,7 +826,11 @@ class Version2UpgradeCoordinator:
             # filesystem object has the regular-file shape produced by the
             # canonical writer. An exact-looking directory remains traversable
             # user data, while symlink/reparse points fail closed in _safe_stat.
-            if control_name and stat.S_ISREG(info.st_mode):
+            if (
+                control_name
+                and stat.S_ISREG(info.st_mode)
+                and int(getattr(info, "st_nlink", 1)) == 1
+            ):
                 continue
             generated_runtime_file = (
                 _is_generated_root_runtime_file(relative_path)
@@ -810,7 +845,13 @@ class Version2UpgradeCoordinator:
             # Atomic writers leave regular files. An exact-looking directory is
             # traversed normally so its children remain preservation-backed.
             if generated_runtime_file and stat.S_ISREG(info.st_mode):
-                continue
+                link_count = int(getattr(info, "st_nlink", 1))
+                if link_count == 1 or _generated_runtime_file_allows_multiple_links(
+                    relative_path,
+                    settings_name=self.layout.settings_name,
+                    library_name=self.layout.library_name,
+                ):
+                    continue
             folded = relative.casefold()
             if folded in seen:
                 raise Version2UpgradeError(
