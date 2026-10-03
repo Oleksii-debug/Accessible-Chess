@@ -451,8 +451,29 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             message.message_id: message
             for message in history
         }
-        # Simulate recoverable local state that retained only a later row.
-        self.store.append_message(history[2])
+        # Simulate a legacy/pre-hardening local database that retained only a
+        # later authoritative row. The public append boundary now correctly
+        # rejects this shape, so seed the historical state below that boundary.
+        later = history[2]
+        with sqlite3.connect(self.store.path) as db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    later.message_id,
+                    later.room_id,
+                    later.sender_id,
+                    later.sequence_no,
+                    later.body,
+                    later.retention,
+                    int(later.hidden),
+                    later.sent_at_unix_ms,
+                ),
+            )
         controller = self.controller("teacher-1")
 
         repaired = controller.sync_chat()
@@ -1121,7 +1142,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.prepare_file(attachment_id="a1", local_path=path, sequence_no=0)
 
         controller = self.controller(
-            quota=FileQuotaPolicy(max_file_bytes=10, max_room_bytes=6)
+            quota=FileQuotaPolicy(max_file_bytes=6, max_room_bytes=6)
         )
         first = controller.prepare_file(attachment_id="a1", local_path=path, sequence_no=0)
         self.files.scan_state = "clean"
@@ -2029,7 +2050,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             CollaborationError,
-            "live file has an unresolved sequence gap after recovery",
+            "live file sequence is stale or unresolved after recovery",
         ):
             controller.receive_file(later)
 
