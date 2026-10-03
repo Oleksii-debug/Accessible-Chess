@@ -2,6 +2,7 @@
 
 (function (global) {
   const MAX_DISPATCH_STEPS = 300;
+  const TRANSPORT_RETRY_MS = 2000;
   const MAX_PROVIDER_ID_LENGTH = 128;
   const MAX_DEVICE_ID_LENGTH = 512;
   const TRANSACTION_RE = /^(?:host|session)-[0-9a-f]{32}$/;
@@ -214,6 +215,7 @@
       this._config = null;
       this._busy = false;
       this._transportLossSnapshot = null;
+      this._transportRetryAt = 0;
     }
 
     get configured() {
@@ -302,6 +304,7 @@
         onTransportLost: (snapshot) => {
           if (this._adapter === adapter) {
             this._transportLossSnapshot = snapshot;
+            this._transportRetryAt = 0;
           }
         }
       });
@@ -488,6 +491,19 @@
       }
     }
 
+    _deferTransportRetry() {
+      this._transportRetryAt = Date.now() + TRANSPORT_RETRY_MS;
+    }
+
+    _transportReplyIsTerminal(result) {
+      if (!result || typeof result !== "object") return false;
+      if (result.kind === "media-updated") return true;
+      const payload = result.payload && typeof result.payload === "object"
+        ? result.payload
+        : {};
+      return result.kind === "error" && payload.recovery_required === true;
+    }
+
     async _deliverTransportLoss(invoke) {
       let snapshot = this._transportLossSnapshot;
       if (snapshot === null) return null;
@@ -497,27 +513,38 @@
       // disconnected state; never publish a false clean loss to Python.
       if (snapshot.cleanup_required === true) {
         if (this._adapter === null || typeof this._adapter.disconnect !== "function") {
+          this._deferTransportRetry();
           return null;
         }
         try {
           await this._adapter.disconnect();
           snapshot = this._adapter.snapshot();
           this._transportLossSnapshot = snapshot;
+          this._transportRetryAt = 0;
         } catch (_error) {
+          this._deferTransportRetry();
           return null;
         }
       }
-      if (!isCleanDisconnectedSnapshot(snapshot)) return null;
+      if (!isCleanDisconnectedSnapshot(snapshot)) {
+        this._deferTransportRetry();
+        return null;
+      }
 
       let result;
       try {
         result = await invoke("media.provider_transport_lost", { snapshot });
       } catch (_error) {
+        this._deferTransportRetry();
         return null;
       }
-      if (!result || typeof result !== "object") return null;
+      if (!this._transportReplyIsTerminal(result)) {
+        this._deferTransportRetry();
+        return result && typeof result === "object" ? result : null;
+      }
       if (this._transportLossSnapshot === snapshot) {
         this._transportLossSnapshot = null;
+        this._transportRetryAt = 0;
       }
       return result;
     }
@@ -525,6 +552,7 @@
     async reconcileTransport(invoke) {
       invoke = requireInvoke(invoke);
       if (this._busy || this._transportLossSnapshot === null) return null;
+      if (this._transportRetryAt > Date.now()) return null;
       this._busy = true;
       try {
         return await this._deliverTransportLoss(invoke);
