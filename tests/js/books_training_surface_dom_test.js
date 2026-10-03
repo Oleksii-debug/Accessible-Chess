@@ -363,8 +363,12 @@ async function run() {
   const semanticBlock = bookRoot.querySelector("#book-block-5");
   check(semanticBlock !== null && semanticBlock.tagName === "SECTION",
     "semantic Game block must use a native reading section");
-  check(find(semanticBlock, "H3", "Annotated game") !== null,
-    "semantic Game title is missing");
+  const semanticTitle = find(semanticBlock, "H3", "Annotated game");
+  check(semanticTitle !== null, "semantic Game title is missing");
+  check(semanticTitle.id === "book-block-5-title",
+    "semantic Game title lacks a deterministic id");
+  check(semanticBlock.attributes["aria-labelledby"] === semanticTitle.id,
+    "semantic Game focus target lacks an accessible name");
   check(find(semanticBlock, "H4", "Moves and variations") !== null,
     "semantic move heading is missing");
   check(find(semanticBlock, "SPAN", "1. e4") !== null,
@@ -417,6 +421,27 @@ async function run() {
     "malformed semantic render must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic render must not steal reading focus");
+
+  const malformedItems = semanticGameSnapshot();
+  malformedItems.block.semantic_tree.items = {};
+  let malformedItemsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedItems,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedItemsRejected = true;
+  }
+  check(malformedItemsRejected, "non-array semantic items must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "non-array semantic items must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "non-array semantic items must not steal reading focus");
 
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {

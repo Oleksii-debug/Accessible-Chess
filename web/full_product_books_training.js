@@ -86,7 +86,10 @@
     heading.id = String(block.dom_id || "") + "-semantic-heading";
     container.appendChild(heading);
 
-    const items = Array.isArray(semantic.items) ? semantic.items : [];
+    if (!Array.isArray(semantic.items)) {
+      throw new TypeError("book semantic items must be an array");
+    }
+    const items = semantic.items;
     const rootList = node("ol");
     rootList.setAttribute("aria-labelledby", heading.id);
     container.appendChild(rootList);
@@ -159,7 +162,12 @@
     if (block.semantic_tree && typeof block.semantic_tree === "object") {
       content = node("section");
       content.setAttribute("role", "group");
-      if (block.title) content.appendChild(node("h3", block.title));
+      if (block.title) {
+        const title = node("h3", block.title);
+        title.id = String(block.dom_id || "") + "-title";
+        content.setAttribute("aria-labelledby", title.id);
+        content.appendChild(title);
+      }
       renderBookSemanticTree(content, block);
     } else if (block.list && Array.isArray(block.list.items)) {
       content = node(block.list.ordered ? "ol" : "ul");
