@@ -258,13 +258,45 @@ def _safe_lstat(path: Path, *, label: str) -> os.stat_result:
 
 
 def _sha256(path: Path) -> str:
+    """Hash one stable regular-file identity without following pathname swaps."""
+
+    before = _safe_lstat(path, label="package file")
+    if not stat.S_ISREG(before.st_mode):
+        _fail("package file must be a regular file")
+
     digest = hashlib.sha256()
+    source = None
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail("package file must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail("package file changed while being opened")
+
+        copied = 0
+        while True:
+            block = source.read(1024 * 1024)
+            if not block:
+                break
+            copied += len(block)
+            digest.update(block)
+
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label="package file")
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+            or copied != int(after_read.st_size)
+        ):
+            _fail("package file changed while being hashed")
+    except Version2PackagePreflightError:
+        raise
     except OSError as exc:
-        _fail(f"package file cannot be read: {type(exc).__name__}")
+        _fail(f"package file cannot be read safely: {type(exc).__name__}")
+    finally:
+        if source is not None:
+            source.close()
     return digest.hexdigest()
 
 
