@@ -209,12 +209,14 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 "_publication_guard_hash",
                 side_effect=race_hash,
             ):
-                with self.assertRaisesRegex(
-                    Version2UpgradeError,
-                    "publication guard changed unexpectedly",
-                ):
+                with self.assertRaises(Version2UpgradeError) as caught:
                     Version2UpgradeCoordinator(UserDataLayout(root)).run()
 
+            self.assertIsNotNone(caught.exception.__cause__)
+            self.assertIn(
+                "publication guard changed unexpectedly",
+                str(caught.exception.__cause__),
+            )
             self.assertEqual(hash_calls, 2)
             self.assertEqual(
                 settings.read_bytes(),
@@ -424,12 +426,14 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 "_require_publication_guard",
                 side_effect=race_require,
             ):
-                with self.assertRaisesRegex(
-                    Version2UpgradeError,
-                    "publication guard changed unexpectedly",
-                ):
+                with self.assertRaises(Version2UpgradeError) as caught:
                     Version2UpgradeCoordinator(UserDataLayout(root)).run()
 
+            self.assertIsNotNone(caught.exception.__cause__)
+            self.assertIn(
+                "publication guard changed unexpectedly",
+                str(caught.exception.__cause__),
+            )
             self.assertGreaterEqual(require_calls, 5)
             self.assertEqual(
                 self._source_names(library),
