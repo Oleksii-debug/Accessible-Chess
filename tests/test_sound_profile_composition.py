@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -36,6 +37,30 @@ class _LyingCatalog(Mapping):
         self._entry = entry
 
     def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(("pack.0",))
+
+    def __len__(self):
+        return 1
+
+    def items(self):
+        for index in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
+            pack_id = f"pack.{index}"
+            manifest = replace(
+                self._entry.manifest,
+                pack_id=pack_id,
+                title=pack_id,
+            )
+            yield pack_id, replace(self._entry, manifest=manifest)
+
+
+class _DuplicateCatalog(Mapping):
+    def __init__(self, entry: SoundPackCatalogEntry) -> None:
+        self._entry = entry
+
+    def __getitem__(self, key):
         if key == self._entry.manifest.pack_id:
             return self._entry
         raise KeyError(key)
@@ -47,8 +72,8 @@ class _LyingCatalog(Mapping):
         return 1
 
     def items(self):
-        for _ in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
-            yield self._entry.manifest.pack_id, self._entry
+        yield self._entry.manifest.pack_id, self._entry
+        yield self._entry.manifest.pack_id, self._entry
 
 
 class _OversizedCatalog(Mapping):
@@ -886,6 +911,20 @@ class LocalSoundCompositionTests(unittest.TestCase):
                     data_root=root / "data",
                     asset_playback=_Playback(),
                     catalog=_LyingCatalog(entry),
+                    pack_downloader=mock.Mock(download=mock.Mock()),
+                )
+
+    def test_provider_catalog_rejects_duplicate_identity_from_malformed_mapping(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-duplicate-") as raw:
+            root = Path(raw)
+            entry, _staging = _catalog_entry(root)
+
+            with self.assertRaisesRegex(ValueError, "duplicate pack identity"):
+                create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=root / "data",
+                    asset_playback=_Playback(),
+                    catalog=_DuplicateCatalog(entry),
                     pack_downloader=mock.Mock(download=mock.Mock()),
                 )
 
