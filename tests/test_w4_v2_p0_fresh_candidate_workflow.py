@@ -29,6 +29,15 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", self.text)
         self.assertNotIn("schedule:", self.text)
 
+    def test_owner_approval_gate_precedes_build_sound_download_and_artifact_upload(self) -> None:
+        approval = self.text.index("OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED")
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        sound = self.text.index("Materialize exact user-supplied 330-WAV sound pack")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(approval, build)
+        self.assertLess(approval, sound)
+        self.assertLess(approval, upload)
+
     def test_dispatch_ref_uses_live_registered_workflow_and_independent_live_product(self) -> None:
         self.assertIn('WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}', self.text)
         self.assertIn('test "$GITHUB_REF_TYPE" = "branch"', self.text)
