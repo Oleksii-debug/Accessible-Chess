@@ -732,13 +732,53 @@
   }
 
   function applyBookEvent(root, result, invoke, announce, fallbackMessage) {
-    if (!result || typeof result !== "object") return;
-    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
-    if (result.kind === "render" && payload.snapshot) {
-      renderBookSurface(root, payload.snapshot, invoke, announce, payload.focus_target || "", fallbackMessage);
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new TypeError("Book event must be an object");
     }
-    if (payload.announcement) announce(String(payload.announcement));
-    if (result.kind === "error" && payload.message) announce(String(payload.message));
+    if (result.kind !== "render" && result.kind !== "delegated" && result.kind !== "error") {
+      throw new TypeError("Book event kind is invalid");
+    }
+    const payload = result.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new TypeError("Book event payload must be an object");
+    }
+    if (
+      payload.announcement !== undefined &&
+      typeof payload.announcement !== "string"
+    ) {
+      throw new TypeError("Book event announcement must be text");
+    }
+
+    if (result.kind === "render") {
+      if (!payload.snapshot || typeof payload.snapshot !== "object" || Array.isArray(payload.snapshot)) {
+        throw new TypeError("Book render event snapshot is invalid");
+      }
+      if (
+        payload.focus_target !== undefined &&
+        typeof payload.focus_target !== "string"
+      ) {
+        throw new TypeError("Book render focus target must be text");
+      }
+      renderBookSurface(
+        root,
+        payload.snapshot,
+        invoke,
+        announce,
+        payload.focus_target || "",
+        fallbackMessage
+      );
+    } else if (result.kind === "delegated") {
+      if (payload.action !== "book.open_position") {
+        throw new TypeError("Book delegated event action is invalid");
+      }
+    } else {
+      if (typeof payload.message !== "string" || !payload.message.trim()) {
+        throw new TypeError("Book error event message is invalid");
+      }
+    }
+
+    if (payload.announcement) announce(payload.announcement);
+    if (result.kind === "error") announce(payload.message);
   }
 
   function renderStarterMaterials(main, catalogue, invoke, announce, fallbackMessage) {
