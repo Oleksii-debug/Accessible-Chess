@@ -200,6 +200,25 @@
       try {
         return await invoke("media.provider_not_started", { transaction_id: transaction });
       } catch (_error) {
+        // The acknowledgement itself may have crossed the Python bridge before
+        // its response was lost. Conservatively latch recovery rather than
+        // strand a lease whose dispatch-marker state is now uncertain.
+        return this._providerOutcomeUnknown(invoke, transaction);
+      }
+    }
+
+    async _beforeProviderFailure(invoke, transaction, boundaryCrossed) {
+      return boundaryCrossed
+        ? this._providerOutcomeUnknown(invoke, transaction)
+        : this._providerNotStarted(invoke, transaction);
+    }
+
+    async _providerOutcomeUnknown(invoke, transaction) {
+      try {
+        return await invoke("media.provider_outcome_unknown", {
+          transaction_id: transaction
+        });
+      } catch (_error) {
         return null;
       }
     }
@@ -208,7 +227,7 @@
       try {
         return await invoke("media.provider_failed", { transaction_id: transaction });
       } catch (_error) {
-        return null;
+        return this._providerOutcomeUnknown(invoke, transaction);
       }
     }
 
@@ -271,7 +290,11 @@
       try {
         adapter = await this._configure(invoke);
       } catch (_error) {
-        return this._providerNotStarted(invoke, transaction);
+        return this._beforeProviderFailure(
+          invoke,
+          transaction,
+          parsed.providerBoundaryCrossed
+        );
       }
 
       let credential = null;
@@ -279,7 +302,11 @@
         try {
           credential = await this._takeCredential(invoke, transaction);
         } catch (_error) {
-          return this._providerNotStarted(invoke, transaction);
+          return this._beforeProviderFailure(
+            invoke,
+            transaction,
+            parsed.providerBoundaryCrossed
+          );
         }
       }
 
@@ -324,20 +351,27 @@
         credential = null;
       }
 
-      if (provider.operation === "connect" ||
-          provider.operation === "reconnect" ||
-          provider.operation === "disconnect") {
-        return invoke("media.provider_session_success", {
+      try {
+        if (provider.operation === "connect" ||
+            provider.operation === "reconnect" ||
+            provider.operation === "disconnect") {
+          return await invoke("media.provider_session_success", {
+            transaction_id: transaction,
+            snapshot: adapter.snapshot()
+          });
+        }
+        return await invoke("media.provider_effect_success", {
           transaction_id: transaction,
-          snapshot: adapter.snapshot()
+          chunk_index: provider.operation === "apply_moderation"
+            ? provider.chunk_index
+            : 0
         });
+      } catch (_error) {
+        // The provider mutation succeeded, but canonical acknowledgement did
+        // not complete observably. Never leave the single global lease active
+        // or pretend the provider did not run.
+        return this._providerOutcomeUnknown(invoke, transaction);
       }
-      return invoke("media.provider_effect_success", {
-        transaction_id: transaction,
-        chunk_index: provider.operation === "apply_moderation"
-          ? provider.chunk_index
-          : 0
-      });
     }
 
     async execute(event, invoke) {
@@ -365,7 +399,9 @@
     }
   }
 
-  global.AccessibleChessClassroomMediaProviderRuntime = Object.freeze(
+  // The runtime has mutable execution state (_busy, _adapter, _config).
+  // Seal its shape without freezing those state slots.
+  global.AccessibleChessClassroomMediaProviderRuntime = Object.seal(
     new ClassroomMediaProviderRuntime()
   );
 })(window);
