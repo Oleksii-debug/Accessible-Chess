@@ -378,10 +378,22 @@ class Settings:
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
 
+    def _persist_or_reload(self) -> None:
+        """Keep runtime Settings aligned with the actual durable publication."""
+        try:
+            self.save()
+        except Exception:
+            # save() can fail before publication (for example upgrade-lock
+            # contention) or after publication if a coordination identity check
+            # detects an ambiguous race. Reloading is the only truthful runtime
+            # state in both cases: it mirrors whatever is actually durable.
+            self.load()
+            raise
+
     def set(self, key: str, value: Any) -> None:
         validated = _validated_value(key, value)
         self.data[key] = validated
-        self.save()
+        self._persist_or_reload()
 
     def reset(self, key: str | None = None) -> None:
         if key is None:
@@ -390,7 +402,7 @@ class Settings:
             if key not in DEFAULTS:
                 raise KeyError(f"unknown setting: {key}")
             self.data[key] = DEFAULTS[key]
-        self.save()
+        self._persist_or_reload()
 
     def to_profile(self) -> dict[str, Any]:
         values = {key: self.data[key] for key in DEFAULTS}
@@ -411,7 +423,7 @@ class Settings:
         self.data = candidate
         self.warning = "; ".join(warnings) if warnings else None
         if persist:
-            self.save()
+            self._persist_or_reload()
         return warnings
 
     def save(self) -> None:
