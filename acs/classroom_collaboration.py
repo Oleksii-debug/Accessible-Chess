@@ -1047,6 +1047,13 @@ class ClassroomCollaborationController:
             raise CollaborationError("file transport changed immutable attachment identity")
         if result.transfer_state not in {"stored", "failed"}:
             raise CollaborationError("file transport returned non-terminal upload state")
+        if (
+            result.transfer_state == "failed"
+            and result.sequence_no != expected.sequence_no
+        ):
+            raise CollaborationError(
+                "failed file transport result changed provisional sequence"
+            )
 
     def _validate_remote_attachment(
         self,
