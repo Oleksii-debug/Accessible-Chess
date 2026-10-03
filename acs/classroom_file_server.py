@@ -13,13 +13,14 @@ from dataclasses import replace
 import hashlib
 from pathlib import Path
 import sqlite3
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .classroom_domain import MAX_WIRE_INTEGER
 from .classroom_collaboration import (
     MAX_DOWNLOAD_TOKEN_CHARS,
     MAX_SYNC_ATTACHMENTS,
     FileQuotaPolicy,
+    FileTransferProgress,
     PreparedFile,
     _canonical_object_key,
     _id,
@@ -1578,15 +1579,47 @@ class ClassroomFileServerClient:
             )
         return content
 
-    def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        return self._service.upload(
+    @staticmethod
+    def _report_progress(
+        prepared: PreparedFile,
+        result: AttachmentMetadata,
+        on_progress: Callable[[FileTransferProgress], None] | None,
+    ) -> None:
+        if on_progress is None:
+            return
+        if not callable(on_progress):
+            raise ClassroomFileServerError("file progress consumer must be callable")
+        on_progress(
+            FileTransferProgress(
+                result.attachment_id,
+                prepared.metadata.size_bytes,
+                prepared.metadata.size_bytes,
+            )
+        )
+
+    def upload(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        if on_progress is not None and not callable(on_progress):
+            raise ClassroomFileServerError("file progress consumer must be callable")
+        result = self._service.upload(
             trusted_caller_identity=self._caller,
             metadata=prepared.metadata,
             content=self._read_prepared(prepared),
         )
+        self._report_progress(prepared, result, on_progress)
+        return result
 
-    def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
-        return self.upload(prepared)
+    def retry(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        return self.upload(prepared, on_progress=on_progress)
 
     def cancel(self, *, attachment_id: str) -> None:
         self._service.cancel(
