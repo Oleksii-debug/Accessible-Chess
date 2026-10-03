@@ -328,6 +328,23 @@ class ClassroomCollaborationWebView:
             raise TypeError("language must be UILanguage")
         self._language = language
 
+    def retire_browser_session(self) -> None:
+        """Invalidate browser capabilities and release session-only UI state.
+
+        Durable chat/file metadata remains owned by the collaboration store. This
+        method only retires presentation capabilities and sensitive retry state so
+        a later bind cannot revive browser action keys or local source paths from
+        the previous classroom UI session.
+        """
+
+        self._action_secret = secrets.token_bytes(32)
+        self._unread_message_ids.clear()
+        self._pending_chat = None
+        self._chat_page_bucket = None
+        self._file_page_bucket = None
+        self._removed_participant_ids.clear()
+        self._prepared.clear()
+
     def _label(self, participant_id: str) -> str:
         try:
             raw = self._participant_label(participant_id)
