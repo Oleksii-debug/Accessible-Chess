@@ -233,7 +233,17 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.close_calls, 1)
         self.assertNotIn(secret, "".join(traceback.format_exception(caught.exception)))
         self.assertIsNone(caught.exception.__cause__)
-        self.assertIsNotNone(runtime.moderation_admin)
+        self.assertIn("state='cleanup_required'", repr(runtime))
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            _ = runtime.moderation_admin
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            await runtime.__aenter__()
 
         client.close_error = None
         await runtime.aclose()
@@ -245,6 +255,45 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "runtime is closed",
         ):
             _ = runtime.moderation_admin
+
+    async def test_cancelled_close_latches_cleanup_only_until_retry_succeeds(self):
+        close_started = asyncio.Event()
+
+        class CancellableClient(FakeLiveKitClient):
+            instances = []
+
+            async def aclose(self):
+                self.close_calls += 1
+                if self.close_calls == 1:
+                    close_started.set()
+                    await asyncio.Future()
+
+        class CancellableApi(ModerationFakeApi):
+            LiveKitAPI = CancellableClient
+
+        runtime = await self.open(
+            api_module=CancellableApi,
+            sdk_version=LIVEKIT_API_VERSION,
+        )
+        client = CancellableClient.instances[-1]
+        closing = asyncio.create_task(runtime.aclose())
+        await close_started.wait()
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+
+        self.assertFalse(runtime.closed)
+        self.assertEqual(client.close_calls, 1)
+        self.assertIn("state='cleanup_required'", repr(runtime))
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            _ = runtime.moderation_admin
+
+        await runtime.aclose()
+        self.assertTrue(runtime.closed)
+        self.assertEqual(client.close_calls, 2)
 
     async def test_close_in_progress_blocks_use_and_parallel_shutdown(self):
         close_started = asyncio.Event()
