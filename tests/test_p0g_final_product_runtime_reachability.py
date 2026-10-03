@@ -39,25 +39,21 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         runtime_label = "P0 accessibility runtime"
         teacher_label = "V2 Teacher surface"
         education_label = "V2 Education surface"
-        adapter_label = "V2 Classroom LiveKit adapter"
         media_label = "V2 Classroom media surface"
         bootstrap_label = "V2 final-product bootstrap"
 
         self.assertEqual(labels.count(runtime_label), 1)
-        self.assertEqual(labels.count(adapter_label), 1)
         self.assertEqual(labels.count(media_label), 1)
-        self.assertLess(labels.index(teacher_label), labels.index(runtime_label))
-        self.assertLess(labels.index(education_label), labels.index(runtime_label))
-        self.assertLess(labels.index(adapter_label), labels.index(media_label))
-        self.assertLess(labels.index(adapter_label), labels.index(bootstrap_label))
+        self.assertNotIn("LiveKit browser SDK", labels)
+        self.assertNotIn("Classroom LiveKit media adapter", labels)
+        self.assertNotIn("V2 Classroom LiveKit adapter", labels)
+        self.assertLess(labels.index(teacher_label), labels.index(media_label))
+        self.assertLess(labels.index(education_label), labels.index(media_label))
         self.assertLess(labels.index(media_label), labels.index(bootstrap_label))
-        self.assertLess(labels.index(media_label), labels.index(runtime_label))
         self.assertLess(labels.index(bootstrap_label), labels.index(runtime_label))
 
-        adapter_source = dict(sources)[adapter_label]
-        self.assertIn("AccessibleChessLiveKitMedia", adapter_source)
-        self.assertIn("LiveKitClassroomMediaAdapter", adapter_source)
-        self.assertNotIn("api_secret", adapter_source.casefold())
+        media_source = dict(sources)[media_label]
+        self.assertIn("AccessibleChessClassroomMediaSurface", media_source)
         runtime_source = dict(sources)[runtime_label]
         for surface in (
             "AccessibleChessPgnSurface",
@@ -70,6 +66,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
             self.assertIn(f'"{surface}"', runtime_source)
         self.assertIn("wrapSurfaceRenderAnnouncement", runtime_source)
         self.assertIn("global.announce = function", runtime_source)
+
 
     def test_packaged_livekit_sdk_precedes_adapter_without_becoming_source_requirement(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -101,10 +98,12 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                 source_sources = shipping_release.final_product_resource_sources()
             source_labels = [label for label, _source in source_sources]
             self.assertNotIn("LiveKit browser SDK", source_labels)
-            self.assertIn("V2 Classroom LiveKit adapter", source_labels)
+            self.assertNotIn("Classroom LiveKit media adapter", source_labels)
+            self.assertNotIn("V2 Classroom LiveKit adapter", source_labels)
+            self.assertIn("V2 Classroom media surface", source_labels)
 
-            sdk_path = web / "vendor" / "livekit" / "livekit-client.umd.js"
-            sdk_path.parent.mkdir(parents=True, exist_ok=True)
+            vendor = web / "vendor" / "livekit"
+            vendor.mkdir(parents=True)
             with patch.object(
                 education_release._release_ui,
                 "_asset_root",
@@ -117,7 +116,11 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                     shipping_release.final_product_resource_sources()
 
             sdk_source = "globalThis.LivekitClient = { Room: function Room() {} };\n"
-            sdk_path.write_text(sdk_source, encoding="utf-8")
+            (vendor / "livekit-client.umd.js").write_text(sdk_source, encoding="utf-8")
+            (vendor / "LICENSE").write_text("Apache License Version 2.0\n", encoding="utf-8")
+            (vendor / "NOTICE").write_text("LiveKit Apache License\n", encoding="utf-8")
+            (vendor / "provenance.json").write_text("{}\n", encoding="utf-8")
+
             with patch.object(
                 education_release._release_ui,
                 "_asset_root",
@@ -128,16 +131,16 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
             packaged_labels = [label for label, _source in packaged_sources]
             sdk_index = packaged_labels.index("LiveKit browser SDK")
             adapter_index = packaged_labels.index("Classroom LiveKit media adapter")
+            media_index = packaged_labels.index("V2 Classroom media surface")
             self.assertEqual(adapter_index, sdk_index + 1)
-            self.assertLess(
-                adapter_index,
-                packaged_labels.index("V2 Teacher surface"),
-            )
+            self.assertLess(adapter_index, media_index)
+            self.assertLess(media_index, packaged_labels.index("V2 final-product bootstrap"))
             self.assertNotIn("V2 Classroom LiveKit adapter", packaged_labels)
             self.assertEqual(
                 dict(packaged_sources)["LiveKit browser SDK"],
                 sdk_source,
             )
+
 
     def test_present_invalid_livekit_vendor_root_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -178,9 +181,12 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                 path = web / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(f"// {relative}\n", encoding="utf-8")
-            sdk_path = web / "vendor" / "livekit" / "livekit-client.umd.js"
-            sdk_path.parent.mkdir(parents=True, exist_ok=True)
-            sdk_path.write_text("", encoding="utf-8")
+            vendor = web / "vendor" / "livekit"
+            vendor.mkdir(parents=True)
+            (vendor / "livekit-client.umd.js").write_text("", encoding="utf-8")
+            (vendor / "LICENSE").write_text("Apache License Version 2.0\n", encoding="utf-8")
+            (vendor / "NOTICE").write_text("LiveKit Apache License\n", encoding="utf-8")
+            (vendor / "provenance.json").write_text("{}\n", encoding="utf-8")
 
             with patch.object(
                 education_release._release_ui,
@@ -192,6 +198,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                     "LiveKit browser SDK is empty",
                 ):
                     shipping_release.final_product_resource_sources()
+
 
     def test_packaged_resource_read_failure_redacts_filesystem_detail(self) -> None:
         secret_path = r"C:\Users\private-user\build\stage1_release_bootstrap.js"
