@@ -6,6 +6,125 @@
     return value;
   }
 
+  const IMPORT_PHASES = new Set([
+    "idle",
+    "running",
+    "cancelling",
+    "completed",
+    "cancelled",
+    "error",
+    "empty"
+  ]);
+  const IMPORT_ACTIONS = [
+    ["library.import", "library-import-file"],
+    ["library.cancel_import", "library-import-cancel"]
+  ];
+
+  function plainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function requireBoundedText(value, name, allowEmpty, limit) {
+    if (typeof value !== "string" ||
+        (!allowEmpty && !value) ||
+        value.length > limit ||
+        value.indexOf("\x00") >= 0) {
+      throw new TypeError(name + " is invalid");
+    }
+    return value;
+  }
+
+  function requireExactFields(value, expected, name) {
+    if (!plainObject(value)) throw new TypeError(name + " must be an object");
+    const fields = Object.keys(value);
+    if (fields.length !== expected.length ||
+        expected.some(function (field) {
+          return !Object.prototype.hasOwnProperty.call(value, field);
+        })) {
+      throw new TypeError(name + " fields are invalid");
+    }
+  }
+
+  function requireImportSnapshot(state) {
+    requireExactFields(
+      state,
+      [
+        "phase",
+        "heading",
+        "description",
+        "processed_games",
+        "total_games",
+        "progress_label",
+        "message",
+        "actions"
+      ],
+      "Library import snapshot"
+    );
+    if (!IMPORT_PHASES.has(state.phase)) {
+      throw new TypeError("Library import phase is invalid");
+    }
+    requireBoundedText(state.heading, "Library import heading", false, 240);
+    requireBoundedText(state.description, "Library import description", true, 500);
+    requireBoundedText(state.progress_label, "Library import progress label", true, 500);
+    requireBoundedText(state.message, "Library import message", true, 500);
+    if (!Number.isSafeInteger(state.processed_games) ||
+        !Number.isSafeInteger(state.total_games) ||
+        state.processed_games < 0 ||
+        state.total_games < 0 ||
+        state.processed_games > state.total_games) {
+      throw new TypeError("Library import counts are invalid");
+    }
+    if (!Array.isArray(state.actions) || state.actions.length !== IMPORT_ACTIONS.length) {
+      throw new TypeError("Library import actions are invalid");
+    }
+    for (let index = 0; index < state.actions.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(state.actions, index)) {
+        throw new TypeError("Library import actions must be dense");
+      }
+      const action = state.actions[index];
+      requireExactFields(
+        action,
+        ["action", "dom_id", "label", "enabled"],
+        "Library import action"
+      );
+      const expected = IMPORT_ACTIONS[index];
+      if (action.action !== expected[0] || action.dom_id !== expected[1]) {
+        throw new TypeError("Library import action identity is invalid");
+      }
+      requireBoundedText(action.label, "Library import action label", false, 240);
+      if (typeof action.enabled !== "boolean") {
+        throw new TypeError("Library import action enabled state is invalid");
+      }
+    }
+    return state;
+  }
+
+  function requireImportEvent(result) {
+    requireExactFields(result, ["kind", "payload"], "Library event");
+    if (result.kind !== "render-import") {
+      throw new TypeError("Library import event kind is invalid");
+    }
+    const payload = result.payload;
+    requireExactFields(
+      payload,
+      ["import", "focus_target", "announcement"],
+      "Library import event payload"
+    );
+    requireImportSnapshot(payload.import);
+    if (payload.focus_target !== "" &&
+        payload.focus_target !== "library-import-file" &&
+        payload.focus_target !== "library-import-cancel") {
+      throw new TypeError("Library import focus target is invalid");
+    }
+    requireBoundedText(
+      payload.announcement,
+      "Library import announcement",
+      true,
+      500
+    );
+    return payload;
+  }
+
   function node(tag, text) {
     const element = document.createElement(tag);
     if (text !== undefined && text !== null) element.textContent = String(text);
@@ -37,22 +156,32 @@
     if (result.kind === "render" && payload.snapshot) {
       renderLibrarySurface(root, payload.snapshot, invoke, announce, payload.focus_target || "");
     }
-    if (result.kind === "render-import" && payload.import) {
+    if (result.kind === "render-import") {
+      const importPayload = requireImportEvent(result);
       const current = root.__accessibleChessLibrarySnapshot;
       if (current && typeof current === "object") {
-        const updated = Object.assign({}, current, { import: payload.import });
+        const updated = Object.assign({}, current, { import: importPayload.import });
         const region = root.querySelector("#library-import-region");
         const active = document.activeElement;
-        const restore = region && active && region.contains(active) ? String(active.id || "") : "";
+        const restore = region && active && region.contains(active) &&
+          typeof active.id === "string" ? active.id : "";
         const replacement = buildImportSection(root, updated, invoke, announce);
         if (region && replacement && typeof region.replaceWith === "function") {
           region.replaceWith(replacement);
           root.__accessibleChessLibrarySnapshot = updated;
-          focusRequestedOption(root, payload.focus_target || restore);
+          focusRequestedOption(root, importPayload.focus_target || restore);
         } else {
-          renderLibrarySurface(root, updated, invoke, announce, payload.focus_target || "");
+          renderLibrarySurface(
+            root,
+            updated,
+            invoke,
+            announce,
+            importPayload.focus_target || ""
+          );
         }
       }
+      if (importPayload.announcement) announce(importPayload.announcement);
+      return;
     }
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
@@ -128,7 +257,7 @@
   }
 
   function buildImportSection(root, snapshot, invoke, announce) {
-    const state = snapshot.import && typeof snapshot.import === "object" ? snapshot.import : null;
+    const state = snapshot.import == null ? null : requireImportSnapshot(snapshot.import);
     if (!state) return null;
     const section = node("section");
     section.id = "library-import-region";
