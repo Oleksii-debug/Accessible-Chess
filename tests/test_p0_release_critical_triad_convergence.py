@@ -97,18 +97,20 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn('git diff --check "$diff_base..$EVENT_HEAD_SHA"', workflow)
         self.assertNotIn('git diff --check "$EVENT_BASE_SHA..$EVENT_HEAD_SHA"', workflow)
 
-    def test_non_product_pr_remains_live_product_rooted(self) -> None:
+    def test_non_product_pr_is_rooted_in_exact_live_target_not_product(self) -> None:
         workflow = self.workflow
         product_case = workflow.index('if test "$EVENT_HEAD_REF" = "$PRODUCT_BRANCH"; then')
         non_product_case = workflow.index("          else\n", product_case)
         self.assertLess(product_case, non_product_case)
-        self.assertIn(
+        self.assertIn('test "$EVENT_BASE_SHA" = "$live_target"', workflow)
+        self.assertIn('diff_base="$EVENT_BASE_SHA"', workflow)
+        self.assertNotIn(
             'git merge-base --is-ancestor "$live_product" "$EVENT_BASE_SHA"', workflow
         )
-        self.assertIn(
+        self.assertNotIn(
             'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"', workflow
         )
-        self.assertIn('diff_base="$EVENT_BASE_SHA"', workflow)
+        self.assertIn("may itself be a canonical lineage that legitimately diverged", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
