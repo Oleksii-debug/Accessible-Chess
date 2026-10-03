@@ -117,6 +117,13 @@ class SoundSettingsApplication:
         return result
 
     def _local_pack_compatible(self, manifest: SoundPackManifest) -> bool:
+        entry = self._catalog.get(manifest.pack_id)
+        if (
+            entry is not None
+            and entry.manifest.version == manifest.version
+            and not entry.compatible
+        ):
+            return False
         provider = self._pack_compatibility_provider
         if provider is None:
             return True
@@ -224,6 +231,9 @@ class SoundSettingsApplication:
         installed_local = self._installed_local_packs()
         manifest = self._active_manifest(current, installed_local)
         if current.pack_id != "classic" and manifest is None:
+            local = installed_local.get(current.pack_id)
+            if local is not None and not self._local_pack_compatible(local):
+                return self._save_pack_profile("classic", None)
             return current
         return self._save_pack_profile(current.pack_id, manifest)
 
