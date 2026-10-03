@@ -117,6 +117,81 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIsNotNone(snapshot["training"])
         self.assertEqual(self.app.drain_events(), ())
 
+    def test_whitespace_hidden_book_commands_cannot_bypass_route_authority(self):
+        self._open_exercise_book()
+        reader_before = self.app.reader.snapshot()
+        language_before = self.app.books.projection.language
+
+        routed = self.app.browser_command("shell", "screen.settings")
+        self.assertEqual("route", routed["kind"])
+        self.assertEqual("settings", self.app.shell.current_route.route_id)
+        self.app.drain_events()
+
+        with patch.object(
+            self.progress_store,
+            "save",
+            side_effect=AssertionError(
+                "hidden whitespace Book command must not reach persistence"
+            ),
+        ) as save:
+            navigation = self.app.browser_command("books", " book.next ", {})
+            language = self.app.browser_command(
+                "books",
+                " book.language ",
+                {"language": "en"},
+            )
+            board = self.app.browser_command("books", " book.open_position ", {})
+
+        save.assert_not_called()
+        self.assertEqual("error", navigation["kind"])
+        self.assertEqual("error", language["kind"])
+        self.assertEqual("error", board["kind"])
+        self.assertEqual(reader_before, self.app.reader.snapshot())
+        self.assertEqual(language_before, self.app.books.projection.language)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("settings", self.app.shell.current_route.route_id)
+        self.assertEqual((), self.app.drain_events())
+
+    def test_whitespace_training_continue_uses_outer_book_persistence_transaction(self):
+        self._open_exercise_book()
+        opened = self.app.browser_command("shell", "screen.training")
+        self.assertEqual("route", opened["kind"])
+        self.assertEqual("training", self.app.shell.current_route.route_id)
+
+        completed = self.app.browser_command(
+            "training",
+            "training.submit",
+            {"answer": "e4"},
+        )
+        self.assertEqual("render", completed["kind"])
+        self.assertTrue(completed["payload"]["snapshot"]["progress"]["completed"])
+
+        before_reader = self.app.reader.snapshot()
+        before_workspace = self.app.training_workspace
+        before_training = before_workspace.snapshot()
+        progress_files = tuple(self.app.training_progress_root.glob("*.json"))
+        self.assertEqual(1, len(progress_files))
+        durable_before = progress_files[0].read_bytes()
+
+        with patch.object(
+            self.progress_store,
+            "save",
+            side_effect=OSError("simulated outer Book progress failure"),
+        ) as save:
+            rejected = self.app.browser_command(
+                "training",
+                " training.continue ",
+                {},
+            )
+
+        self.assertEqual("error", rejected["kind"])
+        save.assert_called()
+        self.assertEqual(before_reader, self.app.reader.snapshot())
+        self.assertEqual("training", self.app.shell.current_route.route_id)
+        self.assertIsNotNone(self.app.training_workspace)
+        self.assertEqual(before_training, self.app.training_workspace.snapshot())
+        self.assertEqual(durable_before, progress_files[0].read_bytes())
+
     def test_hidden_book_command_cannot_clobber_unrelated_active_route(self):
         self._open_exercise_book()
         reader_before = self.app.reader
