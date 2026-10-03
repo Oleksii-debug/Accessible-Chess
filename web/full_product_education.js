@@ -225,41 +225,76 @@
     }
     const wrapper = root.querySelector("#classroom-collaboration");
     if (!wrapper) return false;
-    const sessionKey = String(progressInfo.session_key || "");
+    const sessionKey = progressInfo.session_key;
     if (
+      typeof sessionKey !== "string" ||
       !sessionKey ||
       wrapper.getAttribute("data-collaboration-session") !== sessionKey
     ) {
       return false;
     }
-    const transferred = Number(progressInfo.transferred_bytes);
-    const total = Number(progressInfo.total_bytes);
+    const transferred = progressInfo.transferred_bytes;
+    const total = progressInfo.total_bytes;
+    const complete = progressInfo.complete;
     if (
+      typeof transferred !== "number" ||
+      typeof total !== "number" ||
+      typeof complete !== "boolean" ||
       !Number.isSafeInteger(transferred) ||
       !Number.isSafeInteger(total) ||
       transferred < 0 ||
       total < 0 ||
-      transferred > total
+      transferred > total ||
+      (complete && transferred !== total) ||
+      typeof progressInfo.label !== "string" ||
+      typeof progressInfo.name !== "string" ||
+      typeof progressInfo.text !== "string"
     ) {
       return false;
     }
     const container = wrapper.querySelector("#collaboration-file-transfer-progress");
     if (!container || typeof container.replaceChildren !== "function") return false;
+    const previousSession = container.getAttribute("data-progress-session");
+    if (previousSession === sessionKey) {
+      const previousTransferred = Number(
+        container.getAttribute("data-progress-transferred")
+      );
+      const previousTotal = Number(container.getAttribute("data-progress-total"));
+      const previousComplete = (
+        container.getAttribute("data-progress-complete") === "true"
+      );
+      if (
+        !Number.isSafeInteger(previousTransferred) ||
+        !Number.isSafeInteger(previousTotal) ||
+        previousTransferred < 0 ||
+        previousTotal < 0 ||
+        total !== previousTotal ||
+        transferred < previousTransferred ||
+        (
+          previousComplete &&
+          (!complete || transferred !== previousTransferred)
+        )
+      ) {
+        return false;
+      }
+    }
     const meter = node("progress");
     meter.id = "collaboration-file-transfer-meter";
     const semanticMax = total === 0 ? 1 : total;
-    const semanticValue = (
-      total === 0 && progressInfo.complete === true ? 1 : transferred
-    );
+    const semanticValue = total === 0 && complete ? 1 : transferred;
     meter.setAttribute("max", String(semanticMax));
     meter.setAttribute("value", String(semanticValue));
-    const label = String(progressInfo.label || "File transfer progress");
-    const name = String(progressInfo.name || "");
+    const label = progressInfo.label || "File transfer progress";
+    const name = progressInfo.name;
     meter.setAttribute("aria-label", name ? (label + ": " + name) : label);
-    const text = node("span", String(progressInfo.text || ""));
+    const text = node("span", progressInfo.text);
     text.id = "collaboration-file-transfer-text";
     text.setAttribute("aria-live", "off");
     if (text.textContent) meter.setAttribute("aria-valuetext", text.textContent);
+    container.setAttribute("data-progress-session", sessionKey);
+    container.setAttribute("data-progress-transferred", String(transferred));
+    container.setAttribute("data-progress-total", String(total));
+    container.setAttribute("data-progress-complete", complete ? "true" : "false");
     container.replaceChildren(meter, document.createTextNode(" "), text);
     return true;
   }
