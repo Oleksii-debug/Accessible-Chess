@@ -66,7 +66,6 @@ concurrency:
 
 env:
   OWNER_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
-  CURRENT_PRODUCT_BASE: 7523004a4992d8f23989e411e618da4aca1e4739
 
 jobs:
   contract:
@@ -117,14 +116,11 @@ jobs:
             if [ '${{ github.event_name }}' = 'pull_request' ]; then
               test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
             fi
-            base="$CURRENT_PRODUCT_BASE"
             product_ref='work/full-product-teacher-education-reachability-20260911'
             git fetch --no-tags origin "refs/heads/$product_ref"
             live_product="$(git rev-parse FETCH_HEAD)"
-            test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
-              printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
-              exit 1
-            }
+            base="$live_product"
+            echo "SOUND_PRODUCT_BASE=$base"
             expected="$(printf '%s\n' \
               '.github/workflows/current-sound-profiles-contract.yml' \
               '.github/workflows/profiled-windows-sound-playback.yml' \

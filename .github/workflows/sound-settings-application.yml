@@ -18,9 +18,6 @@ concurrency:
   group: accessible-sound-settings-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  CURRENT_PRODUCT_BASE: 7523004a4992d8f23989e411e618da4aca1e4739
-
 jobs:
   contract:
     strategy:
@@ -34,7 +31,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: Prove exact candidate
+      - name: Prove exact candidate against live Product
         shell: bash
         run: |
           set -euo pipefail
@@ -45,14 +42,11 @@ jobs:
           product_ref='work/full-product-teacher-education-reachability-20260911'
           git fetch --no-tags origin "refs/heads/$product_ref"
           live_product="$(git rev-parse FETCH_HEAD)"
-          test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
-            printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
-            exit 1
-          }
-          git cat-file -e "$CURRENT_PRODUCT_BASE^{commit}"
-          git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
-          test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"
-          git diff --check "$CURRENT_PRODUCT_BASE" HEAD
+          git cat-file -e "$live_product^{commit}"
+          git merge-base --is-ancestor "$live_product" HEAD
+          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+          git diff --check "$live_product" HEAD
+          echo "SOUND_PRODUCT_BASE=$live_product"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
