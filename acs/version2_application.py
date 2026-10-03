@@ -759,6 +759,13 @@ class Version2Application:
                         raise ValueError("book board open requires the visible Book reader")
                     if self.book_workflow is not None and self.book_workflow.active:
                         raise ValueError("book board review is already active")
+                # Native menu/NVDA activation reaches this delegate directly,
+                # bypassing _dispatch_book_surface_command(). Apply the same
+                # durability boundary as the Book WebView: the exact reading
+                # origin must be accepted by BookProgress before Board ownership
+                # can become active.
+                if opening_board:
+                    self.save_book_progress()
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
                 result = self.book_delegate(action, payload)
                 if result.kind is BookBoardUiEventKind.FAILED:
@@ -775,6 +782,14 @@ class Version2Application:
                     self.shell.open_route("board")
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED:
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
+                if result.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
+                    # Returning already discarded only transient Board review and
+                    # restored the exact BookReader origin. Re-publish that
+                    # canonical origin through the same durability boundary as
+                    # browser Return. If persistence fails, the safe return stays
+                    # completed while the UI boundary projects only a sanitized
+                    # error.
+                    self.save_book_progress()
                 return result
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
             result = self._dispatch_book_surface_command(
