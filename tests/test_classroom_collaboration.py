@@ -429,8 +429,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
     def test_chat_body_is_bounded_and_nul_rejected(self):
         controller = self.controller()
-        for body in ("", "   ", "bad\x00text", "x" * 4001):
-            with self.subTest(body=body[:20]):
+        for body in ("", "   ", "bad\x00text", "x" * 4001, "bad" + chr(0xD800)):
+            with self.subTest(body=repr(body[:20])):
                 with self.assertRaises(CollaborationError):
                     controller.send_chat(message_id="m1", body=body)
 
