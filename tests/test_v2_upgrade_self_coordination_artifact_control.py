@@ -212,11 +212,11 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             self.assertIn("prefs.json", files)
             self.assertNotIn("prefs.json.tmp", files)
             self.assertNotIn(".prefs.json.a1_b2c3d.tmp", files)
-            self.assertNotIn(
+            self.assertIn(
                 ".prefs.json.publish-guard-abcdef012345",
                 files,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".games.sqlite.publish-guard-fedcba543210",
                 files,
             )
@@ -297,33 +297,39 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
-            durable = root / "settings.json"
-            durable.write_bytes(b"x")
+            settings = root / "settings.json"
+            library = root / "library.acsdb"
+            settings.write_bytes(b"x")
+            library.write_bytes(b"y")
             for name in (
                 "settings.json.tmp",
                 ".settings.json.abcd_123.tmp",
                 "..v2-upgrade-state.json.xy_987ab.tmp",
-                ".settings.json.publish-guard-a1b2c3d4e5f6",
-                ".library.acsdb.publish-guard-012345abcdef",
             ):
                 (root / name).write_bytes(b"z" * 4096)
+            settings_guard = root / ".settings.json.publish-guard-a1b2c3d4e5f6"
+            library_guard = root / ".library.acsdb.publish-guard-012345abcdef"
+            try:
+                os.link(settings, settings_guard)
+                os.link(library, library_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
 
             coordinator = Version2UpgradeCoordinator(
                 UserDataLayout(root),
-                limits=UpgradeLimits(max_files=1, max_bytes=8),
+                limits=UpgradeLimits(max_files=2, max_bytes=8),
             )
             self.assertEqual(
                 self._relative_files(coordinator),
-                {"settings.json"},
+                {"settings.json", "library.acsdb"},
             )
 
-            durable.write_bytes(b"y" * 16)
+            settings.write_bytes(b"y" * 16)
             with self.assertRaisesRegex(
                 Version2UpgradeError,
                 "backup exceeds byte limit",
             ):
                 coordinator._files()
-
     def test_noncanonical_publication_guards_remain_preservation_backed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
