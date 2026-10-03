@@ -730,6 +730,27 @@
     }
   }
 
+  function requireTrainingSolution(solution) {
+    if (solution === undefined) return [];
+    if (!Array.isArray(solution) ||
+        solution.length > MAX_TRAINING_SOLUTION_MOVES) {
+      throw new TypeError("Training solution payload is invalid");
+    }
+    for (let index = 0; index < solution.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(solution, index)) {
+        throw new TypeError("Training solution payload is invalid");
+      }
+      const move = solution[index];
+      if (typeof move !== "string" ||
+          !move ||
+          move.length > MAX_TRAINING_SOLUTION_TEXT ||
+          move.indexOf("\x00") >= 0) {
+        throw new TypeError("Training solution payload is invalid");
+      }
+    }
+    return solution;
+  }
+
   function trainingActionFocusTarget(command) {
     const targets = {
       "training.hint": "training-action-hint",
@@ -1046,12 +1067,6 @@
     });
     main.appendChild(form);
 
-    let effectiveFocus = requestedFocus || "";
-    if (effectiveFocus === "training-answer" && answerSpec.disabled) {
-      effectiveFocus = canonicalTrainingFocusTarget(snapshot);
-    }
-    requireTrainingFocusTarget(snapshot, effectiveFocus, solution || []);
-
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     markRendered(root);
@@ -1151,28 +1166,11 @@
       if (payload.clear_answer !== undefined && typeof payload.clear_answer !== "boolean") {
         throw new TypeError("Training clear-answer flag is invalid");
       }
-      if (payload.solution !== undefined) {
-        if (!Array.isArray(payload.solution) ||
-            payload.solution.length > MAX_TRAINING_SOLUTION_MOVES) {
-          throw new TypeError("Training solution payload is invalid");
-        }
-        for (let index = 0; index < payload.solution.length; index += 1) {
-          if (!Object.prototype.hasOwnProperty.call(payload.solution, index)) {
-            throw new TypeError("Training solution payload is invalid");
-          }
-          const move = payload.solution[index];
-          if (typeof move !== "string" ||
-              !move ||
-              move.length > MAX_TRAINING_SOLUTION_TEXT ||
-              move.indexOf("\x00") >= 0) {
-            throw new TypeError("Training solution payload is invalid");
-          }
-        }
-      }
+      const safeSolution = requireTrainingSolution(payload.solution);
       requireTrainingFocusTarget(
         payload.snapshot,
         payload.focus_target,
-        payload.solution || []
+        safeSolution
       );
       renderTrainingSurface(
         root,
@@ -1181,7 +1179,7 @@
         announce,
         payload.focus_target,
         fallbackMessage,
-        payload.solution || []
+        safeSolution
       );
       if (!payload.clear_answer && priorAnswer) {
         const next = root.querySelector("#training-answer");
@@ -1202,6 +1200,13 @@
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Training snapshot is required");
     requireTrainingSnapshot(snapshot);
+    solution = requireTrainingSolution(solution);
+    const answerSpec = snapshot.answer || {};
+    let effectiveFocus = requestedFocus || "";
+    if (effectiveFocus === "training-answer" && answerSpec.disabled) {
+      effectiveFocus = canonicalTrainingFocusTarget(snapshot);
+    }
+    requireTrainingFocusTarget(snapshot, effectiveFocus, solution);
 
     const fragment = document.createDocumentFragment();
     const main = node("main");
@@ -1228,7 +1233,6 @@
       main.appendChild(message);
     }
 
-    const answerSpec = snapshot.answer || {};
     const form = node("form");
     const label = node("label", answerSpec.label || "");
     const input = node("input");
