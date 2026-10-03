@@ -2,6 +2,28 @@
   "use strict";
 
   const inFlightRoots = new WeakSet();
+  const renderEpochs = new WeakMap();
+
+  function renderEpoch(root) {
+    return renderEpochs.get(root) || 0;
+  }
+
+  function markRendered(root) {
+    renderEpochs.set(root, renderEpoch(root) + 1);
+  }
+
+  function setBusy(root, busy) {
+    if (!root || typeof root.setAttribute !== "function") return;
+    if (busy) {
+      root.setAttribute("aria-busy", "true");
+      return;
+    }
+    if (typeof root.removeAttribute === "function") {
+      root.removeAttribute("aria-busy");
+    } else {
+      root.setAttribute("aria-busy", "false");
+    }
+  }
 
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
@@ -27,24 +49,32 @@
 
   function safeInvoke(root, invoke, command, payload, onResult, announce, fallbackMessage) {
     if (inFlightRoots.has(root)) return;
+    const startedAtEpoch = renderEpoch(root);
     inFlightRoots.add(root);
+    setBusy(root, true);
+
+    function finish() {
+      inFlightRoots.delete(root);
+      setBusy(root, false);
+    }
+
     let result;
     try {
       result = invoke(command, payload || {});
     } catch (_) {
-      inFlightRoots.delete(root);
+      finish();
       if (fallbackMessage) announce(String(fallbackMessage));
       return;
     }
     Promise.resolve(result)
-      .then(onResult)
+      .then(function (value) {
+        if (renderEpoch(root) !== startedAtEpoch) return;
+        return onResult(value);
+      })
       .catch(function () {
         if (fallbackMessage) announce(String(fallbackMessage));
       })
-      .then(
-        function () { inFlightRoots.delete(root); },
-        function () { inFlightRoots.delete(root); }
-      );
+      .then(finish, finish);
   }
 
   function renderBookBlock(host, block) {
@@ -225,6 +255,7 @@
 
     fragment.appendChild(main);
     root.replaceChildren(fragment);
+    markRendered(root);
     focusTarget(root, requestedFocus || "");
   }
 
@@ -386,6 +417,7 @@
 
     fragment.appendChild(main);
     root.replaceChildren(fragment);
+    markRendered(root);
     focusTarget(root, requestedFocus || "");
   }
 
