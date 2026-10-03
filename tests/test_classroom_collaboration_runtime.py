@@ -907,26 +907,35 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         class ChatConnection:
             endpoint = chat_endpoint
             responses: list[tuple[int, str]] = []
+            trace: list[object] = []
 
             def __init__(self, host, port, timeout):
                 self.closed = False
                 self.request_data = None
 
             def request(self, method, target, *, body, headers):
+                type(self).trace.append(("request", method, target))
                 self.request_data = (method, target, bytes(body), dict(headers))
 
             def getresponse(self):
+                type(self).trace.append("getresponse")
                 if self.request_data is None:
                     raise AssertionError("chat request was not sent")
                 method, target, body, headers = self.request_data
                 if method != "POST":
                     raise AssertionError("unexpected chat method")
-                response = invoke_asgi(
-                    self.endpoint,
-                    target=target,
-                    body=body,
-                    headers=headers.items(),
-                )
+                try:
+                    response = invoke_asgi(
+                        self.endpoint,
+                        target=target,
+                        body=body,
+                        headers=headers.items(),
+                    )
+                except Exception as error:
+                    type(self).trace.append(
+                        ("asgi-error", type(error).__name__, str(error))
+                    )
+                    raise
                 type(self).responses.append(
                     (
                         response.status,
@@ -1019,7 +1028,10 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             self.assertEqual(
                 "collaboration.chat.sent",
                 sent["kind"],
-                f"chat HTTP responses: {ChatConnection.responses!r}",
+                (
+                    f"chat HTTP trace: {ChatConnection.trace!r}; "
+                    f"responses: {ChatConnection.responses!r}"
+                ),
             )
             initial_refresh = second.refresh_classroom_chat()
             initial_remote_message = second_runtime.store.room_messages(room)[0]
