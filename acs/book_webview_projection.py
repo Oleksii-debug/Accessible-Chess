@@ -290,6 +290,13 @@ class BookWebViewProjection:
         ):
             if type(field_value) is not str:
                 raise TypeError(f"book block {field_name} must be text")
+            # The visible body already owns the 12 MiB release envelope. Reuse
+            # that envelope as the absolute trusted-side scalar ceiling for
+            # presentation metadata too, so malformed presenter state cannot
+            # force replace/strip/path-redaction to scan an unbounded string
+            # before the smaller WebView-specific truncation is applied.
+            if len(field_value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise ValueError(f"book block {field_name} exceeds the raw text budget")
         if block.position_fen is not None:
             # Raw FEN never crosses the WebView boundary, but it still reaches
             # this presentation preflight. Bound it before strip/dispatch so a
@@ -305,8 +312,13 @@ class BookWebViewProjection:
                 raise ValueError("book block position must not be empty")
         if type(block.heading_path) is not tuple or len(block.heading_path) > _MAX_BOOK_HEADING_PATH_PARTS:
             raise ValueError("book heading path is invalid")
-        if any(type(part) is not str or not part.strip() for part in block.heading_path):
-            raise ValueError("book heading path is invalid")
+        for part in block.heading_path:
+            if type(part) is not str:
+                raise ValueError("book heading path is invalid")
+            if len(part) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise ValueError("book heading path exceeds the raw text budget")
+            if not part.strip():
+                raise ValueError("book heading path is invalid")
         if block.kind == "Heading":
             if block.heading_level is None:
                 raise ValueError("book heading block requires a heading level")
