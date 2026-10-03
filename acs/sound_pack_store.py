@@ -11,6 +11,7 @@ active-version pointer.
 """
 
 from dataclasses import dataclass
+import errno
 import hashlib
 import json
 import os
@@ -95,6 +96,38 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
             raise SoundPackStoreError(f"duplicate JSON key: {key}")
         result[key] = value
     return result
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush a published directory entry before dependent metadata points at it."""
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if os.name == "nt" or exc.errno in {
+            errno.EACCES,
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+        }:
+            return
+        raise SoundPackStoreError(
+            "sound pack directory could not be synchronized"
+        ) from exc
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            if os.name == "nt" or exc.errno in {
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+            }:
+                return
+            raise SoundPackStoreError(
+                "sound pack directory could not be synchronized"
+            ) from exc
+    finally:
+        os.close(descriptor)
 
 
 def _canonical_json(payload: Mapping[str, object]) -> bytes:
@@ -661,6 +694,7 @@ class FilesystemSoundPackStore:
                 raise SoundPackStoreError(
                     "sound pack version already exists with different content"
                 )
+            _fsync_directory(versions_dir)
             self._publish_active(
                 pack_dir, manifest.pack_id, manifest.version
             )
@@ -725,6 +759,7 @@ class FilesystemSoundPackStore:
                         current_manifest == manifest
                         and current_digests == digests
                     ):
+                        _fsync_directory(versions_dir)
                         self._publish_active(
                             pack_dir,
                             manifest.pack_id,
@@ -735,6 +770,9 @@ class FilesystemSoundPackStore:
                     "sound pack version could not be published atomically"
                 ) from exc
 
+            # The active pointer may only reference a version after the version
+            # directory entry itself has crossed the crash-durability boundary.
+            _fsync_directory(versions_dir)
             self._publish_active(
                 pack_dir, manifest.pack_id, manifest.version
             )
