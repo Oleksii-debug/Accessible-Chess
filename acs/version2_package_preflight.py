@@ -783,10 +783,13 @@ def _validate_stockfish_source_archive(
 def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="WinForms accessibility app-config",
+        max_bytes=_MAX_APPCONFIG_BYTES,
+    )
+    with snapshot:
+        payload = snapshot.read(_MAX_APPCONFIG_BYTES + 1)
     if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
         _fail("WinForms accessibility app-config size is invalid")
     try:
