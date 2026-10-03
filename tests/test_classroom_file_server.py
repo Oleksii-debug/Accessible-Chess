@@ -1180,6 +1180,66 @@ class ClassroomFileServerTests(unittest.TestCase):
 
         self.assertEqual(len(self.objects.token_calls), token_calls)
 
+    def test_resource_actions_reject_mismatched_authenticated_room_before_effects(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="room-bound-resource-a0")
+        )
+        token_calls = len(self.objects.token_calls)
+        delete_calls = len(self.objects.delete_calls)
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "crossed authenticated room",
+        ):
+            self.service.issue_read_token(
+                trusted_caller_identity="student-1",
+                object_key=stored.object_key,
+                ttl_seconds=60,
+                expected_room_id="room-2",
+            )
+        self.assertEqual(token_calls, len(self.objects.token_calls))
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "crossed authenticated room",
+        ):
+            self.service.cancel(
+                trusted_caller_identity="student-1",
+                attachment_id=stored.attachment_id,
+                expected_room_id="room-2",
+            )
+        current = self.store.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=10,
+        ).attachments[0]
+        self.assertEqual("stored", current.transfer_state)
+        self.assertIn(stored.object_key, self.objects.objects)
+        self.assertEqual(delete_calls, len(self.objects.delete_calls))
+
+        delete_target = self.student1.upload(
+            self.prepared(attachment_id="room-bound-delete-a1")
+        )
+        tombstone, pending_key = self.store.cancel(
+            trusted_sender_id="student-1",
+            attachment_id=delete_target.attachment_id,
+        )
+        self.assertIsNotNone(tombstone)
+        self.assertEqual(delete_target.object_key, pending_key)
+        delete_calls = len(self.objects.delete_calls)
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "crossed authenticated room",
+        ):
+            self.service.delete_object(
+                trusted_caller_identity="student-1",
+                object_key=delete_target.object_key,
+                expected_room_id="room-2",
+            )
+        self.assertIn(delete_target.object_key, self.objects.objects)
+        self.assertEqual(delete_calls, len(self.objects.delete_calls))
+
     def test_read_token_rejects_durable_bytes_that_no_longer_match_metadata(self):
         stored = self.student1.upload(
             self.prepared(
