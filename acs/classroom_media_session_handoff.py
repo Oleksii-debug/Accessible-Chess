@@ -99,6 +99,22 @@ class _SessionProviderEffect:
             raise MediaSessionHandoffError("session credential is invalid")
 
 
+class _SecretCredentialPayload(dict[str, str]):
+    """JSON-compatible credential mapping with fail-safe diagnostic formatting."""
+
+    def __repr__(self) -> str:
+        return (
+            "{'room_id': '<redacted>', 'participant_id': '<redacted>', "
+            "'token': '<redacted>'}"
+        )
+
+    __str__ = __repr__
+
+
+class _SecretBrowserPayload(dict[str, object]):
+    """JSON-compatible one-shot payload whose nested credential repr is redacted."""
+
+
 class _PreparedSessionEffect(Exception):
     def __init__(self, effect: _SessionProviderEffect) -> None:
         super().__init__("session provider effect prepared")
@@ -453,16 +469,16 @@ class ClassroomMediaSessionHandoffs:
                     "media session browser payload was already claimed"
                 )
             effect = pending.effect
-            payload: dict[str, object] = {
-                "transaction_id": effect.transaction_id,
-                "operation": effect.operation.value,
-            }
+            payload: _SecretBrowserPayload = _SecretBrowserPayload(
+                transaction_id=effect.transaction_id,
+                operation=effect.operation.value,
+            )
             if effect.credential is not None:
-                payload["credential"] = {
-                    "room_id": effect.credential.room_id,
-                    "participant_id": effect.credential.participant_id,
-                    "token": effect.credential.token,
-                }
+                payload["credential"] = _SecretCredentialPayload(
+                    room_id=effect.credential.room_id,
+                    participant_id=effect.credential.participant_id,
+                    token=effect.credential.token,
+                )
                 payload["enabled_sources"] = [
                     source.value for source in effect.enabled_sources
                 ]
