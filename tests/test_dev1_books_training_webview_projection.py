@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 from acs.bookdocument import BookDocument, Diagram, Heading, ListBlock, Paragraph
@@ -85,6 +86,44 @@ class BookProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.projection.save_bookmark("   ")
         self.assertEqual(0, self.presenter.current().index)
+
+    def test_projection_rejects_nul_in_presenter_text(self) -> None:
+        block = replace(self.presenter.current(), title="Unsafe\x00heading")
+        with self.assertRaisesRegex(ValueError, "contains NUL"):
+            self.projection._snapshot_from_block(block)
+
+    def test_projection_rejects_heading_level_role_mismatch(self) -> None:
+        heading = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "inconsistent with its role"):
+            self.projection._snapshot_from_block(
+                replace(heading, role="paragraph", heading_level=1)
+            )
+        with self.assertRaisesRegex(ValueError, "inconsistent with its role"):
+            self.projection._snapshot_from_block(
+                replace(heading, role="heading", heading_level=None)
+            )
+
+    def test_projection_rejects_empty_readable_role(self) -> None:
+        block = replace(
+            self.presenter.current(),
+            role="paragraph",
+            title="",
+            text=" ",
+            heading_level=None,
+        )
+        with self.assertRaisesRegex(ValueError, "expose readable content"):
+            self.projection._snapshot_from_block(block)
+
+    def test_projection_rejects_non_tuple_or_empty_heading_path(self) -> None:
+        block = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "heading path is invalid"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=["Chapter 1"])
+            )
+        with self.assertRaisesRegex(ValueError, "heading path is invalid"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=("Chapter 1", " "))
+            )
 
     def test_list_projection_rejects_excessive_dom_item_count(self) -> None:
         document = BookDocument(
