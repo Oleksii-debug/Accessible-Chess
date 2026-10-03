@@ -86,11 +86,12 @@ jobs:
             -o product/build/libcbh/libcbh-json-bridge
           cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
           test -x product/build/libcbh/libcbh-json-bridge
-      - name: Real pinned WithVariations CBH/CBG to canonical GameTree oracle
+      - name: Real pinned variation and annotation semantic oracles
         working-directory: product
         env:
           LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
           LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_ANNOTATION_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
         run: python -m unittest -v tests.test_chessbase_libcbh_external_fixture
       - name: Default package boundary excludes external GPL backend
         working-directory: product
