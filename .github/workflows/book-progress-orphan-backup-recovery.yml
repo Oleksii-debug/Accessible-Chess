@@ -12,9 +12,13 @@ on:
       - 'acs/book_progress_store.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_v2_book_transaction_current_runtime.py'
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/p0-release-critical-triad-convergence.yml'
       - 'tests/test_version2_application.py'
   workflow_dispatch:
 
@@ -98,6 +102,7 @@ jobs:
             '.github/workflows/book-progress-orphan-backup-recovery.yml' \
             '.github/workflows/books-progress-backup-recovery.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
+            '.github/workflows/p0-release-critical-triad-convergence.yml' \
             'acs/book_progress_store.py' \
             'acs/version2_application.py' \
             'tests/test_v2_book_progress_store.py' \
@@ -115,6 +120,9 @@ jobs:
           acs/book_progress_store.py
           acs/version2_application.py
           tests/test_v2_book_progress_store.py
+          tests/test_v2_book_progress_store_production.py
+          tests/test_v2_book_training_route_rollback.py
+          tests/test_v2_book_transaction_current_runtime.py
 
       - name: Focused Books persistence and importer regressions
         run: >-
