@@ -337,6 +337,47 @@ class StreamingPgnImportTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.INVALID_ENCODING)
             self.assertEqual(database.search_games(limit=100), [])
 
+    def test_windows_1251_cyrillic_pgn_is_losslessly_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "legacy-russian-book.pgn"
+            source_text = (
+                '[Event "Русская шахматная книга"]\n'
+                '[Site "Киев"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 '
+                '(1... c5 $1 {сицилианская защита} 2. Nf3) '
+                '2. Nf3 *\n'
+            )
+            source.write_bytes(source_text.encode("cp1251"))
+
+            result = self._new_importer(database).import_file(
+                source,
+                failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                limits=tiny_chunks(),
+            )
+
+            self.assertTrue(result.complete)
+            self.assertEqual(result.accepted_games, 1)
+            self.assertEqual(result.library.game_count, 1)
+            self.assertEqual(result.library.warning_count, 0)
+
+            row = database.get_game(result.library.first_game_id)
+            self.assertIsNotNone(row)
+            assert row is not None
+            reopened = parse_pgn_text(row["pgn_text"], strict=True)[0]
+            self.assertEqual(reopened.tags["Event"], "Русская шахматная книга")
+            self.assertEqual(reopened.tags["Site"], "Киев")
+            self.assertEqual(
+                reopened.line.moves[0].comments_after[0].text,
+                "главный план",
+            )
+            variation = reopened.line.moves[1].variations[0]
+            self.assertEqual(variation.moves[0].san, "c5")
+            self.assertEqual(
+                variation.moves[0].comments_after[0].text,
+                "сицилианская защита",
+            )
+
     def test_cancellation_after_first_accepted_game_never_publishes_spool(self) -> None:
         with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
             source = Path(directory) / "cancel.pgn"
