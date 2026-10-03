@@ -152,6 +152,32 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("settings", self.app.shell.current_route.route_id)
         self.assertEqual((), self.app.drain_events())
 
+    def test_book_return_from_board_commits_progress_exactly_once(self):
+        self._open_exercise_book()
+        self.app._board_position_projector = lambda _fen: {"ok": True}
+
+        opened = self.app.browser_command("books", "book.open_position", {})
+        self.assertEqual("delegated", opened["kind"])
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.app.drain_events()
+
+        with patch.object(
+            self.progress_store,
+            "save",
+            wraps=self.progress_store.save,
+        ) as save:
+            returned = self.app.browser_command(
+                "books",
+                "book.return_from_board",
+                {},
+            )
+
+        self.assertEqual("render", returned["kind"])
+        save.assert_called_once()
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+
     def test_whitespace_training_continue_uses_outer_book_persistence_transaction(self):
         self._open_exercise_book()
         opened = self.app.browser_command("shell", "screen.training")
