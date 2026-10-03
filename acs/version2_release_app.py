@@ -252,35 +252,17 @@ def _share_v2_action_registry(
 ):
     """Make Stage 1 keymap editing and V2 routing use one persisted registry.
 
-    Existing Stage 1 remaps are copied into the wider V2 registry first.  The
-    KeymapService then points at that exact object, so keyboard resolution,
-    WebView commands and the native Windows menu cannot drift into parallel
-    command maps during the V2 release.
+    KeymapService retains the strictly decoded on-disk profile before its Stage 1
+    registry filters unknown successor actions.  Rebinding replays that profile
+    against the wider Version 2 catalog, then overlays current Stage 1 edits and
+    shares the exact same registry object with WebView and native menu routing.
     """
 
-    source = api.keymap_service.editor.registry
-    profile = source.to_profile()
-    bindings = profile.get("bindings", {})
-    aliases = profile.get("aliases", {})
-    if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
-        raise ValueError("stored keymap profile is invalid")
-
-    registry = application.adapter.registry
-    for action_id, value in bindings.items():
-        try:
-            registry.definition(action_id)
-        except KeyError:
-            continue
-        registry.set_binding(action_id, value, allow_warnings=True)
-    for action_id, value in aliases.items():
-        try:
-            registry.definition(action_id)
-        except KeyError:
-            continue
-        registry.set_alias(action_id, value)
-
-    api.keymap_service.editor.registry = registry
-    return registry
+    service = api.keymap_service
+    rebind = getattr(service, "rebind_registry", None)
+    if not callable(rebind):
+        raise TypeError("keymap service must support registry rebinding")
+    return rebind(application.adapter.registry)
 
 
 def _version2_user_data_layout(

@@ -110,8 +110,11 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertEqual(actions["analysis.pv2"]["binding"], "Alt+2")
         self.assertEqual(actions["analysis.pv2"]["registryContext"], "analysis")
         self.assertIn("if(e.target.closest('#board-application'))return", self.web)
-        self.assertIn("resolveBinding(eventChord(e),'board','board')", self.web)
-        self.assertIn("resolveBinding(chord,'analysis','analysis')", self.web)
+        self.assertIn("keymapActionForEvent(e,'board')", self.web)
+        self.assertIn("resolveBinding(chord,'board','board')", self.web)
+        self.assertIn("const contexts=[['analysis','analysis'],['history','document'],['document','document']]", self.web)
+        self.assertIn("actionByRegistryChord(chord,registryContext)", self.web)
+        self.assertIn("resolveBinding(chord,selected.registryContext,selected.uiContext)", self.web)
 
     def test_probe_proves_causal_action_state_separately_from_accessible_result(self) -> None:
         self.assertIn("function FindVariationButton($Roots,[int]$Index)", self.text)

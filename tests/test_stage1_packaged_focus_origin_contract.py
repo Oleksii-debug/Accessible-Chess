@@ -160,7 +160,11 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertEqual(text.count("submit.removeEventListener('click', baseSubmit)"), 1)
         self.assertEqual(text.count("submit.addEventListener('click', wrappedSubmit)"), 1)
         self.assertNotIn("keydown", body)
-        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self.assertIn("keymapActionForEvent(e,'move_entry')", self.html)
+        self.assertIn("candidate!=='move.submit'", self.html)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", self.html)
+        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", self.html)
+        self.assertNotIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
 
     def test_uia_invoke_has_bounded_settled_focus_convergence(self) -> None:
         text = self.bootstrap
@@ -227,7 +231,11 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("async function submitMove()", self.html)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}else{input.focus();input.select()}", self.html)
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
-        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self.assertIn("keymapActionForEvent(e,'move_entry')", self.html)
+        self.assertIn("candidate!=='move.submit'", self.html)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", self.html)
+        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", self.html)
+        self.assertNotIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", self.bootstrap)
 
 
