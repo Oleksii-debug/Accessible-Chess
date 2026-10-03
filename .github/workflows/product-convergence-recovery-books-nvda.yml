@@ -14,6 +14,7 @@ on:
       - 'acs/version2_application.py'
       - 'web/full_product_books_training.js'
       - 'web/version2_release_bootstrap.js'
+      - 'web/full_product_library.js'
       - 'tests/test_settings.py'
       - 'tests/test_v2_upgrade_*.py'
       - 'tests/test_v2_book_progress_store.py'
@@ -25,6 +26,7 @@ on:
       - 'tests/test_version2_package_assembler.py'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/js/library_surface_dom_test.js'
       - '.github/workflows/product-convergence-recovery-books-nvda.yml'
   workflow_dispatch:
 
@@ -77,6 +79,8 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "73947f86c8bd23f494b7f2d5c5ab514ccfc9f699"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "460d2287d24dc004535af93bb7f8b9a2066cbe7d"
           test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "53574e235524581dc343db0b123df845c15a13f4"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "9943aa2e1924c9087faca7e9ead610475bfb98e5"
+          test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = "6d1ce6f2a3d2cd09c2585269d0fb8543cd59f98e"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "05bbe93e8c8d3b855868fb879745ab707f05ce30"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "e50e855bbc93bacd55cb83cb972831c02e09e3ae"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "aebc8630ac6807c753de8ad9fc97baf7fcae7149"
@@ -119,15 +123,21 @@ jobs:
           tests.test_version2_release_accessibility_contract
           tests.test_version2_book_board_refresh_focus_order_evidence
           tests.test_dev1_full_product_webview_adapter
+          tests.test_library_webview_projection
+          tests.test_library_export_webview_projection
+          tests.test_d07_library_import_service
 
       - name: Browser DOM acceptance
         run: |
           node --check web/full_product_books_training.js
           node --check web/version2_release_bootstrap.js
+          node --check web/full_product_library.js
           node --check tests/js/books_training_surface_dom_test.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/library_surface_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/library_surface_dom_test.js
 
       - name: Package and release preflight regressions
         run: >-
