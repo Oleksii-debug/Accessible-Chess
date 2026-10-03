@@ -110,6 +110,27 @@
     }
   }
 
+  function validateLocalSourceSuccessSnapshot(sourceValue, enabled, value) {
+    const snapshot = normalizeSnapshot(value);
+    const sourceKey = sourceValue === "microphone"
+      ? "microphone_enabled"
+      : sourceValue === "camera"
+        ? "camera_enabled"
+        : "screen_share_enabled";
+    if (
+      !snapshot.connected ||
+      snapshot.cleanup_required ||
+      snapshot.room_id === null ||
+      snapshot.participant_id === null ||
+      snapshot[sourceKey] !== enabled
+    ) {
+      throw new ClassroomMediaHostExecutorError(
+        "media local-source provider snapshot does not match prepared effect"
+      );
+    }
+    return snapshot;
+  }
+
   function validateSessionSuccessSnapshot(operation, credentialValue, enabledSources, value) {
     const snapshot = normalizeSnapshot(value);
     if (operation === "disconnect") {
@@ -428,9 +449,13 @@
       try {
         let snapshot;
         if (payload.operation === "set_local_source") {
-          snapshot = await this._adapter.setLocalSource(
+          snapshot = validateLocalSourceSuccessSnapshot(
             payload.source,
-            payload.enabled
+            payload.enabled,
+            await this._adapter.setLocalSource(
+              payload.source,
+              payload.enabled
+            )
           );
         } else if (payload.operation === "recover_device") {
           snapshot = await this._adapter.recoverDevice(
