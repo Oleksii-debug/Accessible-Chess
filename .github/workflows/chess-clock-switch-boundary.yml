@@ -1,0 +1,130 @@
+name: Chess Clock Switch Boundary
+
+on:
+  push:
+    branches:
+      - fix/clock-switch-exact-charge-20261002
+  pull_request:
+    paths:
+      - 'acs/clock_service.py'
+      - 'tests/test_clock_service.py'
+      - '.github/workflows/chess-clock-switch-boundary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chess-clock-switch-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Preserve exact source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Verify Product ancestry, isolated scope and exact tested blobs
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          accepted_product=25b6da6eb8bccea95628ecfce5ba81fece1a5666
+          git merge-base --is-ancestor "$accepted_product" HEAD
+          scope_base="$accepted_product"
+          if [ -n "$PR_BASE_SHA" ]; then
+            scope_base="$PR_BASE_SHA"
+            git cat-file -e "$scope_base^{commit}"
+            git merge-base --is-ancestor "$scope_base" HEAD
+          fi
+          git diff --check "$scope_base" HEAD
+          actual="$(git diff --name-only "$scope_base" HEAD | sort)"
+          if [ "$GH_HEAD_REF" = "integration/clock-engine-serial-intake-20261002" ]; then
+            test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911" || {
+              echo "Clock/engine stacked intake must target frozen Product" >&2
+              exit 1
+            }
+            expected="$(printf '%s\n' \
+              '.github/workflows/chess-clock-switch-boundary.yml' \
+              '.github/workflows/clock-engine-serial-acceptance.yml' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/version2-windows-composition.yml' \
+              '.github/workflows/w3-takeback-clock-oracle-determinism.yml' \
+              '.github/workflows/takeback-atomic-recovery.yml' \
+              '.github/workflows/takeback-lifecycle-checkpoint.yml' \
+              'acs/clock_service.py' \
+              'acs/engine_game_session.py' \
+              'acs/game_lifecycle.py' \
+              'acs/stage1_release_ui.py' \
+              'acs/stage1_release_ui_core.py' \
+              'tests/test_clock_engine_serial_acceptance.py' \
+              'tests/test_clock_service.py' \
+              'tests/test_dev3_takeback_atomicity.py' \
+              'tests/test_engine_game_session.py' \
+              'tests/test_engine_game_timeout_ownership.py' \
+              'tests/test_engine_takeback_atomic_acceptance.py' \
+              'tests/test_game_lifecycle.py' \
+              'tests/test_stage1_engine_play_ui.py' \
+              'tests/test_stage1_saturation_refactor_contract.py' | sort)"
+            test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 02cc2238a0ee3582707f8c926fc8e089faaeccc7
+            test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
+            test "$(git rev-parse HEAD:tests/test_engine_game_session.py)" = 93d6c46eeb5918ab0cc36b4961106fcfad506096
+            test "$(git rev-parse HEAD:tests/test_engine_game_timeout_ownership.py)" = e57d6e53b60c2c4206729be25f59eef8f2821bae
+            test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = 9baf99e7a912fe5b3fdc1eab99277e90ac9d9974
+            test "$(git rev-parse HEAD:tests/test_clock_engine_serial_acceptance.py)" = 61695f28203bfad894afe269b3d1b2f4fca26034
+          else
+          expected="$(printf '%s\n' '.github/workflows/chess-clock-switch-boundary.yml' 'acs/clock_service.py' 'tests/test_clock_service.py' | sort)"
+          fi
+          test "$actual" = "$expected" || {
+            printf 'Unexpected clock lane scope:\n%s\n' "$actual" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 2b0029b6da4dc88494c0e3cd4e891b886df45eda
+          if [ "$GH_HEAD_REF" = "integration/clock-engine-serial-intake-20261002" ]; then
+            test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+            test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
+            test "$(git rev-parse HEAD:tests/test_engine_takeback_atomic_acceptance.py)" = 4e302687fd05162c10ac4b1752cbd4a0e1e350ae
+            test "$(git rev-parse HEAD:tests/test_dev3_takeback_atomicity.py)" = 60df98fc2138baa1ece727bac3eef4f8379a8e64
+          fi
+          git diff --quiet "$scope_base" HEAD -- acs/chesscore.py acs/gametree.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+      - name: Compile current project
+        run: python -m compileall -q acs tests run_accessible_chess_v2.py
+      - name: Focused clock and engine-session regressions
+        run: >-
+          python -m unittest -v
+          tests.test_clock_service
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_stage1_engine_play_ui
+          tests.test_game_lifecycle
+          tests.test_engine_takeback_atomic_acceptance
+          tests.test_dev3_takeback_atomicity
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests

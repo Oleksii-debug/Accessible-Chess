@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from acs.bookdocument import (
     BookDocument,
@@ -37,6 +38,35 @@ from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 
 
 class FullProductActionTests(unittest.TestCase):
+    def test_d01_gate_preserves_current_parent_and_training_presenter_successor(self):
+        source = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "d01-pgn-workspace-webview.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "b579ca0f59ba20f6b69b3a4b7d89589256d54852",
+            source,
+        )
+        self.assertIn(
+            "16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce",
+            source,
+        )
+        self.assertIn(
+            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592",
+            source,
+        )
+        self.assertIn(
+            "b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c",
+            source,
+        )
+        self.assertNotIn(
+            "acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f",
+            source,
+        )
+
     def test_one_registry_contains_stage1_and_full_product_actions_without_collisions(self):
         validate_full_product_actions()
         registry = build_full_product_action_registry()
