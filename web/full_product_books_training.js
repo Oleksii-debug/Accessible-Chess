@@ -57,6 +57,54 @@
     }
   }
 
+  function wireToolbarKeyboard(toolbar) {
+    if (!toolbar || typeof toolbar.addEventListener !== "function") {
+      throw new TypeError("toolbar must support keyboard events");
+    }
+    const controls = [];
+    for (let index = 0; index < toolbar.children.length; index += 1) {
+      const control = toolbar.children[index];
+      if (!control || control.tagName !== "BUTTON") continue;
+      control.tabIndex = -1;
+      if (!control.disabled) controls.push(control);
+    }
+    if (!controls.length) return;
+
+    function setActive(control) {
+      controls.forEach(function (candidate) {
+        candidate.tabIndex = candidate === control ? 0 : -1;
+      });
+    }
+
+    setActive(controls[0]);
+    controls.forEach(function (control) {
+      control.addEventListener("focus", function () {
+        setActive(control);
+      });
+    });
+
+    toolbar.addEventListener("keydown", function (event) {
+      const current = controls.indexOf(event.target);
+      if (current < 0) return;
+      let next = current;
+      if (event.key === "ArrowRight") {
+        next = (current + 1) % controls.length;
+      } else if (event.key === "ArrowLeft") {
+        next = (current - 1 + controls.length) % controls.length;
+      } else if (event.key === "Home") {
+        next = 0;
+      } else if (event.key === "End") {
+        next = controls.length - 1;
+      } else {
+        return;
+      }
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      const target = controls[next];
+      setActive(target);
+      if (typeof target.focus === "function") target.focus({ preventScroll: true });
+    });
+  }
+
   function safeInvoke(root, invoke, command, payload, onResult, announce, fallbackMessage) {
     const startedAtEpoch = renderEpoch(root);
     const activeFlight = inFlightRoots.get(root);
@@ -591,6 +639,8 @@
 
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", snapshot.heading);
+    toolbar.setAttribute("aria-orientation", "horizontal");
     const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
@@ -603,6 +653,7 @@
       });
       toolbar.appendChild(button);
     });
+    wireToolbarKeyboard(toolbar);
     main.appendChild(toolbar);
 
     const bookmark = snapshot.bookmark || {};
@@ -802,6 +853,8 @@
     const resetDialog = buildResetDialog(root, snapshot.reset_dialog || {}, invoke, announce, fallbackMessage);
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", snapshot.heading);
+    toolbar.setAttribute("aria-orientation", "horizontal");
     const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
@@ -821,6 +874,7 @@
       });
       toolbar.appendChild(button);
     });
+    wireToolbarKeyboard(toolbar);
     main.appendChild(toolbar);
     main.appendChild(resetDialog.dialog);
 
