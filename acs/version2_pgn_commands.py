@@ -17,6 +17,7 @@ from .version2_windows_pgn_export import PgnSelectionExportRequest
 
 
 _TARGET_FIELDS = {"game_index", "line_path", "move_index", "expected_record_digest", "content_revision"}
+_NAVIGATION_TARGET_FIELDS = _TARGET_FIELDS | {"expected_content_digest"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,7 @@ class _PgnNavigationTarget:
     line_path: tuple[tuple[int, int], ...]
     move_index: int | None
     expected_record_digest: str
+    expected_content_digest: str
     content_revision: int
 
     def __post_init__(self) -> None:
@@ -64,12 +66,19 @@ class _PgnNavigationTarget:
             or any(character not in "0123456789abcdef" for character in digest)
         ):
             raise ValueError("PGN navigation record digest is invalid")
+        document_digest = self.expected_content_digest
+        if (
+            type(document_digest) is not str
+            or len(document_digest) != 64
+            or any(character not in "0123456789abcdef" for character in document_digest)
+        ):
+            raise ValueError("PGN navigation content digest is invalid")
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> "_PgnNavigationTarget":
         if not isinstance(payload, Mapping):
             raise TypeError("PGN navigation target must be a mapping")
-        if set(payload) != _TARGET_FIELDS:
+        if set(payload) != _NAVIGATION_TARGET_FIELDS:
             raise ValueError("PGN navigation target contains missing or untrusted fields")
         line_path = payload["line_path"]
         if type(line_path) is not tuple:
@@ -79,6 +88,7 @@ class _PgnNavigationTarget:
             line_path=line_path,  # type: ignore[arg-type]
             move_index=payload["move_index"],  # type: ignore[arg-type]
             expected_record_digest=payload["expected_record_digest"],  # type: ignore[arg-type]
+            expected_content_digest=payload["expected_content_digest"],  # type: ignore[arg-type]
             content_revision=payload["content_revision"],  # type: ignore[arg-type]
         )
 
@@ -95,7 +105,8 @@ class Version2PgnCommands:
         return session
 
     def _target(self, payload, *, require_current=True, workspace=None, allow_root=False):
-        target_payload = {key: payload[key] for key in _TARGET_FIELDS}
+        target_fields = _NAVIGATION_TARGET_FIELDS if allow_root else _TARGET_FIELDS
+        target_payload = {key: payload[key] for key in target_fields}
         if allow_root:
             request = _PgnNavigationTarget.from_payload(target_payload)
         else:
@@ -103,6 +114,8 @@ class Version2PgnCommands:
         if workspace is None:
             workspace = self._session().workspace
         view = workspace.view()
+        if allow_root and request.expected_content_digest != view.content_digest:
+            raise ValueError("PGN document is stale")
         if (request.game_index, request.content_revision, request.expected_record_digest) != (
             view.selected_game_index, view.content_revision, view.current_record_digest
         ):
@@ -166,7 +179,7 @@ class Version2PgnCommands:
         workspace = session.workspace
         if action_id in {"pgn.previous_game", "pgn.next_game"}:
             if payload:
-                if set(payload) != _TARGET_FIELDS:
+                if set(payload) != _NAVIGATION_TARGET_FIELDS:
                     raise ValueError("invalid PGN game navigation payload")
                 self._target(
                     payload,
