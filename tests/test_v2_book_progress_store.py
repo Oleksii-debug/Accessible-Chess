@@ -1396,6 +1396,37 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertTrue(self.path.exists())
         self.assertTrue(self.store.has("book:same-bytes-primary-substitution"))
 
+    def test_post_replace_same_bytes_canonical_substitution_reports_durability_unknown(self) -> None:
+        injected = False
+
+        def publish_then_substitute_same_bytes(source: Path, destination: Path) -> None:
+            nonlocal injected
+            source = Path(source)
+            destination = Path(destination)
+            os.replace(source, destination)
+            if destination == self.path:
+                foreign = destination.with_name("foreign-after-publication.json")
+                foreign.write_bytes(destination.read_bytes())
+                os.replace(foreign, destination)
+                injected = True
+
+        with mock.patch(
+            "acs.book_progress_store._replace_published_path",
+            side_effect=publish_then_substitute_same_bytes,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:same-bytes-post-replace",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertTrue(self.store.has("book:same-bytes-post-replace"))
+
     def test_backup_publication_rejects_same_bytes_temp_inode_substitution(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
