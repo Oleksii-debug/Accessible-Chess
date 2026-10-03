@@ -609,6 +609,44 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             self.assertEqual(Path(second.calls[0][0]), cache_path)
             self.assertEqual(cache_path.read_bytes(), expected)
 
+    def test_scaled_cache_temp_path_swap_never_writes_external_inode(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-cache-temp-swap-") as raw:
+            root = Path(raw)
+            _resolver, _store, adapter = self._adapter(root)
+            source = root / "source.wav"
+            _write_wav(source)
+            adapter._ensure_real_cache_dir()
+            external = root / "external.bin"
+            sentinel = b"external-bytes-must-survive"
+            external.write_bytes(sentinel)
+            real_mkstemp = tempfile.mkstemp
+
+            def swapped_mkstemp(*args, **kwargs):
+                descriptor, name = real_mkstemp(*args, **kwargs)
+                path = Path(name)
+                path.unlink()
+                os.link(external, path)
+                return descriptor, name
+
+            with mock.patch(
+                "acs.sound_profile_windows.tempfile.mkstemp",
+                side_effect=swapped_mkstemp,
+            ), self.assertRaisesRegex(
+                ValueError,
+                "private regular file|changed before publication",
+            ):
+                adapter._scaled_bytes(source.read_bytes(), "custom-temp-swap", 50)
+
+            self.assertEqual(
+                sentinel,
+                external.read_bytes(),
+                "cache generation must write only through the private mkstemp descriptor",
+            )
+            self.assertEqual(
+                [],
+                list((root / "cache").glob("custom-temp-swap-v50-*.wav")),
+            )
+
     def test_scaled_cache_publish_is_atomic_and_cleans_temporary_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-cache-atomic-") as raw:
             root = Path(raw)
