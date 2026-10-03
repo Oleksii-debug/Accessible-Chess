@@ -6,10 +6,14 @@ on:
       - work/v2-book-progress-production-repair-20260831
   pull_request:
     paths:
+      - '.github/workflows/book-progress-orphan-backup-recovery.yml'
+      - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
       - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
-      - '.github/workflows/v2-book-progress-production-repair.yml'
+      - 'tests/test_version2_application.py'
   workflow_dispatch:
 
 permissions:
@@ -29,12 +33,21 @@ jobs:
     timeout-minutes: 60
     env:
       STACK_PARENT_SHA: 5ec896f00615d10157c5ec52a1ef83917779a1b5
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
-      CURRENT_PROGRESS_OWNER: e3b233f603cefd3a513a5ba39c85e64e51aff557
-      CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
-      CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
-      CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
+      CURRENT_BOOKS_BRANCH: work/books-bidirectional-semantic-navigation-20260927
+      CURRENT_PROGRESS_OWNER: a56abe4e68d58c7600b97c1a410ae64a42697aaa
+      CURRENT_STORE_BLOB: dd328b144d61dbb467d0b09bf131d76ca09617ec
+      CURRENT_APPLICATION_BLOB: 7c8d36a1547f5a7637ed384a94d8882ad71079c9
+      CURRENT_BASE_TEST_BLOB: 99b7dfa5bf959470b1a31c5ff7fcea9e06935347
+      CURRENT_APPLICATION_TEST_BLOB: 79c70573829999f37b5558d7158bfc74988ad869
+      CURRENT_PRODUCTION_TEST_BLOB: 1a25f83c051405fefd7ec09bc471fb89945bf6e5
+      FOCUS_RECOVERY_STORE_BLOB: b7ad9899f614c42589b9f53fddbebe59dee2b9c7
+      FOCUS_RECOVERY_BASE_TEST_BLOB: 81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a
+      FOCUS_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      FOCUS_RECOVERY_APPLICATION_BLOB: 1a3b313226c0202cebf85f15593a957e05580132
+      FOCUS_RECOVERY_APPLICATION_TEST_BLOB: 7017a8bb8616d8cf7723407d46284bd27c0873c9
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -77,6 +90,63 @@ jobs:
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
 
+          delegated_focus_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/training-continue-render-atomicity-20260929" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ]; then
+            delegated_expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/full_product_actions.py' \
+              'acs/full_product_ui_shell.py' \
+              'acs/version2_application.py' \
+              'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_dev1_full_product_webview_adapter.py' \
+              'tests/test_version2_application.py' \
+              'tests/test_version2_book_board_refresh_focus_order_evidence.py' \
+              'tests/test_version2_release_accessibility_contract.py' \
+              'web/version2_release_bootstrap.js' | sort)"
+            if [ "$changed" = "$delegated_expected" ]; then
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "259e2ac1781fe71511e1e070912c2c25442eacc4"
+              delegated_focus_successor=true
+            fi
+          fi
+
+          focus_recovery_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/delegated-focus-roundtrip-current-20261003" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003" ]; then
+            focus_parent_ref="refs/remotes/origin/$PR_BASE_REF"
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:$focus_parent_ref"
+            focus_parent="$(git rev-parse "$focus_parent_ref")"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$focus_parent"
+            git merge-base --is-ancestor "$focus_parent" HEAD
+            test "$(git merge-base "$focus_parent" HEAD)" = "$focus_parent"
+            git diff --check "$focus_parent" HEAD
+            focus_changed="$(git diff --name-only "$focus_parent" HEAD | sort)"
+            focus_recovery_expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_dev1_books_training_web_asset.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' \
+              'tests/test_version2_application.py' | sort)"
+            test "$focus_changed" = "$focus_recovery_expected"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_TEST_BLOB"
+            focus_recovery_successor=true
+          fi
+
           bounded_feature=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             allowed="$(printf '%s\n' \
@@ -116,6 +186,59 @@ jobs:
             fi
           fi
 
+          orphan_backup_successor=false
+          if git merge-base --is-ancestor "$current_product" HEAD; then
+            current_delta="$(git diff --name-only "$current_product" HEAD | sort)"
+            orphan_expected="$(printf '%s\n' \
+              '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+              '.github/workflows/books-progress-backup-recovery.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_version2_application.py' | sort)"
+            if [ "$current_delta" = "$orphan_expected" ]; then
+              test "$(git rev-parse "$current_product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
+              test "$(git rev-parse "$current_product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              orphan_backup_successor=true
+            fi
+          fi
+
+          current_books_recovery=false
+          current_books=''
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_BASE_REF" = "$CURRENT_BOOKS_BRANCH" ]; then
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            books_ref="refs/remotes/origin/$CURRENT_BOOKS_BRANCH"
+            git fetch --no-tags origin "+refs/heads/$CURRENT_BOOKS_BRANCH:$books_ref"
+            current_books="$(git rev-parse "$books_ref")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$current_books"
+            git merge-base --is-ancestor "$current_books" HEAD
+            test "$(git merge-base "$current_books" HEAD)" = "$current_books"
+            books_delta="$(git diff --name-only "$current_books" HEAD | sort)"
+            books_expected="$(printf '%s\n' \
+              '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+              '.github/workflows/books-progress-backup-recovery.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_version2_application.py' | sort)"
+            if [ "$books_delta" = "$books_expected" ]; then
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              current_books_recovery=true
+            fi
+          fi
+
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
             && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
@@ -127,7 +250,13 @@ jobs:
             full_product_composition=true
           fi
 
-          if [ "$bounded_feature" = true ]; then
+          if [ "$focus_recovery_successor" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=FOCUS_RECOVERY_SUCCESSOR'
+          elif [ "$delegated_focus_successor" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=DELEGATED_FOCUS_SUCCESSOR'
+          elif [ "$bounded_feature" = true ]; then
             git diff --check "$upstream" HEAD
             git diff --quiet "$upstream" HEAD -- \
               .github/workflows/v2-book-progress-store.yml \
@@ -161,6 +290,22 @@ jobs:
               tests/test_v2_book_progress_store.py \
               tests/test_v2_book_progress_store_production.py
             echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_SUCCESSOR'
+          elif [ "$orphan_backup_successor" = true ]; then
+            git diff --check "$current_product" HEAD
+            # This successor changes only the missing-primary recovery authority,
+            # its exact qualification gates, and the base regression file.
+            git diff --quiet "$current_product" HEAD -- \
+              tests/test_v2_book_progress_store_production.py \
+              acs/bookreader.py \
+              acs/bookdocument.py \
+              acs/book_game_content.py \
+              acs/book_webview_bridge.py \
+              acs/book_webview_projection.py \
+              acs/version2_application.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=ORPHAN_BACKUP_SUCCESSOR'
+          elif [ "$current_books_recovery" = true ]; then
+            git diff --check "$current_books" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=CURRENT_BOOKS_RECOVERY'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.
@@ -178,12 +323,30 @@ jobs:
             exit 1
           fi
 
-          # Every accepted topology must retain the current BookProgress owner
-          # and exact current owned blobs.
-          git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
-          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+          # Every accepted topology must retain an explicitly reviewed
+          # BookProgress authority. Focus recovery composes its reviewed durable
+          # store/application blobs on the current delegated-focus parent.
+          if [ "$delegated_focus_successor" != true ] && [ "$focus_recovery_successor" != true ]; then
+            git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+          fi
+          if [ "$focus_recovery_successor" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+          else
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+            if [ "$current_books_recovery" = true ]; then
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+            elif [ "$delegated_focus_successor" = true ]; then
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "259e2ac1781fe71511e1e070912c2c25442eacc4"
+            fi
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+          fi
           echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'
 
       - name: Compile Book progress repair
@@ -202,6 +365,12 @@ jobs:
           tests.test_v2_book_progress_store
           tests.test_bookreader
           tests.test_bookdocument
+
+      - name: Book Board persistence transaction regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_board_progress_failure_exact
+          tests.test_book_reverse_progress_failure_exact
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
