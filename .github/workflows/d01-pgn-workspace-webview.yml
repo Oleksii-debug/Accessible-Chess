@@ -151,19 +151,33 @@ jobs:
           done <<'LOCKS'
           acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
           acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
-          acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
-          acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
+
+          keybindings_actual="$(git rev-parse HEAD:acs/keybindings.py)"
+          native_menu_actual="$(git rev-parse HEAD:acs/ui_native_menu.py)"
+          if [ "${{ github.event.pull_request.head.ref }}" = "work/user-sound-pack-integration-20261003" ]; then
+            test "$keybindings_actual" = e3c398484cce2e191243528831319f30a36b8681
+            test "$native_menu_actual" = d1b456af0018499ff74c73b46f74b0ecc5913745
+          else
+            test "$keybindings_actual" = b222f0d625999d8119cb3bb7cebffc961217f610
+            test "$native_menu_actual" = dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
+          fi
 
           # Stage1 core is frozen on Product, except the exact independently-qualified
           # takeback-recovery successor admitted only on the canonical integration lane.
           stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
-            test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
-          else
-            test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
-          fi
+          case "${{ github.event.pull_request.head.ref }}" in
+            integration/clock-engine-serial-intake-20261002)
+              test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
+              ;;
+            work/user-sound-pack-integration-20261003)
+              test "$stage1_core_actual" = 0ee5a42a2d684e90892787cde7744c4371dc8427
+              ;;
+            *)
+              test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+              ;;
+          esac
 
           # The shared semantic document may be the pre-P0-G Product blob,
           # either reviewed event-aware P0-G predecessor, the exact current
@@ -184,7 +198,7 @@ jobs:
           # frozen core; every other identity remains fail-closed.
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
           case "$stage1_facade_actual" in
-            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce)
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce|23e5bcdde11acdb963515bea4bc4a93473dbbd05)
               ;;
             *)
               printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2
