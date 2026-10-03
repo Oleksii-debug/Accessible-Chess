@@ -527,6 +527,47 @@ async function run() {
     "reset failure cancel did not restore opener focus"
   );
 
+  const pendingResetRoot = new FakeElement("div");
+  let pendingResetCalls = 0;
+  let resolvePendingReset = null;
+  const pendingResetInvoke = (command) => {
+    check(command === "training.reset", "unexpected pending reset command");
+    pendingResetCalls += 1;
+    return new Promise((resolve) => { resolvePendingReset = resolve; });
+  };
+  window.AccessibleChessTrainingSurface.render(
+    pendingResetRoot,
+    trainingSnapshot(),
+    pendingResetInvoke,
+    () => {},
+    "training-answer",
+    "Reset transport failed",
+    []
+  );
+  const pendingResetOpener = find(pendingResetRoot, "BUTTON", "Reset");
+  pendingResetOpener.listeners.click();
+  const pendingResetDialog = pendingResetRoot.querySelector("#training-reset-dialog");
+  const pendingResetConfirm = find(pendingResetDialog, "BUTTON", "Confirm");
+  pendingResetConfirm.listeners.click();
+  pendingResetConfirm.listeners.click();
+  check(pendingResetCalls === 1, "pending reset dispatched more than one canonical command");
+  check(pendingResetConfirm.disabled, "pending reset did not disable its confirm control");
+  check(
+    pendingResetRoot.getAttribute("aria-busy") === "true",
+    "pending reset did not expose the Training surface as busy"
+  );
+  resolvePendingReset({ kind: "error", payload: { message: "Retry reset" } });
+  await flushPromises();
+  await flushPromises();
+  check(pendingResetDialog.open, "reset host error unexpectedly closed the dialog");
+  check(!pendingResetConfirm.disabled, "reset host error did not restore confirm");
+  check(
+    document.activeElement === pendingResetConfirm,
+    "reset host error did not return focus to confirm"
+  );
+  const pendingResetCancel = find(pendingResetDialog, "BUTTON", "Cancel");
+  pendingResetCancel.listeners.click();
+
 
   const bookRoot = new FakeElement("div");
   const bookInvoke = (command) => {
