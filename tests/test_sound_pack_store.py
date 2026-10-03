@@ -916,6 +916,68 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 store.read_asset_snapshot(manifest.pack_id, "move"),
             )
 
+    def test_realtime_lookup_hashes_only_requested_asset_while_inventory_keeps_full_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+
+            module = __import__("acs.sound_pack_store", fromlist=["_read_verified_asset_bytes"])
+            real_read = module._read_verified_asset_bytes
+            realtime_calls: list[Path] = []
+            with mock.patch(
+                "acs.sound_pack_store._read_verified_asset_bytes",
+                side_effect=lambda path, digest: (
+                    realtime_calls.append(Path(path)),
+                    real_read(path, digest),
+                )[1],
+            ):
+                lookup = store.read_asset_lookup(manifest.pack_id, "move")
+
+            self.assertIsNotNone(lookup.snapshot)
+            self.assertEqual(1, len(realtime_calls))
+            self.assertEqual(manifest.files["move"], realtime_calls[0].relative_to(
+                store._version_dir(manifest.pack_id, manifest.version)
+            ).as_posix())
+
+            inventory_calls: list[Path] = []
+            with mock.patch(
+                "acs.sound_pack_store._read_verified_asset_bytes",
+                side_effect=lambda path, digest: (
+                    inventory_calls.append(Path(path)),
+                    real_read(path, digest),
+                )[1],
+            ):
+                inventory = store.installed()
+
+            self.assertEqual(manifest, inventory[manifest.pack_id])
+            self.assertEqual(len(set(manifest.files.values())), len(inventory_calls))
+
+    def test_realtime_asset_safety_does_not_weaken_full_inventory_corruption_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+            version_dir = store._version_dir(manifest.pack_id, manifest.version)
+            capture = version_dir / manifest.files["capture"]
+            capture.write_bytes(_wav(b"tampered"))
+
+            move = store.read_asset_lookup(manifest.pack_id, "move")
+
+            self.assertIsNotNone(
+                move.snapshot,
+                "unrelated corruption must not force O(total-pack-bytes) hashing into every playback",
+            )
+            self.assertNotIn(
+                manifest.pack_id,
+                store.installed(),
+                "pack-wide inventory authority must still fail closed on any corrupt asset",
+            )
+
     def test_asset_replacement_after_manifest_verification_never_escapes_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
