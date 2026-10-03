@@ -198,11 +198,27 @@ class ProfiledWindowsSoundPlaybackAdapter:
         if request.pack_id != self._classic:
             raise ValueError("request is not for the configured classic pack")
         if request.event_id == "low_time":
-            if not request.preview:
-                raise ValueError("classic low-time is preview-only until a distinct asset ships")
-            if request.sound_id not in {"low_time", "tick"}:
-                raise ValueError("classic low-time preview cannot select an arbitrary asset")
-            return SoundEvent.TICK
+            try:
+                low_time = SoundEvent("low_time")
+            except ValueError:
+                # The packaged-sound owner may not yet be present in the current
+                # Product base. Preserve the legacy preview-only Tick bridge
+                # without inventing a second clock/semantic authority here.
+                if not request.preview:
+                    raise ValueError(
+                        "classic low-time is unavailable until the packaged sound "
+                        "authority exposes a distinct low_time event"
+                    )
+                if request.sound_id not in {"low_time", "tick"}:
+                    raise ValueError(
+                        "classic low-time preview cannot select an arbitrary asset"
+                    )
+                return SoundEvent.TICK
+            if request.sound_id != "low_time":
+                raise ValueError(
+                    "classic low-time sound_id must use the canonical low_time asset"
+                )
+            return low_time
         try:
             event = SoundEvent(request.event_id)
         except ValueError as exc:
