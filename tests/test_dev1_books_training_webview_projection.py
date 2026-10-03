@@ -207,6 +207,43 @@ class BookProjectionTests(unittest.TestCase):
                 )
             )
 
+    def test_book_metadata_and_heading_path_have_raw_scan_ceiling(self) -> None:
+        block = self.presenter.current()
+        with (
+            patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4),
+            patch(
+                "acs.book_webview_projection._safe_text",
+                side_effect=AssertionError(
+                    "Book sanitizer must not scan raw over-budget metadata"
+                ),
+            ) as safe_text,
+        ):
+            with self.assertRaisesRegex(ValueError, "title exceeds the raw text budget"):
+                self.projection._snapshot_from_block(
+                    replace(
+                        block,
+                        title="xxxxx",
+                        text="",
+                        source_anchor="",
+                        warning="",
+                        heading_path=(),
+                    )
+                )
+            safe_text.assert_not_called()
+
+            with self.assertRaisesRegex(ValueError, "heading path exceeds the raw text budget"):
+                self.projection._snapshot_from_block(
+                    replace(
+                        block,
+                        title="",
+                        text="",
+                        source_anchor="",
+                        warning="",
+                        heading_path=("xxxxx",),
+                    )
+                )
+            safe_text.assert_not_called()
+
     def test_snapshot_rejects_raw_oversize_before_redaction_scan(self) -> None:
         paragraph = self.presenter.next_block()
         with (
