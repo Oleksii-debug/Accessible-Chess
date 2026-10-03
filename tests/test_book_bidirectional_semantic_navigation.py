@@ -46,6 +46,43 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             ],
         )
 
+    def make_extended_document(self) -> BookDocument:
+        base = self.make_document()
+        return BookDocument(
+            title="Semantic availability equivalence",
+            blocks=[
+                *base.blocks,
+                Heading(text="Appendix", level=2, block_id="heading-2"),
+                Exercise(
+                    fen=Board.START,
+                    prompt="Find the semantic move",
+                    answer_text="e4",
+                    block_id="exercise-1",
+                ),
+                Paragraph(text="Exercise context", block_id="paragraph-3"),
+                VariationTree(
+                    root_fen=Board.START,
+                    pgn="1. e4 *",
+                    block_id="variation-1",
+                ),
+                ListBlock(
+                    items=["First semantic item", "Second semantic item"],
+                    ordered=False,
+                    block_id="list-1",
+                ),
+                Position(
+                    fen=Board.START,
+                    caption="Appendix position",
+                    block_id="position-3",
+                ),
+                Game(
+                    pgn='[Result "*"]\n\n1. c4 *',
+                    title="Game three",
+                    block_id="game-3",
+                ),
+            ],
+        )
+
     def test_reverse_commands_are_registered_and_progress_atomic(self) -> None:
         for command in ("book.previous_position", "book.previous_game"):
             with self.subTest(command=command):
@@ -122,21 +159,7 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertTrue(availability["previous_game"])
 
     def test_navigation_availability_exactly_matches_every_navigation_command(self) -> None:
-        base = self.make_document()
-        document = BookDocument(
-            title="Semantic availability equivalence",
-            blocks=[
-                *base.blocks,
-                Heading(text="Appendix", level=2, block_id="heading-2"),
-                Paragraph(text="Appendix context", block_id="paragraph-3"),
-                Position(fen=Board.START, caption="Appendix position", block_id="position-3"),
-                Game(
-                    pgn='[Result "*"]\n\n1. c4 *',
-                    title="Game three",
-                    block_id="game-3",
-                ),
-            ],
-        )
+        document = self.make_extended_document()
         position_types = (Position, Diagram, Exercise, VariationTree)
         commands = (
             ("previous", "previous_block", -1, lambda block: True),
@@ -307,7 +330,7 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                 projection.snapshot()
 
     def test_projection_action_enabled_state_matches_reader_at_every_cursor(self) -> None:
-        document = self.make_document()
+        document = self.make_extended_document()
         command_to_availability = {
             "book.previous": "previous",
             "book.next": "next",
@@ -346,6 +369,68 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                     },
                     actions,
                 )
+
+    def test_bridge_dispatch_matches_nearest_semantic_target_at_every_cursor(self) -> None:
+        document = self.make_extended_document()
+        position_types = (Position, Diagram, Exercise, VariationTree)
+        commands = (
+            ("book.previous", -1, lambda block: True),
+            ("book.next", 1, lambda block: True),
+            ("book.previous_heading", -1, lambda block: isinstance(block, Heading)),
+            ("book.next_heading", 1, lambda block: isinstance(block, Heading)),
+            (
+                "book.previous_position",
+                -1,
+                lambda block: isinstance(block, position_types),
+            ),
+            (
+                "book.next_position",
+                1,
+                lambda block: isinstance(block, position_types),
+            ),
+            ("book.previous_game", -1, lambda block: isinstance(block, Game)),
+            ("book.next_game", 1, lambda block: isinstance(block, Game)),
+        )
+
+        for index in range(len(document.blocks)):
+            for command, direction, matches in commands:
+                with self.subTest(index=index, command=command):
+                    candidate = index + direction
+                    expected_index = None
+                    while 0 <= candidate < len(document.blocks):
+                        if matches(document.blocks[candidate]):
+                            expected_index = candidate
+                            break
+                        candidate += direction
+
+                    reader = BookReader(document)
+                    reader.go_to(index)
+                    presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+                    bridge = BookWebViewBridge(
+                        BookWebViewProjection(
+                            presenter,
+                            lambda *_: self.fail(
+                                "semantic navigation must not dispatch chess mutation"
+                            ),
+                            language=UILanguage.EN,
+                        )
+                    )
+
+                    result = bridge.dispatch(command, {})
+                    if expected_index is None:
+                        self.assertEqual(result.kind, "error")
+                        self.assertEqual(reader.index, index)
+                    else:
+                        self.assertEqual(result.kind, "render")
+                        self.assertEqual(
+                            result.payload["snapshot"]["block"]["index"],
+                            expected_index,
+                        )
+                        self.assertEqual(
+                            result.payload["focus_target"],
+                            f"book-block-{expected_index}",
+                        )
+                        self.assertEqual(reader.index, expected_index)
 
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())
