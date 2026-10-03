@@ -212,6 +212,45 @@ async function main() {
   check(calls[4].command === "library.open_game", "Enter dispatched wrong command");
   check(announcements.length === 0, "normal listbox boundaries announced an error");
 
+  const deferredCalls = [];
+  let resolveNavigation = null;
+  const deferredInvoke = (command, payload) => {
+    deferredCalls.push({ command, payload: Object.assign({}, payload) });
+    return new Promise((resolve) => { resolveNavigation = resolve; });
+  };
+  const deferredRoot = new FakeElement("div");
+  window.AccessibleChessLibrarySurface.render(
+    deferredRoot,
+    snapshot,
+    deferredInvoke,
+    announce,
+    "library-game-first"
+  );
+  const deferredOptions = deferredRoot.querySelectorAll('[role="option"]');
+  const firstPendingDown = keyEvent("ArrowDown");
+  deferredOptions[0].listeners.keydown(firstPendingDown.event);
+  check(firstPendingDown.state.prevented, "first in-flight ArrowDown did not prevent scrolling");
+  check(deferredCalls.length === 1, "first in-flight ArrowDown did not invoke exactly once");
+
+  const repeatedPendingDown = keyEvent("ArrowDown");
+  deferredOptions[0].listeners.keydown(repeatedPendingDown.event);
+  check(repeatedPendingDown.state.prevented, "repeated in-flight ArrowDown did not prevent scrolling");
+  check(
+    deferredCalls.length === 1,
+    "stale key-repeat queued a second navigation before authoritative render"
+  );
+
+  resolveNavigation(null);
+  await flushPromises();
+  await flushPromises();
+
+  const afterSettlementDown = keyEvent("ArrowDown");
+  deferredOptions[0].listeners.keydown(afterSettlementDown.event);
+  check(
+    deferredCalls.length === 2,
+    "listbox navigation lock did not release after command/render settlement"
+  );
+
   console.log("Library keyboard boundary DOM contract PASS");
 }
 
