@@ -1,0 +1,96 @@
+name: D10 Streaming Digest Budget
+
+on:
+  pull_request:
+    branches:
+      - fix/d10-prehash-record-bounds-20261003
+    paths:
+      - 'acs/education_records.py'
+      - 'acs/education_workspace.py'
+      - 'tests/test_d10_streaming_digest_budget.py'
+      - '.github/workflows/d10-streaming-digest-budget.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d10-streaming-digest-budget-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  d10-streaming-digest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      STACK_BASE_SHA: 315fd7190f031c207a896defd6021a2505801c46
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked base and scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$STACK_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$STACK_BASE_SHA" HEAD
+
+          event_base="$PR_BASE_SHA"
+          base_ref="$PR_BASE_REF"
+          test -n "$event_base"
+          test -n "$base_ref"
+          git cat-file -e "$event_base^{commit}"
+          git fetch --no-tags origin "$base_ref"
+          live_base="$(git rev-parse "origin/$base_ref")"
+          test "$live_base" = "$STACK_BASE_SHA"
+          test "$event_base" = "$STACK_BASE_SHA"
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
+
+          mapfile -t actual < <(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/d10-streaming-digest-budget.yml'
+            'acs/education_records.py'
+            'acs/education_workspace.py'
+            'tests/test_d10_streaming_digest_budget.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected D10 streaming-digest scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'D10_STREAMING_DIGEST_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile D10 streaming digest boundary
+        run: >-
+          python -m py_compile
+          acs/education_records.py
+          acs/education_workspace.py
+          tests/test_d10_streaming_digest_budget.py
+          tests/test_d10_prehash_record_bounds.py
+
+      - name: Run focused and adjacent D10 contracts
+        run: >-
+          python -m unittest -v
+          tests.test_d10_streaming_digest_budget
+          tests.test_d10_prehash_record_bounds
+          tests.test_education_records
+          tests.test_education_workspace
+          tests.test_education_workspace_store
+          tests.test_prepared_position_lesson_metadata
+          tests.test_prepared_position_student_view
