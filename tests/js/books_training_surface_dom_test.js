@@ -211,9 +211,9 @@ function semanticGameSnapshot() {
         depth: 2,
         parent_index: 1,
         label: "1. d4 $1",
-        comments: ["<img onerror=bad()>"],
+        comments: [],
         comments_before: [],
-        comments_after: [],
+        comments_after: ["<img onerror=bad()>"],
         trailing_comments: []
       },
       {
