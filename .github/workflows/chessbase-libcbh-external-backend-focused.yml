@@ -13,6 +13,10 @@ on:
       - 'tests/test_chessbase_libcbh_external_fixture.py'
       - '.github/workflows/chessbase-libcbh-external-backend-focused.yml'
 
+concurrency:
+  group: chessbase-libcbh-external-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
