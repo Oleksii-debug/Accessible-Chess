@@ -61,6 +61,15 @@
     return semanticText(value, name, budget);
   }
 
+  function semanticResult(value, name, budget) {
+    if (value === undefined || value === null || value === "") return "";
+    const result = semanticText(value, name, budget);
+    if (!["1-0", "0-1", "1/2-1/2", "*"].includes(result)) {
+      throw new TypeError(name + " is invalid");
+    }
+    return result;
+  }
+
   function semanticTextArray(value, name, budget) {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throw new TypeError(name + " must be an array");
@@ -174,8 +183,8 @@
     const players = semanticOptionalText(
       semantic.players, "book semantic players", budget, ""
     );
-    const result = semanticOptionalText(
-      semantic.result, "book semantic result", budget, ""
+    const result = semanticResult(
+      semantic.result, "book semantic result", budget
     );
 
     if (players) {
@@ -222,7 +231,7 @@
 
     const lists = [rootList];
     const lastItems = [];
-    const deferredTrailingComments = [];
+    const deferredVariationEndings = [];
     const activeAncestorIndices = [];
     let previousDepth = 0;
 
@@ -326,9 +335,21 @@
         "book semantic item trailing comments",
         budget
       );
+      const itemResult = semanticResult(
+        item.result,
+        "book semantic item result",
+        budget
+      );
+      if (item.kind !== "variation" && itemResult) {
+        throw new TypeError("book semantic move must not carry a line result");
+      }
       lists[depth].appendChild(listItem);
-      if (trailingComments.length) {
-        deferredTrailingComments.push({ item: listItem, comments: trailingComments });
+      if (itemResult || trailingComments.length) {
+        deferredVariationEndings.push({
+          item: listItem,
+          result: itemResult,
+          comments: trailingComments
+        });
       }
       lastItems[depth] = listItem;
       lastItems.length = depth + 1;
@@ -337,15 +358,18 @@
       previousDepth = depth;
     });
 
-    deferredTrailingComments.forEach(function (entry) {
-      const commentList = node("ul");
-      commentList.setAttribute("aria-label", commentsLabel);
-      entry.comments.forEach(function (comment) {
-        commentList.appendChild(node("li", comment));
-      });
-      // Appending after the full depth walk keeps variation-tail comments
-      // after that variation's nested move list instead of before its moves.
-      entry.item.appendChild(commentList);
+    deferredVariationEndings.forEach(function (entry) {
+      if (entry.result) {
+        entry.item.appendChild(node("p", resultLabel + ": " + entry.result));
+      }
+      if (entry.comments.length) {
+        const commentList = node("ul");
+        commentList.setAttribute("aria-label", commentsLabel);
+        entry.comments.forEach(function (comment) {
+          commentList.appendChild(node("li", comment));
+        });
+        entry.item.appendChild(commentList);
+      }
     });
 
     appendSemanticTextList(

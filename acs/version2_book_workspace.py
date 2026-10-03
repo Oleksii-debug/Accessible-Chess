@@ -30,6 +30,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_DEPTH = 256
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
+_BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
@@ -251,6 +252,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 for comment in (safe(raw) for raw in item.trailing_comments)
                 if comment
             )
+            result = ""
+            if item.result is not None:
+                if item.kind != "variation":
+                    raise _BookSemanticTreeError(
+                        "book semantic move unexpectedly carries a line result"
+                    )
+                result = safe(item.result)
+                if result not in _BOOK_SEMANTIC_RESULTS:
+                    raise _BookSemanticTreeError(
+                        "book semantic variation result is invalid"
+                    )
             rendered_items.append(
                 {
                     "kind": item.kind,
@@ -260,6 +272,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "comments": comments,
                     "comments_before": comments_before,
                     "comments_after": comments_after,
+                    "result": result,
                     "trailing_comments": trailing_comments,
                 }
             )
@@ -297,13 +310,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 continue
             details.append({"label": labels[label_key], "value": value})
 
+        root_result = safe(view.result)
+        if root_result and root_result not in _BOOK_SEMANTIC_RESULTS:
+            raise _BookSemanticTreeError("book semantic GameTree result is invalid")
+
         return {
             "kind": mode.value,
             "label": labels["moves"],
             "players_label": labels["players"],
             "players": players,
             "result_label": labels["result"],
-            "result": safe(view.result),
+            "result": root_result,
             "details_label": labels["details"],
             "details": tuple(details),
             "comments_label": labels["comments"],
