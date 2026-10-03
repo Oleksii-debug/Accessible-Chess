@@ -14,6 +14,7 @@ from acs.keybindings import BindingContext
 from acs.library_webview_projection import LibraryWebViewProjection
 from acs.pgn_webview_projection import PgnWebViewProjection
 from acs.search_service import GameSearchItem, GameSearchPage, GameSearchQuery
+from acs.text_encoding import LocalTextDecodeError, decode_local_text
 
 
 class TestReadyKeyboardContractTests(unittest.TestCase):
@@ -108,6 +109,25 @@ class TestReadyAnnouncementContractTests(unittest.TestCase):
         self.assertIn("Вибрано 2", event.payload["announcement"])
         self.assertIn("C", event.payload["announcement"])
         self.assertIn("D", event.payload["announcement"])
+
+
+class TestReadyTextEncodingSafetyTests(unittest.TestCase):
+    def test_cp1251_rejects_late_disallowed_control_after_positive_cyrillic_signal(self) -> None:
+        payload = "Привіт".encode("cp1251") + b"\x01trailer"
+        with self.assertRaises(LocalTextDecodeError):
+            decode_local_text(payload)
+
+    def test_cp1251_rejects_early_disallowed_control_before_positive_cyrillic_signal(self) -> None:
+        payload = b"prefix\x02" + "Шахи".encode("cp1251")
+        with self.assertRaises(LocalTextDecodeError):
+            decode_local_text(payload)
+
+    def test_cp1251_keeps_normal_whitespace_and_ukrainian_letters(self) -> None:
+        original = "Ґанок\tЄдність\r\nІнша Їжа"
+        decoded = decode_local_text(original.encode("cp1251"))
+        self.assertEqual(original, decoded.text)
+        self.assertEqual("windows-1251", decoded.encoding)
+        self.assertTrue(decoded.transcoded)
 
 
 class TestReadyVisualAndSurfaceAssetTests(unittest.TestCase):

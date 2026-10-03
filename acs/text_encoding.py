@@ -18,6 +18,7 @@ _CP1251_CYRILLIC_LETTER_BYTES = frozenset((
     0xA1, 0xA2, 0xA3, 0xA5, 0xA8, 0xAA, 0xAF,
     0xB2, 0xB3, 0xB4, 0xB8, 0xBA, 0xBC, 0xBD, 0xBE, 0xBF,
 ))
+_CP1251_ALLOWED_ASCII_CONTROLS = frozenset({0x09, 0x0A, 0x0D})
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,23 +35,30 @@ class LocalTextDecodeError(ValueError):
 def _cp1251_text_evidence(payload: bytes) -> bool:
     if not payload or b"\x00" in payload:
         return False
+
+    # Inspect the entire payload before accepting any positive Cyrillic signal.
+    # The former early return on two adjacent letters could admit a binary or
+    # malformed source when a disallowed control byte appeared later.
+    if any(
+        value < 0x20 and value not in _CP1251_ALLOWED_ASCII_CONTROLS
+        for value in payload
+    ):
+        return False
+
     previous_cyrillic = False
     cyrillic_letters = 0
-    controls = 0
+    adjacent_cyrillic = False
     for value in payload:
         current = value in _CP1251_CYRILLIC_LETTER_BYTES
         if current:
             cyrillic_letters += 1
             if previous_cyrillic:
-                # Two adjacent letters are strong enough evidence that the
-                # source is prose rather than one accidental high byte.
-                return True
+                adjacent_cyrillic = True
         previous_cyrillic = current
-        if value < 0x20 and value not in {0x09, 0x0A, 0x0D}:
-            controls += 1
-    if controls:
-        return False
-    return cyrillic_letters >= 4
+
+    # Two adjacent letters are strong evidence of prose; four separated letters
+    # retain the existing fallback for tag-heavy PGN/text sources.
+    return adjacent_cyrillic or cyrillic_letters >= 4
 
 
 def decode_local_text(payload: bytes) -> DecodedLocalText:
