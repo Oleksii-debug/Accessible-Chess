@@ -615,6 +615,43 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("error", event.kind)
         self.assertEqual([], self.files.ordered)
 
+    def test_file_picker_cancel_and_failure_are_contextual_without_path_leak(self) -> None:
+        view = self.webview()
+
+        cancelled = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("collaboration.file.selection_cancelled", cancelled.kind)
+        self.assertEqual(
+            "File selection cancelled.",
+            cancelled.payload["announcement"],
+        )
+        self.assertEqual(
+            "collaboration-file-choose",
+            cancelled.payload["focus_target"],
+        )
+        self.assertEqual((), self.store.room_attachments("room-1"))
+
+        def failing_picker() -> Path | None:
+            raise RuntimeError("C:/private/student/secret-choice.pgn")
+
+        failing_view = ClassroomCollaborationWebView(
+            self.controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            file_picker=failing_picker,
+            id_factory=self.next_id,
+        )
+        failed = failing_view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("Could not choose file.", failed.payload["message"])
+        self.assertEqual(
+            "collaboration-file-choose",
+            failed.payload["focus_target"],
+        )
+        self.assertNotIn("C:/private", repr(failed.payload))
+        self.assertNotIn("secret-choice", repr(failed.payload))
+        self.assertEqual((), self.store.room_attachments("room-1"))
+
     def test_file_sync_failure_is_contextual_without_provider_detail(self) -> None:
         view = self.webview()
         with mock.patch.object(
