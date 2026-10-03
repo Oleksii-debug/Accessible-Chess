@@ -170,7 +170,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if white_units + 3 + black_units > _MAX_BOOK_SEMANTIC_PLAYERS_UNITS:
             raise _BookSemanticProjectionError("semantic raw players text is too long")
 
-        effective_result = game.result
+        root_result = game.line.result
+        if root_result is not None and type(root_result) is not str:
+            raise _BookSemanticProjectionError("semantic root result is invalid")
+        effective_result = root_result or game.tags.get("Result", "*")
         claim_raw_text(
             effective_result,
             max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
@@ -229,15 +232,18 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
                 if type(move.nags) is not list or len(move.nags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
                     raise _BookSemanticProjectionError("semantic move NAGs are invalid")
-                annotation_units = 0
+                # PgnTreePresenter uses " ".join(move.nags): every adjacent
+                # pair contributes one separator even when one or both NAG
+                # strings are empty. Charge those separators from O(1) list
+                # metadata before scanning the elements.
+                annotation_units = max(0, len(move.nags) - 1)
+                if annotation_units > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
+                    raise _BookSemanticProjectionError("semantic move annotation is too long")
                 for nag in move.nags:
-                    nag_units = claim_raw_text(
+                    annotation_units += claim_raw_text(
                         nag,
                         max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
                     )
-                    if annotation_units:
-                        annotation_units += 1
-                    annotation_units += nag_units
                     if annotation_units > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
                         raise _BookSemanticProjectionError("semantic move annotation is too long")
                 if annotation_units:
