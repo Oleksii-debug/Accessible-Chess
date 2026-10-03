@@ -98,6 +98,82 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             indexes,
         )
 
+    def test_v5_failed_upgrade_rolls_back_schema_and_version_atomically(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
+            )
+            db.execute(
+                """
+                CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                ON collaboration_attachments(room_id, sequence_no)
+                WHERE transfer_state='stored'
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=5 "
+                "WHERE key='schema_version'"
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "stored-a0",
+                    "room",
+                    "teacher",
+                    0,
+                    "stored.bin",
+                    None,
+                    1,
+                    "a" * 64,
+                    "rooms/room/stored-a0",
+                    "stored",
+                    "persistent",
+                    "clean",
+                ),
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "deleted-a0",
+                    "room",
+                    "teacher",
+                    0,
+                    "deleted.bin",
+                    None,
+                    1,
+                    "b" * 64,
+                    "rooms/room/deleted-a0",
+                    "deleted",
+                    "persistent",
+                    "clean",
+                ),
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+        with closing(sqlite3.connect(self.db_path)) as db:
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+            indexes = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA index_list(collaboration_attachments)"
+                )
+            }
+
+        self.assertEqual(version, 5)
+        self.assertIn(
+            "uq_collaboration_attachments_stored_sequence",
+            indexes,
+        )
+        self.assertNotIn(
+            "uq_collaboration_attachments_authoritative_sequence",
+            indexes,
+        )
+
     def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
         self.db_path.unlink()
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -550,6 +626,14 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             ChatMessageMetadata("bad id", "room", "teacher", 0, "Hello")
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "x" * 4001)
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata(
+                "m1",
+                "room",
+                "teacher",
+                0,
+                "bad" + chr(0xD800),
+            )
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=True)
         with self.assertRaises(ValueError):
@@ -1172,6 +1256,50 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 updates=(),
             )
         self.assertEqual(self.store.room_attachments("room"), ())
+
+    def test_direct_failed_upload_adoption_keeps_provisional_sequence(self) -> None:
+        provisional = AttachmentMetadata(
+            "failed-own",
+            "room",
+            "teacher",
+            77,
+            "failed.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room/failed-own",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        failed = AttachmentMetadata(
+            uploading.attachment_id,
+            uploading.room_id,
+            uploading.sender_id,
+            uploading.sequence_no,
+            uploading.display_name,
+            uploading.mime_type,
+            uploading.size_bytes,
+            uploading.sha256,
+            uploading.object_key,
+            "failed",
+            uploading.retention,
+            "failed",
+        )
+
+        self.assertEqual(
+            self.store.adopt_authoritative_attachment(failed),
+            failed,
+        )
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (failed,),
+        )
 
     def test_direct_upload_adoption_rejects_missing_authoritative_prefix(self) -> None:
         provisional = AttachmentMetadata(

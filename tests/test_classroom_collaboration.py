@@ -429,8 +429,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
     def test_chat_body_is_bounded_and_nul_rejected(self):
         controller = self.controller()
-        for body in ("", "   ", "bad\x00text", "x" * 4001):
-            with self.subTest(body=body[:20]):
+        for body in ("", "   ", "bad\x00text", "x" * 4001, "bad" + chr(0xD800)):
+            with self.subTest(body=repr(body[:20])):
                 with self.assertRaises(CollaborationError):
                     controller.send_chat(message_id="m1", body=body)
 
@@ -451,8 +451,29 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             message.message_id: message
             for message in history
         }
-        # Simulate recoverable local state that retained only a later row.
-        self.store.append_message(history[2])
+        # Simulate a legacy/pre-hardening local database that retained only a
+        # later authoritative row. The public append boundary now correctly
+        # rejects this shape, so seed the historical state below that boundary.
+        later = history[2]
+        with sqlite3.connect(self.store.path) as db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    later.message_id,
+                    later.room_id,
+                    later.sender_id,
+                    later.sequence_no,
+                    later.body,
+                    later.retention,
+                    int(later.hidden),
+                    later.sent_at_unix_ms,
+                ),
+            )
         controller = self.controller("teacher-1")
 
         repaired = controller.sync_chat()
@@ -1121,7 +1142,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             controller.prepare_file(attachment_id="a1", local_path=path, sequence_no=0)
 
         controller = self.controller(
-            quota=FileQuotaPolicy(max_file_bytes=10, max_room_bytes=6)
+            quota=FileQuotaPolicy(max_file_bytes=6, max_room_bytes=6)
         )
         first = controller.prepare_file(attachment_id="a1", local_path=path, sequence_no=0)
         self.files.scan_state = "clean"
@@ -1213,6 +1234,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(stored.transfer_state, "stored")
         self.assertEqual(self.store.room_attachments("room-1"), (stored,))
         self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
+
+    def test_upload_failed_result_keeps_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-failed",
+            local_path=self.make_file("provider-failed.bin", b"opaque"),
+            sequence_no=93,
+            retention="persistent",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "upload", return_value=failed_result):
+            failed = controller.upload_file(prepared)
+
+        self.assertEqual(failed.sequence_no, 93)
+        self.assertEqual(failed.transfer_state, "failed")
+        self.assertEqual(failed.scan_state, "failed")
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
 
     def test_upload_recovers_concurrent_remote_prefix_before_own_sequence(self):
         remote = tuple(
@@ -2004,7 +2050,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             CollaborationError,
-            "live file has an unresolved sequence gap after recovery",
+            "live file sequence is stale or unresolved after recovery",
         ):
             controller.receive_file(later)
 
