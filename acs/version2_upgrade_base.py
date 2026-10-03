@@ -27,8 +27,18 @@ from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION, Settings
 UPGRADE_JOURNAL_SCHEMA_VERSION = 2
 _BACKUP_MANIFEST_SCHEMA_VERSION = 2
 _PHASES = {"prepared", "migrating", "verifying", "committed", "rolled_back"}
-_CONTROL_NAMES = {".v2-upgrade.lock", ".v2-upgrade-state.json", "profile.json.lock"}
+_CONTROL_NAMES = {
+    ".v2-upgrade.lock",
+    ".v2-upgrade-state.json",
+    "profile.json.lock",
+    "sound-profile.json.lock",
+    "sound-packs.lock",
+}
 _CONTROL_NAME_KEYS = frozenset(name.casefold() for name in _CONTROL_NAMES)
+_DERIVED_ROOT_DIRECTORIES = {"sound-cache"}
+_DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
+    name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
+)
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -635,7 +645,19 @@ class Version2UpgradeCoordinator:
             .casefold(),
         ):
             relative = _relative(self.layout.root, path)
+            relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
+                continue
+            # Derived playback cache is disposable, not preservation-backed
+            # user state. Exclude only descendants of the exact root cache
+            # directory. The root object itself is still validated below, so a
+            # regular file named "sound-cache" remains user data and a
+            # symlink/reparse point still fails closed.
+            if (
+                len(relative_path.parts) > 1
+                and relative_path.parts[0].casefold()
+                in _DERIVED_ROOT_DIRECTORY_KEYS
+            ):
                 continue
             folded = relative.casefold()
             if folded in seen:
