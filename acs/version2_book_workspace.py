@@ -67,6 +67,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             not isinstance(result, BookBoardUiEvent)
             or result.kind is not expected
             or result.action_id != action
+            or result.revision != self._workflow.revision
         ):
             return False
         if expected is BookBoardUiEventKind.BOARD_OPENED:
