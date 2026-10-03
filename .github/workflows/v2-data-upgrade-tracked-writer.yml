@@ -78,10 +78,10 @@ jobs:
           acs/gametree_resume.py=e22a406a8f4c1f00c3d36390109d53f3088d332b
           acs/version2_release_app.py=426355896fc3d18c143e245876291d6ae01dec4f
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
-          acs/version2_upgrade_base.py=03d952b653dad957e70eaef3b04132ce7b1b0c72
+          acs/version2_upgrade_base.py=cd64a8e1d13e24dcfbf85e1e8da3b4da20582071
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
-          tests/test_v2_upgrade_sound_artifact_control.py=51ebeaa377fb6edf61380b1dddac495e6927a657
+          tests/test_v2_upgrade_sound_artifact_control.py=b6639a018ce59e42a623ab61d81737267742e7a0
           tests/test_v2_upgrade_publish_race_audit.py=96239e179da44fd5c2671733df4613b298733927
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           LOCKS

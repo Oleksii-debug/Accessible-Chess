@@ -735,6 +735,14 @@ class Version2UpgradeCoordinator:
             # internal publication residue, not preservation-backed user data.
             # Nested lookalikes and non-matching near names remain ordinary data.
             if _is_generated_root_runtime_file(relative_path):
+                residue_info = _safe_stat(path, "runtime residue entry")
+                if not (
+                    stat.S_ISREG(residue_info.st_mode)
+                    or stat.S_ISDIR(residue_info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "runtime residue entry must be a regular file or directory"
+                    )
                 continue
             folded = relative.casefold()
             if folded in seen:

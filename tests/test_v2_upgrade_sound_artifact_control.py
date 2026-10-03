@@ -159,6 +159,25 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             for name in near_misses:
                 self.assertIn(name, paths)
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
+    def test_generated_root_writer_residue_symlink_fails_closed_before_exclusion(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            outside = Path(td) / "outside-residue"
+            outside.write_bytes(b"outside")
+            os.symlink(
+                outside,
+                root / "gametree-resume.json.abcd1234.tmp",
+            )
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "symlink or reparse point",
+            ):
+                coordinator._files()
+
     def test_exact_root_sound_cache_subtree_is_derived_and_nested_names_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
