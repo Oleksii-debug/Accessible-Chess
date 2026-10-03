@@ -1225,8 +1225,8 @@
     main.appendChild(form);
 
     fragment.appendChild(main);
-    invalidatePendingCommand(root);
     root.replaceChildren(fragment);
+    invalidatePendingCommand(root);
     focusTarget(root, requestedFocus || "");
   }
 
@@ -1504,8 +1504,8 @@
     main.appendChild(resetDialog.dialog);
 
     fragment.appendChild(main);
-    invalidatePendingCommand(root);
     root.replaceChildren(fragment);
+    invalidatePendingCommand(root);
     focusTarget(root, requestedFocus);
   }
 
