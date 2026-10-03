@@ -39,7 +39,10 @@ jobs:
           live_ref="refs/remotes/origin/$product_branch"
           git fetch --no-tags origin "+refs/heads/$product_branch:$live_ref"
           live_product="$(git rev-parse "$live_ref")"
-          test "$live_product" = '${{ github.event.pull_request.base.sha }}'
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$live_product"
           git merge-base --is-ancestor "$live_product" HEAD
           test "$(git merge-base "$live_product" HEAD)" = "$live_product"
 
