@@ -1050,11 +1050,77 @@ async function run() {
   selector.value = "starter-booklet-02";
   const openMaterial = find(bookRoot, "BUTTON", "Open material");
   check(openMaterial !== null, "starter material open button missing");
+  const starterRootReplacements = bookRoot.replaceChildrenCalls;
   openMaterial.listeners.click();
+  check(
+    bookRoot.getAttribute("aria-busy") === "true",
+    "starter material action did not publish busy state on the canonical Book root"
+  );
+  await flushPromises();
   await flushPromises();
   check(openedMaterial === "starter-booklet-02", "selected starter material was not sent to host");
+  check(
+    bookRoot.replaceChildrenCalls === starterRootReplacements + 1,
+    "starter material result rendered into a detached parent instead of the canonical Book root"
+  );
+  check(
+    bookRoot.getAttribute("aria-busy") === null,
+    "starter material completion left the canonical Book root busy"
+  );
   check(document.activeElement && document.activeElement.id === "book-block-0", "opened material reading focus missing");
   check(announcements.includes("Opened material"), "starter material result was not announced");
+
+  const staleStarterRoot = new FakeElement("div");
+  let resolveStaleStarter = null;
+  const staleStarterInvoke = () => new Promise((resolve) => {
+    resolveStaleStarter = resolve;
+  });
+  window.AccessibleChessBookSurface.render(
+    staleStarterRoot,
+    withStarterMaterials(bookSnapshot(25, "Starter before refresh"), "starter-course"),
+    staleStarterInvoke,
+    announce,
+    "book-block-25",
+    "Starter action failed"
+  );
+  const staleStarterSelector = staleStarterRoot.querySelector("#book-starter-material");
+  staleStarterSelector.value = "starter-booklet-01";
+  find(staleStarterRoot, "BUTTON", "Open material").listeners.click();
+  check(
+    staleStarterRoot.getAttribute("aria-busy") === "true",
+    "pending starter action did not mark the canonical Book root busy"
+  );
+  window.AccessibleChessBookSurface.render(
+    staleStarterRoot,
+    withStarterMaterials(bookSnapshot(26, "External starter refresh"), "starter-course"),
+    staleStarterInvoke,
+    announce,
+    "book-block-26",
+    "Starter action failed"
+  );
+  resolveStaleStarter({
+    kind: "render",
+    payload: {
+      snapshot: withStarterMaterials(bookSnapshot(27, "Stale starter result"), "starter-booklet-01"),
+      focus_target: "book-block-27",
+      announcement: "Stale starter result"
+    }
+  });
+  await flushPromises();
+  await flushPromises();
+  check(
+    staleStarterRoot.querySelector("#book-block-26") !== null &&
+      staleStarterRoot.querySelector("#book-block-27") === null,
+    "stale starter result escaped the canonical root render epoch"
+  );
+  check(
+    staleStarterRoot.getAttribute("aria-busy") === null,
+    "discarded stale starter action left the canonical Book root busy"
+  );
+  check(
+    !announcements.includes("Stale starter result"),
+    "discarded stale starter action announced into the newer NVDA context"
+  );
 
   console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
