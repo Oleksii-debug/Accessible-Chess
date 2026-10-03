@@ -4,7 +4,6 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Mapping
 
 from .chesscore import Board, Move
 
@@ -13,6 +12,10 @@ TRAINING_SNAPSHOT_SCHEMA_VERSION = 3
 _MAX_EXERCISE_STEPS = 2048
 _MAX_ACCEPTED_MOVES_PER_STEP = 64
 _MAX_MOVE_TEXT = 64
+_MAX_DEFINITION_TEXT = 4096
+_MAX_TRAINING_TAGS = 256
+_MAX_TRAINING_METADATA_ITEMS = 256
+_MAX_SAFE_COUNTER = (1 << 53) - 1
 _TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
     {
         "schema_version",
@@ -64,16 +67,30 @@ class ExerciseStep:
     explanation: str | None = None
 
     def __post_init__(self) -> None:
-        try:
-            count = len(self.accepted_moves)
-        except TypeError as exc:
-            raise TypeError("exercise accepted_moves must be a finite collection") from exc
+        if type(self.accepted_moves) is not frozenset:
+            raise TypeError("exercise accepted_moves must be an exact frozenset")
+        count = len(self.accepted_moves)
+        if not count:
+            raise ValueError("exercise step requires at least one accepted move")
         if count > _MAX_ACCEPTED_MOVES_PER_STEP:
             raise ValueError("exercise step has too many accepted moves")
+        for move in self.accepted_moves:
+            if type(move) is not str:
+                raise TypeError("move must be a string")
+            if len(move) > _MAX_MOVE_TEXT:
+                raise ValueError("move text is too long")
+        for value, name in (
+            (self.hint, "exercise hint"),
+            (self.explanation, "exercise explanation"),
+        ):
+            if value is not None:
+                if type(value) is not str:
+                    raise TypeError(f"{name} must be a string or None")
+                if len(value) > _MAX_DEFINITION_TEXT:
+                    raise ValueError(f"{name} is too long")
         normalized = frozenset(_normalize_move(move) for move in self.accepted_moves)
-        if not normalized:
-            raise ValueError("exercise step requires at least one accepted move")
         object.__setattr__(self, "accepted_moves", normalized)
+
 
 
 @dataclass(frozen=True)
@@ -86,38 +103,65 @@ class ExerciseDefinition:
     title: str = ""
     tags: tuple[str, ...] = ()
     source_id: str | None = None
-    metadata: Mapping[str, str] = field(default_factory=dict)
+    metadata: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if type(self.exercise_id) is not str:
             raise TypeError("exercise_id must be a string")
+        if len(self.exercise_id) > _MAX_DEFINITION_TEXT:
+            raise ValueError("exercise_id is too long")
         exercise_id = self.exercise_id.strip()
         if not exercise_id:
             raise ValueError("exercise_id must not be empty")
         if type(self.start_fen) is not str:
             raise TypeError("start_fen must be a string")
+        if len(self.start_fen) > _MAX_DEFINITION_TEXT:
+            raise ValueError("start_fen is too long")
         start_fen = self.start_fen.strip()
         if not start_fen:
             raise ValueError("start_fen must not be empty")
         # Position syntax and legality belong to the shared canonical chess core.
         Board(start_fen)
-        try:
-            steps = tuple(self.steps)
-        except TypeError as exc:
-            raise TypeError("exercise steps must be a finite collection") from exc
-        if not steps:
+        if type(self.steps) is not tuple:
+            raise TypeError("exercise steps must be an exact tuple")
+        if not self.steps:
             raise ValueError("exercise requires at least one step")
-        if len(steps) > _MAX_EXERCISE_STEPS:
+        if len(self.steps) > _MAX_EXERCISE_STEPS:
             raise ValueError("exercise has too many steps")
-        if any(not isinstance(step, ExerciseStep) for step in steps):
-            raise TypeError("exercise steps must contain ExerciseStep values")
-        if self.source_id is not None and type(self.source_id) is not str:
-            raise TypeError("exercise source_id must be a string or None")
+        if any(type(step) is not ExerciseStep for step in self.steps):
+            raise TypeError("exercise steps must contain exact ExerciseStep values")
+        if type(self.title) is not str:
+            raise TypeError("exercise title must be a string")
+        if len(self.title) > _MAX_DEFINITION_TEXT:
+            raise ValueError("exercise title is too long")
+        if type(self.tags) is not tuple:
+            raise TypeError("exercise tags must be an exact tuple")
+        if len(self.tags) > _MAX_TRAINING_TAGS:
+            raise ValueError("exercise has too many tags")
+        for tag in self.tags:
+            if type(tag) is not str:
+                raise TypeError("exercise tag must be a string")
+            if len(tag) > _MAX_DEFINITION_TEXT:
+                raise ValueError("exercise tag is too long")
+        if self.source_id is not None:
+            if type(self.source_id) is not str:
+                raise TypeError("exercise source_id must be a string or None")
+            if len(self.source_id) > _MAX_DEFINITION_TEXT:
+                raise ValueError("exercise source_id is too long")
+        if type(self.metadata) is not dict:
+            raise TypeError("exercise metadata must be an exact dict")
+        if len(self.metadata) > _MAX_TRAINING_METADATA_ITEMS:
+            raise ValueError("exercise metadata has too many items")
+        for key, value in self.metadata.items():
+            if type(key) is not str or type(value) is not str:
+                raise TypeError("exercise metadata must map strings to strings")
+            if len(key) > _MAX_DEFINITION_TEXT or len(value) > _MAX_DEFINITION_TEXT:
+                raise ValueError("exercise metadata text is too long")
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
-        object.__setattr__(self, "steps", steps)
         object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
         object.__setattr__(self, "metadata", dict(self.metadata))
+
 
 
 @dataclass(frozen=True)
@@ -150,8 +194,7 @@ class ExerciseSession:
     """
 
     def __init__(self, definition: ExerciseDefinition) -> None:
-        if not isinstance(definition, ExerciseDefinition):
-            raise TypeError("definition must be an ExerciseDefinition")
+        _require_exact_definition(definition)
         self.definition = definition
         self._board = Board(definition.start_fen)
         self._accepted_path: list[str] = []
@@ -201,6 +244,7 @@ class ExerciseSession:
         return self.definition.steps[self._step_index]
 
     def submit(self, move: str) -> ExerciseResult:
+        _require_exact_definition(self.definition)
         if self.completed:
             raise ValueError("exercise is already completed")
         submitted = _normalize_move(move)
@@ -268,6 +312,7 @@ class ExerciseSession:
         )
 
     def request_hint(self) -> HintResult:
+        _require_exact_definition(self.definition)
         if self.completed:
             return HintResult(False, self._step_index, None, self._hints_used)
         step = self.definition.steps[self._step_index]
@@ -277,6 +322,7 @@ class ExerciseSession:
         return HintResult(True, self._step_index, step.hint, self._hints_used)
 
     def reset(self) -> None:
+        _require_exact_definition(self.definition)
         # Reconstruct from the authored start position through canonical core;
         # reset never reuses a potentially mutated hidden board object.
         board = Board(self.definition.start_fen)
@@ -290,6 +336,7 @@ class ExerciseSession:
 
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v3 progress with deterministic chess identity."""
+        _require_exact_definition(self.definition)
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": self.definition.exercise_id,
@@ -307,7 +354,7 @@ class ExerciseSession:
     def restore(
         cls,
         definition: ExerciseDefinition,
-        snapshot: Mapping[str, object],
+        snapshot: dict[str, object],
     ) -> "ExerciseSession":
         """Restore schema-v3, or migrate unambiguous schema-v2 progress.
 
@@ -316,8 +363,9 @@ class ExerciseSession:
         the reconstructed position. Distinct alternatives fail closed instead
         of guessing which position the learner actually reached.
         """
-        if not isinstance(snapshot, Mapping):
-            raise TypeError("exercise snapshot must be a mapping")
+        _require_exact_definition(definition)
+        if type(snapshot) is not dict:
+            raise TypeError("exercise snapshot must be an exact dict")
         if "schema_version" not in snapshot:
             raise ValueError("invalid exercise snapshot fields (missing fields: schema_version)")
         schema_version = snapshot["schema_version"]
@@ -333,7 +381,7 @@ class ExerciseSession:
     def _restore_v3(
         cls,
         definition: ExerciseDefinition,
-        snapshot: Mapping[str, object],
+        snapshot: dict[str, object],
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V3_FIELDS)
         common = _restore_common(definition, snapshot)
@@ -364,6 +412,8 @@ class ExerciseSession:
         position_fen = snapshot["position_fen"]
         if type(position_fen) is not str:
             raise TypeError("exercise snapshot position_fen must be a string")
+        if len(position_fen) > _MAX_DEFINITION_TEXT:
+            raise ValueError("exercise snapshot position_fen is too long")
         if position_fen != board.fen():
             raise ValueError("exercise snapshot position does not match accepted_path")
 
@@ -385,7 +435,7 @@ class ExerciseSession:
     def _restore_v2(
         cls,
         definition: ExerciseDefinition,
-        snapshot: Mapping[str, object],
+        snapshot: dict[str, object],
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V2_FIELDS)
         step_index, attempts, mistakes, hints_used, status = _restore_common(definition, snapshot)
@@ -415,13 +465,20 @@ class ExerciseSession:
         return session
 
 
+def _require_exact_definition(definition: object) -> None:
+    if type(definition) is not ExerciseDefinition:
+        raise TypeError("definition must be an exact ExerciseDefinition")
+
+
 def _restore_common(
     definition: ExerciseDefinition,
-    snapshot: Mapping[str, object],
+    snapshot: dict[str, object],
 ) -> tuple[int, int, int, int, ExerciseStatus]:
     exercise_id = snapshot["exercise_id"]
     if type(exercise_id) is not str:
         raise TypeError("exercise snapshot exercise_id must be a string")
+    if len(exercise_id) > _MAX_DEFINITION_TEXT:
+        raise ValueError("exercise snapshot exercise_id is too long")
     if exercise_id != definition.exercise_id:
         raise ValueError("exercise snapshot belongs to a different exercise")
 
@@ -437,6 +494,8 @@ def _restore_common(
     status_value = snapshot["status"]
     if type(status_value) is not str:
         raise TypeError("exercise snapshot status must be a string")
+    if len(status_value) > 32:
+        raise ValueError("exercise snapshot status is too long")
     try:
         status = ExerciseStatus(status_value)
     except ValueError as exc:
@@ -478,7 +537,7 @@ def _validate_reachable_state(
 
 
 def _require_snapshot_fields(
-    snapshot: Mapping[str, object],
+    snapshot: dict[str, object],
     expected: frozenset[str],
 ) -> None:
     fields = set(snapshot)
@@ -546,7 +605,7 @@ def _snapshot_digest(value: object) -> str:
 def _snapshot_counter(value: object, *, name: str) -> int:
     if type(value) is not int:
         raise TypeError(f"exercise snapshot {name} must be an integer")
-    if value < 0:
+    if value < 0 or value > _MAX_SAFE_COUNTER:
         raise ValueError("invalid exercise counters")
     return value
 
@@ -560,18 +619,22 @@ def _snapshot_move(value: object) -> str:
 def _normalize_move(value: str) -> str:
     if type(value) is not str:
         raise TypeError("move must be a string")
+    if len(value) > _MAX_MOVE_TEXT:
+        raise ValueError("move text is too long")
     text = " ".join(value.strip().split())
     if not text:
         raise ValueError("move must not be empty")
-    if len(text) > _MAX_MOVE_TEXT:
-        raise ValueError("move text is too long")
     return text
 
 
 def _normalize_tag(value: str) -> str:
     if type(value) is not str:
         raise TypeError("exercise tag must be a string")
+    if len(value) > _MAX_DEFINITION_TEXT:
+        raise ValueError("exercise tag is too long")
     text = value.strip().casefold()
     if not text:
         raise ValueError("exercise tag must not be empty")
+    if len(text) > _MAX_DEFINITION_TEXT:
+        raise ValueError("exercise tag is too long")
     return text
