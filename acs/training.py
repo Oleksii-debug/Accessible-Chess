@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from itertools import islice
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping
@@ -78,7 +79,9 @@ class ExerciseStep:
         if count > _MAX_ACCEPTED_MOVES_PER_STEP:
             raise ValueError("exercise step has too many accepted moves")
         try:
-            authored_moves = tuple(self.accepted_moves)
+            authored_moves = tuple(
+                islice(iter(self.accepted_moves), _MAX_ACCEPTED_MOVES_PER_STEP + 1)
+            )
         except TypeError as exc:
             raise TypeError("exercise accepted_moves must be a finite collection") from exc
         if len(authored_moves) != count:
@@ -127,13 +130,19 @@ class ExerciseDefinition:
         # Position syntax and legality belong to the shared canonical chess core.
         Board(start_fen)
         try:
-            steps = tuple(self.steps)
+            step_count = len(self.steps)
         except TypeError as exc:
             raise TypeError("exercise steps must be a finite collection") from exc
-        if not steps:
+        if step_count < 1:
             raise ValueError("exercise requires at least one step")
-        if len(steps) > _MAX_EXERCISE_STEPS:
+        if step_count > _MAX_EXERCISE_STEPS:
             raise ValueError("exercise has too many steps")
+        try:
+            steps = tuple(islice(iter(self.steps), _MAX_EXERCISE_STEPS + 1))
+        except TypeError as exc:
+            raise TypeError("exercise steps must be a finite collection") from exc
+        if len(steps) != step_count:
+            raise ValueError("exercise steps changed while being read")
         if any(not isinstance(step, ExerciseStep) for step in steps):
             raise TypeError("exercise steps must contain ExerciseStep values")
         if type(self.title) is not str:
@@ -143,11 +152,17 @@ class ExerciseDefinition:
         if isinstance(self.tags, str):
             raise TypeError("exercise tags must be a collection of strings")
         try:
-            tags = tuple(self.tags)
+            tag_count = len(self.tags)
         except TypeError as exc:
-            raise TypeError("exercise tags must be a collection of strings") from exc
-        if len(tags) > _MAX_DEFINITION_TAGS:
+            raise TypeError("exercise tags must be a finite collection of strings") from exc
+        if tag_count > _MAX_DEFINITION_TAGS:
             raise ValueError("exercise has too many tags")
+        try:
+            tags = tuple(islice(iter(self.tags), _MAX_DEFINITION_TAGS + 1))
+        except TypeError as exc:
+            raise TypeError("exercise tags must be a finite collection of strings") from exc
+        if len(tags) != tag_count:
+            raise ValueError("exercise tags changed while being read")
         if self.source_id is not None and type(self.source_id) is not str:
             raise TypeError("exercise source_id must be a string or None")
         if self.source_id is not None and len(self.source_id) > _MAX_IDENTITY_TEXT:
@@ -155,16 +170,32 @@ class ExerciseDefinition:
         if not isinstance(self.metadata, Mapping):
             raise TypeError("exercise metadata must map strings to strings")
         try:
-            metadata = dict(self.metadata)
+            metadata_count = len(self.metadata)
         except Exception as exc:
             raise TypeError("exercise metadata must map strings to strings") from exc
-        if len(metadata) > _MAX_METADATA_ENTRIES:
+        if metadata_count > _MAX_METADATA_ENTRIES:
             raise ValueError("exercise metadata has too many entries")
-        if any(
-            type(key) is not str or type(value) is not str
-            for key, value in metadata.items()
-        ):
+        try:
+            metadata_keys = tuple(
+                islice(iter(self.metadata), _MAX_METADATA_ENTRIES + 1)
+            )
+        except Exception as exc:
+            raise TypeError("exercise metadata must map strings to strings") from exc
+        if len(metadata_keys) != metadata_count:
+            raise ValueError("exercise metadata changed while being read")
+        if any(type(key) is not str for key in metadata_keys):
             raise TypeError("exercise metadata must map strings to strings")
+        metadata: dict[str, str] = {}
+        try:
+            for key in metadata_keys:
+                value = self.metadata[key]
+                if type(value) is not str:
+                    raise TypeError("exercise metadata must map strings to strings")
+                metadata[key] = value
+        except TypeError:
+            raise
+        except Exception as exc:
+            raise TypeError("exercise metadata must map strings to strings") from exc
         if any(
             len(key) > _MAX_IDENTITY_TEXT or len(value) > _MAX_IDENTITY_TEXT
             for key, value in metadata.items()
