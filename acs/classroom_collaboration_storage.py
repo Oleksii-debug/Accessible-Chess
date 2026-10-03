@@ -1764,6 +1764,42 @@ class ClassroomCollaborationSQLiteStore:
             result = db.execute("PRAGMA integrity_check").fetchone()[0]
             if result != "ok":
                 raise CollaborationStorageError(f"sqlite integrity check failed: {result}")
+
+            schema = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()
+            if (
+                schema is None
+                or _stored_integer(schema["value"], "schema version")
+                != SCHEMA_VERSION
+            ):
+                raise CollaborationStorageError(
+                    "collaboration schema version is not current"
+                )
+
+            for row in db.execute("SELECT * FROM collaboration_messages"):
+                self._message_from_row(row)
+            for row in db.execute("SELECT * FROM collaboration_attachments"):
+                self._attachment_from_row(row)
+            for table, label in (
+                ("collaboration_chat_state_cursors", "chat state revision"),
+                (
+                    "collaboration_attachment_state_cursors",
+                    "attachment state revision",
+                ),
+            ):
+                for cursor in db.execute(
+                    f"SELECT room_id, revision FROM {table}"
+                ):
+                    try:
+                        _canonical_id(cursor["room_id"], "state cursor room id")
+                    except ValueError as error:
+                        raise CollaborationStorageError(
+                            "stored state cursor room id is invalid"
+                        ) from error
+                    _stored_integer(cursor["revision"], label)
+
             for deletion in db.execute(
                 """
                 SELECT room_id, attachment_id, object_key
