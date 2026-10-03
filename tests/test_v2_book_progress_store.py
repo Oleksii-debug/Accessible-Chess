@@ -399,7 +399,7 @@ class BookProgressStoreTests(unittest.TestCase):
         self.path.parent.mkdir(parents=True)
         owned = (
             self.path.parent / ".book-progress.json.abcd_123.tmp",
-            self.path.parent / ".book-progress.json.bak.xy_987.tmp",
+            self.path.parent / ".book-progress.json.bak.xy_987ab.tmp",
         )
         for path in owned:
             path.write_bytes(b"stale-owned-temp")
@@ -408,9 +408,12 @@ class BookProgressStoreTests(unittest.TestCase):
             self.path.parent / ".book-progress.json.bad.token.tmp",
             self.path.parent / ".book-progress.json.bad-token.tmp",
             self.path.parent / ".book-progress.json..tmp",
+            self.path.parent / ".book-progress.json.a.tmp",
+            self.path.parent / ".book-progress.json.abcdefghi.tmp",
             self.path.parent / "book-progress.json.abcd_123.tmp",
             self.path.parent / ".book-progress.json.abcd_123.tmp.keep",
             self.path.parent / ".book-progress.json.bak.bad.token.tmp",
+            self.path.parent / ".book-progress.json.bak.xy_987.tmp",
         )
         for path in user_files:
             path.write_bytes(b"user-data")
