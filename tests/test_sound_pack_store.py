@@ -509,6 +509,27 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
 
             self.assertFalse(store.root.exists())
 
+    def test_invalid_download_and_uninstall_id_do_not_materialize_mutation_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            stage = Path(downloaded.payload_ref)
+            (stage / "undeclared.wav").write_bytes(_wav(b"z"))
+
+            with self.assertRaisesRegex(SoundPackStoreError, "topology"):
+                store.install_atomically(downloaded)
+
+            self.assertFalse(store._mutation_lock_path.exists())
+            self.assertFalse(store.root.exists())
+
+            with self.assertRaises(ValueError):
+                store.uninstall("../../escape")
+
+            self.assertFalse(store._mutation_lock_path.exists())
+            self.assertFalse(store.root.exists())
+
     def test_undeclared_staged_payload_is_rejected_before_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
