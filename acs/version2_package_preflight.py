@@ -129,6 +129,9 @@ _LIVEKIT_CLIENT_INTEGRITY = (
 _LIVEKIT_CLIENT_BUNDLE_SHA256 = (
     "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d"
 )
+_LIVEKIT_CLIENT_NOTICE_SHA256 = (
+    "8838e252d2ca1151ac60c9742c2c110ccf85b46f7dbf1ad59fa841c43bf9fe27"
+)
 _REQUIRED_LIVEKIT_BUNDLE = "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
 _REQUIRED_LIVEKIT_LICENSE = "AccessibleChess/web/vendor/livekit/LICENSE"
 _REQUIRED_LIVEKIT_NOTICE = "AccessibleChess/web/vendor/livekit/NOTICE"
@@ -994,6 +997,8 @@ def _validate_livekit_client_package(
             _fail(f"LiveKit client provenance {name} does not match pinned release")
     if provenance.get("bundle_sha256") != _LIVEKIT_CLIENT_BUNDLE_SHA256:
         _fail("LiveKit client provenance bundle_sha256 does not match pinned release")
+    if provenance.get("notice_sha256") != _LIVEKIT_CLIENT_NOTICE_SHA256:
+        _fail("LiveKit client provenance notice_sha256 does not match pinned release")
 
     for name, actual_digest in (
         ("bundle_sha256", bundle_digest),
