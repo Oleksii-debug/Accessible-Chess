@@ -1472,6 +1472,67 @@ async function run() {
     "position-like Book kind without position did not fail closed accessibly"
   );
 
+  const oversizedActionLabelRoot = new FakeElement("div");
+  const oversizedActionLabelAnnouncements = [];
+  const oversizedActionLabelSnapshot = bookSnapshot(38, "Oversized action label");
+  oversizedActionLabelSnapshot.actions[1].label = "x".repeat(121);
+  window.AccessibleChessBookSurface.render(
+    oversizedActionLabelRoot,
+    bookSnapshot(38, "Stable action label"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: oversizedActionLabelSnapshot,
+        focus_target: "book-block-38"
+      }
+    }),
+    (message) => oversizedActionLabelAnnouncements.push(String(message)),
+    "book-block-38",
+    "Action label failed"
+  );
+  const oversizedActionLabelBefore =
+    oversizedActionLabelRoot.querySelector("#book-block-38");
+  find(oversizedActionLabelRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedActionLabelRoot.querySelector("#book-block-38") ===
+      oversizedActionLabelBefore,
+    "oversized action label replaced the stable Book render"
+  );
+  check(
+    oversizedActionLabelAnnouncements.length === 1 &&
+      oversizedActionLabelAnnouncements[0] === "Action label failed",
+    "oversized action label did not fail closed accessibly"
+  );
+
+  const oversizedErrorRoot = new FakeElement("div");
+  const oversizedErrorAnnouncements = [];
+  window.AccessibleChessBookSurface.render(
+    oversizedErrorRoot,
+    bookSnapshot(39, "Stable error boundary"),
+    () => ({
+      kind: "error",
+      payload: { message: "x".repeat(1001) }
+    }),
+    (message) => oversizedErrorAnnouncements.push(String(message)),
+    "book-block-39",
+    "Error message failed"
+  );
+  const oversizedErrorBefore = oversizedErrorRoot.querySelector("#book-block-39");
+  find(oversizedErrorRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedErrorRoot.querySelector("#book-block-39") === oversizedErrorBefore,
+    "oversized Book error message mutated the stable render"
+  );
+  check(
+    oversizedErrorAnnouncements.length === 1 &&
+      oversizedErrorAnnouncements[0] === "Error message failed",
+    "oversized Book error message did not fail closed accessibly"
+  );
+
   console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
 
