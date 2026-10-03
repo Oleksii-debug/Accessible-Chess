@@ -737,6 +737,27 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertTrue(swapped)
 
     @unittest.skipIf(
+        os.name == "nt",
+        "ordinary Windows runners cannot reliably create symlinks",
+    )
+    def test_uninstall_removes_dangling_pack_symlink_without_following(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.root.mkdir()
+            pack_dir = store.root / "broken.pack"
+            missing_target = root / "missing-target"
+            pack_dir.symlink_to(missing_target, target_is_directory=True)
+
+            self.assertTrue(os.path.lexists(pack_dir))
+            self.assertFalse(pack_dir.exists())
+
+            store.uninstall("broken.pack")
+
+            self.assertFalse(os.path.lexists(pack_dir))
+            self.assertFalse(missing_target.exists())
+
+    @unittest.skipIf(
         __import__("os").name == "nt",
         "ordinary Windows test runners cannot create symlinks reliably",
     )
