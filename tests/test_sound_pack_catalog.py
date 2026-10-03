@@ -98,6 +98,33 @@ class SoundPackCatalogTests(unittest.TestCase):
                 "0" * 64,
             )
 
+    def test_catalog_and_download_digest_mappings_are_defensive_snapshots(self):
+        entry = make_entry()
+        source_assets = dict(entry.assets)
+        copied_entry = SoundPackCatalogEntry(
+            manifest=entry.manifest,
+            assets=source_assets,
+            total_bytes=entry.total_bytes,
+        )
+        source_assets.clear()
+
+        self.assertEqual(set(entry.assets), set(copied_entry.assets))
+        with self.assertRaises(TypeError):
+            copied_entry.assets["x.wav"] = next(iter(entry.assets.values()))  # type: ignore[index]
+
+        download_assets = dict(entry.assets)
+        downloaded = DownloadedSoundPack(
+            manifest=entry.manifest,
+            assets=download_assets,
+            total_bytes=entry.total_bytes,
+            payload_ref=object(),
+        )
+        download_assets.clear()
+
+        self.assertEqual(set(entry.assets), set(downloaded.assets))
+        with self.assertRaises(TypeError):
+            downloaded.assets["x.wav"] = next(iter(entry.assets.values()))  # type: ignore[index]
+
     def test_valid_pack_is_verified_before_atomic_install(self):
         entry = make_entry()
         downloaded = make_download(entry)
