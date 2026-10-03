@@ -96,12 +96,17 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         start = html.index(marker)
         end = html.index("el('move-submit').addEventListener", start)
         handler = html[start:end]
-        editable_guard = "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
+        editing_probe = "editing=['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)"
+        global_resolve = "resolveBinding(chord,'global','document')"
+        editable_guard = "if(editing){if(a&&a.actionId==='screen.help'){e.preventDefault();executeAction(a.actionId)}return}"
         binding_resolve = "resolveBinding(chord,'analysis','analysis')"
         mapped_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
+        self.assertIn(editing_probe, handler)
+        self.assertIn(global_resolve, handler)
         self.assertIn(editable_guard, handler)
         self.assertIn(binding_resolve, handler)
         self.assertIn(mapped_prevent_default, handler)
+        self.assertLess(handler.index(global_resolve), handler.index(editable_guard))
         self.assertLess(handler.index(editable_guard), handler.index(binding_resolve))
         self.assertLess(handler.index(editable_guard), handler.index(mapped_prevent_default))
 
