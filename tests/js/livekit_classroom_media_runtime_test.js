@@ -600,6 +600,73 @@ async function testCleanProviderRebindRefreshesConfiguration() {
   );
 }
 
+async function testProviderRebindRejectsResidualDisconnectedState() {
+  const residualCases = [
+    { label: "stale room identity", mutation: { room_id: "stale-room" } },
+    { label: "stale participant identity", mutation: { participant_id: "stale-participant" } },
+    { label: "stale microphone publication", mutation: { microphone_enabled: true } },
+    { label: "stale camera publication", mutation: { camera_enabled: true } },
+    { label: "stale screen-share publication", mutation: { screen_share_enabled: true } },
+    { label: "snapshot contract drift", mutation: { unexpected_state: true } }
+  ];
+
+  for (const testCase of residualCases) {
+    RecordingAdapter.instances.length = 0;
+    const runtime = loadRuntime(RecordingAdapter);
+    const firstTx = "host-" + "c".repeat(32);
+    const secondTx = "host-" + "d".repeat(32);
+    let configCalls = 0;
+    const retired = [];
+    const providerDispatches = [];
+
+    async function invoke(command, payload) {
+      if (command === "media.provider_config") {
+        configCalls += 1;
+        return configCalls === 1
+          ? configResult("wss://media-a.example.test", "moderation-a")
+          : configResult("wss://media-b.example.test", "moderation-b");
+      }
+      if (command === "media.provider_dispatched") {
+        providerDispatches.push(payload.transaction_id);
+        return {
+          kind: "provider-ready",
+          payload: { transaction_id: payload.transaction_id }
+        };
+      }
+      if (command === "media.provider_effect_success") {
+        return { kind: "media-updated", payload: { snapshot: {} } };
+      }
+      if (command === "media.provider_not_started") {
+        retired.push(payload.transaction_id);
+        return { kind: "error", payload: { message: "sanitized" } };
+      }
+      throw new Error("unexpected command " + command);
+    }
+
+    const first = dispatch(firstTx, {
+      transaction_id: firstTx,
+      operation: "set_local_source",
+      source: "camera",
+      enabled: false
+    }, false);
+    const second = dispatch(secondTx, {
+      transaction_id: secondTx,
+      operation: "set_local_source",
+      source: "camera",
+      enabled: false
+    }, false);
+
+    assert.equal((await runtime.execute(first, invoke)).kind, "media-updated", testCase.label);
+    Object.assign(RecordingAdapter.instances[0]._snapshot, testCase.mutation);
+
+    const result = await runtime.execute(second, invoke);
+    assert.equal(result.kind, "error", testCase.label);
+    assert.deepEqual(retired, [secondTx], testCase.label);
+    assert.deepEqual(providerDispatches, [firstTx], testCase.label);
+    assert.equal(RecordingAdapter.instances.length, 1, testCase.label);
+  }
+}
+
 async function testProviderRebindCannotRetargetConnectedAdapter() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -678,6 +745,7 @@ async function run() {
   await testCrossedTransactionConfigurationLossRequiresRecovery();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
   await testCleanProviderRebindRefreshesConfiguration();
+  await testProviderRebindRejectsResidualDisconnectedState();
   await testProviderRebindCannotRetargetConnectedAdapter();
   console.log("LIVEKIT_CLASSROOM_MEDIA_TRANSACTION_RUNTIME=PASS");
 }
