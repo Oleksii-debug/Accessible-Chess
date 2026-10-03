@@ -52,8 +52,8 @@ jobs:
             'tests/js/library_keyboard_boundary_dom_test.js' \
             'web/full_product_library.js' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:web/full_product_library.js)" = "cfcd9f15ab69be0bd175cbc68956d9c206020677"
-          test "$(git rev-parse HEAD:tests/js/library_keyboard_boundary_dom_test.js)" = "cc6e5bfa4059d612434f4b37b791a7f09131705a"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "2e387b68e2dd2ef2dc22a0cc0e619452219627f8"
+          test "$(git rev-parse HEAD:tests/js/library_keyboard_boundary_dom_test.js)" = "90540c3d5c4e32637f180a886d47624f3c8ae51a"
           git diff --check "$live_parent" HEAD
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
