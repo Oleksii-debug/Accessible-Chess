@@ -201,6 +201,7 @@ class Version2Application:
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self._focus = self.shell.open_route("books")
+        self._repair_book_block_focus_after_rebind()
         warning_count = len(imported.warnings)
         if warning_count:
             announcement = (
@@ -271,7 +272,9 @@ class Version2Application:
         if self.shell.current_route.route_id != "books":
             return
         remembered = self.shell.restore_focus_target()
-        if type(remembered) is not str or not remembered.startswith("book-block-"):
+        if type(remembered) is not str:
+            return
+        if remembered != "book-reader" and not remembered.startswith("book-block-"):
             return
         canonical = f"book-block-{self.reader.index}"
         if remembered == canonical:
@@ -919,6 +922,7 @@ class Version2Application:
                     # Synchronize before another keyboard/native action can
                     # reuse the previous route's focus token.
                     self._focus = self.shell.restore_focus_target()
+                    self._repair_book_block_focus_after_rebind()
                 return asdict(value)
             if area == "training":
                 try:
@@ -992,6 +996,7 @@ class Version2Application:
             # reaches this application boundary. Bind the application token to
             # the exact new route focus before another native action can arrive.
             self._focus = self.shell.restore_focus_target()
+            self._repair_book_block_focus_after_rebind()
         event = asdict(value)
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
