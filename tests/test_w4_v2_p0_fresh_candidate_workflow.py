@@ -172,6 +172,16 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             "PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK_VERIFY_FAILURE",
             between,
         )
+        payload_call = self.text[
+            prepare_call:self.text.index(
+                "destination = prepared.product_dir",
+                prepare_call,
+            )
+        ]
+        self.assertIn(
+            "livekit_client_archive=Path('release-inputs/livekit-client.tgz')",
+            payload_call,
+        )
 
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
