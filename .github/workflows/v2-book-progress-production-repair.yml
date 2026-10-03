@@ -181,10 +181,13 @@ jobs:
              && [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
             latest_parent='eb23bdc5ea0e2914a7f742697b20d32edd78a950'
             focus_parent='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
+            ingress_focus_parent='5c673511721185d7b6e32e7c42e2709eee90ddf0'
             test "$PR_BASE_SHA" = "$latest_parent"
             git cat-file -e "$focus_parent^{commit}"
+            git cat-file -e "$ingress_focus_parent^{commit}"
             git merge-base --is-ancestor "$latest_parent" HEAD
             git merge-base --is-ancestor "$focus_parent" HEAD
+            git merge-base --is-ancestor "$ingress_focus_parent" HEAD
             convergence_changed="$(git diff --name-only "$latest_parent" HEAD | sort)"
             convergence_expected="$(printf '%s\n' \
               '.github/workflows/books-durability-navigation-focus-convergence.yml' \
