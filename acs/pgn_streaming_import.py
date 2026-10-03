@@ -342,6 +342,81 @@ def _normalize_decoded_newlines(text: str, carry_cr: bool) -> tuple[str, bool]:
     return text.replace("\r\n", "\n").replace("\r", "\n"), next_carry
 
 
+_WINDOWS_1251_PGN_HEADER_ANCHORS = (
+    b"[event",
+    b"[site",
+    b"[date",
+    b"[round",
+    b"[white",
+    b"[black",
+    b"[result",
+    b"[fen",
+    b"[setup",
+)
+_WINDOWS_1251_CYRILLIC_BYTES = frozenset((*range(0xC0, 0x100), 0xA8, 0xB8))
+
+
+def _looks_like_windows_1251_pgn(
+    source: SourceFingerprint,
+    *,
+    expected_identity: tuple[int, int],
+    chunk_size: int,
+    cancel_check: CancelCheck | None,
+    accepted_games: int,
+) -> bool:
+    """Recognize a real legacy Cyrillic PGN before attempting cp1251 decode.
+
+    Fallback is deliberately evidence-gated.  A random invalid UTF-8 byte must
+    remain INVALID_ENCODING rather than being silently reinterpreted as a
+    legacy code page.  The source must still be the exact bound regular file,
+    contain an ASCII PGN tag anchor, contain a run of at least two Windows-1251
+    Cyrillic letters, and contain no NUL bytes.
+    """
+
+    fd = _open_bound_source_fd(
+        source,
+        expected_identity=expected_identity,
+        chunk_size=chunk_size,
+        accepted_games=accepted_games,
+    )
+    saw_header = False
+    saw_cyrillic_run = False
+    previous_cyrillic = False
+    bytes_read = 0
+    tail = b""
+    try:
+        while True:
+            _poll_cancel(cancel_check, accepted_games=accepted_games)
+            chunk = os.read(fd, chunk_size)
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            if bytes_read > source.size:
+                raise StreamingPgnImportError(
+                    "PGN source changed during encoding detection",
+                    code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                    accepted_games=accepted_games,
+                )
+            if b"\x00" in chunk:
+                return False
+
+            probe = (tail + chunk).lower()
+            if any(anchor in probe for anchor in _WINDOWS_1251_PGN_HEADER_ANCHORS):
+                saw_header = True
+            tail = probe[-16:]
+
+            for value in chunk:
+                current_cyrillic = value in _WINDOWS_1251_CYRILLIC_BYTES
+                if current_cyrillic and previous_cyrillic:
+                    saw_cyrillic_run = True
+                previous_cyrillic = current_cyrillic
+            if saw_header and saw_cyrillic_run:
+                return True
+        return saw_header and saw_cyrillic_run
+    finally:
+        os.close(fd)
+
+
 def _semantic_failure(exc: PgnRoundTripError) -> _ParseFailure:
     return _ParseFailure(
         code=f"pgn_{exc.code.value}",
@@ -541,7 +616,34 @@ class StreamingPgnLibraryImporter:
                 limits=limits,
                 cancel_check=cancel_check,
                 progress_callback=progress_callback,
+                encoding="utf-8-sig",
             )
+            if (
+                failure is not None
+                and failure.code == "pgn_invalid_encoding"
+                and _looks_like_windows_1251_pgn(
+                    source,
+                    expected_identity=expected_identity,
+                    chunk_size=limits.read_chunk_bytes,
+                    cancel_check=cancel_check,
+                    accepted_games=len(spool),
+                )
+            ):
+                replacement = _CanonicalGameSpool(
+                    max_bytes=limits.max_spool_bytes,
+                    cancel_check=cancel_check,
+                )
+                spool.close()
+                spool = replacement
+                failure = self._stream_source(
+                    source,
+                    spool,
+                    expected_identity=expected_identity,
+                    limits=limits,
+                    cancel_check=cancel_check,
+                    progress_callback=progress_callback,
+                    encoding="cp1251",
+                )
             accepted_games = len(spool)
             if accepted_games < 1:
                 if failure is not None:
@@ -663,8 +765,11 @@ class StreamingPgnLibraryImporter:
         limits: StreamingPgnLimits,
         cancel_check: CancelCheck | None,
         progress_callback: ProgressCallback | None,
+        encoding: str,
     ) -> _ParseFailure | None:
-        decoder = codecs.getincrementaldecoder("utf-8-sig")("strict")
+        if encoding not in {"utf-8-sig", "cp1251"}:
+            raise AssertionError("unsupported internal PGN decoder")
+        decoder = codecs.getincrementaldecoder(encoding)("strict")
         framer = CanonicalPgnGameFramer(max_frame_bytes=limits.max_game_bytes)
         source_budget = limits.source_budget()
         digest = hashlib.sha256()
@@ -757,7 +862,7 @@ class StreamingPgnLibraryImporter:
                     except UnicodeDecodeError as exc:
                         return _ParseFailure(
                             code="pgn_invalid_encoding",
-                            public_message="PGN source is not valid UTF-8 text",
+                            public_message="PGN source uses an unsupported or invalid text encoding",
                         )
                     try:
                         source_budget.claim_text_chars(len(decoded))
@@ -796,7 +901,7 @@ class StreamingPgnLibraryImporter:
                 except UnicodeDecodeError:
                     return _ParseFailure(
                         code="pgn_invalid_encoding",
-                        public_message="PGN source is not valid UTF-8 text",
+                        public_message="PGN source uses an unsupported or invalid text encoding",
                     )
                 try:
                     source_budget.claim_text_chars(len(decoded))
