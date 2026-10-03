@@ -434,7 +434,14 @@ class SoundPackManager:
             installed[pack_id] = manifest
         return installed
 
-    def install(self, entry: SoundPackCatalogEntry) -> SoundPackManifest:
+    def preflight_install(
+        self,
+        entry: SoundPackCatalogEntry,
+    ) -> SoundPackManifest | None:
+        """Validate install/update policy without downloader or storage mutation."""
+
+        if not isinstance(entry, SoundPackCatalogEntry):
+            raise TypeError("entry must be SoundPackCatalogEntry")
         if not entry.compatible:
             raise SoundPackInstallError("sound pack is incompatible with this application")
         if entry.rights_evidence is None:
@@ -445,8 +452,6 @@ class SoundPackManager:
             raise SoundPackInstallError("sound pack exceeds the configured size limit")
         current = self._installed_manifests().get(entry.manifest.pack_id)
         if current is not None:
-            if not isinstance(current, SoundPackManifest):
-                raise SoundPackInstallError("installed sound pack metadata is invalid")
             if current.version == entry.manifest.version:
                 if current != entry.manifest:
                     raise SoundPackInstallError(
@@ -461,6 +466,10 @@ class SoundPackManager:
                 raise SoundPackInstallError(
                     "sound pack catalog version is older than the installed version"
                 )
+        return current
+
+    def install(self, entry: SoundPackCatalogEntry) -> SoundPackManifest:
+        self.preflight_install(entry)
 
         downloaded = self._downloader.download(entry, max_bytes=self._max_bytes)
         self._validate_download(entry, downloaded)
