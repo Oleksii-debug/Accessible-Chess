@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMetadata
 from .classroom_collaboration_webview import ClassroomCollaborationWebView
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
@@ -299,6 +300,30 @@ class Version2FinalProductApplication(Version2Application):
         if collaboration is not None:
             collaboration.retire_browser_session()
         self.collaboration = None
+
+    def receive_classroom_chat(
+        self,
+        message: ChatMessageMetadata,
+    ) -> dict[str, object]:
+        """Accept one trusted live chat delivery through the bound collaboration core."""
+
+        self._assert_thread()
+        collaboration = self.collaboration
+        if collaboration is None:
+            raise RuntimeError("Classroom collaboration is not bound")
+        return asdict(collaboration.receive_chat(message))
+
+    def receive_classroom_file(
+        self,
+        attachment: AttachmentMetadata,
+    ) -> dict[str, object]:
+        """Accept one trusted live file delivery through the bound collaboration core."""
+
+        self._assert_thread()
+        collaboration = self.collaboration
+        if collaboration is None:
+            raise RuntimeError("Classroom collaboration is not bound")
+        return asdict(collaboration.receive_file(attachment))
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
