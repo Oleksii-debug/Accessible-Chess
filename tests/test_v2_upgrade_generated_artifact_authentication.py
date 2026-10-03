@@ -627,6 +627,7 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
                 self.skipTest("hard-link creation is unavailable on this runner")
 
             coordinator = self._coordinator(root)
+            coordinator._ensure_roots()
             files = {
                 path.relative_to(root).as_posix()
                 for path in coordinator._files()
