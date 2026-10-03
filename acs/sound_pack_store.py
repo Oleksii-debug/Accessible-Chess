@@ -656,6 +656,12 @@ class FilesystemSoundPackStore:
                 os.fsync(stream.fileno())
             os.replace(temp_path, pack_dir / _ACTIVE_NAME)
             temp_path = None
+            _fsync_directory(pack_dir)
+            observed = FilesystemSoundPackStore._read_active(pack_dir)
+            if observed != (pack_id, version):
+                raise SoundPackStoreError(
+                    "sound pack active pointer readback did not match publication"
+                )
         except OSError as exc:
             raise SoundPackStoreError(
                 "sound pack active pointer could not be published atomically"
