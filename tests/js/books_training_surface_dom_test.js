@@ -506,6 +506,24 @@ async function run() {
       message + " must preserve focus");
   }
 
+  const nulTrainingMessage = trainingSnapshot();
+  nulTrainingMessage.message = "Unsafe\u0000message";
+  expectTrainingRenderRejected(
+    nulTrainingMessage,
+    "training-answer",
+    [],
+    "NUL Training message"
+  );
+
+  const nulTrainingHeading = trainingSnapshot();
+  nulTrainingHeading.heading = "Unsafe\u0000heading";
+  expectTrainingRenderRejected(
+    nulTrainingHeading,
+    "training-answer",
+    [],
+    "NUL Training heading"
+  );
+
   const malformedTrainingAnswerLength = trainingSnapshot();
   malformedTrainingAnswerLength.answer.max_length = "128";
   expectTrainingRenderRejected(
@@ -1396,6 +1414,73 @@ async function run() {
   const controlsReplaceCount = bookRoot.replaceChildrenCalls;
   const controlsFocus = document.activeElement;
 
+  function expectBookRenderRejected(snapshot, message) {
+    let rejected = false;
+    try {
+      window.AccessibleChessBookSurface.render(
+        bookRoot, snapshot, bookInvoke, announce, "book-block-3", "Action failed"
+      );
+    } catch (error) {
+      rejected = true;
+    }
+    check(rejected, message + " must fail closed");
+    check(
+      bookRoot.replaceChildrenCalls === controlsReplaceCount,
+      message + " must preserve prior readable DOM"
+    );
+    check(document.activeElement === controlsFocus,
+      message + " must preserve reading focus");
+  }
+
+  const nulBookTitle = bookSnapshot(3, "NUL title");
+  nulBookTitle.block.title = "Unsafe\u0000title";
+  expectBookRenderRejected(nulBookTitle, "NUL Book block title");
+
+  const oversizedBookText = bookSnapshot(3, "Oversized block text");
+  oversizedBookText.block.text = "x".repeat((12 * 1024 * 1024) + 1);
+  expectBookRenderRejected(oversizedBookText, "oversized Book block text");
+
+  const oversizedBookWarning = bookSnapshot(3, "Oversized warning");
+  oversizedBookWarning.block.warning = "w".repeat(1001);
+  expectBookRenderRejected(oversizedBookWarning, "oversized Book warning");
+
+  const deepBookHeadingPath = bookSnapshot(3, "Deep heading path");
+  deepBookHeadingPath.block.heading_path = new Array(257).fill("Heading");
+  deepBookHeadingPath.block.heading_path_label = "Heading path";
+  expectBookRenderRejected(deepBookHeadingPath, "over-deep Book heading path");
+
+  const nulBookHeadingPath = bookSnapshot(3, "NUL heading path");
+  nulBookHeadingPath.block.heading_path = ["Safe", "Unsafe\u0000heading"];
+  nulBookHeadingPath.block.heading_path_label = "Heading path";
+  expectBookRenderRejected(nulBookHeadingPath, "NUL Book heading path");
+
+  const excessiveBookList = bookSnapshot(3, "Excessive list");
+  excessiveBookList.block.role = "list";
+  excessiveBookList.block.list = {
+    ordered: false,
+    start: null,
+    items: new Array(10001).fill("item")
+  };
+  expectBookRenderRejected(excessiveBookList, "excessive Book list item count");
+
+  const oversizedBookList = bookSnapshot(3, "Oversized list text");
+  oversizedBookList.block.role = "list";
+  oversizedBookList.block.list = {
+    ordered: false,
+    start: null,
+    items: [
+      "a".repeat((6 * 1024 * 1024) + 1),
+      "b".repeat((6 * 1024 * 1024) + 1)
+    ]
+  };
+  expectBookRenderRejected(oversizedBookList, "oversized Book list visible text");
+
+  const nulStarterDescription = withStarterMaterials(
+    bookSnapshot(3, "NUL starter description"), "starter-course"
+  );
+  nulStarterDescription.starter_materials.description = "Unsafe\u0000description";
+  expectBookRenderRejected(nulStarterDescription, "NUL starter material description");
+
   const unknownBookAction = bookSnapshot(3, "Malformed action");
   unknownBookAction.actions[0].command = "book.raw_fen";
   let unknownBookActionRejected = false;
@@ -1653,6 +1738,27 @@ async function run() {
     "malformed semantic render must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic render must not steal reading focus");
+
+  const nulSemanticText = semanticGameSnapshot();
+  nulSemanticText.block.semantic_tree.items[0].label = "1. e4\u0000";
+  let nulSemanticRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      nulSemanticText,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    nulSemanticRejected = true;
+  }
+  check(nulSemanticRejected, "NUL semantic text must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "NUL semantic text must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "NUL semantic text must not steal reading focus");
 
   const malformedItems = semanticGameSnapshot();
   malformedItems.block.semantic_tree.items = {};
