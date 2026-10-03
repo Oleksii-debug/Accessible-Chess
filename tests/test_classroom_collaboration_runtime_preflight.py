@@ -176,6 +176,19 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
                     )
                 self.assert_no_persistence_or_credentials(path)
 
+    def test_sqlite_memory_store_is_rejected_as_non_durable(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "durable filesystem storage",
+        ):
+            self.build(
+                roster=FakeRoster(),
+                path=Path(":memory:"),
+            )
+
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
     def test_invalid_store_location_fails_before_transport_or_persistence(self) -> None:
         directory_path = self.root / "store-directory"
         directory_path.mkdir()
