@@ -124,6 +124,74 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             adapter.play_sound(request)
         return fake
 
+    def test_custom_pack_missing_default_semantic_id_falls_back_to_same_classic_event(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-custom-fallback-") as raw:
+            root = Path(raw)
+            resolver, store, adapter = self._adapter(root)
+            request = SoundAssetRequest(
+                pack_id="legacy.pack",
+                event_id="move",
+                sound_id="move",
+                volume=100,
+                preview=False,
+            )
+
+            with (
+                mock.patch.object(
+                    store,
+                    "installed_manifest",
+                    return_value=SimpleNamespace(files={}),
+                ),
+                mock.patch.object(store, "read_asset_snapshot") as snapshot,
+            ):
+                source, key = adapter._resolve(request)
+
+            self.assertEqual(resolver.resolve(SoundEvent.MOVE), source)
+            self.assertEqual("classic-fallback-move", key)
+            snapshot.assert_not_called()
+
+    def test_custom_pack_missing_explicit_remap_never_falls_back_to_classic(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-custom-remap-missing-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            request = SoundAssetRequest(
+                pack_id="legacy.pack",
+                event_id="move",
+                sound_id="alternate.move",
+                volume=100,
+                preview=False,
+            )
+
+            with mock.patch.object(
+                store,
+                "installed_manifest",
+                return_value=SimpleNamespace(files={}),
+            ), self.assertRaises(FileNotFoundError):
+                adapter._resolve(request)
+
+    def test_declared_custom_asset_integrity_failure_never_falls_back_to_classic(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-custom-corrupt-") as raw:
+            root = Path(raw)
+            _resolver, store, adapter = self._adapter(root)
+            request = SoundAssetRequest(
+                pack_id="legacy.pack",
+                event_id="move",
+                sound_id="move",
+                volume=100,
+                preview=False,
+            )
+
+            with (
+                mock.patch.object(
+                    store,
+                    "installed_manifest",
+                    return_value=SimpleNamespace(files={"move": "audio/move.wav"}),
+                ),
+                mock.patch.object(store, "read_asset_snapshot", return_value=None),
+                self.assertRaises(FileNotFoundError),
+            ):
+                adapter._resolve(request)
+
     def test_classic_event_plays_from_content_addressed_snapshot(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-classic-") as raw:
             root = Path(raw)
