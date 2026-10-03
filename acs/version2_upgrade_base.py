@@ -33,7 +33,6 @@ _CONTROL_NAMES = {
     "profile.json.lock",
     "gametree-resume.json.lock",
     "book-progress.json.lock",
-    ".education-workspace.json.lock",
     "sound-profile.json.lock",
     "sound-packs.lock",
 }
@@ -45,6 +44,7 @@ _DERIVED_ROOT_DIRECTORIES = {
 _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
 )
+_EDUCATION_WORKSPACE_LOCK_DIRECTORY = ".education-workspace.json.lock"
 
 
 def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
@@ -1239,6 +1239,20 @@ class Version2UpgradeCoordinator:
         ):
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
+            if (
+                len(relative_path.parts) == 1
+                and relative_path.parts[0].casefold()
+                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
+            ):
+                # EducationWorkspaceStore owns this exact root directory as its
+                # live publication lock (mkdir/rmdir). Do not migrate while a
+                # peer save is active. A regular file with the same spelling is
+                # not writer control state and remains preservation-backed.
+                lock_info = _safe_stat(path, "education workspace lock")
+                if stat.S_ISDIR(lock_info.st_mode):
+                    raise Version2UpgradeBusy(
+                        "education workspace store is busy during upgrade"
+                    )
             if relative.casefold() in _CONTROL_NAME_KEYS:
                 # A canonical control *file* is writer-owned and excluded only
                 # after authenticating it as one private regular inode. A
