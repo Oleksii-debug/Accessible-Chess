@@ -55,6 +55,32 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.payload, {"action_id": "teacher.highlight"})
         self.assertEqual(calls, [("teacher.highlight", {"square": "f3"})])
 
+    def test_only_bounded_accessible_announcement_crosses_delegated_boundary(self):
+        shell = AccessibleShellState(language=UILanguage.UA)
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(
+                shell,
+                lambda _action, _payload: {
+                    "ok": True,
+                    "announcement": "Варіант 1. Глибина 18. Оцінка +0.42. e4 e5.",
+                    "path": r"C:\\private\\analysis.sqlite",
+                    "provider": {"raw": "uci debug"},
+                },
+            ),
+        )
+        command = adapter.activate_action("analysis.pv1")
+        self.assertEqual(command.kind, "delegated")
+        self.assertEqual(
+            command.payload,
+            {
+                "action_id": "analysis.pv1",
+                "announcement": "Варіант 1. Глибина 18. Оцінка +0.42. e4 e5.",
+            },
+        )
+        self.assertNotIn("private", repr(command))
+        self.assertNotIn("uci debug", repr(command))
+
     def test_domain_backend_return_value_never_crosses_into_webview(self):
         secret = r"C:\\Users\\Teacher\\private\\lesson.sqlite"
         shell = AccessibleShellState(language=UILanguage.EN)
