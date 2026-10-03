@@ -1195,6 +1195,19 @@ class ClassroomFileServerService:
             )
 
     @staticmethod
+    def _require_expected_room(
+        actual_room_id: str,
+        expected_room_id: str | None,
+    ) -> None:
+        if expected_room_id is None:
+            return
+        expected = _server_id(expected_room_id, "expected room id")
+        if actual_room_id != expected:
+            raise ClassroomFileServerError(
+                "classroom file operation crossed authenticated room"
+            )
+
+    @staticmethod
     def _validate_upload(
         caller: str,
         metadata: AttachmentMetadata,
@@ -1355,6 +1368,7 @@ class ClassroomFileServerService:
         *,
         trusted_caller_identity: str,
         attachment_id: str,
+        expected_room_id: str | None = None,
     ) -> None:
         caller = _server_id(trusted_caller_identity, "trusted caller identity")
         attachment = _server_id(attachment_id, "attachment id")
@@ -1372,6 +1386,7 @@ class ClassroomFileServerService:
                 record_room = row["room_id"]
         if record_room is None:
             return
+        self._require_expected_room(record_room, expected_room_id)
         self._authorize(
             caller=caller,
             room_id=record_room,
@@ -1434,6 +1449,7 @@ class ClassroomFileServerService:
         trusted_caller_identity: str,
         object_key: str,
         ttl_seconds: int,
+        expected_room_id: str | None = None,
     ) -> str:
         caller = _server_id(trusted_caller_identity, "trusted caller identity")
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 3600:
@@ -1447,6 +1463,7 @@ class ClassroomFileServerService:
             raise ClassroomFileServerError(
                 "attachment is not cleared for download"
             )
+        self._require_expected_room(attachment.room_id, expected_room_id)
         self._authorize(
             caller=caller,
             room_id=attachment.room_id,
@@ -1527,6 +1544,7 @@ class ClassroomFileServerService:
         *,
         trusted_caller_identity: str,
         object_key: str,
+        expected_room_id: str | None = None,
     ) -> None:
         caller = _server_id(trusted_caller_identity, "trusted caller identity")
         attachment = self._store.attachment_for_object_key(object_key)
@@ -1534,6 +1552,7 @@ class ClassroomFileServerService:
             raise ClassroomFileServerError(
                 "object deletion requires authoritative tombstone"
             )
+        self._require_expected_room(attachment.room_id, expected_room_id)
         self._authorize(
             caller=caller,
             room_id=attachment.room_id,
