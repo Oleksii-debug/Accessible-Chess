@@ -1488,7 +1488,7 @@ class FilesystemSoundPackStore:
                     if identity != child.name or identity in result:
                         continue
                     try:
-                        installed = self._installed_disk_pack_metadata(identity)
+                        installed = self._installed_disk_pack(identity)
                     except (TypeError, ValueError, SoundPackStoreError):
                         continue
                     result[identity] = installed
@@ -1593,7 +1593,7 @@ class FilesystemSoundPackStore:
         except (TypeError, ValueError):
             return SoundPackAssetLookup(False, False, None)
         try:
-            installed = self._installed_disk_pack(identity)
+            installed = self._installed_disk_pack_metadata(identity)
         except (TypeError, ValueError, SoundPackStoreError):
             return SoundPackAssetLookup(False, False, None)
 
