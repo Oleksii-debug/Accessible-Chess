@@ -89,7 +89,20 @@ NEW_GAME_IMPACT_MS = (
     4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
     6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231,
 )
-NEW_GAME_DURATION_SECONDS = 8.521723
+NEW_GAME_3D_IMPACT_MS = (
+    145, 254, 424, 549, 698, 848, 943, 1048,
+    1287, 1402, 1566, 1751, 1876, 2075, 2185, 2669,
+    3098, 3522, 3766, 4021, 4200, 4505, 5158, 5907,
+    6121, 6415, 6620, 6959, 7278, 7418, 7907, 8012,
+)
+NEW_GAME_IMPACTS_BY_VARIANT = {
+    "1": NEW_GAME_IMPACT_MS,
+    "3d": NEW_GAME_3D_IMPACT_MS,
+}
+NEW_GAME_DURATION_SECONDS_BY_VARIANT = {
+    "1": 8.521723,
+    "3d": 8.270045,
+}
 
 
 class SoundPackBuildError(RuntimeError):
@@ -286,16 +299,28 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
     (destination / "newgame_impacts.json").write_text(
         json.dumps(
             {
-                "schema_version": 1,
-                "source_file": DEFAULT_EVENT_FILES["start"],
-                "duration_seconds": NEW_GAME_DURATION_SECONDS,
-                "impact_count": len(NEW_GAME_IMPACT_MS),
-                "impacts_ms": list(NEW_GAME_IMPACT_MS),
+                "schema_version": 2,
+                "default_variant": "1",
+                "variants": {
+                    variant_id: {
+                        "source_file": next(
+                            file_name
+                            for current_id, file_name, _uk, _en
+                            in EVENT_VARIANTS["start"]
+                            if current_id == variant_id
+                        ),
+                        "duration_seconds": NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                        "impact_count": len(impacts),
+                        "impacts_ms": list(impacts),
+                    }
+                    for variant_id, impacts in NEW_GAME_IMPACTS_BY_VARIANT.items()
+                },
                 "analysis": {
                     "window_ms": 20,
                     "hop_ms": 5,
                     "threshold_percentile": 60,
                     "minimum_peak_separation_ms": 90,
+                    "three_d_selection": "32 strongest separated candidate peaks",
                 },
             },
             ensure_ascii=False,
