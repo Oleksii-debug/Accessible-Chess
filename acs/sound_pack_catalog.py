@@ -124,6 +124,29 @@ class SoundPackRightsEvidence:
             _auditable_rights_uri("license_uri", self.license_uri),
         )
 
+    def to_mapping(self) -> dict[str, str]:
+        return {
+            "license_id": self.license_id,
+            "source_uri": self.source_uri,
+            "license_uri": self.license_uri,
+        }
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> "SoundPackRightsEvidence":
+        if not isinstance(raw, Mapping) or set(raw) != {
+            "license_id",
+            "source_uri",
+            "license_uri",
+        }:
+            raise ValueError("sound pack rights evidence fields are invalid")
+        if any(type(key) is not str or type(value) is not str for key, value in raw.items()):
+            raise TypeError("sound pack rights evidence must contain text fields")
+        return cls(
+            license_id=raw["license_id"],
+            source_uri=raw["source_uri"],
+            license_uri=raw["license_uri"],
+        )
+
 
 @dataclass(frozen=True)
 class SoundPackCatalogEntry:
@@ -193,6 +216,7 @@ class DownloadedSoundPack:
     assets: Mapping[str, SoundAssetDigest]
     total_bytes: int
     payload_ref: object
+    rights_evidence: SoundPackRightsEvidence | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.manifest, SoundPackManifest):
@@ -203,6 +227,12 @@ class DownloadedSoundPack:
             raise ValueError("downloaded total_bytes cannot be negative")
         if not isinstance(self.assets, Mapping):
             raise TypeError("downloaded assets must be a mapping")
+        if self.rights_evidence is not None and not isinstance(
+            self.rights_evidence, SoundPackRightsEvidence
+        ):
+            raise TypeError(
+                "downloaded rights_evidence must be SoundPackRightsEvidence or null"
+            )
         snapshot: dict[str, SoundAssetDigest] = {}
         for path, digest in self.assets.items():
             if type(path) is not str:
@@ -373,6 +403,10 @@ class SoundPackManager:
 
         downloaded = self._downloader.download(entry, max_bytes=self._max_bytes)
         self._validate_download(entry, downloaded)
+        if downloaded.rights_evidence is not None:
+            raise SoundPackInstallError(
+                "download port must not supply sound pack rights authority"
+            )
         if entry.signature is not None:
             if self._signature_verifier is None:
                 raise SoundPackInstallError("signed sound pack requires a signature verifier")
@@ -384,8 +418,12 @@ class SoundPackManager:
             if not verified:
                 raise SoundPackInstallError("sound pack signature verification failed")
 
-        self._storage.install_atomically(downloaded)
-        return downloaded.manifest
+        committed = replace(
+            downloaded,
+            rights_evidence=entry.rights_evidence,
+        )
+        self._storage.install_atomically(committed)
+        return committed.manifest
 
     def _validate_download(
         self,
