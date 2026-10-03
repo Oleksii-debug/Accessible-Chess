@@ -26,6 +26,9 @@ class V2PgnWebViewPathPrivacyTests(unittest.TestCase):
             ("file:/C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
             ("file:C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
             ("FILE://private-server/private%20share/secret.pgn", "private-server"),
+            ("file:%2F%2F%2Fhome%2FPrivateUser%2Fsecret.pgn", "PrivateUser"),
+            ("file:%5C%5Cprivate-server%5Cprivate-share%5Csecret.pgn", "private-server"),
+            ("file:C%3A%5CUsers%5CPrivateUser%5Csecret.pgn", "PrivateUser"),
             ("/home/private-user/book.pgn", "private-user"),
             ("/opt/accessible-chess/private/book.pgn", "accessible-chess"),
             ("/srv/accessible-chess/private/book.pgn", "accessible-chess"),
@@ -33,6 +36,9 @@ class V2PgnWebViewPathPrivacyTests(unittest.TestCase):
             ("/root/accessible-chess/private/book.pgn", "accessible-chess"),
             ("/run/accessible-chess/private.sock", "accessible-chess"),
             ("/Applications/AccessibleChess/private/book.pgn", "AccessibleChess"),
+            ("/Volumes/PrivateDisk/PrivateUser/book.pgn", "PrivateUser"),
+            ("/Library/Application Support/AccessibleChess/private/book.pgn", "AccessibleChess"),
+            ("/System/Volumes/Data/Users/PrivateUser/book.pgn", "PrivateUser"),
         )
         for token, private_component in cases:
             with self.subTest(token=token):
