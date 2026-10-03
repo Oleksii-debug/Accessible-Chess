@@ -71,6 +71,32 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         self.assertEqual(42, manager.current.master_volume_percent)
         self.assertEqual(42, volume["volume"])
 
+    def test_legacy_sound_state_exposes_future_schema_read_only_flag(self) -> None:
+        future = {"schema_version": 999, "pack_id": "classic", "opaque": {"x": 1}}
+        storage = _Storage()
+        storage.raw = future
+        manager = SoundProfileManager(storage, lambda _requested: "classic")
+        manager.load()
+        playback = _Playback()
+        runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
+        settings = SoundSettingsApplication(manager, runtime)
+        api = object.__new__(Version2ReleaseAccessibleChessAPI)
+        api._ui_thread = threading.get_ident()
+        api._ui_owner = None
+        api._ui_action = None
+        api._ui_closed = False
+        api.lang = "en"
+        api._sound_settings_application = None
+        api.bind_sound_settings_application(settings)
+
+        state = api.get_sound_settings()
+
+        self.assertTrue(state["ok"])
+        self.assertFalse(state["enabled"])
+        self.assertTrue(state["writes_blocked"])
+        self.assertEqual(future, storage.raw)
+        self.assertEqual([], playback.requests)
+
     def test_profile_command_mutates_event_and_returns_same_snapshot(self) -> None:
         api, manager, _ = _api()
 
