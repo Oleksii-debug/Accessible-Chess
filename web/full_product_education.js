@@ -307,11 +307,13 @@
       : null;
     if (!files) return snapshot;
     const incoming = files.transfer_progress;
-    if (
-      incoming &&
-      typeof incoming === "object" &&
-      collaborationFileProgressCanFollow(previous.progress, incoming)
-    ) {
+    if (!incoming || typeof incoming !== "object") {
+      // Trusted sync can authoritatively clear terminal presentation state
+      // after a tombstone/removal. Absence is therefore not evidence of a
+      // stale redraw; only an explicitly older progress projection is.
+      return snapshot;
+    }
+    if (collaborationFileProgressCanFollow(previous.progress, incoming)) {
       return snapshot;
     }
     return {
