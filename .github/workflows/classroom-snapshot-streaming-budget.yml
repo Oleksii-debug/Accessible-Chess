@@ -1,0 +1,90 @@
+name: Classroom Snapshot Streaming Budget
+
+on:
+  pull_request:
+    branches:
+      - fix/d10-streaming-digest-budget-20261003
+    paths:
+      - 'acs/classroom_domain.py'
+      - 'tests/test_classroom_snapshot_streaming_budget.py'
+      - '.github/workflows/classroom-snapshot-streaming-budget.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-snapshot-streaming-budget-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  classroom-snapshot-budget:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      STACK_BASE_SHA: cbe3090a5dfb5858f5be4bc1b2a0886195d6f1af
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked base and scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$STACK_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$STACK_BASE_SHA" HEAD
+
+          event_base="$PR_BASE_SHA"
+          base_ref="$PR_BASE_REF"
+          test -n "$event_base"
+          test -n "$base_ref"
+          git cat-file -e "$event_base^{commit}"
+          git fetch --no-tags origin "$base_ref"
+          live_base="$(git rev-parse "origin/$base_ref")"
+          test "$live_base" = "$STACK_BASE_SHA"
+          test "$event_base" = "$STACK_BASE_SHA"
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
+
+          mapfile -t actual < <(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-snapshot-streaming-budget.yml'
+            'acs/classroom_domain.py'
+            'tests/test_classroom_snapshot_streaming_budget.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected ClassroomSnapshot streaming-budget scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'CLASSROOM_SNAPSHOT_STREAMING_BUDGET_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile classroom snapshot trust boundary
+        run: >-
+          python -m py_compile
+          acs/classroom_domain.py
+          tests/test_classroom_snapshot_streaming_budget.py
+
+      - name: Run focused and adjacent persistence contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_snapshot_streaming_budget
+          tests.test_classroom_domain
+          tests.test_d10_streaming_digest_budget
+          tests.test_education_workspace
+          tests.test_education_workspace_store
