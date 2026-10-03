@@ -702,6 +702,78 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertEqual(resolver.calls, [(SoundEvent.MOVE, "2")])
             self.assertEqual(calls[0][0], str(source))
 
+    def test_windows_playback_scales_selected_8bit_low_time_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "assets" / "sounds"
+            root.mkdir(parents=True)
+            files = {}
+            variants = {}
+            for event in REQUIRED_SOUND_EVENTS:
+                name = f"{event.value}.wav"
+                files[event.value] = name
+                self._write_silent_wav(root / name)
+                variants[event.value] = [
+                    {
+                        "id": "1",
+                        "file": name,
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+
+            alert = root / "low-time-2.wav"
+            with wave.open(str(alert), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(8000)
+                writer.writeframes(bytes([0, 64, 128, 192, 255] * 4))
+            variants[SoundEvent.LOW_TIME.value].append(
+                {
+                    "id": "2",
+                    "file": alert.name,
+                    "label_uk": "Сигнал 2",
+                    "label_en": "Alert 2",
+                }
+            )
+            (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "files": files}),
+                encoding="utf-8",
+            )
+            (root / "variants.json").write_text(
+                json.dumps({"schema_version": 1, "events": variants}),
+                encoding="utf-8",
+            )
+
+            calls = []
+            fake_winsound = types.SimpleNamespace(
+                SND_FILENAME=0x00020000,
+                SND_NODEFAULT=0x00000002,
+                SND_ASYNC=0x00000001,
+                PlaySound=lambda sound, flags: calls.append((sound, flags)),
+            )
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=Path(tmp) / "cache",
+                variant_provider=lambda event: "2" if event is SoundEvent.LOW_TIME else "1",
+            )
+
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules,
+                {"winsound": fake_winsound},
+            ):
+                adapter.play(SoundEvent.LOW_TIME, volume=35)
+
+            self.assertEqual(len(calls), 1)
+            played = Path(calls[0][0])
+            self.assertNotEqual(played, alert)
+            with wave.open(str(played), "rb") as reader:
+                self.assertEqual(reader.getsampwidth(), 1)
+                self.assertEqual(reader.getcomptype(), "NONE")
+            self.assertTrue(
+                calls[0][1] & fake_winsound.SND_ASYNC,
+                calls[0],
+            )
+
     def test_windows_playback_plays_declared_move_layers_in_order(self):
         with tempfile.TemporaryDirectory() as tmp:
             first = Path(tmp) / "move.wav"
