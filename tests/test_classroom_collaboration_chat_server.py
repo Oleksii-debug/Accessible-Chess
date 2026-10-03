@@ -1413,6 +1413,70 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_version_three_upgrade_rebuilds_state_table_for_redaction_only_events(self) -> None:
+        path = Path(self.tmp.name) / "schema-v3-redaction-upgrade.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=3,
+            keep_state_table=True,
+        )
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "v3-session-message",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Must be redaction-capable after migration",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        migrated = ClassroomChatServerSQLiteStore(path)
+        updates = migrated.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        self.assertEqual(1, len(updates))
+        self.assertFalse(updates[0].hidden)
+        self.assertTrue(updates[0].redacted)
+        self.assertEqual(0, updates[0].revision)
+        redacted = migrated.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )[0]
+        self.assertTrue(redacted.redacted)
+        self.assertEqual("", redacted.body)
+        migrated.integrity_check()
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
+                4,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+            state_columns = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA table_info(classroom_chat_server_state_updates)"
+                )
+            }
+            self.assertIn("redacted", state_columns)
+
     def test_version_two_upgrade_repairs_missing_hidden_state_at_stream_tail(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-hidden-repair.sqlite3"
         ClassroomChatServerSQLiteStore(path)
