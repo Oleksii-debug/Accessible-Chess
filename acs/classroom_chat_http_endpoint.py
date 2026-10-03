@@ -470,7 +470,7 @@ def _service_error_status(error: ClassroomChatRpcError) -> int:
     message = str(error)
     if message == "chat request identity does not match authenticated transport":
         return 403
-    if message == "classroom chat backend failed":
+    if message.startswith("classroom chat backend"):
         return 503
     return 400
 
