@@ -1,0 +1,115 @@
+name: Prepared Position Student View Convergence
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - '.github/workflows/classroom-prepared-position-deployment.yml'
+      - '.github/workflows/prepared-position-lesson-metadata.yml'
+      - '.github/workflows/prepared-position-student-view-convergence.yml'
+      - 'acs/classroom_prepared_position_deployment.py'
+      - 'acs/education_workspace.py'
+      - 'acs/prepared_position_authoring.py'
+      - 'acs/prepared_position_student_view.py'
+      - 'tests/test_classroom_prepared_position_deployment.py'
+      - 'tests/test_prepared_position_authoring.py'
+      - 'tests/test_prepared_position_lesson_metadata.py'
+      - 'tests/test_prepared_position_student_view.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepared-position-student-view-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  student-view:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      OWNER_DEPLOYMENT_SHA: 80612809ae9e3259350f7e4cc13934d5414d7584
+      OWNER_METADATA_SHA: c85baba88ca48398e55d49db4ced9afe7f35230c
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact owner convergence and scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$OWNER_DEPLOYMENT_SHA^{commit}"
+          git cat-file -e "$OWNER_METADATA_SHA^{commit}"
+          git merge-base --is-ancestor "$OWNER_DEPLOYMENT_SHA" HEAD
+          git merge-base --is-ancestor "$OWNER_METADATA_SHA" HEAD
+
+          git diff --quiet "$OWNER_DEPLOYMENT_SHA" HEAD --             .github/workflows/classroom-prepared-position-deployment.yml             acs/classroom_prepared_position_deployment.py             tests/test_classroom_prepared_position_deployment.py
+          git diff --quiet "$OWNER_METADATA_SHA" HEAD --             .github/workflows/prepared-position-lesson-metadata.yml             acs/education_workspace.py             acs/prepared_position_authoring.py             tests/test_prepared_position_authoring.py             tests/test_prepared_position_lesson_metadata.py
+
+          event_base="$PR_BASE_SHA"
+          base_ref="$PR_BASE_REF"
+          test -n "$event_base"
+          test -n "$base_ref"
+          git cat-file -e "$event_base^{commit}"
+          git fetch --no-tags origin "$base_ref"
+          live_base="$(git rev-parse "origin/$base_ref")"
+          git merge-base --is-ancestor "$event_base" "$live_base"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
+
+          mapfile -t actual < <(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-prepared-position-deployment.yml'
+            '.github/workflows/prepared-position-lesson-metadata.yml'
+            '.github/workflows/prepared-position-student-view-convergence.yml'
+            'acs/classroom_prepared_position_deployment.py'
+            'acs/education_workspace.py'
+            'acs/prepared_position_authoring.py'
+            'acs/prepared_position_student_view.py'
+            'tests/test_classroom_prepared_position_deployment.py'
+            'tests/test_prepared_position_authoring.py'
+            'tests/test_prepared_position_lesson_metadata.py'
+            'tests/test_prepared_position_student_view.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected prepared-position student-view convergence scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo "PREPARED_POSITION_STUDENT_VIEW_LIVE_BASE=$live_base"
+          echo 'PREPARED_POSITION_STUDENT_VIEW_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile convergence boundary
+        run: >-
+          python -m py_compile
+          acs/prepared_position_student_view.py
+          tests/test_prepared_position_student_view.py
+
+      - name: Run student view and owner contracts
+        run: >-
+          python -m unittest -v
+          tests.test_prepared_position_student_view
+          tests.test_classroom_prepared_position_deployment
+          tests.test_prepared_position_lesson_metadata
+          tests.test_prepared_position_authoring
+          tests.test_d10_prepared_position_durability
+          tests.test_education_workspace
+          tests.test_education_workspace_store
