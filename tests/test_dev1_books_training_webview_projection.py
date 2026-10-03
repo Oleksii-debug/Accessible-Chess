@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from acs.bookdocument import BookDocument, Diagram, Heading, Paragraph
+from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
 from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
@@ -28,6 +28,11 @@ class BookProjectionTests(unittest.TestCase):
                     source_anchor=r"C:\\Users\\Oleksii\\private\\book-source.docx",
                 ),
                 Paragraph(text="After the board.", source_anchor="chapter-1:p2"),
+                Game(
+                    pgn='[Result "*"]\n\n1. e4 *',
+                    title="Private game",
+                    block_id="game-1",
+                ),
             ],
         )
         self.calls = []
@@ -65,6 +70,20 @@ class BookProjectionTests(unittest.TestCase):
         self.assertNotIn(FEN, repr(event))
         self.assertNotIn("SECRET", repr(event))
         self.assertNotIn("private", repr(event))
+
+    def test_open_game_keeps_game_content_inside_python_dispatch_boundary(self) -> None:
+        event = self.projection.next_game()
+        self.assertEqual("Game", event.payload["snapshot"]["block"]["kind"])
+        delegated = self.projection.open_game()
+        self.assertEqual("delegated", delegated.kind)
+        self.assertEqual(("book.open_game", {}), self.calls[-1])
+        self.assertNotIn("1. e4", repr(delegated))
+        self.assertNotIn("SECRET", repr(delegated))
+        self.assertNotIn("private", repr(delegated).lower())
+
+        self.projection.previous()
+        returned = self.projection.return_from_board()
+        self.assertEqual(4, returned.payload["snapshot"]["block"]["index"])
 
     def test_bookmark_and_board_return_restore_exact_reading_location(self) -> None:
         saved = self.projection.save_bookmark("chapter start")
