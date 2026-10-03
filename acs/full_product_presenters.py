@@ -483,6 +483,15 @@ class BookReaderPresenter:
     def set_language(self, language: UILanguage) -> None:
         self._language = language
 
+    @property
+    def cursor_index(self) -> int:
+        """Expose the transient canonical cursor for presentation transactions."""
+        return self._reader.index
+
+    def restore_cursor(self, index: int) -> None:
+        """Restore a presentation transaction through BookReader's canonical API."""
+        self._reader.go_to(index)
+
     def _block_view(self, location: ReadingLocation) -> BookBlockView:
         block = self._reader.block_snapshot(location.index)
         role = "group"
