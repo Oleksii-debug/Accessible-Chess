@@ -43,6 +43,10 @@ jobs:
       CURRENT_BASE_TEST_BLOB: 99b7dfa5bf959470b1a31c5ff7fcea9e06935347
       CURRENT_APPLICATION_TEST_BLOB: 79c70573829999f37b5558d7158bfc74988ad869
       CURRENT_PRODUCTION_TEST_BLOB: 1a25f83c051405fefd7ec09bc471fb89945bf6e5
+      FOCUS_RECOVERY_STORE_BLOB: a8d29902ed7f134a36b0ffca0114c770204b792b
+      FOCUS_RECOVERY_BASE_TEST_BLOB: 79ad14ec3a7a2af94044c783fb8271316c4e869b
+      FOCUS_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      FOCUS_RECOVERY_APPLICATION_BLOB: 03110f91c23c7dcbe207dbe916c8d3246c11e3dd
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -110,6 +114,28 @@ jobs:
               test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
               delegated_focus_successor=true
             fi
+          fi
+
+          focus_recovery_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/delegated-focus-roundtrip-current-20261003" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003" ]; then
+            focus_recovery_expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/p0-release-critical-triad-convergence.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_dev1_books_training_web_asset.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' | sort)"
+            test "$changed" = "$focus_recovery_expected"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+            focus_recovery_successor=true
           fi
 
           bounded_feature=false
@@ -215,7 +241,10 @@ jobs:
             full_product_composition=true
           fi
 
-          if [ "$delegated_focus_successor" = true ]; then
+          if [ "$focus_recovery_successor" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=FOCUS_RECOVERY_SUCCESSOR'
+          elif [ "$delegated_focus_successor" = true ]; then
             git diff --check "$upstream" HEAD
             echo 'BOOK_PROGRESS_TOPOLOGY=DELEGATED_FOCUS_SUCCESSOR'
           elif [ "$bounded_feature" = true ]; then
@@ -285,19 +314,28 @@ jobs:
             exit 1
           fi
 
-          # Every accepted topology must retain the current BookProgress owner
-          # and exact current owned blobs.
+          # Every accepted topology must retain an explicitly reviewed
+          # BookProgress authority. The focus-recovery successor composes the
+          # newer #1335 persistence owner without weakening older topology locks.
           git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
-          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
-          if [ "$current_books_recovery" = true ]; then
-            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
-            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
-          elif [ "$delegated_focus_successor" = true ]; then
-            test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
+          if [ "$focus_recovery_successor" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+          else
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+            if [ "$current_books_recovery" = true ]; then
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+            elif [ "$delegated_focus_successor" = true ]; then
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+            fi
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
           fi
-          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
           echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'
 
       - name: Compile Book progress repair
