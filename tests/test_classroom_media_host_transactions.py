@@ -610,6 +610,44 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         with self.assertRaises(MediaHostRecoveryRequired):
             host.prepare_local_source(MediaSource.CAMERA, True)
 
+    def test_multi_chunk_final_success_with_stale_canonical_state_records_all_chunks(self):
+        controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_publish_permission(
+            actor_id="teacher-1",
+            source=MediaSource.CAMERA,
+            allowed=False,
+            operation_id="large-lock-stale-final",
+        )
+
+        self.assertIsNone(
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 0)
+        )
+        self.assertIsNone(
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 1)
+        )
+        controller.mark_transport_lost()
+
+        with self.assertRaisesRegex(
+            MediaHostRecoveryRequired,
+            "changed before provider acknowledgement",
+        ):
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 2)
+
+        status = host.recovery_status
+        self.assertEqual(status.effect, effect)
+        self.assertEqual(status.confirmed_chunk_count, 3)
+        self.assertEqual(status.total_chunk_count, 3)
+        self.assertFalse(status.provider_outcome_unknown)
+        for index in range(1, 61):
+            self.assertTrue(
+                controller.participant_policy(f"student-{index}")
+                .source(MediaSource.CAMERA)
+                .publish_allowed
+            )
+
     def test_provider_not_started_after_confirmed_prefix_records_known_partial_state(self):
         _controller, _roster, _session, _port, host = self.make_host(
             "teacher-1",
