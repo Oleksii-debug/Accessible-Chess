@@ -269,6 +269,28 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
         assert second.chat_outbox is not None
         self.assertEqual(second.chat_outbox.entries(), ())
 
+    def test_chat_outbox_scope_changes_with_authenticated_chat_endpoint(self) -> None:
+        secure = MemorySecretStore()
+        first = self.build(chat_secret_store=secure)
+        second = self.build(
+            store_path=self.root / "second-scope.sqlite3",
+            chat_secret_store=secure,
+            chat_endpoint_url="https://other-chat.example.test/v1/classroom/chat",
+            file_endpoint_url="https://files.example.test/v1/classroom/files",
+            allow_insecure_loopback=False,
+        )
+        self.assertIsNotNone(first.chat_outbox)
+        self.assertIsNotNone(second.chat_outbox)
+        assert first.chat_outbox is not None
+        assert second.chat_outbox is not None
+        self.assertNotEqual(first.chat_outbox.slot_name, second.chat_outbox.slot_name)
+        self.assertEqual(
+            second.chat_outbox.scope_id,
+            "https://other-chat.example.test/v1/classroom/chat",
+        )
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
     def test_invalid_secure_outbox_fails_before_collaboration_sqlite_or_network(self) -> None:
         class FailingSecretStore(MemorySecretStore):
             def read(self, name: str) -> bytes | None:
@@ -1426,6 +1448,8 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
     def test_windows_final_product_defaults_chat_outbox_to_dpapi_state_root(self) -> None:
         app = self.bare_app()
         secure = MemorySecretStore()
+        custom_root = self.root / "custom-collaboration-location"
+        custom_root.mkdir()
         with (
             mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
             mock.patch(
@@ -1439,11 +1463,13 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         ):
             runtime = self.configure(
                 app,
-                collaboration_store_path=self.root / "windows-runtime.sqlite3",
+                collaboration_store_path=custom_root / "windows-runtime.sqlite3",
             )
 
         dpapi.assert_called_once_with(self.root / "secure")
         self.assertIsNotNone(runtime.chat_outbox)
+        assert runtime.chat_outbox is not None
+        self.assertEqual(runtime.chat_outbox.scope_id, CHAT_URL)
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
 
