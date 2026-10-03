@@ -15,7 +15,7 @@ from typing import Any
 
 from .full_product_ui_shell import UILanguage
 from .full_product_webview_adapter import FullProductWebViewAdapter, WebViewCommand
-from .keybindings import ActionRegistry
+from .keybindings import ActionRegistry, BindingContext, normalize_binding
 from .ui_native_menu import _resolve_windows_host_form, _same_managed_object
 
 
@@ -254,6 +254,67 @@ class FullProductNativeMenuController:
             language=self._adapter.shell.language,
         )
 
+    @staticmethod
+    def _native_hotkey_context(route_id: str, focus_id: str) -> BindingContext:
+        clean_route = str(route_id or "").strip()
+        clean_focus = str(focus_id or "").strip().lower()
+        if clean_route == "analysis":
+            return BindingContext.ANALYSIS
+        if clean_route == "library":
+            return BindingContext.DATABASE
+        if clean_route == "books":
+            return BindingContext.BOOK_READER
+        if clean_route == "board" and (
+            clean_focus.startswith("board-")
+            or clean_focus.startswith("sq-")
+        ):
+            return BindingContext.BOARD
+        return BindingContext.DOCUMENT
+
+    def resolve_native_hotkey(self, chord: str):
+        """Resolve safe owner-level shortcuts through the central registry.
+
+        WinForms routing is intentionally limited to Alt-bearing chords. This
+        covers the analysis/PV accessibility contract even when WebView/NVDA
+        focus modes consume browser keydown, while native clipboard/editing
+        chords and plain board letters remain owned by their focused controls.
+        """
+
+        normalized = normalize_binding(chord)
+        if normalized is None or "Alt+" not in normalized:
+            return None
+        # Analysis shortcuts are intentionally usable from the Board as well:
+        # the product has always documented Alt+1..5 as read-PV commands.
+        resolved = self._adapter.registry.resolve_binding(
+            BindingContext.ANALYSIS,
+            normalized,
+        )
+        if resolved is not None:
+            return resolved
+        focus = self._focus_provider()
+        if not isinstance(focus, str):
+            raise TypeError("native menu focus provider must return text")
+        context = self._native_hotkey_context(
+            self._adapter.shell.current_route.route_id,
+            focus,
+        )
+        if context is BindingContext.ANALYSIS:
+            return None
+        return self._adapter.registry.resolve_binding(context, normalized)
+
+    def activate_action_id(self, action_id: str) -> WebViewCommand:
+        if not isinstance(action_id, str) or not action_id:
+            raise TypeError("native action id must be non-empty text")
+        focus = self._focus_provider()
+        if not isinstance(focus, str):
+            raise TypeError("native menu focus provider must return text")
+        command = self._adapter.activate_action(
+            action_id,
+            current_focus_id=focus,
+        )
+        self._command_sink(command)
+        return command
+
     def activate(self, item: NativeMenuItemSpec) -> WebViewCommand | None:
         if not isinstance(item, NativeMenuItemSpec):
             raise TypeError("native menu activation requires NativeMenuItemSpec")
@@ -262,15 +323,7 @@ class FullProductNativeMenuController:
         if item.kind is NativeMenuItemKind.HOST:
             self._exit_callback()
             return None
-        focus = self._focus_provider()
-        if not isinstance(focus, str):
-            raise TypeError("native menu focus provider must return text")
-        command = self._adapter.activate_action(
-            item.action_id,
-            current_focus_id=focus,
-        )
-        self._command_sink(command)
-        return command
+        return self.activate_action_id(item.action_id)
 
 
 def install_full_product_windows_native_menu(
@@ -299,6 +352,68 @@ def install_full_product_windows_native_menu(
     if form is None:
         return False
     handlers: list[Any] = []
+
+    def native_key_chord(event: Any) -> str:
+        code = str(getattr(event, "KeyCode", "") or "")
+        key_map = {
+            "Return": "Enter",
+            "Enter": "Enter",
+            "Escape": "Escape",
+            "Space": "Space",
+            "Up": "Up",
+            "Down": "Down",
+            "Left": "Left",
+            "Right": "Right",
+        }
+        if code.startswith("D") and len(code) == 2 and code[1].isdigit():
+            key = code[1]
+        elif code.startswith("NumPad") and code[6:].isdigit():
+            key = code[6:]
+        else:
+            key = key_map.get(code, code)
+        if not key or key in {"ControlKey", "ShiftKey", "Menu", "LWin", "RWin"}:
+            return ""
+        parts: list[str] = []
+        if bool(getattr(event, "Control", False)):
+            parts.append("Ctrl")
+        if bool(getattr(event, "Alt", False)):
+            parts.append("Alt")
+        if bool(getattr(event, "Shift", False)):
+            parts.append("Shift")
+        if len(key) == 1:
+            key = key.upper()
+        parts.append(key)
+        return "+".join(parts)
+
+    def on_native_key_down(sender: Any, event: Any) -> None:
+        chord = native_key_chord(event)
+        if not chord:
+            return
+        resolved = controller.resolve_native_hotkey(chord)
+        if resolved is None:
+            return
+        controller.activate_action_id(resolved.action_id)
+        try:
+            event.Handled = True
+            event.SuppressKeyPress = True
+        except Exception:
+            pass
+
+    previous_form = getattr(window, "_accessible_chess_native_hotkey_host", None)
+    previous_handler = getattr(window, "_accessible_chess_native_hotkey_handler", None)
+    if previous_form is not None and previous_handler is not None:
+        try:
+            previous_form.KeyDown -= previous_handler
+        except Exception:
+            pass
+    try:
+        form.KeyPreview = True
+        form.KeyDown += on_native_key_down
+    except Exception:
+        return False
+    setattr(window, "_accessible_chess_native_hotkey_host", form)
+    setattr(window, "_accessible_chess_native_hotkey_handler", on_native_key_down)
+    handlers.append(on_native_key_down)
 
     def item(spec: NativeMenuItemSpec) -> Any:
         if spec.kind is NativeMenuItemKind.SEPARATOR:
