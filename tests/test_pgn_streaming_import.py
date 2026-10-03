@@ -337,6 +337,26 @@ class StreamingPgnImportTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.INVALID_ENCODING)
             self.assertEqual(database.search_games(limit=100), [])
 
+    def test_cp1251_fallback_scans_late_nul_and_stays_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "legacy-looking-with-late-nul.pgn"
+            prefix = (
+                '[Event "Русский тест"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {текст} '
+            ).encode("cp1251")
+            source.write_bytes(prefix + b"e5 {later}" + bytes((0,)) + b" *\n")
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                self._new_importer(database).import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                    limits=tiny_chunks(),
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.INVALID_ENCODING)
+            self.assertEqual(database.search_games(limit=100), [])
+
     def test_windows_1251_cyrillic_pgn_is_losslessly_imported(self) -> None:
         with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
             source = Path(directory) / "legacy-russian-book.pgn"
