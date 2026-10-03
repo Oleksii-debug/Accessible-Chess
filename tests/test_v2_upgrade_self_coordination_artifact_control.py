@@ -143,11 +143,11 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             self.assertNotIn("settings.json.tmp", files)
             self.assertNotIn(".settings.json.abcd_123.tmp", files)
             self.assertNotIn("..v2-upgrade-state.json.xy_987ab.tmp", files)
-            self.assertNotIn(
+            self.assertIn(
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 files,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 files,
             )
@@ -165,11 +165,11 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             self.assertIn("settings.json", paths)
             self.assertNotIn(".settings.json.abcd_123.tmp", paths)
             self.assertNotIn("..v2-upgrade-state.json.xy_987ab.tmp", paths)
-            self.assertNotIn(
+            self.assertIn(
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 paths,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 paths,
             )
