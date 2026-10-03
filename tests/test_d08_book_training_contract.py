@@ -482,6 +482,68 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, tampered_origin)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
 
+    def test_export_rejects_mutated_metadata_container_before_hooks(self):
+        class HostileDict(dict):
+            def __len__(self):
+                raise AssertionError("metadata subclass length hook must not execute")
+
+            def items(self):
+                raise AssertionError("metadata subclass items hook must not execute")
+
+        object.__setattr__(
+            self.material.definition,
+            "metadata",
+            HostileDict({"content_kind": "book_exercise"}),
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            self.material.as_dict()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_export_revalidates_mutated_origin_before_string_hooks(self):
+        class HostileText(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError("origin string subclass strip hook must not execute")
+
+        object.__setattr__(
+            self.material.origin,
+            "heading_path",
+            (HostileText("Hostile heading"),),
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            self.material.as_dict()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_export_rejects_oversized_mutated_metadata_before_value_scan(self):
+        class HostileText(str):
+            def __len__(self):
+                raise AssertionError("metadata value length must not be scanned")
+
+        object.__setattr__(
+            self.material.definition,
+            "metadata",
+            {f"k{index}": HostileText("v") for index in range(257)},
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            self.material.as_dict()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_export_rejects_substituted_definition_authority(self):
+        class DefinitionSubclass(type(self.material.definition)):
+            pass
+
+        substituted = DefinitionSubclass(
+            exercise_id=self.material.definition.exercise_id,
+            start_fen=self.material.definition.start_fen,
+            steps=self.material.definition.steps,
+            title=self.material.definition.title,
+            tags=self.material.definition.tags,
+            source_id=self.material.definition.source_id,
+            metadata=dict(self.material.definition.metadata),
+        )
+        object.__setattr__(self.material, "definition", substituted)
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            self.material.as_dict()
+
     def test_mutated_definition_metadata_cannot_be_exported_as_false_valid(self):
         # ExerciseDefinition is frozen, but its copied Mapping is intentionally a
         # normal dict.  The D08 wire boundary must still reject post-build scalar
