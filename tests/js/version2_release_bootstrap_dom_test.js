@@ -316,6 +316,29 @@ async function clickRoute(routeId) {
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
 
+  const beforeOversizedEventSnapshots = snapshotCalls;
+  const beforeOversizedEventRefreshes = stage1RefreshCalls;
+  moveInput.focus();
+  eventQueue = Array.from({ length: 65 }, () => ({
+    kind: "book-board",
+    payload: { focus_target: "board-launcher" }
+  }));
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    snapshotCalls === beforeOversizedEventSnapshots,
+    "oversized native event batch triggered a V2 snapshot"
+  );
+  check(
+    stage1RefreshCalls === beforeOversizedEventRefreshes,
+    "oversized native event batch triggered Stage 1 repaint work"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "oversized native event batch changed keyboard focus"
+  );
+
   const beforeSerializedDrainCalls = drainCalls;
   holdNextDrain = true;
   eventQueue = [{ kind: "status", payload: { announcement: "First serialized event." } }];
