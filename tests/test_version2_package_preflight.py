@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import stat
 import tempfile
@@ -282,6 +283,31 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_sha256_rejects_pathname_replacement_between_lstat_and_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            target = base / "payload.bin"
+            replacement = base / "replacement.bin"
+            target.write_bytes(b"original package bytes")
+            replacement.write_bytes(b"replacement package bytes")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being opened",
+                ):
+                    package_preflight._sha256(target)
+            self.assertTrue(swapped)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
