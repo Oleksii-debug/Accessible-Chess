@@ -140,6 +140,50 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 )
                 self.assert_code(expected, parse_pgn_text, source)
 
+    def test_import_move_number_period_flexibility_round_trips_structurally(self):
+        source = '[Result "*"]\n\n1 e4 1 ..e5 2....Nf3 2 ... Nc6 *'
+        games = parse_pgn_text(source)
+        self.assertEqual(
+            [move.move_number for move in games[0].line.moves],
+            ["1", "1..", "2....", "2..."],
+        )
+        self.assertEqual(
+            [move.san for move in games[0].line.moves],
+            ["e4", "e5", "Nf3", "Nc6"],
+        )
+
+        serialized = serialize_pgn_text(games)
+        self.assertEqual(parse_pgn_text(serialized), games)
+
+        for damaged in (
+            '... e4 *',
+            '....e4 *',
+            '1 . . e4 *',
+            '1 {between integer and periods} .. e4 *',
+        ):
+            with self.subTest(damaged=damaged):
+                self.assert_code(
+                    PgnRoundTripErrorCode.MALFORMED_PGN,
+                    parse_pgn_text,
+                    f'[Result "*"]\n\n{damaged}',
+                )
+
+    def test_strict_mode_rejects_lossy_pending_move_structure(self):
+        for damaged in (
+            '1 2 e4 *',
+            '1 {between move numbers} 2 e4 *',
+            '1. 2... e4 *',
+            '1 *',
+            '1. e4 1... $1 e5 *',
+            '1. e4 1... ! e5 *',
+        ):
+            with self.subTest(damaged=damaged):
+                self.assert_code(
+                    PgnRoundTripErrorCode.MALFORMED_PGN,
+                    parse_pgn_text,
+                    f'[Result "*"]\n\n{damaged}',
+                )
+
     def test_recovery_mode_remains_available_for_read_only_damaged_inspection(self):
         games = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
