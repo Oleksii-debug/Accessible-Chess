@@ -1,0 +1,113 @@
+name: Books Durability Navigation Focus Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'fix/v2-release-navigation-schema-focus-20261003'
+    paths:
+      - '.github/workflows/books-durability-navigation-focus-convergence.yml'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/version2_application.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-durability-navigation-focus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact convergence candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove dual-parent ancestry and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          latest_parent='eb23bdc5ea0e2914a7f742697b20d32edd78a950'
+          durability_parent='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
+          latest_branch='fix/v2-release-navigation-schema-focus-20261003'
+
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git cat-file -e "$latest_parent^{commit}"
+          git cat-file -e "$durability_parent^{commit}"
+          git merge-base --is-ancestor "$latest_parent" HEAD
+          git merge-base --is-ancestor "$durability_parent" HEAD
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$latest_branch"
+            test '${{ github.event.pull_request.base.sha }}' = "$latest_parent"
+          fi
+
+          git diff --check "$latest_parent" HEAD
+          changed="$(git diff --name-only "$latest_parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/books-durability-navigation-focus-convergence.yml' \
+            'acs/full_product_ui_shell.py' \
+            'acs/version2_application.py' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
+            'tests/test_v2_book_training_route_rollback.py' \
+            'tests/test_version2_application.py' \
+            'tests/test_version2_release_accessibility_contract.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "f916c50d3c08a93570a1f70c158c26fab618fbdd"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "66bcf463dea9eb70803462f78dbc5f7a3ef37a22"
+          test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "1e9b0e03c5c81ef187234a748bbd23c2759ad4cb"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "03257330c7b5519683533f33fd57145f395354d7"
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "004281d27ee2dbe1c06fad4f578ea5b9839afbd9"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "e11644b5a8c102d8cb172b313d7bb8550eaaada1"
+
+          echo 'BOOKS_DURABILITY_NAVIGATION_FOCUS_SCOPE=PASS'
+
+      - name: Validate release JavaScript and DOM focus contract
+        run: |
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile converged host and regressions
+        run: >-
+          python -m compileall -q
+          acs/full_product_ui_shell.py
+          acs/version2_application.py
+          tests/test_v2_book_training_route_rollback.py
+          tests/test_version2_application.py
+          tests/test_version2_release_accessibility_contract.py
+
+      - name: Prove Books durability, semantic reading and release focus
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_release_accessibility_contract
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_books_semantic_host_bounds
+          tests.test_version2_book_board_refresh_focus_order_evidence
+
+      - name: Core selftest
+        run: python -m acs.selftest
