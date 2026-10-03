@@ -18,6 +18,17 @@ concurrency:
   group: classroom-collaboration-runtime-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+
 jobs:
   runtime:
     strategy:
@@ -25,7 +36,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 55
 
     steps:
       - name: Checkout exact candidate head
@@ -104,3 +115,39 @@ jobs:
 
       - name: Core selftest
         run: python -m acs.selftest
+
+      - name: Install canonical Windows standalone toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION" "clr-loader==$env:CLR_LOADER_VERSION" "cffi==$env:CFFI_VERSION" "pycparser==$env:PYCPARSER_VERSION" "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_RUNTIME_TOOLCHAIN_INSTALL_FAILURE'}
+
+      - name: Build and execute exact Windows standalone
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_RUNTIME_SOURCE_DIAGNOSTIC_FAILURE'}
+          $report=Join-Path $env:RUNNER_TEMP 'classroom-runtime-nuitka-report.xml'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_RUNTIME_NUITKA_BUILD_FAILURE'}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $dist 'AccessibleChess.exe'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'CLASSROOM_RUNTIME_PACKAGED_EXE_MISSING'}
+          if(-not (Test-Path -LiteralPath (Join-Path $dist 'web\full_product_education.js') -PathType Leaf)){throw 'CLASSROOM_RUNTIME_PACKAGED_EDUCATION_RESOURCE_MISSING'}
+          $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in @('.py','.pyc','.pyo')})
+          if($leaks.Count -ne 0){throw "CLASSROOM_RUNTIME_PACKAGED_PYTHON_SOURCE_LEAK count=$($leaks.Count)"}
+          $stdout=Join-Path $env:RUNNER_TEMP 'classroom-runtime-packaged.stdout.txt'
+          $stderr=Join-Path $env:RUNNER_TEMP 'classroom-runtime-packaged.stderr.txt'
+          $proc=Start-Process -FilePath $exe -WorkingDirectory $dist -ArgumentList '--diagnostic' -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if(Test-Path -LiteralPath $stdout){Get-Content -LiteralPath $stdout}
+          if(Test-Path -LiteralPath $stderr){Get-Content -LiteralPath $stderr}
+          if($proc.ExitCode -ne 0){throw "CLASSROOM_RUNTIME_PACKAGED_DIAGNOSTIC_FAILURE exit=$($proc.ExitCode)"}
+          $diag=Get-Content -LiteralPath $stdout -Raw
+          if($diag -notmatch [regex]::Escape('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS')){throw 'CLASSROOM_RUNTIME_PACKAGED_DIAGNOSTIC_MARKER_MISSING'}
+          Write-Host "CLASSROOM_RUNTIME_STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host 'CLASSROOM_RUNTIME_WINDOWS_STANDALONE=PASS'
