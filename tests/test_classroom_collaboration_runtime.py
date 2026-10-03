@@ -228,6 +228,114 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertIsNone(app.collaboration)
         self.assertIsNone(app._collaboration_runtime)
 
+    def test_final_app_chat_send_reaches_authenticated_http_wire(self) -> None:
+        wire: list[dict[str, object]] = []
+
+        class Response:
+            status = 200
+
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+
+            def getheaders(self):
+                return [
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", str(len(self.body))),
+                ]
+
+            def read(self, limit):
+                return self.body[:limit]
+
+        class Connection:
+            instances = []
+
+            def __init__(self, host, port, timeout):
+                self.host = host
+                self.port = port
+                self.timeout = timeout
+                self.closed = False
+                type(self).instances.append(self)
+
+            def request(self, method, target, body, headers):
+                self.request_data = (method, target, bytes(body), dict(headers))
+
+            def getresponse(self):
+                method, target, body, headers = self.request_data
+                request = json.loads(body.decode("utf-8"))
+                message = dict(request["message"])
+                wire.append(
+                    {
+                        "method": method,
+                        "target": target,
+                        "headers": headers,
+                        "request": request,
+                    }
+                )
+                return Response(
+                    {
+                        "v": 1,
+                        "ok": True,
+                        "message": {
+                            "message_id": message["message_id"],
+                            "room_id": request["room_id"],
+                            "sender_id": request["participant_id"],
+                            "sequence_no": 0,
+                            "body": message["body"],
+                            "retention": message["retention"],
+                            "hidden": False,
+                            "sent_at_unix_ms": 1700000000000,
+                        },
+                    }
+                )
+
+            def close(self):
+                self.closed = True
+
+        app = self.bare_app()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+                Connection,
+            ),
+        ):
+            runtime = self.configure(
+                app,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+            )
+            result = app.browser_command(
+                "classes",
+                "collaboration.chat.send",
+                {"body": "Network hello"},
+            )
+            app.unbind_classroom_collaboration()
+
+        self.assertEqual("collaboration.chat.sent", result["kind"])
+        self.assertEqual(self.chat_token_calls, 1)
+        self.assertEqual(self.file_token_calls, 0)
+        self.assertEqual(1, len(wire))
+        self.assertEqual("POST", wire[0]["method"])
+        self.assertEqual("/v1/classroom/chat", wire[0]["target"])
+        self.assertEqual("send", wire[0]["request"]["op"])
+        self.assertEqual("room-1", wire[0]["request"]["room_id"])
+        self.assertEqual("student-1", wire[0]["request"]["participant_id"])
+        self.assertEqual("Network hello", wire[0]["request"]["message"]["body"])
+        self.assertEqual(
+            ("Network hello",),
+            tuple(
+                message.body
+                for message in runtime.store.room_messages("room-1")
+            ),
+        )
+        self.assertTrue(Connection.instances[0].closed)
+        exposed = repr(result)
+        self.assertNotIn("chat-final-secret", exposed)
+        self.assertNotIn("Authorization", exposed)
+
     def test_final_app_file_upload_reaches_authenticated_http_wire(self) -> None:
         selected = self.root / "runtime-http-upload.bin"
         selected.write_bytes(b"abcdef")
