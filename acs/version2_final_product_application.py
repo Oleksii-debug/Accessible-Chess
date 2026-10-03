@@ -281,15 +281,23 @@ class Version2FinalProductApplication(Version2Application):
     def bind_classroom_collaboration(
         self,
         collaboration: ClassroomCollaborationWebView,
+        *,
+        file_progress_event_sink: Callable[[dict[str, object]], object] | None = None,
     ) -> None:
-        """Bind #29 UI only after a trusted host composes canonical transports."""
+        """Bind #29 UI and its optional trusted host-to-browser progress seam."""
 
         self._assert_thread()
         if not isinstance(collaboration, ClassroomCollaborationWebView):
             raise TypeError("collaboration must be ClassroomCollaborationWebView")
+        if file_progress_event_sink is not None and not callable(file_progress_event_sink):
+            raise TypeError("file_progress_event_sink must be callable")
         if self.collaboration is not None:
             raise RuntimeError("Classroom collaboration is already bound")
         collaboration.set_language(self.shell.language)
+        if file_progress_event_sink is not None:
+            collaboration.set_file_progress_event_sink(
+                lambda event: file_progress_event_sink(asdict(event))
+            )
         self.collaboration = collaboration
 
     def unbind_classroom_collaboration(self) -> None:
