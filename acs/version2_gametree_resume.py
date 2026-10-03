@@ -217,7 +217,15 @@ class Version2GameTreeResumeCoordinator:
         descriptor = -1
         try:
             descriptor = os.open(guard, flags, 0o600)
-            os.write(descriptor, _DISCARD_GUARD_RESERVATION)
+            offset = 0
+            while offset < len(_DISCARD_GUARD_RESERVATION):
+                written = os.write(
+                    descriptor,
+                    _DISCARD_GUARD_RESERVATION[offset:],
+                )
+                if written <= 0:
+                    raise OSError("resume discard guard reservation write stalled")
+                offset += written
             os.fsync(descriptor)
         except FileExistsError as error:
             raise GameTreeResumeError(
