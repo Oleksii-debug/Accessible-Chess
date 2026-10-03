@@ -11,6 +11,7 @@ from unittest import mock
 from acs.book_progress_store import (
     BOOK_PROGRESS_STORE_SCHEMA_VERSION,
     MAX_BOOK_KEY_CHARS,
+    MAX_BOOK_PROGRESS_JSON_KEY_CHARS,
     MAX_BOOK_SNAPSHOT_BYTES,
     BookProgressStore,
     BookProgressStoreError,
@@ -156,6 +157,25 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.assertRaises(BookProgressStoreError) as caught:
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+
+    def test_oversized_json_object_key_is_bounded_before_duplicate_detection(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        oversized_key = "x" * (MAX_BOOK_PROGRESS_JSON_KEY_CHARS + 1)
+        original = (
+            '{"schema_version":2,"generation":0,"entries":{},"'
+            + oversized_key
+            + '":0}'
+        ).encode("utf-8")
+        self.path.write_bytes(original)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertEqual(self.path.read_bytes(), original)
 
     def test_deeply_nested_progress_json_fails_with_stable_store_error(self) -> None:
         self.path.parent.mkdir(parents=True)
