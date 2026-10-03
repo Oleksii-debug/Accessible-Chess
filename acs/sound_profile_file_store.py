@@ -258,6 +258,15 @@ class JsonSoundProfileStorage:
                 os.close(descriptor)
 
     @staticmethod
+    def _file_identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
+        return (
+            int(getattr(metadata, "st_dev", 0)),
+            int(getattr(metadata, "st_ino", 0)),
+            int(metadata.st_size),
+            int(getattr(metadata, "st_mtime_ns", 0)),
+        )
+
+    @staticmethod
     def _metadata_token(
         metadata: os.stat_result,
         *,
@@ -265,10 +274,7 @@ class JsonSoundProfileStorage:
         overflow: bool,
     ) -> tuple[object, ...]:
         return (
-            int(getattr(metadata, "st_dev", 0)),
-            int(getattr(metadata, "st_ino", 0)),
-            int(metadata.st_size),
-            int(getattr(metadata, "st_mtime_ns", 0)),
+            *JsonSoundProfileStorage._file_identity(metadata),
             bool(overflow),
             content_digest,
         )
@@ -301,6 +307,7 @@ class JsonSoundProfileStorage:
         flags |= getattr(os, "O_NOINHERIT", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
         try:
             descriptor = os.open(self.path, flags)
         except OSError as exc:
@@ -313,6 +320,10 @@ class JsonSoundProfileStorage:
                 opened,
                 message="sound profile storage is not a regular file",
             )
+            if self._file_identity(opened) != self._file_identity(metadata):
+                raise SoundProfileFileError(
+                    "sound profile storage changed before secure read"
+                )
             if opened.st_size > self.max_bytes:
                 return b"", self._metadata_token(
                     opened,
@@ -321,6 +332,11 @@ class JsonSoundProfileStorage:
                 )
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
                 raw = stream.read(self.max_bytes + 1)
+            after = os.fstat(descriptor)
+            if self._file_identity(after) != self._file_identity(opened):
+                raise SoundProfileFileError(
+                    "sound profile storage changed during secure read"
+                )
             if len(raw) > self.max_bytes:
                 return b"", self._metadata_token(
                     opened,
