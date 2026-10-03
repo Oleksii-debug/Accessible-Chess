@@ -367,6 +367,57 @@ class PreparedPositionDeploymentTests(unittest.TestCase):
         ):
             dp.assert_prepared_position_deployment_retry(first, changed)
 
+    def test_selected_wire_batch_rejects_assignment_scope_mismatch_before_live_lookup(self) -> None:
+        lesson = _lesson()
+        workspace = _workspace()
+        batch = dp.plan_prepared_position_deployment(
+            lesson,
+            workspace,
+            batch_id="batch-selected-wire",
+            target=dp.DeploymentTarget(
+                dp.DeploymentTargetKind.SELECTED,
+                student_ids=("s1", "s2"),
+            ),
+            position_by_student={"s1": "pos-a", "s2": "pos-b"},
+        )
+        record = batch.to_record()
+        first, second = record["assignments"]
+        record["assignments"] = [
+            {**first, "student_id": "s2", "assignment_id": dp._assignment_id(batch.batch_id, "s2")},
+            {**second, "student_id": "s1", "assignment_id": dp._assignment_id(batch.batch_id, "s1")},
+        ]
+        body = {key: value for key, value in record.items() if key != "digest"}
+        record["digest"] = dp._digest(body)
+
+        with self.assertRaisesRegex(
+            dp.PreparedPositionDeploymentError,
+            "exactly match target student order",
+        ):
+            dp.PreparedPositionDeploymentBatch.from_record(record)
+
+    def test_selected_constructor_rejects_assignment_for_student_outside_target(self) -> None:
+        target = dp.DeploymentTarget(
+            dp.DeploymentTargetKind.SELECTED,
+            student_ids=("s1",),
+        )
+        assignment = dp.PreparedPositionAssignment(
+            assignment_id=dp._assignment_id("batch-local-scope", "s2"),
+            student_id="s2",
+            position_id="pos-a",
+            position_revision=0,
+        )
+        with self.assertRaisesRegex(
+            dp.PreparedPositionDeploymentError,
+            "exactly match target student order",
+        ):
+            dp.PreparedPositionDeploymentBatch(
+                batch_id="batch-local-scope",
+                lesson_session_id="session-1",
+                lesson_session_digest="0" * 64,
+                target=target,
+                assignments=(assignment,),
+            )
+
     def test_reconnect_rejects_changed_lesson_digest(self) -> None:
         lesson = _lesson()
         workspace = _workspace()
