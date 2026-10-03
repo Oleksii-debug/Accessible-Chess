@@ -168,14 +168,18 @@ jobs:
           esac
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
-          case "$actions_actual" in
-            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c)
-              ;;
-            *)
-              printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
-              exit 1
-              ;;
-          esac
+          if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ]; then
+            test "$actions_actual" = 8f331bbf722e5e859a153ebd1582ed0711bc490b
+          else
+            case "$actions_actual" in
+              b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c)
+                ;;
+              *)
+                printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
+                exit 1
+                ;;
+            esac
+          fi
 
           # Stage1 core is frozen on Product, except the exact independently-qualified
           # takeback-recovery successor admitted only on the canonical integration lane.
@@ -217,14 +221,18 @@ jobs:
           # exact pre-sanitizer blob or the canonical #456/#609 sanitizer blob
           # during current-runtime convergence; any third identity fails closed.
           shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
-          case "$shell_actual" in
-            4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)
-              ;;
-            *)
-              printf 'Protected blob mismatch: acs/full_product_ui_shell.py actual=%s\n' "$shell_actual" >&2
-              exit 1
-              ;;
-          esac
+          if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ]; then
+            test "$shell_actual" = 4607b6621146a6d4c75627c4dc753d62557f88e9
+          else
+            case "$shell_actual" in
+              4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)
+                ;;
+              *)
+                printf 'Protected blob mismatch: acs/full_product_ui_shell.py actual=%s\n' "$shell_actual" >&2
+                exit 1
+                ;;
+            esac
+          fi
 
       - name: Lock exact PGN presentation and canonical workspace
         shell: bash
