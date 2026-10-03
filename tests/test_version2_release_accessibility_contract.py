@@ -18,7 +18,8 @@ WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-compos
 class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
     def test_navigation_buttons_keep_concise_native_names(self) -> None:
         self.assertIn('const button = documentRef.createElement("button")', BOOTSTRAP)
-        self.assertIn('button.textContent = String(item.label || item.route_id || "")', BOOTSTRAP)
+        self.assertIn('button.textContent = item.label;', BOOTSTRAP)
+        self.assertNotIn('button.textContent = String(item.label', BOOTSTRAP)
         self.assertIn('button.setAttribute("aria-current", "page")', BOOTSTRAP)
         self.assertNotIn("aria-describedby", BOOTSTRAP)
         self.assertNotIn('button.id + "-description"', BOOTSTRAP)
@@ -32,7 +33,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
 
     def test_document_language_is_set_before_navigation_is_rendered(self) -> None:
         language = '    documentRef.documentElement.lang = currentLanguage;'
-        navigation_call = '    renderNavigation(snapshot);'
+        navigation_call = '    const navigationState = renderNavigation(snapshot);'
         self.assertIn(language, BOOTSTRAP)
         self.assertIn(navigation_call, BOOTSTRAP)
         self.assertLess(BOOTSTRAP.index(language), BOOTSTRAP.index(navigation_call))
@@ -72,7 +73,8 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('<input id="move-input" type="text"', HTML)
         self.assertIn('function restoreStage1Focus(routeId, requestedFocus)', BOOTSTRAP)
         self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
-        self.assertIn('return focusById(stage1Focus[routeId] || "");', BOOTSTRAP)
+        self.assertIn('if (focusById(stage1Focus[routeId] || "")) return true;', BOOTSTRAP)
+        self.assertIn('return focusById("v2-nav-" + routeId);', BOOTSTRAP)
         self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
@@ -86,7 +88,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('solutionSection.id = "training-solution";', TRAINING_SURFACE)
         self.assertIn('solutionSection.tabIndex = -1;', TRAINING_SURFACE)
         self.assertIn(
-            'const target = String(snapshot.training.focus_target || "");',
+            'return validFocusId(snapshot.training.focus_target) ? snapshot.training.focus_target : "";',
             BOOTSTRAP,
         )
         self.assertIn(
@@ -110,8 +112,8 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('"dom_id": f"book-block-{block.index}"', BOOK_PROJECTION)
         self.assertIn('"focus_target": snapshot["block"]["dom_id"]', BOOK_PROJECTION)
         self.assertIn('function productSurfaceFocusTarget(snapshot, routeId)', BOOTSTRAP)
-        self.assertIn('return String(snapshot.pgn.focus_target || "");', BOOTSTRAP)
-        self.assertIn('return String(block.dom_id || "");', BOOTSTRAP)
+        self.assertIn('return validFocusId(snapshot.pgn.focus_target) ? snapshot.pgn.focus_target : "";', BOOTSTRAP)
+        self.assertIn('return validFocusId(block.dom_id) ? block.dom_id : "";', BOOTSTRAP)
         self.assertIn('function restoreProductFocus(snapshot, routeId, requestedFocus)', BOOTSTRAP)
         self.assertIn('if (active && workspace.contains(active)) return true;', BOOTSTRAP)
         self.assertIn('if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;', BOOTSTRAP)
@@ -141,7 +143,16 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         )
         self.assertIn('? screen.focus_target', BOOTSTRAP)
         self.assertNotIn('const requestedFocus = String(screen.focus_target || "");', BOOTSTRAP)
-        self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
+        self.assertIn('const heading = boundedText(screen.heading, MAX_SCREEN_HEADING);', BOOTSTRAP)
+
+    def test_navigation_schema_rejects_coercive_route_and_action_values(self) -> None:
+        self.assertIn('const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;', BOOTSTRAP)
+        self.assertIn('const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;', BOOTSTRAP)
+        self.assertIn('function boundedText(value, limit)', BOOTSTRAP)
+        self.assertIn('if (!validRouteId(routeId) || !validActionId(actionId) || !label ||', BOOTSTRAP)
+        self.assertIn('currentRouteIds.size !== 1', BOOTSTRAP)
+        self.assertNotIn('button.id = "v2-nav-" + String(', BOOTSTRAP)
+        self.assertNotIn('bridge.v2_browser_command("shell", String(', BOOTSTRAP)
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
         focus_start = BOOTSTRAP.index('  documentRef.addEventListener("focusin"')
