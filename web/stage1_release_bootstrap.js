@@ -288,14 +288,17 @@ function startNewGameVisualSequence() {
         const pieceX = rect.left + rect.width / 2;
         const pieceY = rect.top + rect.height / 2;
         const seed = index + 1;
-        const jitterX = ((seed * 37) % 53) - 26;
-        const jitterY = ((seed * 29) % 47) - 23;
-        const rotation = ((seed * 41) % 111) - 55;
+        const spreadX = Math.min(gridRect.width * 0.32, 160);
+        const spreadY = Math.min(gridRect.height * 0.30, 150);
+        const jitterX = ((((seed * 37) % 101) - 50) / 50) * spreadX;
+        const jitterY = ((((seed * 29) % 97) - 48) / 48) * spreadY;
+        const rotation = ((seed * 41) % 161) - 80;
+        const scale = 0.72 + (((seed * 17) % 31) / 100);
         piece.style.transition = 'none';
         piece.style.opacity = '0.94';
         piece.style.zIndex = String(40 + index);
         piece.style.transform =
-            `translate(${Math.round(centerX - pieceX + jitterX)}px, ${Math.round(centerY - pieceY + jitterY)}px) rotate(${rotation}deg) scale(0.82)`;
+            `translate(${Math.round(centerX - pieceX + jitterX)}px, ${Math.round(centerY - pieceY + jitterY)}px) rotate(${rotation}deg) scale(${scale.toFixed(2)})`;
         piece.dataset.newGameAnimating = 'true';
     });
 
