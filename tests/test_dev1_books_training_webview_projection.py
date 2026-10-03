@@ -291,6 +291,65 @@ class BookProjectionTests(unittest.TestCase):
                 )
             )
 
+    def test_list_item_raw_bound_precedes_sanitizer_scan(self) -> None:
+        block = self.presenter.current()
+        with (
+            patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4),
+            patch(
+                "acs.book_webview_projection._safe_visible_block_text",
+                side_effect=AssertionError(
+                    "Book sanitizer must not scan a raw over-budget list item"
+                ),
+            ) as safe_visible,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "list item exceeds the raw text budget",
+            ):
+                self.projection._snapshot_from_block(
+                    replace(
+                        block,
+                        kind="List",
+                        role="list",
+                        heading_level=None,
+                        title="",
+                        text="",
+                        source_anchor="",
+                        warning="",
+                        heading_path=(),
+                        list_items=("xxxxx",),
+                        list_ordered=False,
+                        list_start=None,
+                    )
+                )
+            safe_visible.assert_not_called()
+
+    def test_list_item_rejects_string_subclass_before_string_operations(self) -> None:
+        block = self.presenter.current()
+
+        class HostileListItem(str):
+            def __bool__(self) -> bool:
+                raise AssertionError("list item subclass truthiness must not execute")
+
+            def strip(self, *_args, **_kwargs):
+                raise AssertionError("list item subclass strip must not execute")
+
+            def replace(self, *_args, **_kwargs):
+                raise AssertionError("list item subclass replace must not execute")
+
+        with self.assertRaisesRegex(ValueError, "book list items are invalid"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=(HostileListItem("item"),),  # type: ignore[arg-type]
+                    list_ordered=False,
+                    list_start=None,
+                )
+            )
+
     def test_snapshot_visible_text_budget_matches_webview_utf16_units(self) -> None:
         paragraph = self.presenter.next_block()
         with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
