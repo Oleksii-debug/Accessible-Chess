@@ -2273,6 +2273,7 @@ class Version2UpgradeCoordinator:
             )
 
         guard: _PublicationGuard | None = None
+        preserve_guard = False
         try:
             if original_state is not None:
                 guard = _publication_guard(path)
@@ -2302,8 +2303,25 @@ class Version2UpgradeCoordinator:
                     "settings migration publication verification failed"
                 )
             return True
-        finally:
+        except BaseException:
             if guard is not None:
+                # If failure happened after the canonical pathname stopped
+                # naming the exact guarded old inode, keep that old inode
+                # reachable as recovery evidence. This includes an atomic writer
+                # that correctly detected candidate substitution after replace.
+                try:
+                    current = _safe_stat(path, "settings publication target")
+                    target_is_old_inode = (
+                        stat.S_ISREG(current.st_mode)
+                        and _stat_identity(current) == guard.identity
+                    )
+                except (OSError, Version2UpgradeError):
+                    target_is_old_inode = False
+                if not target_is_old_inode:
+                    preserve_guard = True
+            raise
+        finally:
+            if guard is not None and not preserve_guard:
                 _remove_publication_guard(guard)
 
     def _migrate_library(
