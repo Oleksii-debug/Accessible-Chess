@@ -79,17 +79,28 @@
     }
   }
 
-  function safeInvoke(invoke, command, payload, onResult, announce, fallbackMessage) {
+  function safeInvoke(
+    invoke,
+    command,
+    payload,
+    onResult,
+    announce,
+    fallbackMessage,
+    onFailure
+  ) {
+    function fail() {
+      if (fallbackMessage) announce(String(fallbackMessage));
+      if (typeof onFailure === "function") onFailure();
+    }
+
     let result;
     try {
       result = invoke(command, payload || {});
     } catch (error) {
-      if (fallbackMessage) announce(String(fallbackMessage));
+      fail();
       return;
     }
-    Promise.resolve(result).then(onResult).catch(function () {
-      if (fallbackMessage) announce(String(fallbackMessage));
-    });
+    Promise.resolve(result).then(onResult).catch(fail);
   }
 
   function semanticText(value, name, budget) {
@@ -1112,11 +1123,27 @@
       if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
     }
 
+    let resetPending = false;
     confirm.addEventListener("click", function () {
-      safeInvoke(invoke, "training.reset", { confirmed: true }, function (result) {
-        applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
-        if (dialog.open) dialog.close();
-      }, announce, fallbackMessage);
+      if (resetPending) return;
+      resetPending = true;
+      confirm.disabled = true;
+      safeInvoke(
+        invoke,
+        "training.reset",
+        { confirmed: true },
+        function (result) {
+          applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+          if (dialog.open) dialog.close();
+        },
+        announce,
+        fallbackMessage,
+        function () {
+          resetPending = false;
+          confirm.disabled = false;
+          if (dialog.open) confirm.focus({ preventScroll: true });
+        }
+      );
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
