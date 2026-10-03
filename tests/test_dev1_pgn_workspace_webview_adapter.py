@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_actions import FullProductActionRouter
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.gametree import parse_games
 from acs.gametree_navigation import GameTreeCursor, VariationStep
+from acs.pgn_document import PgnDocumentSession
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
+from acs.version2_pgn_commands import Version2PgnCommands
 
 
 DOCUMENT = '''[Event "One"]
@@ -133,6 +136,111 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertNotIn("line_path", serialized)
         self.assertNotIn("expected_record_digest", serialized)
 
+    def test_workspace_snapshot_exposes_only_stable_opaque_presentation_lease(self) -> None:
+        first = self.projection.snapshot()
+        second = self.projection.snapshot()
+        token = first["presentation_token"]
+
+        self.assertEqual(token, second["presentation_token"])
+        self.assertIs(type(token), str)
+        self.assertEqual(64, len(token))
+        self.assertTrue(all(character in "0123456789abcdef" for character in token))
+        self.assertNotEqual("a" * 64, token)
+        self.assertNotEqual("b" * 64, token)
+        serialized = repr(first)
+        self.assertNotIn("content_revision", serialized)
+        self.assertNotIn("current_record_digest", serialized)
+        self.assertNotIn("line_path", serialized)
+        self.assertNotIn("expected_record_digest", serialized)
+
+    def test_valid_presentation_lease_allows_canonical_game_navigation(self) -> None:
+        visible = self.projection.snapshot()
+        event = self.bridge.dispatch(
+            "pgn.next_game",
+            {"presentation_token": visible["presentation_token"]},
+        )
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual("pgn.next_game", self.calls[-1][0])
+        self.assertNotEqual(
+            visible["presentation_token"],
+            event.payload["snapshot"]["presentation_token"],
+        )
+
+    def test_hidden_application_snapshot_cannot_rebind_old_browser_lease(self) -> None:
+        visible = self.projection.snapshot()
+        old_token = visible["presentation_token"]
+        self.workspace.next_game()
+
+        # Version2Application.snapshot() performs this same projection snapshot.
+        # The host may therefore advance its internal presenter without the old
+        # browser DOM having received or rendered that newer snapshot.
+        hidden = self.projection.snapshot()
+        self.assertEqual(1, hidden["game"]["index"])
+        self.assertNotEqual(old_token, hidden["presentation_token"])
+        call_count = len(self.calls)
+
+        stale = self.bridge.dispatch(
+            "pgn.previous_game",
+            {"presentation_token": old_token},
+        )
+
+        self.assertEqual("selection", stale.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(1, stale.payload["snapshot"]["game"]["index"])
+        self.assertEqual(
+            stale.payload["snapshot"]["error_message"],
+            stale.payload["announcement"],
+        )
+
+    def test_presentation_lease_cannot_be_replayed_across_projection_instances(self) -> None:
+        visible = self.projection.snapshot()
+        token = visible["presentation_token"]
+
+        other_workspace = _Workspace()
+        other_calls: list[tuple[str, dict[str, object]]] = []
+
+        def other_dispatch(action_id: str, payload):
+            other_calls.append((action_id, dict(payload)))
+            if action_id == "pgn.next_game":
+                other_workspace.next_game()
+            return None
+
+        other_router = FullProductActionRouter(
+            AccessibleShellState(language=UILanguage.EN),
+            other_dispatch,
+        )
+        other_projection = PgnWorkspaceWebViewProjection(
+            other_workspace,
+            other_router,
+            language=UILanguage.EN,
+        )
+        other_bridge = PgnWebViewBridge(other_projection)
+
+        event = other_bridge.dispatch(
+            "pgn.next_game",
+            {"presentation_token": token},
+        )
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(0, other_workspace.selected_game_index)
+        self.assertEqual([], other_calls)
+        self.assertEqual(0, event.payload["snapshot"]["game"]["index"])
+
+    def test_malformed_presentation_lease_is_generic_and_never_mutates(self) -> None:
+        call_count = len(self.calls)
+        event = self.bridge.dispatch(
+            "pgn.next_game",
+            {"presentation_token": "not-a-valid-lease"},
+        )
+
+        self.assertEqual("error", event.kind)
+        self.assertEqual(0, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertNotIn("not-a-valid-lease", repr(event.payload))
+
     def test_browser_selection_updates_canonical_workspace_cursor(self) -> None:
         snapshot = self.projection.snapshot()
         second = snapshot["tree"][1]
@@ -195,13 +303,216 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual("selection", event.kind)
         self.assertEqual(1, self.workspace.selected_game_index)
         self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+        next_action, next_payload = self.calls[-1]
+        self.assertEqual("pgn.next_game", next_action)
+        self.assertEqual(
+            {
+                "game_index",
+                "line_path",
+                "move_index",
+                "expected_record_digest",
+                "expected_content_digest",
+                "content_revision",
+            },
+            set(next_payload),
+        )
+        self.assertEqual(0, next_payload["game_index"])
+        self.assertEqual((), next_payload["line_path"])
+        self.assertIsNone(next_payload["move_index"])
+        self.assertEqual("a" * 64, next_payload["expected_record_digest"])
+        self.assertEqual("b" * 64, next_payload["expected_content_digest"])
+        self.assertEqual(7, next_payload["content_revision"])
+
         back = self.bridge.dispatch("pgn.previous_game", {})
         self.assertEqual(0, self.workspace.selected_game_index)
         self.assertEqual(0, back.payload["snapshot"]["game"]["index"])
+        previous_action, previous_payload = self.calls[-1]
+        self.assertEqual("pgn.previous_game", previous_action)
+        self.assertEqual(1, previous_payload["game_index"])
         self.assertEqual(
             ["pgn.next_game", "pgn.previous_game"],
             [action for action, _ in self.calls[-2:]],
         )
+        self.assertNotIn("content_revision", repr(back.payload))
+        self.assertNotIn("expected_record_digest", repr(back.payload))
+        self.assertNotIn("expected_content_digest", repr(back.payload))
+
+    def test_committed_navigation_refresh_failure_replaces_stale_view_and_recovers(self) -> None:
+        before = self.projection.snapshot()
+        self.assertEqual(0, before["game"]["index"])
+
+        real_capture = self.projection._capture_presenter
+        capture_calls = {"count": 0}
+
+        def fail_only_after_preflight(language):
+            capture_calls["count"] += 1
+            if capture_calls["count"] == 1:
+                return real_capture(language)
+            raise ValueError("C:/Users/private/refresh-secret.pgn")
+
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=fail_only_after_preflight,
+        ):
+            event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual("selection", event.kind)
+        unavailable = event.payload["snapshot"]
+        self.assertEqual("unavailable", unavailable["status"])
+        self.assertEqual("pgn-refresh-view", unavailable["focus_target"])
+        self.assertEqual((), unavailable["tree"])
+        self.assertEqual((), unavailable["actions"])
+        self.assertNotIn("refresh-secret", repr(event.payload))
+        self.assertNotIn("C:/Users/private", repr(event.payload))
+
+        recovered = self.bridge.dispatch("pgn.refresh", {})
+        self.assertEqual("selection", recovered.kind)
+        self.assertEqual("ready", recovered.payload["snapshot"]["status"])
+        self.assertEqual(1, recovered.payload["snapshot"]["game"]["index"])
+
+    def test_real_comment_commit_survives_presentation_failure_and_refreshes_truthfully(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        commands = Version2PgnCommands(lambda: session)
+        router = FullProductActionRouter(
+            AccessibleShellState(language=UILanguage.EN),
+            commands,
+        )
+        projection = PgnWorkspaceWebViewProjection(
+            session.workspace,
+            router,
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+
+        first = projection.snapshot()["tree"][0]
+        selected = bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+        self.assertEqual("selection", selected.kind)
+        before_revision = session.workspace.content_revision
+        real_capture = projection._capture_presenter
+
+        with patch.object(
+            projection,
+            "_capture_presenter",
+            side_effect=ValueError("presentation failed after canonical edit"),
+        ):
+            unavailable = bridge.dispatch(
+                "pgn.comment_edit",
+                {"text": "Durable canonical note"},
+            )
+
+        self.assertEqual(before_revision + 1, session.workspace.content_revision)
+        self.assertIn("Durable canonical note", session.workspace.to_text())
+        self.assertEqual("selection", unavailable.kind)
+        self.assertEqual("unavailable", unavailable.payload["snapshot"]["status"])
+
+        with patch.object(
+            projection,
+            "_capture_presenter",
+            side_effect=real_capture,
+        ):
+            recovered = bridge.dispatch("pgn.refresh", {})
+
+        self.assertEqual("selection", recovered.kind)
+        self.assertEqual("ready", recovered.payload["snapshot"]["status"])
+        self.assertEqual(
+            "Durable canonical note",
+            recovered.payload["snapshot"]["comment_editor"]["value"],
+        )
+
+    def test_pre_action_refresh_failure_never_mutates_from_stale_browser_state(self) -> None:
+        before = self.workspace.cursor
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=ValueError("concurrent presentation drift"),
+        ):
+            event = self.bridge.dispatch("pgn.move", {"delta": 1})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual("unavailable", event.payload["snapshot"]["status"])
+        self.assertEqual(before, self.workspace.cursor)
+        self.assertEqual([], self.workspace.set_cursor_calls)
+
+    def test_external_game_change_does_not_reinterpret_stale_next_game_command(self) -> None:
+        before = self.projection.snapshot()
+        self.assertEqual(0, before["game"]["index"])
+        self.workspace.next_game()
+        call_count = len(self.calls)
+
+        event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+        self.assertEqual(
+            event.payload["snapshot"]["error_message"],
+            event.payload["announcement"],
+        )
+
+    def test_external_cursor_change_blocks_stale_comment_edit_and_resyncs_view(self) -> None:
+        first = self.projection.snapshot()["tree"][0]
+        selected = self.bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+        self.assertEqual("selection", selected.kind)
+
+        self.workspace.set_cursor(GameTreeCursor((), 2))
+        call_count = len(self.calls)
+        event = self.bridge.dispatch(
+            "pgn.comment_edit",
+            {"text": "must not be applied to a newer selection"},
+        )
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(GameTreeCursor((), 2), self.workspace.cursor)
+        self.assertEqual(
+            event.payload["snapshot"]["error_message"],
+            event.payload["announcement"],
+        )
+        selected_items = [
+            item for item in event.payload["snapshot"]["tree"] if item["selected"]
+        ]
+        self.assertEqual(1, len(selected_items))
+        self.assertTrue(str(selected_items[0]["node_id"]).endswith("/m1"))
+
+    def test_workspace_drift_after_preflight_capture_is_caught_before_operation(self) -> None:
+        self.projection.snapshot()
+        call_count = len(self.calls)
+        real_capture = self.projection._capture_presenter
+        drifted = {"done": False}
+
+        def capture_then_drift(language):
+            captured = real_capture(language)
+            if not drifted["done"]:
+                drifted["done"] = True
+                self.workspace.next_game()
+            return captured
+
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=capture_then_drift,
+        ):
+            event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+
+    def test_rejected_domain_navigation_keeps_last_truthful_view(self) -> None:
+        accepted = self.bridge.dispatch("pgn.next_game", {})
+        self.assertEqual("selection", accepted.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+
+        rejected = self.bridge.dispatch("pgn.next_game", {})
+        self.assertEqual("error", rejected.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        current = self.projection.snapshot()
+        self.assertEqual("ready", current["status"])
+        self.assertEqual(1, current["game"]["index"])
 
     def test_forged_browser_node_fails_closed_without_cursor_mutation(self) -> None:
         before = self.workspace.cursor

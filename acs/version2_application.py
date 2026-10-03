@@ -49,6 +49,7 @@ class Version2Application:
     # absent-safe on those valid pre-Training construction paths.
     training_workspace = None
     training = None
+    _pgn_browser_lease_required = False
 
     _BOOK_PROGRESS_COMMANDS = frozenset(
         {
@@ -85,6 +86,7 @@ class Version2Application:
         self.session = None
         self.pgn_board_active = False
         self.pgn = None
+        self._pgn_browser_lease_required = False
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
@@ -137,6 +139,7 @@ class Version2Application:
             raise ValueError("PGN replacement cancelled")
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
         self.session, self.pgn = session, PgnWebViewBridge(projection)
+        self._pgn_browser_lease_required = False
         self.pgn_board_active = False
         self.shell.open_route("pgn")
 
@@ -505,16 +508,30 @@ class Version2Application:
                 return asdict(value)
             bridge = {"pgn": self.pgn, "library": self.library}.get(area)
             if bridge is None: raise ValueError("surface is unavailable")
+            if area == "pgn" and command != "pgn.refresh" and self._pgn_browser_lease_required:
+                if payload is None or "presentation_token" not in payload:
+                    # A rendered PGN surface has an opaque lease. Missing it is
+                    # a stale/unbound browser intent, so reject the intent and
+                    # return the canonical token-free recovery snapshot instead.
+                    return asdict(bridge.dispatch("pgn.refresh"))
             value = bridge.dispatch(command, payload)
+            if area == "pgn":
+                if command == "pgn.refresh" or (
+                    isinstance(payload, dict) and "presentation_token" in payload
+                ):
+                    self._pgn_browser_lease_required = True
             return asdict(value)
         except Exception:
             return self._error()
 
     def snapshot(self):
         self._assert_thread()
+        pgn_snapshot = None if self.pgn is None else self.pgn.projection.snapshot()
+        if pgn_snapshot is not None:
+            self._pgn_browser_lease_required = True
         return {
             **self.adapter.snapshot(),
-            "pgn": None if self.pgn is None else self.pgn.projection.snapshot(),
+            "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
             "books": None if self.books is None else self.books.projection.snapshot(),
             "training": None if self.training_workspace is None else self.training_workspace.snapshot(),

@@ -1,0 +1,161 @@
+name: Owner Candidate PGN Safety Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'work/user-corpus-pgn-cp1251-20261003'
+    paths:
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/pgn-game-navigation-cas.yml'
+      - '.github/workflows/pgn-post-mutation-presentation.yml'
+      - '.github/workflows/pgn-presentation-lease.yml'
+      - '.github/workflows/pgn-stale-browser-command-recovery.yml'
+      - '.github/workflows/pgn-tree-keyboard-contract.yml'
+      - '.github/workflows/owner-candidate-pgn-safety-convergence.yml'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_pgn_browser_presentation_lease_required.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_pgn_commands.py'
+      - 'web/full_product_pgn.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-candidate-pgn-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Authenticate live owner-candidate geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_branch='work/user-corpus-pgn-cp1251-20261003'
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin "+refs/heads/$base_branch:refs/remotes/origin/$base_branch"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_branch")"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$base_branch"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+
+            changed="$(git diff --name-only "$live_base" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/owner-candidate-pgn-safety-convergence.yml' \
+              '.github/workflows/pgn-game-navigation-cas.yml' \
+              '.github/workflows/pgn-post-mutation-presentation.yml' \
+              '.github/workflows/pgn-presentation-lease.yml' \
+              '.github/workflows/pgn-stale-browser-command-recovery.yml' \
+              '.github/workflows/pgn-tree-keyboard-contract.yml' \
+              'acs/pgn_webview_bridge.py' \
+              'acs/pgn_webview_projection.py' \
+              'acs/pgn_workspace_webview_adapter.py' \
+              'acs/version2_application.py' \
+              'acs/version2_pgn_commands.py' \
+              'tests/js/pgn_surface_dom_test.js' \
+              'tests/js/pgn_tree_keyboard_dom_test.js' \
+              'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+              'tests/test_pgn_browser_presentation_lease_required.py' \
+              'tests/test_version2_application.py' \
+              'tests/test_version2_pgn_commands.py' \
+              'web/full_product_pgn.js' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_base" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+      - name: Pin converged PGN authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'PGN convergence blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'PINS'
+          .github/workflows/d01-pgn-workspace-webview.yml=a5e002e2226923ab2fb495dd72633b0885eded2d
+          .github/workflows/pgn-game-navigation-cas.yml=3dad3e888c6315720c223925db9b7800672fb3b0
+          .github/workflows/pgn-post-mutation-presentation.yml=1b8220fad90fb3556d31005201103f28ef38ea88
+          .github/workflows/pgn-presentation-lease.yml=7e1640c1da4a8f9f5955d91ba19ea3e4187d91bb
+          .github/workflows/pgn-stale-browser-command-recovery.yml=0b10a187443767dba34ab758663b6a841c80f426
+          .github/workflows/pgn-tree-keyboard-contract.yml=4d2b45cbae61051772f4d17f578241ec4c5febde
+          acs/pgn_webview_bridge.py=10b604853608b6f1310888d04322dd5740622789
+          acs/pgn_webview_projection.py=c7ade6cc8fefdac160235b67291438fa15c689b8
+          acs/pgn_workspace_webview_adapter.py=21127c7337dc6bbba640b2b9044d2d847f6d0787
+          acs/version2_application.py=7261d71026d7eb66e896f4d020a2465fe13679f5
+          acs/version2_pgn_commands.py=dd6d861576adf6d571d4bdda9d63339850603b89
+          tests/js/pgn_surface_dom_test.js=7b701dd0a28ade8093dc8c99d91ba7cedee8d109
+          tests/js/pgn_tree_keyboard_dom_test.js=c954f8764f95b5f520c4c150684eacf6655cb788
+          tests/test_dev1_pgn_workspace_webview_adapter.py=494fa57c5bb41b533e237547c1f6dbad60aac08d
+          tests/test_pgn_browser_presentation_lease_required.py=a6edf8976050fe132e8c5fe0771163fe7e8a270a
+          tests/test_version2_application.py=20ddb93b03ee86073c41e96ad4713df9a41085af
+          tests/test_version2_pgn_commands.py=f5e3dca6e96c043b7c6bbbbc886cd17549b7470f
+          web/full_product_pgn.js=6fd2dcc8b24d213a739b7277f1146d95fbb6a5a5
+          PINS
+
+      - name: Prove browser PGN semantics
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile PGN owner convergence
+        run: >-
+          python -m compileall -q
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_application.py
+          acs/version2_pgn_commands.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_pgn_browser_presentation_lease_required.py
+          tests/test_version2_pgn_commands.py
+
+      - name: Prove host CAS, rendered lease, application and owner hotkeys
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_browser_presentation_lease_required
+          tests.test_version2_pgn_commands
+          tests.test_version2_application
+          tests.test_accessible_webui
+          tests.test_keybindings

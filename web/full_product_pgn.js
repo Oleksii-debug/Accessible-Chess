@@ -23,6 +23,54 @@
     }
   }
 
+  function wireToolbarKeyboard(toolbar) {
+    if (!toolbar || typeof toolbar.addEventListener !== "function") {
+      throw new TypeError("toolbar must support keyboard events");
+    }
+    const controls = [];
+    for (let index = 0; index < toolbar.children.length; index += 1) {
+      const control = toolbar.children[index];
+      if (!control || control.tagName !== "BUTTON") continue;
+      control.tabIndex = -1;
+      if (!control.disabled) controls.push(control);
+    }
+    if (!controls.length) return;
+
+    function setActive(control) {
+      controls.forEach(function (candidate) {
+        candidate.tabIndex = candidate === control ? 0 : -1;
+      });
+    }
+
+    setActive(controls[0]);
+    controls.forEach(function (control) {
+      control.addEventListener("focus", function () {
+        setActive(control);
+      });
+    });
+
+    toolbar.addEventListener("keydown", function (event) {
+      const current = controls.indexOf(event.target);
+      if (current < 0) return;
+      let next = current;
+      if (event.key === "ArrowRight") {
+        next = (current + 1) % controls.length;
+      } else if (event.key === "ArrowLeft") {
+        next = (current - 1 + controls.length) % controls.length;
+      } else if (event.key === "Home") {
+        next = 0;
+      } else if (event.key === "End") {
+        next = controls.length - 1;
+      } else {
+        return;
+      }
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      const target = controls[next];
+      setActive(target);
+      if (typeof target.focus === "function") target.focus({ preventScroll: true });
+    });
+  }
+
   function renderTags(host, game) {
     const tags = Array.isArray(game.tags) ? game.tags : [];
     if (!tags.length) return;
@@ -66,14 +114,39 @@
     }
   }
 
-  function invokeCommand(root, invoke, announce, command, payload) {
+  function commandFlightIsCurrent(root, token, epoch) {
+    return root._pgnCommandFlight === token && root._pgnRenderEpoch === epoch;
+  }
+
+  function invokeCommand(root, invoke, announce, command, payload, onResult) {
+    if (root._pgnCommandFlight) return false;
     const focusBefore = document.activeElement;
+    const epoch = root._pgnRenderEpoch;
+    const token = {};
+    root._pgnCommandFlight = token;
     Promise.resolve()
-      .then(function () { return invoke(command, payload || {}); })
+      .then(function () {
+        if (!commandFlightIsCurrent(root, token, epoch)) return null;
+        const commandPayload = Object.assign({}, payload || {});
+        if (root._pgnPresentationToken) {
+          commandPayload.presentation_token = root._pgnPresentationToken;
+        }
+        return invoke(command, commandPayload);
+      })
       .then(
-        function (result) { applyEvent(root, result, invoke, announce); },
-        function () { announceRejected(root, announce, focusBefore); }
+        function (result) {
+          if (!commandFlightIsCurrent(root, token, epoch)) return;
+          root._pgnCommandFlight = null;
+          if (typeof onResult === "function") onResult(result);
+          applyEvent(root, result, invoke, announce);
+        },
+        function () {
+          if (!commandFlightIsCurrent(root, token, epoch)) return;
+          root._pgnCommandFlight = null;
+          announceRejected(root, announce, focusBefore);
+        }
       );
+    return true;
   }
 
   function renderTree(root, host, snapshot, invoke, announce) {
@@ -85,12 +158,18 @@
     tree.setAttribute("aria-label", game.tree_heading || "");
 
     const items = Array.isArray(snapshot.tree) ? snapshot.tree : [];
-    items.forEach(function (item) {
+    items.forEach(function (item, itemIndex) {
+      const level = Number(item.aria_level || 1);
+      const nextItem = itemIndex + 1 < items.length ? items[itemIndex + 1] : null;
+      const hasVisibleChild = Boolean(
+        nextItem && Number(nextItem.aria_level || 1) === level + 1
+      );
       const treeItem = node("li");
       treeItem.id = String(item.dom_id || "");
       treeItem.setAttribute("role", "treeitem");
       treeItem.setAttribute("aria-level", String(item.aria_level || 1));
       treeItem.setAttribute("aria-selected", item.selected ? "true" : "false");
+      if (hasVisibleChild) treeItem.setAttribute("aria-expanded", "true");
       treeItem.dataset.kind = String(item.kind || "move");
       treeItem.tabIndex = item.selected ? 0 : -1;
       treeItem.style.paddingInlineStart = Math.max(0, Number(item.aria_level || 1) - 1) + "rem";
@@ -112,19 +191,53 @@
         // Alt+Up/Alt+Down analysis-PV navigation). Do not steal them as plain
         // GameTree arrows before the document-level router can resolve them.
         if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+
         let command = "";
         let payload = {};
+        const navigationKey =
+          event.key === "ArrowUp"
+          || event.key === "ArrowDown"
+          || event.key === "ArrowLeft"
+          || event.key === "ArrowRight"
+          || event.key === "Home"
+          || event.key === "End";
+        if (!navigationKey) return;
+
+        // A rendered ARIA tree owns its navigation keys even at a boundary.
+        // Quiet boundaries must not scroll the page or manufacture a backend
+        // LookupError/NVDA error announcement.
+        if (typeof event.preventDefault === "function") event.preventDefault();
+
         if (event.key === "ArrowUp") {
-          command = "pgn.move";
-          payload = { delta: -1 };
+          if (itemIndex > 0) {
+            command = "pgn.move";
+            payload = { delta: -1 };
+          }
         } else if (event.key === "ArrowDown") {
-          command = "pgn.move";
-          payload = { delta: 1 };
-        } else if (event.key === "ArrowLeft" && item.has_parent) {
-          command = "pgn.parent";
+          if (itemIndex + 1 < items.length) {
+            command = "pgn.move";
+            payload = { delta: 1 };
+          }
+        } else if (event.key === "ArrowLeft") {
+          if (item.has_parent) command = "pgn.parent";
+        } else if (event.key === "ArrowRight") {
+          if (hasVisibleChild) {
+            command = "pgn.select";
+            payload = { node_id: nextItem.node_id };
+          }
+        } else if (event.key === "Home") {
+          if (itemIndex > 0 && items[0]) {
+            command = "pgn.select";
+            payload = { node_id: items[0].node_id };
+          }
+        } else if (event.key === "End") {
+          const lastIndex = items.length - 1;
+          if (itemIndex < lastIndex && items[lastIndex]) {
+            command = "pgn.select";
+            payload = { node_id: items[lastIndex].node_id };
+          }
         }
         if (!command) return;
-        event.preventDefault();
         invokeCommand(root, invoke, announce, command, payload);
       });
       tree.appendChild(treeItem);
@@ -165,15 +278,16 @@
     }
 
     save.addEventListener("click", function () {
-      Promise.resolve()
-        .then(function () { return invoke("pgn.comment_edit", { text: textarea.value }); })
-        .then(
-          function (result) {
-            applyEvent(root, result, invoke, announce);
-            if (!result || result.kind !== "error") closeAndRestore();
-          },
-          function () { announceRejected(root, announce, textarea); }
-        );
+      invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.comment_edit",
+        { text: textarea.value },
+        function (result) {
+          if (!result || result.kind !== "error") closeAndRestore();
+        }
+      );
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -199,6 +313,7 @@
     const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-orientation", "horizontal");
     actions.forEach(function (action) {
       const button = node("button", action.label || action.action || "");
       button.type = "button";
@@ -214,6 +329,7 @@
       });
       toolbar.appendChild(button);
     });
+    wireToolbarKeyboard(toolbar);
     host.appendChild(toolbar);
   }
 
@@ -224,6 +340,19 @@
     requireFunction(invoke, "PGN invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "PGN announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("PGN snapshot is required");
+    const presentationToken = snapshot.presentation_token;
+    if (
+      presentationToken !== undefined
+      && (
+        typeof presentationToken !== "string"
+        || !/^[0-9a-f]{64}$/.test(presentationToken)
+      )
+    ) {
+      throw new TypeError("PGN presentation token is invalid");
+    }
+    const committedPresentationToken = presentationToken || "";
+    root._pgnRenderEpoch = Number(root._pgnRenderEpoch || 0) + 1;
+    root._pgnCommandFlight = null;
     root._pgnErrorMessage = typeof snapshot.error_message === "string" && snapshot.error_message
       ? snapshot.error_message.slice(0, 240)
       : "The action could not be completed.";
@@ -234,6 +363,32 @@
       main.appendChild(node("p", snapshot.empty_message || ""));
       fragment.appendChild(main);
       root.replaceChildren(fragment);
+      root._pgnPresentationToken = committedPresentationToken;
+      return;
+    }
+    if (snapshot.status === "unavailable") {
+      main.appendChild(
+        node(
+          "p",
+          snapshot.unavailable_message || root._pgnErrorMessage
+        )
+      );
+      const refresh = node("button", snapshot.refresh_label || "Refresh PGN view");
+      refresh.type = "button";
+      refresh.id = "pgn-refresh-view";
+      refresh.addEventListener("click", function () {
+        invokeCommand(root, invoke, announce, "pgn.refresh", {});
+      });
+      main.appendChild(refresh);
+      fragment.appendChild(main);
+      root.replaceChildren(fragment);
+      root._pgnPresentationToken = committedPresentationToken;
+      if (
+        requestedFocus === refresh.id
+        && typeof refresh.focus === "function"
+      ) {
+        refresh.focus({ preventScroll: true });
+      }
       return;
     }
 
@@ -249,6 +404,7 @@
     main.appendChild(commentDialog.dialog);
     fragment.appendChild(main);
     root.replaceChildren(fragment);
+    root._pgnPresentationToken = committedPresentationToken;
     focusTarget(root, requestedFocus || "");
   }
 

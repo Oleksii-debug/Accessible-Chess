@@ -1,0 +1,104 @@
+name: PGN Tree Keyboard Contract
+
+on:
+  push:
+    branches:
+      - fix/pgn-tree-keyboard-20261003
+    paths:
+      - 'web/full_product_pgn.js'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - '.github/workflows/pgn-tree-keyboard-contract.yml'
+  pull_request:
+    branches:
+      - fix/pgn-toolbar-keyboard-20261003
+    paths:
+      - 'web/full_product_pgn.js'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - '.github/workflows/pgn-tree-keyboard-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-tree-keyboard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXACT_PARENT: aa1d6771fbf510a20525a1964b189907140ce4b3
+  PARENT_BRANCH: fix/pgn-toolbar-keyboard-20261003
+  EXPECTED_WEB_BLOB: b7bd87d793e1d80a5a6a821eb9bb3e3f728528f7
+  EXPECTED_TREE_TEST_BLOB: 291b021af6a82026c42fb61c58db07a36bec181f
+  EXPECTED_PARENT_DOM_TEST_BLOB: 7b701dd0a28ade8093dc8c99d91ba7cedee8d109
+  EXPECTED_BRIDGE_BLOB: c8f108c8dcc01c37503833abb5c626d89093145e
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact stacked scope and live parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+
+          parent_ref="refs/remotes/origin/$PARENT_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$PARENT_BRANCH:$parent_ref"
+          live_parent="$(git rev-parse "$parent_ref")"
+          test "$live_parent" = "$EXACT_PARENT" || {
+            printf 'Stacked parent moved: expected=%s live=%s\n' "$EXACT_PARENT" "$live_parent" >&2
+            exit 1
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            event_base='${{ github.event.pull_request.base.sha }}'
+            base_ref='${{ github.event.pull_request.base.ref }}'
+            test "$event_base" = "$EXACT_PARENT"
+            test "$base_ref" = "$PARENT_BRANCH"
+          fi
+
+          git diff --check "$EXACT_PARENT" HEAD
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/pgn-tree-keyboard-contract.yml' \
+            'tests/js/pgn_tree_keyboard_dom_test.js' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$EXPECTED_WEB_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "$EXPECTED_TREE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$EXPECTED_PARENT_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$EXPECTED_BRIDGE_BLOB"
+          echo 'PGN_TREE_KEYBOARD_SCOPE=PASS'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run executable browser keyboard contracts
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Retain PGN WebView authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
