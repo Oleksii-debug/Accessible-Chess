@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 from acs.classroom_media_host_transactions import (
@@ -32,6 +33,8 @@ from acs.classroom_media_webview_transactions import (
     ClassroomMediaBrowserProviderConfig,
     ClassroomMediaTransactionalWebView,
 )
+from acs.full_product_ui_shell import UILanguage
+from acs.version2_final_product_application import Version2FinalProductApplication
 
 
 NOW = datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)
@@ -167,6 +170,37 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertTrue(controller.state.connected)
         self.assertIsNone(binder.active_lease)
         return result
+
+    def test_application_rejects_transactional_unbind_while_connected(self):
+        controller, roster, _host, _sessions, _arbiter, binder = self.make_composition()
+        application = object.__new__(Version2FinalProductApplication)
+        application.shell = SimpleNamespace(language=UILanguage.EN)
+        application.media = None
+        application.media_transactions = None
+        application._assert_thread = lambda: None
+        labels = {
+            participant_id: participant_id.replace("-", " ").title()
+            for participant_id in roster.participant_ids()
+        }
+        application.bind_classroom_media(
+            controller,
+            lambda: dict(labels),
+            provider_binder=binder,
+            provider_config=ClassroomMediaBrowserProviderConfig(
+                "wss://media.example.test",
+                "moderation-bot",
+            ),
+        )
+        self.join(controller, roster, binder)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "provider session is connected",
+        ):
+            application.unbind_classroom_media()
+
+        self.assertIsNotNone(application.media)
+        self.assertIsNotNone(application.media_transactions)
 
     def test_session_lease_is_acquired_before_prepare_and_blocks_effect_prepare(self):
         _controller, roster, host, sessions, arbiter, binder = self.make_composition()
