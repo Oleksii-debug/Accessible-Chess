@@ -68,9 +68,9 @@ jobs:
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "e7babdd65abafd5293d68a4e76f5fb9bef292eff"
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "c7ade6cc8fefdac160235b67291438fa15c689b8"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "10b604853608b6f1310888d04322dd5740622789"
-          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "021aa2d66cfb01e6481cadb8911cba957f6b9d6a"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "51f42d8cf6944d35499f6185f8818fcb5db731a5"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "4ff578e64bd0de7a6faade2355c616067c937f74"
-          test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "7095b7007e0df977901bb2c148f982beeccac413"
+          test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "c954f8764f95b5f520c4c150684eacf6655cb788"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "20ddb93b03ee86073c41e96ad4713df9a41085af"
 
           # Retain the unchanged browser and canonical command authorities.
