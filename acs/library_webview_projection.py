@@ -409,6 +409,22 @@ class LibraryWebViewProjection:
     def import_projection(self) -> LibraryImportWebViewProjection:
         return self._import
 
+    def _transactional_render(
+        self,
+        mutation: Callable[[], LibraryView],
+        *,
+        announce: bool,
+    ) -> LibraryWebViewEvent:
+        """Roll back hidden Library state if render publication fails."""
+        presenter_state = self._presenter._capture_state()
+        query = self._query
+        try:
+            return self._render_event(mutation(), announce=announce)
+        except Exception:
+            self._presenter._restore_state(presenter_state)
+            self._query = query
+            raise
+
     def _filters(self) -> tuple[dict[str, object], ...]:
         labels = _LABELS[self._language]
         q = self._query
@@ -578,7 +594,10 @@ class LibraryWebViewProjection:
         return view
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
-        return self._render_event(self._search_view(query), announce=True)
+        return self._transactional_render(
+            lambda: self._search_view(query),
+            announce=True,
+        )
 
     def reset_filters(self) -> LibraryWebViewEvent:
         return self.search(GameSearchQuery())
@@ -586,8 +605,10 @@ class LibraryWebViewProjection:
     def select(self, game_id: int) -> LibraryWebViewEvent:
         if type(game_id) is not int or game_id <= 0:
             raise ValueError("game_id must be a positive integer")
-        view = self._presenter.select(game_id)
-        return self._render_event(view, announce=False)
+        return self._transactional_render(
+            lambda: self._presenter.select(game_id),
+            announce=False,
+        )
 
     def move_selection(self, delta: int) -> LibraryWebViewEvent:
         if type(delta) is not int or delta not in {-1, 1}:
@@ -603,14 +624,16 @@ class LibraryWebViewProjection:
         target = index + delta
         if not 0 <= target < len(ids):
             raise LookupError("library selection boundary")
-        view = self._presenter.select(ids[target])
-        return self._render_event(view, announce=False)
+        return self._transactional_render(
+            lambda: self._presenter.select(ids[target]),
+            announce=False,
+        )
 
     def next_page(self) -> LibraryWebViewEvent:
-        return self._render_event(self._presenter.next_page(), announce=True)
+        return self._transactional_render(self._presenter.next_page, announce=True)
 
     def previous_page(self) -> LibraryWebViewEvent:
-        return self._render_event(self._presenter.previous_page(), announce=True)
+        return self._transactional_render(self._presenter.previous_page, announce=True)
 
     def open_selected(self) -> LibraryWebViewEvent:
         self._presenter.open_selected(self._dispatch)

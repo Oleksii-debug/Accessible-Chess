@@ -121,6 +121,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             raise ValueError("game_id must be a positive integer")
         if game_id not in self._current_visible_ids():
             raise LookupError("Library export game is not on the current page")
+        previous = set(self._export_game_ids)
         labels = _EXPORT_LABELS[self.language]
         if game_id in self._export_game_ids:
             self._export_game_ids.remove(game_id)
@@ -128,18 +129,27 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         else:
             self._export_game_ids.add(game_id)
             announcement = labels["selected_on"]
-        event = self._render_event(self._presenter.view(), announce=False)
-        payload = dict(event.payload)
-        payload["announcement"] = announcement
-        payload["focus_target"] = self._export_focus_target(event, game_id)
-        return LibraryWebViewEvent(event.kind, payload)
+        try:
+            event = self._render_event(self._presenter.view(), announce=False)
+            payload = dict(event.payload)
+            payload["announcement"] = announcement
+            payload["focus_target"] = self._export_focus_target(event, game_id)
+            return LibraryWebViewEvent(event.kind, payload)
+        except Exception:
+            self._export_game_ids = previous
+            raise
 
     def clear_export_selection(self) -> LibraryWebViewEvent:
+        previous = set(self._export_game_ids)
         self._export_game_ids.clear()
-        event = self._render_event(self._presenter.view(), announce=False)
-        payload = dict(event.payload)
-        payload["announcement"] = _EXPORT_LABELS[self.language]["cleared"]
-        return LibraryWebViewEvent(event.kind, payload)
+        try:
+            event = self._render_event(self._presenter.view(), announce=False)
+            payload = dict(event.payload)
+            payload["announcement"] = _EXPORT_LABELS[self.language]["cleared"]
+            return LibraryWebViewEvent(event.kind, payload)
+        except Exception:
+            self._export_game_ids = previous
+            raise
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
         # A changed result identity clears old export checks atomically. Stage the
@@ -149,13 +159,16 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         previous = set(self._export_game_ids)
         self._export_game_ids.clear()
         try:
-            view = self._search_view(query)
+            def mutate():
+                view = self._search_view(query)
+                if view.status.value == "error":
+                    self._export_game_ids = previous
+                return view
+
+            return self._transactional_render(mutate, announce=True)
         except Exception:
             self._export_game_ids = previous
             raise
-        if view.status.value == "error":
-            self._export_game_ids = previous
-        return self._render_event(view, announce=True)
 
     def request_export_selected(self) -> LibraryWebViewEvent:
         request = LibraryExportRequest.selected(self.export_game_ids)
