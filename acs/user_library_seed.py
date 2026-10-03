@@ -136,6 +136,19 @@ def _portable_name(value: object) -> str:
     return name
 
 
+def _display_name(value: object) -> str:
+    if type(value) is not str:
+        raise UserLibrarySeedError("user Library seed display name is invalid")
+    if (
+        not value
+        or value != value.strip()
+        or len(value) > 512
+        or any(ord(character) < 32 or ord(character) == 0x7F for character in value)
+    ):
+        raise UserLibrarySeedError("user Library seed display name is invalid")
+    return value
+
+
 def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
     root = Path(root)
     # The runtime contract is package-local. Checking only the final seed
@@ -197,16 +210,14 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
             raise UserLibrarySeedError("user Library seed contains duplicate filenames")
         names.add(folded)
         expected_inventory.add(folded)
-        display = item["display_name"]
-        if type(display) is not str or not display.strip() or len(display) > 512:
-            raise UserLibrarySeedError("user Library seed display name is invalid")
+        display = _display_name(item["display_name"])
         size = item["bytes"]
         digest = item["sha256"]
         if type(size) is not int or not 1 <= size <= MAX_SOURCE_BYTES:
             raise UserLibrarySeedError("user Library seed source byte size is invalid")
         if type(digest) is not str or _SHA256_RE.fullmatch(digest) is None:
             raise UserLibrarySeedError("user Library seed source SHA-256 is invalid")
-        entries.append(UserLibrarySeedEntry(name, display.strip(), size, digest))
+        entries.append(UserLibrarySeedEntry(name, display, size, digest))
 
     try:
         children = tuple(root.iterdir())
