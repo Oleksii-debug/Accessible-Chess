@@ -37,6 +37,10 @@ _SEMANTIC_TREE_LABELS = {
         "outro_comments": "Коментарі після ходів",
         "warnings": "Попередження відновлення",
         "unavailable": "Вміст партії недоступний або некоректний; ходи не показано.",
+        "reading_unavailable": (
+            "Список ходів завеликий або його неможливо безпечно показати; "
+            "шахівниця залишається доступною."
+        ),
     },
     UILanguage.EN: {
         "moves": "Moves and variations",
@@ -47,8 +51,16 @@ _SEMANTIC_TREE_LABELS = {
         "outro_comments": "Comments after moves",
         "warnings": "Recovery warnings",
         "unavailable": "Game content is unavailable or invalid; moves are not shown.",
+        "reading_unavailable": (
+            "The move list is too large or cannot be displayed safely; "
+            "the board remains available."
+        ),
     },
 }
+
+
+class _BookSemanticTreeError(ValueError):
+    """Known fail-closed presentation error for otherwise canonical GameTree data."""
 
 
 class Version2BookReaderPresenter(BookReaderPresenter):
@@ -74,7 +86,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
         view = PgnTreePresenter((game,), language=self.language).view()
         if view.game_index != 0:
-            raise ValueError("book semantic GameTree projection is unavailable")
+            raise _BookSemanticTreeError("book semantic GameTree projection is unavailable")
 
         visible_total = 0
 
@@ -87,7 +99,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             )
             visible_total += len(text)
             if visible_total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
-                raise ValueError("book semantic GameTree exceeds the visible-text budget")
+                raise _BookSemanticTreeError("book semantic GameTree exceeds the visible-text budget")
             return text
 
         labels = _SEMANTIC_TREE_LABELS[self.language]
@@ -101,16 +113,16 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         previous_depth = 0
         for position, item in enumerate(view.items):
             if item.kind not in {"move", "variation"}:
-                raise ValueError("book semantic GameTree item kind is invalid")
+                raise _BookSemanticTreeError("book semantic GameTree item kind is invalid")
             if type(item.depth) is not int or item.depth < 0:
-                raise ValueError("book semantic GameTree depth is invalid")
+                raise _BookSemanticTreeError("book semantic GameTree depth is invalid")
             if position == 0 and item.depth != 0:
-                raise ValueError("book semantic GameTree root depth is invalid")
+                raise _BookSemanticTreeError("book semantic GameTree root depth is invalid")
             if position > 0 and item.depth > previous_depth + 1:
-                raise ValueError("book semantic GameTree depth jumps unexpectedly")
+                raise _BookSemanticTreeError("book semantic GameTree depth jumps unexpectedly")
             label = safe(item.label)
             if not label:
-                raise ValueError("book semantic GameTree item label is empty")
+                raise _BookSemanticTreeError("book semantic GameTree item label is empty")
             if item.kind == "move":
                 comments_before = tuple(
                     comment
@@ -189,6 +201,14 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if isinstance(semantic, (Game, VariationTree)):
             try:
                 snapshot["block"]["semantic_tree"] = self._semantic_tree_snapshot(block.index)
+            except _BookSemanticTreeError:
+                # The canonical game is valid, but its semantic reading surface
+                # exceeded a presentation invariant/budget. Fail closed only for
+                # the move-list projection; the canonical Board workflow remains
+                # available and no partial semantic tree is published.
+                snapshot["block"]["warning"] = _SEMANTIC_TREE_LABELS[
+                    self.language
+                ]["reading_unavailable"]
             except BookBoardWorkflowError as error:
                 if error.code not in {
                     BookBoardWorkflowCode.CONTENT_UNAVAILABLE,

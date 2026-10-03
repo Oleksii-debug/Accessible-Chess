@@ -99,6 +99,39 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_oversized_semantic_reading_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Large annotated game",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\\n\\n1. e4 {Long semantic comment} e5 *',
+                        title="Large game",
+                        block_id="large-game",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        with patch(
+            "acs.version2_book_workspace._MAX_BOOK_BLOCK_VISIBLE_CHARS",
+            8,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_invalid_game_semantics_fail_closed_without_breaking_book_snapshot(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
