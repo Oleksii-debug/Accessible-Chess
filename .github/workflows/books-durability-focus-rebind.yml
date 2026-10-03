@@ -5,8 +5,11 @@ on:
     branches:
       - 'converge/books-semantic-durable-board-20261003'
     paths:
+      - 'acs/full_product_ui_shell.py'
       - 'acs/version2_application.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_version2_application.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
       - '.github/workflows/books-durability-focus-rebind.yml'
   workflow_dispatch:
 
@@ -40,7 +43,7 @@ jobs:
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
 
-          git fetch --no-tags origin             "+refs/heads/$base_branch:refs/remotes/origin/$base_branch"
+          git fetch --no-tags origin "+refs/heads/$base_branch:refs/remotes/origin/$base_branch"
           live_base="$(git rev-parse "refs/remotes/origin/$base_branch")"
           git merge-base --is-ancestor "$live_base" HEAD
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
@@ -50,21 +53,26 @@ jobs:
             event_base='${{ github.event.pull_request.base.sha }}'
             test -n "$event_base"
             git cat-file -e "$event_base^{commit}"
-            # GitHub can retain the recorded PR base SHA while the live stacked
-            # base advances. That historical event base must still be genuine
-            # ancestry, but qualification is always against the current branch.
             git merge-base --is-ancestor "$event_base" "$live_base"
 
             changed="$(git diff --name-only "$live_base" HEAD | sort)"
-            expected="$(printf '%s\n'               '.github/workflows/books-durability-focus-rebind.yml'               'acs/version2_application.py'               'tests/test_version2_application.py' | sort)"
+            expected="$(printf '%s\n' '.github/workflows/books-durability-focus-rebind.yml' 'acs/full_product_ui_shell.py' 'acs/version2_application.py' 'tests/js/version2_release_bootstrap_dom_test.js' 'tests/test_version2_application.py' 'tests/test_version2_release_accessibility_contract.py' | sort)"
             test "$changed" = "$expected"
             git diff --check "$live_base" HEAD
           else
             git diff --check HEAD^ HEAD
           fi
 
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "53a209d9c63a3de5528b4708dd561d58415aa6d5"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "34df9e717adf52dcb41cd2caf1ee79e7a8dff37f"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "4c72d559a08a61e0b6f6976ac3fc94b321226ee0"
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "a9d6d065777156c3fe2327b2183df5d8898dc2cb"
+
+      - name: Prove rendered Training focus contract
+        run: |
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -73,13 +81,16 @@ jobs:
       - name: Compile successor runtime
         run: >-
           python -m compileall -q
+          acs/full_product_ui_shell.py
           acs/version2_application.py
           tests/test_version2_application.py
+          tests/test_version2_release_accessibility_contract.py
 
-      - name: Prove durability recovery and whole-product Book flow
+      - name: Prove durability recovery and whole-product focus flow
         run: >-
           python -m unittest -v
           tests.test_version2_application
+          tests.test_version2_release_accessibility_contract
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
           tests.test_v2_book_transaction_current_runtime
