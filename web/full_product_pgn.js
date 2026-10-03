@@ -345,6 +345,30 @@
       root.replaceChildren(fragment);
       return;
     }
+    if (snapshot.status === "unavailable") {
+      main.appendChild(
+        node(
+          "p",
+          snapshot.unavailable_message || root._pgnErrorMessage
+        )
+      );
+      const refresh = node("button", snapshot.refresh_label || "Refresh PGN view");
+      refresh.type = "button";
+      refresh.id = "pgn-refresh-view";
+      refresh.addEventListener("click", function () {
+        invokeCommand(root, invoke, announce, "pgn.refresh", {});
+      });
+      main.appendChild(refresh);
+      fragment.appendChild(main);
+      root.replaceChildren(fragment);
+      if (
+        requestedFocus === refresh.id
+        && typeof refresh.focus === "function"
+      ) {
+        refresh.focus({ preventScroll: true });
+      }
+      return;
+    }
 
     const game = snapshot.game || {};
     main.appendChild(node("h2", game.heading || ""));
