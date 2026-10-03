@@ -273,6 +273,64 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.UNSAFE_PACKAGE,
                 )
 
+    def test_manifest_rejects_multiple_ids_for_same_resolved_resource(self) -> None:
+        cases = (
+            ("Text/chapter.xhtml", "Text/chapter.xhtml"),
+            ("Text/chapter.xhtml", "Text/%63hapter.xhtml"),
+            ("Text/%63hapter.xhtml", "Text/chapter.xhtml"),
+        )
+        for first_href, second_href in cases:
+            with self.subTest(first_href=first_href, second_href=second_href):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="{first_href}" '
+                            'media-type="application/xhtml+xml"/>\n'
+                            f'    <item id="c2" href="{second_href}" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>\n    <itemref idref="c2"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>One canonical chapter.</p></body></html>"
+                        ),
+                    },
+                )
+
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="duplicate-manifest-resource.epub")
+
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+                self.assertIn("same package resource", str(raised.exception))
+
+    def test_manifest_keeps_distinct_resolved_resources_distinct(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/one.xhtml" '
+                    'media-type="application/xhtml+xml"/>\n'
+                    '    <item id="c2" href="Text/two.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>\n    <itemref idref="c2"/>',
+            ),
+            entries={
+                "OEBPS/Text/one.xhtml": b"<html><body><p>First chapter.</p></body></html>",
+                "OEBPS/Text/two.xhtml": b"<html><body><p>Second chapter.</p></body></html>",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="distinct-manifest-resources.epub")
+        self.assertEqual(result.spine_documents, 2)
+        self.assertEqual(
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+            ["First chapter.", "Second chapter."],
+        )
+
     def test_external_manifest_href_is_rejected(self) -> None:
         raw = _epub(
             opf=_opf(
