@@ -37,6 +37,44 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertEqual(len(second.variations), 1)
             self.assertEqual([m.san for m in second.variations[0].moves], ["c5", "Nf3"])
 
+    def test_open_windows_1251_preserves_cyrillic_comments_and_rav(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-russian-book.pgn"
+            source = (
+                '[Event "Русская шахматная книга"]\n'
+                '[Site "Киев"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 '
+                '(1... c5 $1 {сицилианская защита} 2. Nf3) '
+                '2. Nf3 *\n'
+            )
+            path.write_bytes(source.encode("cp1251"))
+
+            opened = open_pgn(path)
+
+            self.assertEqual(opened.total_games, 1)
+            self.assertEqual(opened.games[0].tags["Event"], "Русская шахматная книга")
+            self.assertEqual(opened.games[0].tags["Site"], "Киев")
+            self.assertEqual(
+                opened.games[0].line.moves[0].comments_after[0].text,
+                "главный план",
+            )
+            variation = opened.games[0].line.moves[1].variations[0]
+            self.assertEqual(variation.moves[0].san, "c5")
+            self.assertEqual(
+                variation.moves[0].comments_after[0].text,
+                "сицилианская защита",
+            )
+            self.assertTrue(
+                any(
+                    warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+                    for warning in opened.global_warnings
+                )
+            )
+            self.assertFalse(
+                any("bytes were replaced" in warning for warning in opened.global_warnings)
+            )
+
     def test_atomic_save_round_trips_rich_structure(self):
         games = parse_games(RICH_PGN)
         with tempfile.TemporaryDirectory() as tmp:
