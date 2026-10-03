@@ -64,7 +64,7 @@ jobs:
           fi
 
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "43f625728f494b4c81c0d8f68a4a84893063aa9b"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "2e188a845d1fda9686ac17df8c64dc94b5f25d36"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "0bc099cde162d4be0c7974a4988a67b2f058f7bd"
           test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "cccbc04eb4c36da1dd60d149e12e4b87dd29ada5"
           test "$(git rev-parse HEAD:acs/book_text_import.py)" = "1e2f8360da45ef4ab7b03b6179b0c03bf0ad473c"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "51b7d0f1e0b951a8fe501b696c220df2975a4e66"
