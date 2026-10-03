@@ -9,10 +9,13 @@ analytics remain outside this boundary.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
+import http.client
 import ipaddress
 import json
+import math
 import re
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from .classroom_chat_rpc import (
     ClassroomChatRpcError,
@@ -80,6 +83,126 @@ class _ClientDisconnected(Exception):
 
 class _ResponseDeliveryFailure(RuntimeError):
     pass
+
+
+class ClassroomChatHttpClientError(RuntimeError):
+    """Safe desktop-side failure for the bounded classroom chat HTTP transport."""
+
+
+class ClassroomChatHttpRpcCall:
+    """Synchronous HTTPS implementation of the canonical RPC call port.
+
+    The desktop keeps no server credential in this object. A trusted host/token
+    authority supplies a fresh bearer token for each call.
+    """
+
+    __slots__ = (
+        "_scheme",
+        "_host",
+        "_port",
+        "_bearer_token_provider",
+        "_timeout_seconds",
+    )
+
+    def __init__(
+        self,
+        *,
+        endpoint_url: str,
+        bearer_token_provider: Callable[[], str],
+        timeout_seconds: float = 15.0,
+        allow_insecure_loopback: bool = False,
+    ) -> None:
+        if not callable(bearer_token_provider):
+            raise TypeError("chat HTTP bearer token provider must be callable")
+        if type(allow_insecure_loopback) is not bool:
+            raise TypeError("allow_insecure_loopback must be bool")
+        if (
+            type(timeout_seconds) not in {int, float}
+            or not math.isfinite(float(timeout_seconds))
+            or not 0 < float(timeout_seconds) <= 60
+        ):
+            raise ValueError("chat HTTP timeout must be from 0 to 60 seconds")
+        scheme, host, port = _validated_client_endpoint(
+            endpoint_url,
+            allow_insecure_loopback=allow_insecure_loopback,
+        )
+        self._scheme = scheme
+        self._host = host
+        self._port = port
+        self._bearer_token_provider = bearer_token_provider
+        self._timeout_seconds = float(timeout_seconds)
+
+    def __repr__(self) -> str:
+        return (
+            "ClassroomChatHttpRpcCall("
+            f"scheme={self._scheme!r}, host={self._host!r}, port={self._port!r}, "
+            "bearer_token_provider=<bound>)"
+        )
+
+    def call(self, request: Mapping[str, object]) -> Mapping[str, object]:
+        if type(request) is not dict:
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP request must be a canonical object"
+            )
+        try:
+            body = json.dumps(
+                request,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError, UnicodeEncodeError, RecursionError):
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP request is not serializable"
+            ) from None
+        if not body or len(body) > MAX_CHAT_HTTP_REQUEST_BYTES:
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP request exceeds transport limit"
+            )
+
+        try:
+            token = self._bearer_token_provider()
+        except Exception:
+            raise ClassroomChatHttpClientError(
+                "classroom chat credential is unavailable"
+            ) from None
+        token = _validated_bearer_token_text(token)
+
+        connection_type = (
+            http.client.HTTPSConnection
+            if self._scheme == "https"
+            else http.client.HTTPConnection
+        )
+        connection = connection_type(
+            self._host,
+            self._port,
+            timeout=self._timeout_seconds,
+        )
+        try:
+            connection.request(
+                "POST",
+                CHAT_RPC_PATH,
+                body=body,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Accept": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+            )
+            response = connection.getresponse()
+            return _read_client_response(response)
+        except ClassroomChatHttpClientError:
+            raise
+        except Exception:
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP transport failed"
+            ) from None
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 class ClassroomChatHttpEndpoint:
@@ -216,6 +339,195 @@ class ClassroomChatHttpEndpoint:
                 return
             else:
                 raise RuntimeError("unsupported ASGI lifespan event")
+
+
+def _validated_client_endpoint(
+    value: object,
+    *,
+    allow_insecure_loopback: bool,
+) -> tuple[str, str, int]:
+    if type(value) is not str or not value or len(value) > 2048:
+        raise ValueError("chat HTTP endpoint URL is invalid")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        raise ValueError("chat HTTP endpoint URL is invalid") from None
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path != CHAT_RPC_PATH
+        or parsed.hostname is None
+    ):
+        raise ValueError("chat HTTP endpoint URL is invalid")
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname
+    if scheme == "https":
+        return scheme, host, 443 if port is None else port
+    if (
+        scheme == "http"
+        and allow_insecure_loopback
+        and _host_is_literal_loopback(host)
+    ):
+        return scheme, host, 80 if port is None else port
+    raise ValueError("chat HTTP endpoint must use HTTPS")
+
+
+def _host_is_literal_loopback(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _validated_bearer_token_text(value: object) -> str:
+    if type(value) is not str:
+        raise ClassroomChatHttpClientError(
+            "classroom chat credential is invalid"
+        )
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError:
+        raise ClassroomChatHttpClientError(
+            "classroom chat credential is invalid"
+        ) from None
+    if (
+        not encoded
+        or len(encoded) > MAX_AUTHORIZATION_BYTES - len(b"Bearer ")
+        or value != value.strip()
+        or any(ord(ch) <= 32 or ord(ch) == 127 for ch in value)
+    ):
+        raise ClassroomChatHttpClientError(
+            "classroom chat credential is invalid"
+        )
+    return value
+
+
+def _read_client_response(response: object) -> dict[str, object]:
+    status = getattr(response, "status", None)
+    getheaders = getattr(response, "getheaders", None)
+    read = getattr(response, "read", None)
+    if type(status) is not int or not callable(getheaders) or not callable(read):
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response is invalid"
+        )
+    try:
+        raw_headers = getheaders()
+    except Exception:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response headers are unavailable"
+        ) from None
+    if type(raw_headers) is not list:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response headers are invalid"
+        )
+    grouped: dict[str, list[str]] = {}
+    header_bytes = 0
+    for entry in raw_headers:
+        if (
+            type(entry) not in {tuple, list}
+            or len(entry) != 2
+            or type(entry[0]) is not str
+            or type(entry[1]) is not str
+        ):
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP response headers are invalid"
+            )
+        name, value = entry
+        try:
+            header_bytes += len(name.encode("ascii")) + len(value.encode("latin1"))
+        except UnicodeEncodeError:
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP response headers are invalid"
+            ) from None
+        if header_bytes > MAX_REQUEST_HEADER_BYTES:
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP response headers are too large"
+            )
+        grouped.setdefault(name.lower(), []).append(value)
+
+    if "content-encoding" in grouped or "transfer-encoding" in grouped:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response encoding is unsupported"
+        )
+    content_types = grouped.get("content-type", [])
+    lengths = grouped.get("content-length", [])
+    if (
+        len(content_types) != 1
+        or content_types[0].strip().lower()
+        != "application/json; charset=utf-8"
+        or len(lengths) != 1
+    ):
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response metadata is invalid"
+        )
+    raw_length = lengths[0].strip()
+    if not raw_length.isdigit() or len(raw_length) > len(
+        str(MAX_CHAT_HTTP_RESPONSE_BYTES)
+    ):
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response length is invalid"
+        )
+    expected_length = int(raw_length, 10)
+    if expected_length > MAX_CHAT_HTTP_RESPONSE_BYTES:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response exceeds transport limit"
+        )
+    try:
+        body = read(MAX_CHAT_HTTP_RESPONSE_BYTES + 1)
+    except Exception:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response body is unavailable"
+        ) from None
+    if (
+        type(body) is not bytes
+        or not body
+        or len(body) > MAX_CHAT_HTTP_RESPONSE_BYTES
+        or len(body) != expected_length
+    ):
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response body is invalid"
+        )
+    if status != 200:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP request was rejected"
+        )
+
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response JSON is invalid"
+        ) from None
+
+    def no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON member")
+            result[key] = item
+        return result
+
+    def reject_constant(_value: str) -> object:
+        raise ValueError("non-finite JSON number")
+
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=no_duplicates,
+            parse_constant=reject_constant,
+        )
+    except (ValueError, TypeError, RecursionError):
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response JSON is invalid"
+        ) from None
+    if type(value) is not dict:
+        raise ClassroomChatHttpClientError(
+            "classroom chat HTTP response JSON is invalid"
+        )
+    return value
 
 
 def _validated_authenticated_identity(value: object) -> tuple[str, str]:
@@ -550,7 +862,9 @@ async def _send_response(
 __all__ = [
     "CHAT_RPC_PATH",
     "ClassroomChatHttpAuthenticatorPort",
+    "ClassroomChatHttpClientError",
     "ClassroomChatHttpEndpoint",
+    "ClassroomChatHttpRpcCall",
     "MAX_AUTHORIZATION_BYTES",
     "MAX_CHAT_HTTP_REQUEST_BYTES",
     "MAX_CHAT_HTTP_RESPONSE_BYTES",
