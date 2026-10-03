@@ -239,7 +239,9 @@
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
-    const requestedFocus = String(screen.focus_target || "");
+    const requestedFocus = validFocusId(screen.focus_target)
+      ? screen.focus_target
+      : "";
     const heading = String(screen.heading || "");
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
