@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      EXACT_PARENT: cf676d406e070ac6617cd9c2c749075d329e8932
+      EXACT_PARENT: 432d8c3cee20eda89df6f7e71d7f3cf090846900
       SOURCE_PGN_HEAD: 8839fe5b0492a0f77fcb13a7d8dc1a07827c02c6
       PROJECTION_BLOB: 127037cb6cf264f579516df599bf8c1ad44e8985
       BRIDGE_BLOB: 25b3d03179f42b4565a4dd6d7a2ccd283607e09c
