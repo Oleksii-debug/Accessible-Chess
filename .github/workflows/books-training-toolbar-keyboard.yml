@@ -63,8 +63,8 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "5fc6b7bff0e709075175cde3e8b507b9637fbce4"
-          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "623b99aecfefda60116e849b2d5079da7e2403ad"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "48a78e975656f78ed6c4567ecdca64bdf2cfd64c"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "1483246e2e32814706c928b6fa67d905baae2306"
 
       - name: Validate and execute DOM keyboard contract
         run: |
