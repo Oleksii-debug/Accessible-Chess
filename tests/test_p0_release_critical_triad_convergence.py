@@ -9,6 +9,7 @@ REQUIRED_QA_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
     "tests/test_p0_packaged_document_copy_probe.py",
     "scripts/verify_p0_packaged_document_copy_evidence.py",
+    "tests/test_verify_p0_packaged_document_copy_evidence.py",
     "scripts/p0g_packaged_hotkey_result_probe.ps1",
     "tests/test_p0g_packaged_hotkey_result_probe.py",
 )
@@ -44,6 +45,9 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
+        for path in REQUIRED_QA_PATHS:
+            with self.subTest(trigger_path=path):
+                self.assertIn("      - '" + path + "'", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]

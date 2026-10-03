@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - 'scripts/p0_packaged_document_copy_probe.ps1'
+      - 'tests/test_p0_packaged_document_copy_probe.py'
       - 'scripts/verify_p0_packaged_document_copy_evidence.py'
+      - 'tests/test_verify_p0_packaged_document_copy_evidence.py'
       - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
+      - 'tests/test_p0g_packaged_hotkey_result_probe.py'
       - 'tests/test_p0_release_critical_triad_convergence.py'
       - '.github/workflows/p0-release-critical-triad-convergence.yml'
       - 'acs/**'
