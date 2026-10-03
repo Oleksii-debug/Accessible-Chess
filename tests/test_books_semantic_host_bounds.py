@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +10,7 @@ from acs.book_board_workflow import BookBoardMode, BookBoardWorkflow
 from acs.bookdocument import BookDocument, Game
 from acs.bookreader import BookReader
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_presenters import PgnGameView, PgnTreeItem
 from acs.gametree import Comment, MoveNode, PgnGame, VariationLine
 from acs.version2_book_workspace import build_version2_book_webview
 from acs.version2_profile import build_version2_router, build_version2_shell
@@ -36,6 +36,37 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         router = build_version2_router(build_version2_shell(), delegate)
         bridge = build_version2_book_webview(reader, workflow, router.dispatch)
         return reader, workflow, bridge
+
+    @staticmethod
+    def presenter_item(**overrides) -> PgnTreeItem:
+        values = {
+            "node_id": "g0:m0",
+            "kind": "move",
+            "depth": 0,
+            "label": "1. e4",
+            "parent_id": None,
+            "san": None,
+            "comments": (),
+            "nags": (),
+            "trailing_comments": (),
+            "comments_before": (),
+            "comments_after": (),
+            "result": None,
+        }
+        values.update(overrides)
+        return PgnTreeItem(**values)
+
+    @staticmethod
+    def presenter_view(*items: PgnTreeItem, game_index: object = 0) -> PgnGameView:
+        return PgnGameView(
+            game_index=game_index,
+            title="",
+            result="*",
+            tags=(),
+            warnings=(),
+            items=tuple(items),
+            selected_node_id=None,
+        )
 
     @staticmethod
     def semantic_game(*, white: str = "Alpha", san: str = "e4") -> PgnGame:
@@ -125,34 +156,17 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         before = reader.snapshot()
         game = self.semantic_game()
 
-        def presenter_view(comment_size: int) -> SimpleNamespace:
-            return SimpleNamespace(
-                game_index=0,
-                items=(
-                    SimpleNamespace(
-                        kind="move",
-                        depth=0,
-                        node_id="g0:m0",
-                        parent_id=None,
-                        label="1. e4",
-                        comments=(),
-                        comments_before=(),
-                        comments_after=(),
-                        trailing_comments=(),
-                        result=None,
-                    ),
-                    SimpleNamespace(
-                        kind="variation",
-                        depth=1,
-                        node_id="g0:m0/v0",
-                        parent_id="g0:m0",
-                        label="Variation 1",
-                        comments=("x" * comment_size,),
-                        comments_before=(),
-                        comments_after=(),
-                        trailing_comments=(),
-                        result="*",
-                    ),
+        def presenter_view(comment_size: int) -> PgnGameView:
+            return self.presenter_view(
+                self.presenter_item(),
+                self.presenter_item(
+                    kind="variation",
+                    depth=1,
+                    node_id="g0:m0/v0",
+                    parent_id="g0:m0",
+                    label="Variation 1",
+                    comments=("x" * comment_size,),
+                    result="*",
                 ),
             )
 
@@ -210,22 +224,13 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="variation",
-                    depth=0,
-                    node_id="g0:main/v0",
-                    parent_id=None,
-                    label="Variation 1",
-                    comments=(),
-                    comments_before=(),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(
+                kind="variation",
+                depth=0,
+                node_id="g0:main/v0",
+                label="Variation 1",
+            )
         )
 
         with (
@@ -534,10 +539,7 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
             def __ne__(self, other):
                 raise AssertionError("hostile presenter index must not be compared")
 
-        malformed_view = SimpleNamespace(
-            game_index=HostileIndex(0),
-            items=(),
-        )
+        malformed_view = self.presenter_view(game_index=HostileIndex(0))
 
         with (
             patch.object(
@@ -558,22 +560,11 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="move",
-                    depth=0,
-                    node_id="g0:m0",
-                    parent_id=None,
-                    label="1. e4",
-                    comments=("x" * 1201,),
-                    comments_before=("x" * 1201,),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(
+                comments=("x" * 1201,),
+                comments_before=("x" * 1201,),
+            )
         )
 
         with (
@@ -599,22 +590,8 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="move",
-                    depth=0,
-                    node_id="xxxxx",
-                    parent_id=None,
-                    label="1. e4",
-                    comments=(),
-                    comments_before=(),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(node_id="xxxxx")
         )
 
         with (
@@ -645,22 +622,8 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
             def __hash__(self):
                 raise AssertionError("hostile semantic node id must never be hashed")
 
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="move",
-                    depth=0,
-                    node_id=HostileNodeId("g0:m0"),
-                    parent_id=None,
-                    label="1. e4",
-                    comments=(),
-                    comments_before=(),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(node_id=HostileNodeId("g0:m0"))
         )
 
         with (
