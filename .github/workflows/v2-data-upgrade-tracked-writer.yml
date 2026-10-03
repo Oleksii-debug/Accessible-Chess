@@ -109,7 +109,7 @@ jobs:
           tests/test_v2_upgrade_self_coordination_artifact_control.py=980ae8b3d74d93300ee9d9b83bbe5b22fa28fe84
           tests/test_v2_upgrade_education_workspace_artifact_control.py=db99b0298133443ff52abf72e656dd2c9061d031
           tests/test_v2_upgrade_generated_artifact_authentication.py=68c70f1de3c415e6cdfd37321994f66fb78637ea
-          tests/test_v2_upgrade_publish_race_audit.py=0f9a5606780aaa3e9f5d4301c7b0f12a965dd49e
+          tests/test_v2_upgrade_publish_race_audit.py=4818d823cefe6eafdc972d70473e943ec73c27d4
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           LOCKS
       - name: Compile
