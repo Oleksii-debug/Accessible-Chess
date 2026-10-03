@@ -1,8 +1,13 @@
+import sqlite3
 import unittest
 
 from acs.acsdb import AcsDatabase
 from acs.gametree import PgnGame, VariationLine
-from acs.library_import_service import LibraryImportControlError, LibraryImportService
+from acs.library_import_service import (
+    LibraryImportConflictError,
+    LibraryImportControlError,
+    LibraryImportService,
+)
 
 
 DIGEST = "A" * 64
@@ -72,6 +77,50 @@ class D07LibraryImportReuseFinalCancelTests(unittest.TestCase):
         self.assertEqual(
             attempts[0]["error_message"],
             "Library import game changed after validation",
+        )
+
+    def test_reuse_rejects_blob_source_index_in_persisted_canonical_row(self) -> None:
+        original = self.service.import_games(
+            (game(0),),
+            source_name="original.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+        )
+        self.db.conn.execute(
+            "UPDATE games SET source_index=? WHERE id=?",
+            (sqlite3.Binary(b"0"), original.first_game_id),
+        )
+        self.db.conn.commit()
+        persisted = self.db.conn.execute(
+            "SELECT source_index, typeof(source_index) AS storage_type FROM games WHERE id=?",
+            (original.first_game_id,),
+        ).fetchone()
+        self.assertEqual(persisted["source_index"], b"0")
+        self.assertEqual(persisted["storage_type"], "blob")
+
+        with self.assertRaisesRegex(
+            LibraryImportConflictError,
+            "Library source canonical content differs from existing import",
+        ):
+            self.service.import_games(
+                (game(0),),
+                source_name="retry-corrupt-index.pgn",
+                source_format="pgn",
+                source_sha256=DIGEST,
+            )
+
+        persisted_after = self.db.conn.execute(
+            "SELECT source_index, typeof(source_index) AS storage_type FROM games WHERE id=?",
+            (original.first_game_id,),
+        ).fetchone()
+        self.assertEqual(persisted_after["source_index"], b"0")
+        self.assertEqual(persisted_after["storage_type"], "blob")
+        attempts = self.db.list_import_attempts()
+        self.assertEqual(attempts[0]["status"], "failed")
+        self.assertIsNone(attempts[0]["source_id"])
+        self.assertEqual(
+            attempts[0]["error_message"],
+            "Library source conflicts with existing canonical import",
         )
 
 
