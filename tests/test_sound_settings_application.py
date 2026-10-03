@@ -374,6 +374,22 @@ class SoundSettingsApplicationTests(unittest.TestCase):
                 self.assertTrue(item["label"])
                 self.assertIn(event_id, item["sound_choices"])
 
+    def test_snapshot_labels_every_core_sound_event(self) -> None:
+        _storage, _manager, _playback, runtime = self._profile_runtime()
+        profiles = runtime._profile_provider.__self__
+        app = SoundSettingsApplication(profiles, runtime)
+
+        snapshot = app.snapshot(language="en")
+        labels = {
+            item["event_id"]: item["label"]
+            for item in snapshot["events"]
+        }
+
+        self.assertEqual(set(CORE_SOUND_EVENTS), set(labels))
+        for event_id in CORE_SOUND_EVENTS:
+            with self.subTest(event_id=event_id):
+                self.assertTrue(labels[event_id])
+
     def test_classic_provider_rejects_arbitrary_sound_remap(self) -> None:
         _storage, manager, _playback, runtime = self._profile_runtime()
         app = SoundSettingsApplication(
