@@ -2362,6 +2362,40 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertTrue(self.store.has("book:lock-continuity"))
 
+    def test_read_does_not_treat_observed_file_disappearance_as_stable_missing(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(
+            '{"entries":{},"generation":1,"schema_version":2}',
+            encoding="utf-8",
+        )
+        real_open = os.open
+        injected = False
+
+        def disappear_before_open(path, flags, *args, **kwargs):
+            nonlocal injected
+            if not injected and os.fspath(path) == os.fspath(self.path):
+                self.path.unlink()
+                injected = True
+                raise FileNotFoundError(os.fspath(path))
+            return real_open(path, flags, *args, **kwargs)
+
+        with mock.patch(
+            "acs.book_progress_store.os.open",
+            side_effect=disappear_before_open,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store._read_raw_file_unlocked(
+                    self.path,
+                    missing_ok=True,
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_descriptor_read_oserror_is_stable_storage_error(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
