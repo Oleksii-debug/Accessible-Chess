@@ -906,6 +906,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
 
         class ChatConnection:
             endpoint = chat_endpoint
+            responses: list[tuple[int, str]] = []
 
             def __init__(self, host, port, timeout):
                 self.closed = False
@@ -920,12 +921,19 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 method, target, body, headers = self.request_data
                 if method != "POST":
                     raise AssertionError("unexpected chat method")
-                return invoke_asgi(
+                response = invoke_asgi(
                     self.endpoint,
                     target=target,
                     body=body,
                     headers=headers.items(),
                 )
+                type(self).responses.append(
+                    (
+                        response.status,
+                        response._body.decode("utf-8", errors="replace"),
+                    )
+                )
+                return response
 
             def close(self):
                 self.closed = True
@@ -1008,7 +1016,11 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 "collaboration.chat.send",
                 {"body": "Shared over production HTTP"},
             )
-            self.assertEqual("collaboration.chat.sent", sent["kind"])
+            self.assertEqual(
+                "collaboration.chat.sent",
+                sent["kind"],
+                f"chat HTTP responses: {ChatConnection.responses!r}",
+            )
             initial_refresh = second.refresh_classroom_chat()
             initial_remote_message = second_runtime.store.room_messages(room)[0]
             self.assertEqual("Shared over production HTTP", initial_remote_message.body)
