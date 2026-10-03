@@ -1,8 +1,9 @@
 """V2 command composition for the canonical PGN workspace and selection writer."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .gametree import Comment, PgnGame, serialize_game
@@ -18,6 +19,70 @@ from .version2_windows_pgn_export import PgnSelectionExportRequest
 _TARGET_FIELDS = {"game_index", "line_path", "move_index", "expected_record_digest", "content_revision"}
 
 
+@dataclass(frozen=True, slots=True)
+class _PgnCommandTarget:
+    """Canonical PGN command identity, including the valid main-line root cursor.
+
+    ``PgnSelectionExportRequest`` deliberately rejects a root cursor because
+    exporting a selection requires a concrete game-tree item.  Navigation CAS
+    has a different contract: the root cursor is a normal, common workspace
+    state from which previous/next game must remain usable.  Keep that semantic
+    distinction here instead of weakening the Windows export boundary.
+    """
+
+    game_index: int
+    line_path: tuple[tuple[int, int], ...]
+    move_index: int | None
+    expected_record_digest: str
+    content_revision: int
+
+    def __post_init__(self) -> None:
+        if type(self.game_index) is not int or self.game_index < 0:
+            raise ValueError("PGN command game index is invalid")
+        if type(self.content_revision) is not int or self.content_revision < 0:
+            raise ValueError("PGN command content revision is invalid")
+        if self.move_index is not None and (
+            type(self.move_index) is not int or self.move_index < 0
+        ):
+            raise ValueError("PGN command move index is invalid")
+        if type(self.line_path) is not tuple:
+            raise TypeError("PGN command line path must be a tuple")
+        for step in self.line_path:
+            if (
+                type(step) is not tuple
+                or len(step) != 2
+                or type(step[0]) is not int
+                or type(step[1]) is not int
+                or step[0] < 0
+                or step[1] < 0
+            ):
+                raise ValueError("PGN command line path is invalid")
+        digest = self.expected_record_digest
+        if (
+            type(digest) is not str
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("PGN command record digest is invalid")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> "_PgnCommandTarget":
+        if not isinstance(payload, Mapping):
+            raise TypeError("PGN command target must be a mapping")
+        if set(payload) != _TARGET_FIELDS:
+            raise ValueError("PGN command target contains missing or untrusted fields")
+        line_path = payload["line_path"]
+        if type(line_path) is not tuple:
+            raise TypeError("PGN command line path must be a tuple")
+        return cls(
+            game_index=payload["game_index"],  # type: ignore[arg-type]
+            line_path=line_path,  # type: ignore[arg-type]
+            move_index=payload["move_index"],  # type: ignore[arg-type]
+            expected_record_digest=payload["expected_record_digest"],  # type: ignore[arg-type]
+            content_revision=payload["content_revision"],  # type: ignore[arg-type]
+        )
+
+
 class Version2PgnCommands:
     def __init__(self, get_session, *, copy_text=lambda _: None):
         self._get_session = get_session
@@ -30,7 +95,7 @@ class Version2PgnCommands:
         return session
 
     def _target(self, payload, *, require_current=True, workspace=None):
-        request = PgnSelectionExportRequest.from_payload({key: payload[key] for key in _TARGET_FIELDS})
+        request = _PgnCommandTarget.from_payload({key: payload[key] for key in _TARGET_FIELDS})
         if workspace is None:
             workspace = self._session().workspace
         view = workspace.view()
