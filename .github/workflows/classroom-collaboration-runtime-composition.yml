@@ -58,15 +58,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           test "$EXPECTED_BASE_REF" = "converge/classroom-collaboration-network-ui-20261003"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          git fetch --no-tags origin "$EXPECTED_BASE_REF"
-          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current collaboration convergence base $base is not an ancestor of HEAD."
+          if ! git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD; then
+            echo "Immutable pull-request event base $EVENT_BASE_SHA is not an ancestor of HEAD."
             exit 1
           fi
-          git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | LC_ALL=C sort)"
           allowed="$(printf '%s\n'             '.github/workflows/classroom-collaboration-runtime-composition.yml'             'acs/classroom_collaboration_runtime.py'             'acs/version2_final_product_application.py'             'tests/test_classroom_collaboration_runtime.py'             'tests/test_classroom_collaboration_runtime_preflight.py' | LC_ALL=C sort)"
           test "$changed" = "$allowed"
           echo "CLASSROOM_COLLABORATION_RUNTIME_EXACT_SCOPE=PASS"
@@ -87,7 +84,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -Eq 'os\.(environ|getenv)|API_SECRET|API_KEY|STORAGE_SECRET|LIVEKIT_SECRET'             acs/classroom_collaboration_runtime.py
+          ! grep -Eq 'os\.(environ|getenv)|API_SECRET|API_KEY|STORAGE_SECRET|LIVEKIT_SECRET'             acs/classroom_collaboration_runtime.py             acs/version2_final_product_application.py
           grep -Fq 'chat_bearer_token_provider' acs/classroom_collaboration_runtime.py
           grep -Fq 'file_bearer_token_provider' acs/classroom_collaboration_runtime.py
           grep -Fq 'ClassroomChatHttpRpcCall' acs/classroom_collaboration_runtime.py
