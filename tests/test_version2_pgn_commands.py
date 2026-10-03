@@ -81,6 +81,28 @@ class PgnCommandsTests(unittest.TestCase):
         commands("pgn.next_game", current)
         self.assertEqual(2, workspace.selected_game_index)
 
+    def test_game_navigation_cas_accepts_root_without_weakening_export_selection(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Two"]\n[Result "*"]\n\n1. d4 *\n'
+        )
+        workspace = session.workspace
+        commands = Version2PgnCommands(lambda: session)
+        root_target = self._navigation_target(workspace)
+
+        self.assertEqual((), root_target["line_path"])
+        self.assertIsNone(root_target["move_index"])
+        with self.assertRaisesRegex(ValueError, "selected game-tree item"):
+            PgnSelectionExportRequest.from_payload(root_target)
+
+        commands("pgn.next_game", root_target)
+        self.assertEqual(1, workspace.selected_game_index)
+        self.assertEqual(GameTreeCursor(), workspace.cursor)
+
+        commands("pgn.previous_game", self._navigation_target(workspace))
+        self.assertEqual(0, workspace.selected_game_index)
+        self.assertEqual(GameTreeCursor(), workspace.cursor)
+
     def test_game_navigation_cas_rejects_concurrent_cursor_change(self):
         session = PgnDocumentSession.from_text(
             '[Event "One"]\n[Result "*"]\n\n1. e4 e5 *\n\n'
