@@ -43,6 +43,46 @@ class ExerciseSessionTests(unittest.TestCase):
         self.assertEqual(definition.tags, ("opening", "calculation"))
         self.assertEqual(definition.source_id, "local-pack-1")
 
+    def test_raw_text_bounds_precede_training_normalization_and_chess_work(self):
+        step = ExerciseStep(frozenset({"e4"}))
+        overlong_identity = " " * (training_module._MAX_IDENTITY_TEXT + 1)
+
+        with patch.object(
+            training_module,
+            "Board",
+            side_effect=AssertionError("oversized start FEN must fail before Board construction"),
+        ) as board:
+            with self.assertRaisesRegex(ValueError, "start_fen is too long"):
+                ExerciseDefinition("bounded", overlong_identity, (step,))
+        board.assert_not_called()
+
+        with self.assertRaisesRegex(ValueError, "exercise_id is too long"):
+            ExerciseDefinition(overlong_identity, Board.START, (step,))
+
+        with self.assertRaisesRegex(ValueError, "exercise tag is too long"):
+            ExerciseDefinition(
+                "bounded",
+                Board.START,
+                (step,),
+                tags=(overlong_identity,),
+            )
+
+        overlong_move = " " * (training_module._MAX_MOVE_TEXT - 1) + "e4"
+        with self.assertRaisesRegex(ValueError, "move text is too long"):
+            ExerciseStep(frozenset({overlong_move}))
+
+        session = ExerciseSession(self.make_definition())
+        before = session.snapshot()
+        with patch.object(
+            training_module,
+            "_resolved_accepted_moves",
+            side_effect=AssertionError("oversized answer must fail before chess resolution"),
+        ) as resolve:
+            with self.assertRaisesRegex(ValueError, "move text is too long"):
+                session.submit(overlong_move)
+        resolve.assert_not_called()
+        self.assertEqual(before, session.snapshot())
+
     def test_session_revalidates_and_snapshots_mutated_definition_metadata(self):
         definition = self.make_definition()
         definition.metadata["difficulty"] = 7  # type: ignore[index]
