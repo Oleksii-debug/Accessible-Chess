@@ -130,6 +130,32 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _fsync_directory_tree(root: Path) -> None:
+    """Flush staged directory entries bottom-up before publishing the tree."""
+
+    _require_real_dir(root, "sound pack staging tree")
+    directories: list[Path] = []
+    try:
+        for current, dirnames, _filenames in os.walk(
+            root,
+            topdown=False,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            for name in dirnames:
+                _require_real_dir(
+                    current_path / name,
+                    "sound pack staging directory",
+                )
+            directories.append(current_path)
+    except OSError as exc:
+        raise SoundPackStoreError(
+            "sound pack staging tree could not be synchronized"
+        ) from exc
+    for directory in directories:
+        _fsync_directory(directory)
+
+
 def _canonical_json(payload: Mapping[str, object]) -> bytes:
     try:
         encoded = (
@@ -745,6 +771,11 @@ class FilesystemSoundPackStore:
                 raise SoundPackStoreError(
                     "locally staged sound pack identity changed"
                 )
+
+            # File contents were fsynced as they were written. Flush the staged
+            # directory entries bottom-up as well before publishing the complete
+            # version directory through one atomic rename.
+            _fsync_directory_tree(staging)
 
             try:
                 os.replace(staging, destination)
