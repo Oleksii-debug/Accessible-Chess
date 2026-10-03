@@ -184,6 +184,22 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertEqual(len(verifier.calls), 1)
         self.assertEqual(len(storage.install_calls), 1)
 
+    def test_signature_verifier_must_return_exact_boolean(self):
+        entry = make_entry(signature="catalog-signature")
+        downloaded = make_download(entry)
+        storage = FakeStorage({"classic": make_manifest("classic")})
+        verifier = FakeVerifier("false")  # type: ignore[arg-type]
+        manager = SoundPackManager(
+            FakeDownloader(downloaded),
+            storage,
+            signature_verifier=verifier,
+        )
+
+        with self.assertRaisesRegex(SoundPackInstallError, "invalid result"):
+            manager.install(entry)
+
+        self.assertEqual(storage.install_calls, [])
+
     def test_failed_signature_never_reaches_storage(self):
         entry = make_entry(signature="catalog-signature")
         storage = FakeStorage({"classic": make_manifest("classic")})
