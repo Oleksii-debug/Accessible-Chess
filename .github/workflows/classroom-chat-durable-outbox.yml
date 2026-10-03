@@ -94,6 +94,7 @@ jobs:
           tests/test_classroom_chat_outbox.py
           tests/test_classroom_collaboration_webview.py
           tests/test_classroom_collaboration_runtime.py
+          tests/test_classroom_collaboration_runtime_preflight.py
 
       - name: Run durable outbox and collaboration regressions
         run: >-
@@ -102,6 +103,7 @@ jobs:
           tests.test_classroom_chat_outbox
           tests.test_classroom_collaboration_webview
           tests.test_classroom_collaboration_runtime
+          tests.test_classroom_collaboration_runtime_preflight
           tests.test_classroom_collaboration_final_product
           tests.test_classroom_collaboration
           tests.test_classroom_collaboration_storage
