@@ -11,7 +11,7 @@ from acs.release_app import create_release_api
 from acs.sound_events import SoundEvent
 from acs.sound_windows import REQUIRED_SOUND_EVENTS
 from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI, complete_user_flow_diagnostic
-from scripts.build_user_sound_pack import NEW_GAME_IMPACT_MS
+from scripts.build_user_sound_pack import NEW_GAME_3D_IMPACT_MS, NEW_GAME_IMPACT_MS
 
 
 class _FakeLine:
@@ -300,19 +300,23 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
 
     def test_new_game_visual_sequence_is_visual_only_interruptible_and_sound_timed(self) -> None:
         text = self.bootstrap
-        self.assertIn("const NEW_GAME_IMPACT_MS = Object.freeze([", text)
-        match = re.search(
-            r"const NEW_GAME_IMPACT_MS = Object\.freeze\(\[(.*?)\]\);",
+        self.assertIn("const NEW_GAME_IMPACTS_BY_VARIANT = Object.freeze({", text)
+        matches = re.findall(
+            r"'(1|3d)': Object\.freeze\(\[(.*?)\]\)",
             text,
             re.DOTALL,
         )
-        self.assertIsNotNone(match)
-        js_impacts = tuple(
-            int(value.strip())
-            for value in match.group(1).replace("\n", " ").split(",")
-            if value.strip()
-        )
-        self.assertEqual(js_impacts, NEW_GAME_IMPACT_MS)
+        js_by_variant = {
+            variant: tuple(
+                int(value.strip())
+                for value in body.replace("\n", " ").split(",")
+                if value.strip()
+            )
+            for variant, body in matches
+        }
+        self.assertEqual(js_by_variant["1"], NEW_GAME_IMPACT_MS)
+        self.assertEqual(js_by_variant["3d"], NEW_GAME_3D_IMPACT_MS)
+        self.assertIn("currentSoundState.selectedVariants.start", text)
         self.assertIn("function startNewGameVisualSequence()", text)
         self.assertIn("function finishNewGameVisualSequence()", text)
         self.assertIn("prefers-reduced-motion: reduce", text)
