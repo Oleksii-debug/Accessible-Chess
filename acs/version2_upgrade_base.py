@@ -95,11 +95,16 @@ def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
 _TEMPFILE_TOKEN_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyz0123456789_"
 )
+# CPython's tempfile._RandomNameSequence, used by every canonical mkstemp
+# writer classified here, emits exactly eight characters from this alphabet.
+# Keep the classifier tied to the shipped writer grammar so preservation-backed
+# near-misses are never discarded merely because they look temp-like.
+_TEMPFILE_TOKEN_LENGTH = 8
 _HEX_CHARACTERS = frozenset("0123456789abcdef")
 
 
 def _is_tempfile_token(value: str) -> bool:
-    return bool(value) and all(
+    return len(value) == _TEMPFILE_TOKEN_LENGTH and all(
         character in _TEMPFILE_TOKEN_CHARACTERS for character in value
     )
 
@@ -190,6 +195,68 @@ def _is_upgrade_generated_root_runtime_file(
         settings_name=settings_name,
         library_name=library_name,
     )
+
+
+def _generated_runtime_file_is_authenticated_hardlink(
+    path: Path,
+    metadata: os.stat_result,
+    relative_path: PurePosixPath,
+    *,
+    root: Path,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Authenticate a writer-owned hardlink against its canonical target."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+    target_name: str | None = None
+
+    gametree_prefix = "gametree-resume.json.cas-"
+    if name.startswith(gametree_prefix) and name.endswith(".bak"):
+        token = name[len(gametree_prefix) : -len(".bak")]
+        if _is_tempfile_token(token):
+            target_name = "gametree-resume.json"
+
+    settings = settings_name.casefold()
+    library = library_name.casefold()
+    if target_name is None:
+        for target, canonical_name in (
+            (settings, settings_name),
+            (library, library_name),
+        ):
+            prefix = f".{target}.publish-guard-"
+            if not name.startswith(prefix):
+                continue
+            token = name[len(prefix) :]
+            if len(token) == 12 and all(
+                character in _HEX_CHARACTERS for character in token
+            ):
+                target_name = canonical_name
+                break
+
+    if target_name is None:
+        return False
+    target_path = root / target_name
+    try:
+        target_metadata = _safe_stat(
+            target_path,
+            "generated hardlink canonical target",
+        )
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(target_metadata.st_mode):
+        return False
+    try:
+        return os.path.samestat(metadata, target_metadata)
+    except (AttributeError, OSError):
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+        ) == (
+            target_metadata.st_dev,
+            target_metadata.st_ino,
+        )
 
 
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
@@ -1340,7 +1407,17 @@ class Version2UpgradeCoordinator:
                             and os.path.samestat(generated_info, target_info)
                         ):
                             continue
-                    elif link_count == 1:
+                    elif (
+                        link_count == 1
+                        or _generated_runtime_file_is_authenticated_hardlink(
+                            path,
+                            generated_info,
+                            relative_path,
+                            root=self.layout.root,
+                            settings_name=self.layout.settings_name,
+                            library_name=self.layout.library_name,
+                        )
+                    ):
                         continue
                     # A hard-linked temp/lock-shaped regular file cannot be an
                     # authentic private writer residue. Preserve it as ordinary
