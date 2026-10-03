@@ -137,36 +137,68 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                 ),
             ],
         )
+        position_types = (Position, Diagram, Exercise, VariationTree)
         commands = (
-            ("previous", "previous_block", -1),
-            ("next", "next_block", 1),
-            ("previous_heading", "previous_heading", -1),
-            ("next_heading", "next_heading", 1),
-            ("previous_position", "previous_position", -1),
-            ("next_position", "next_position", 1),
-            ("previous_game", "previous_game", -1),
-            ("next_game", "next_game", 1),
+            ("previous", "previous_block", -1, lambda block: True),
+            ("next", "next_block", 1, lambda block: True),
+            ("previous_heading", "previous_heading", -1, lambda block: isinstance(block, Heading)),
+            ("next_heading", "next_heading", 1, lambda block: isinstance(block, Heading)),
+            (
+                "previous_position",
+                "previous_position",
+                -1,
+                lambda block: isinstance(block, position_types),
+            ),
+            (
+                "next_position",
+                "next_position",
+                1,
+                lambda block: isinstance(block, position_types),
+            ),
+            ("previous_game", "previous_game", -1, lambda block: isinstance(block, Game)),
+            ("next_game", "next_game", 1, lambda block: isinstance(block, Game)),
         )
 
         for index in range(len(document.blocks)):
-            for availability_key, method_name, direction in commands:
+            for availability_key, method_name, direction, matches in commands:
                 with self.subTest(
                     index=index,
                     availability_key=availability_key,
                 ):
+                    candidate = index + direction
+                    expected_index = None
+                    while 0 <= candidate < len(document.blocks):
+                        if matches(document.blocks[candidate]):
+                            expected_index = candidate
+                            break
+                        candidate += direction
+
                     reader = BookReader(document)
                     reader.go_to(index)
                     before = reader.location()
                     availability = reader.navigation_availability()
                     self.assertEqual(before, reader.location())
+                    self.assertEqual(
+                        expected_index is not None,
+                        availability[availability_key],
+                        msg=(
+                            f"{availability_key} availability disagrees with nearest "
+                            f"semantic target from cursor {index}"
+                        ),
+                    )
 
                     command = getattr(reader, method_name)
-                    if availability[availability_key]:
+                    if expected_index is not None:
                         reached = command()
-                        self.assertGreater(
-                            (reached.index - index) * direction,
-                            0,
+                        self.assertEqual(
+                            expected_index,
+                            reached.index,
+                            msg=(
+                                f"{method_name} skipped the nearest semantic target "
+                                f"from cursor {index}"
+                            ),
                         )
+                        self.assertEqual(reached, reader.location())
                     else:
                         with self.assertRaises(LookupError):
                             command()
