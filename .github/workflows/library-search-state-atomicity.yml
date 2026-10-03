@@ -56,18 +56,14 @@ jobs:
           changed="$(git diff --name-only "$live_base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/library-search-state-atomicity.yml' \
-            'acs/full_product_presenters.py' \
             'acs/library_export_webview_projection.py' \
-            'acs/library_webview_projection.py' \
             'tests/test_d07_library_export_webview.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
 
-          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "09459c9a3e0e431ca4e547ea6cf56dd23f9b42d0"
-          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "45aa26db55a90667b11caf0838ec94985e1101ad"
           test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = "c4e5ce6bcf846d44f5c30ce0f4e6832584cae3b8"
           test "$(git rev-parse HEAD:tests/test_d07_library_export_webview.py)" = "d7a78a64d65a72cde7dac928999982ae7ac24a90"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "8651a45c6aabf29e094d8fdc14923e13afdeaf16"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "98aa880ed7489304614a417611f5e64ef85f3f59"
           git diff --check "$live_base" HEAD
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -77,8 +73,6 @@ jobs:
       - name: Compile Library state boundary
         run: >-
           python -m compileall -q
-          acs/full_product_presenters.py
-          acs/library_webview_projection.py
           acs/library_export_webview_projection.py
           tests/test_d07_library_export_webview.py
           tests/test_version2_application.py
