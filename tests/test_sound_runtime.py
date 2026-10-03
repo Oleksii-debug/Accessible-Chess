@@ -54,6 +54,27 @@ class SoundRuntimeTests(unittest.TestCase):
             [SoundEvent.START, SoundEvent.ILLEGAL, SoundEvent.TICK, SoundEvent.END],
         )
 
+    def test_specific_terminal_outcomes_do_not_fall_through_to_generic_end(self):
+        mate_playback = FakePlayback()
+        mate_game = GameSoundRuntime(SoundRuntime(mate_playback))
+        mate_game.start()
+        mate_game.checkmate()
+        mate_game.end()
+        self.assertEqual(
+            [event for event, _ in mate_playback.calls],
+            [SoundEvent.START, SoundEvent.MATE],
+        )
+
+        draw_playback = FakePlayback()
+        draw_game = GameSoundRuntime(SoundRuntime(draw_playback))
+        draw_game.start()
+        draw_game.draw()
+        draw_game.end()
+        self.assertEqual(
+            [event for event, _ in draw_playback.calls],
+            [SoundEvent.START, SoundEvent.DRAW],
+        )
+
     def test_terminal_move_does_not_duplicate_game_end(self):
         fake = FakePlayback()
         game = GameSoundRuntime(SoundRuntime(fake))
