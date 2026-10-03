@@ -122,6 +122,7 @@ _LABELS = {
         "file_states_updated": "Оновлено стан файлів: {count}.",
         "new_many": "Нових повідомлень: {count}.",
         "unread": "Непрочитаних: {count}",
+        "unread_message": "Непрочитане",
         "type": "Тип",
         "size": "Розмір",
         "status": "Стан",
@@ -202,6 +203,7 @@ _LABELS = {
         "file_states_updated": "File statuses updated: {count}.",
         "new_many": "New messages: {count}.",
         "unread": "Unread: {count}",
+        "unread_message": "Unread",
         "type": "Type",
         "size": "Size",
         "status": "Status",
@@ -808,6 +810,7 @@ class ClassroomCollaborationWebView:
                 "moderation_available": moderation_available,
                 "empty_message": labels["no_messages"],
                 "unread_label": labels["unread"].format(count=unread_count),
+                "unread_message_label": labels["unread_message"],
                 "unread_count": unread_count,
                 "max_body_chars": MAX_CHAT_BODY_CHARS,
                 "messages": tuple(
