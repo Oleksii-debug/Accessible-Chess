@@ -779,11 +779,17 @@ class AcsDatabase:
                                error_message: str | None = None) -> None:
         if status not in IMPORT_ATTEMPT_STATUSES - {"pending"}:
             raise ValueError(f"Unsupported import attempt status: {status}")
+        attempt_id = self._row_id(attempt_id, name="attempt_id")
+        if source_id is not None:
+            source_id = self._row_id(source_id, name="source_id")
+        game_count = self._positive_cursor(game_count, name="game_count")
+        warning_count = self._positive_cursor(warning_count, name="warning_count")
+        assert game_count is not None and warning_count is not None
         self.conn.execute(
             """UPDATE import_attempts
                SET finished_at=?, status=?, source_id=?, game_count=?, warning_count=?, error_message=?
                WHERE id=?""",
-            (self._now(), status, source_id, int(game_count), int(warning_count), error_message, int(attempt_id)),
+            (self._now(), status, source_id, game_count, warning_count, error_message, attempt_id),
         )
 
     def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
