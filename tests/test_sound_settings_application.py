@@ -416,6 +416,97 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual([], downloader.entries)
         self.assertEqual([], pack_storage.installed_payloads)
 
+    def test_update_without_candidate_rights_stays_blocked_even_when_installed_version_has_rights(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        candidate = _manifest("soft", "2.0.0")
+        audited_candidate = _entry(candidate)
+        unaudited_candidate = SoundPackCatalogEntry(
+            manifest=audited_candidate.manifest,
+            assets=audited_candidate.assets,
+            total_bytes=audited_candidate.total_bytes,
+        )
+        installed_rights = SoundPackRightsEvidence(
+            license_id=installed.license_id,
+            source_uri="https://example.invalid/source/soft/1.0.0",
+            license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        )
+        pack_storage = _PackStorage([classic, installed])
+        downloader = _Downloader()
+        manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": unaudited_candidate},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                installed_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("different_version", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(installed_rights.source_uri, item["rights_source_uri"])
+        self.assertFalse(item["catalog_rights_auditable"])
+        self.assertEqual("", item["catalog_rights_source_uri"])
+        self.assertFalse(item["can_install"])
+        with self.assertRaisesRegex(
+            ValueError,
+            "auditable license/provenance evidence",
+        ):
+            app.install_pack("soft", activate=True, language="en")
+        self.assertEqual([], downloader.entries)
+        self.assertEqual([], pack_storage.installed_payloads)
+
+    def test_audited_update_keeps_installed_and_candidate_rights_version_scoped(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        candidate = _manifest("soft", "2.0.0")
+        entry = _entry(candidate)
+        installed_rights = SoundPackRightsEvidence(
+            license_id=installed.license_id,
+            source_uri="https://example.invalid/source/soft/1.0.0",
+            license_uri="https://example.invalid/license/soft/1.0.0",
+        )
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                installed_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("different_version", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(
+            "https://example.invalid/source/soft/1.0.0",
+            item["rights_source_uri"],
+        )
+        self.assertTrue(item["catalog_rights_auditable"])
+        self.assertEqual(
+            "https://example.invalid/source/soft/2.0.0",
+            item["catalog_rights_source_uri"],
+        )
+        self.assertTrue(item["can_install"])
+
     def test_catalog_version_drift_never_projects_uninstalled_future_sound_ids(self) -> None:
         classic = _manifest("classic")
         installed = _manifest("soft", "1.0.0")
