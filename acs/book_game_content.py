@@ -356,7 +356,19 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
     # spellings, while PGN FEN tags normally carry all six fields.
     game = _one_embedded_game(pgn)
     tagged_fen = game.tags.get("FEN")
-    if tagged_fen is not None:
+    setup_tag = game.tags.get("SetUp")
+    if tagged_fen is None:
+        if setup_tag is not None:
+            raise BookGameContentError(
+                "book variation PGN carries SetUp without its required FEN tag",
+                code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+            )
+    else:
+        if setup_tag != "1":
+            raise BookGameContentError(
+                "book variation PGN FEN requires SetUp 1",
+                code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+            )
         try:
             canonical_tagged_fen = Board(tagged_fen.strip()).fen()
         except (TypeError, ValueError) as exc:
