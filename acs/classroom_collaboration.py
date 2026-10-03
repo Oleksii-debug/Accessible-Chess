@@ -718,6 +718,10 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "live file reused attachment identity with different payload"
                 )
+            if current.transfer_state == "pending":
+                raise CollaborationError(
+                    "live file conflicts with local pending attachment identity"
+                )
             if current.transfer_state in {"uploading", "failed"}:
                 # The provider may have committed an upload while this client
                 # crashed or observed an ambiguous failure. The local sequence
@@ -1010,7 +1014,10 @@ class ClassroomCollaborationController:
                 break
             after = current.sequence_no
         expected_sequence = 0 if after is None else after + 1
-        if result.sequence_no > expected_sequence:
+        if (
+            result.transfer_state == "stored"
+            and result.sequence_no > expected_sequence
+        ):
             self.sync_files()
             authoritative = tuple(
                 item
@@ -1181,6 +1188,8 @@ def _chat_body(value: object) -> str:
         raise CollaborationError("chat body exceeds length limit")
     if "\x00" in value:
         raise CollaborationError("chat body contains NUL")
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise CollaborationError("chat body contains invalid Unicode surrogate")
     return value
 
 
