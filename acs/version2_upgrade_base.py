@@ -98,6 +98,33 @@ def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
     )
 
 
+def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
+    """Classify only canonical TrainingProgressStore lock/temp filenames."""
+    if (
+        len(relative_path.parts) != 2
+        or relative_path.parts[0].casefold() != "training-progress"
+    ):
+        return False
+    name = relative_path.parts[1].casefold()
+    if not name.startswith("."):
+        return False
+    remainder = name[1:]
+    if len(remainder) < 64:
+        return False
+    digest, tail = remainder[:64], remainder[64:]
+    if any(character not in "0123456789abcdef" for character in digest):
+        return False
+    if tail == ".json.lock":
+        return True
+    if not tail.startswith(".json.") or not tail.endswith(".tmp"):
+        return False
+    unique = tail[len(".json.") : -len(".tmp")]
+    return (
+        len(unique) == 8
+        and all(character in _TEMPFILE_RANDOM_CHARS for character in unique)
+    )
+
+
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -742,6 +769,19 @@ class Version2UpgradeCoordinator:
                 ):
                     raise Version2UpgradeError(
                         "runtime residue entry must be a regular file or directory"
+                    )
+                continue
+            if _is_generated_training_progress_file(relative_path):
+                training_info = _safe_stat(
+                    path,
+                    "training progress runtime entry",
+                )
+                if not (
+                    stat.S_ISREG(training_info.st_mode)
+                    or stat.S_ISDIR(training_info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "training progress runtime entry must be a regular file or directory"
                     )
                 continue
             folded = relative.casefold()
