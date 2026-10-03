@@ -102,26 +102,33 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # the presenter so a malformed trusted-side DTO cannot move the resource
         # boundary behind strip/join/f-string work.
         raw_text_entries = 0
-        raw_text_chars = 0
+        raw_text_units = 0
 
         def claim_raw_text(
             value: object,
             *,
-            max_chars: int = _MAX_BOOK_BLOCK_VISIBLE_CHARS,
+            max_units: int = _MAX_BOOK_BLOCK_VISIBLE_CHARS,
         ) -> int:
-            nonlocal raw_text_entries, raw_text_chars
-            if type(max_chars) is not int or not 0 <= max_chars <= _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+            nonlocal raw_text_entries, raw_text_units
+            if type(max_units) is not int or not 0 <= max_units <= _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                 raise _BookSemanticProjectionError("semantic raw scalar limit is invalid")
-            if type(value) is not str or len(value) > max_chars:
+            # Python len(str) counts Unicode code points, while the WebView
+            # contract is expressed in UTF-16 units. A supplementary scalar
+            # therefore costs two canonical units. Keep len() only as the O(1)
+            # impossible-to-fit guard, then charge exact UTF-16 units before
+            # presenter strip/join/f-string work can scan the value.
+            if type(value) is not str or len(value) > max_units:
+                raise _BookSemanticProjectionError("semantic raw text is invalid")
+            units = _utf16_units(value)
+            if units > max_units:
                 raise _BookSemanticProjectionError("semantic raw text is invalid")
             raw_text_entries += 1
             if raw_text_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
                 raise _BookSemanticProjectionError("semantic raw text-entry limit exceeded")
-            length = len(value)
-            raw_text_chars += length
-            if raw_text_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+            raw_text_units += units
+            if raw_text_units > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                 raise _BookSemanticProjectionError("semantic raw text budget exceeded")
-            return length
+            return units
 
         def claim_comment_list(values: object) -> None:
             if type(values) is not list or len(values) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
@@ -133,21 +140,21 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
         white_raw = game.tags.get("White", "")
         black_raw = game.tags.get("Black", "")
-        white_chars = claim_raw_text(
+        white_units = claim_raw_text(
             white_raw,
-            max_chars=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+            max_units=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
         )
-        black_chars = claim_raw_text(
+        black_units = claim_raw_text(
             black_raw,
-            max_chars=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+            max_units=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
         )
-        if white_chars + 3 + black_chars > _MAX_BOOK_SEMANTIC_PLAYERS_UNITS:
+        if white_units + 3 + black_units > _MAX_BOOK_SEMANTIC_PLAYERS_UNITS:
             raise _BookSemanticProjectionError("semantic raw players text is too long")
 
         effective_result = game.result
         claim_raw_text(
             effective_result,
-            max_chars=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+            max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
         )
         if effective_result not in _BOOK_SEMANTIC_RESULTS:
             raise _BookSemanticProjectionError("semantic game result is invalid")
@@ -173,7 +180,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if line.result is not None:
                 claim_raw_text(
                     line.result,
-                    max_chars=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+                    max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
                 )
                 if line.result not in _BOOK_SEMANTIC_RESULTS:
                     raise _BookSemanticProjectionError("semantic line result is invalid")
@@ -189,34 +196,34 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 if count > _MAX_BOOK_SEMANTIC_ITEMS:
                     raise _BookSemanticProjectionError("semantic GameTree item limit exceeded")
 
-                label_chars = claim_raw_text(
+                label_units = claim_raw_text(
                     move.san,
-                    max_chars=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                    max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
                 )
                 if move.move_number is not None:
-                    move_number_chars = claim_raw_text(
+                    move_number_units = claim_raw_text(
                         move.move_number,
-                        max_chars=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                        max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
                     )
                     if move.move_number:
-                        label_chars += move_number_chars + 1
+                        label_units += move_number_units + 1
 
                 if type(move.nags) is not list or len(move.nags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
                     raise _BookSemanticProjectionError("semantic move NAGs are invalid")
-                annotation_chars = 0
+                annotation_units = 0
                 for nag in move.nags:
-                    nag_chars = claim_raw_text(
+                    nag_units = claim_raw_text(
                         nag,
-                        max_chars=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                        max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
                     )
-                    if annotation_chars:
-                        annotation_chars += 1
-                    annotation_chars += nag_chars
-                    if annotation_chars > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
+                    if annotation_units:
+                        annotation_units += 1
+                    annotation_units += nag_units
+                    if annotation_units > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
                         raise _BookSemanticProjectionError("semantic move annotation is too long")
-                if annotation_chars:
-                    label_chars += annotation_chars + 1
-                if label_chars > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
+                if annotation_units:
+                    label_units += annotation_units + 1
+                if label_units > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
                     raise _BookSemanticProjectionError("semantic move label is too long")
 
                 claim_comment_list(move.comments_before)
@@ -310,14 +317,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         def preflight_view_comments(values: object) -> int:
             if type(values) is not tuple or len(values) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
                 raise _BookSemanticProjectionError("semantic comment collection is invalid")
-            raw_chars = 0
+            raw_units = 0
             for value in values:
                 if type(value) is not str or len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                     raise _BookSemanticProjectionError("semantic comment text is invalid")
-                raw_chars += len(value)
-                if raw_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                units = _utf16_units(value)
+                if units > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                    raise _BookSemanticProjectionError("semantic comment text is invalid")
+                raw_units += units
+                if raw_units > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                     raise _BookSemanticProjectionError("semantic comment text budget exceeded")
-            return raw_chars
+            return raw_units
 
         def safe_many(values: object) -> tuple[str, ...]:
             preflight_view_comments(values)
@@ -456,15 +466,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     or type(item.trailing_comments) is not tuple
                 ):
                     raise _BookSemanticProjectionError("semantic move comment slots are invalid")
-                aggregate_chars = preflight_view_comments(item.comments)
-                before_chars = preflight_view_comments(item.comments_before)
-                after_chars = preflight_view_comments(item.comments_after)
+                aggregate_units = preflight_view_comments(item.comments)
+                before_units = preflight_view_comments(item.comments_before)
+                after_units = preflight_view_comments(item.comments_after)
                 preflight_view_comments(item.trailing_comments)
                 if (
                     len(item.comments_before) + len(item.comments_after)
                     > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
-                    or before_chars + after_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS
-                    or aggregate_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS
+                    or before_units + after_units > _MAX_BOOK_BLOCK_VISIBLE_CHARS
+                    or aggregate_units > _MAX_BOOK_BLOCK_VISIBLE_CHARS
                     or len(item.comments)
                     != len(item.comments_before) + len(item.comments_after)
                 ):
