@@ -5,6 +5,7 @@ import unittest
 from acs.sound_events import SoundEvent
 from acs.sound_profiles import (
     CORE_SOUND_EVENTS,
+    OPTIONAL_OWNER_SOUND_EVENTS,
     SOUND_PACK_SCHEMA1_REQUIRED_EVENTS,
     SOUND_PROFILE_SCHEMA_VERSION,
     SoundEventPreference,
@@ -91,13 +92,15 @@ class SoundProfileTests(unittest.TestCase):
 
 
 class SoundEventAuthorityTests(unittest.TestCase):
-    def test_core_profile_events_follow_canonical_packaged_semantics(self) -> None:
-        packaged = tuple(event.value for event in SoundEvent)
-        expected = set(packaged)
-        expected.add("low_time")
+    def test_frozen_core_plus_owner_events_cover_canonical_packaged_semantics(self) -> None:
+        packaged = {event.value for event in SoundEvent}
+        core = set(CORE_SOUND_EVENTS)
+        owner = set(OPTIONAL_OWNER_SOUND_EVENTS)
 
-        self.assertEqual(expected, set(CORE_SOUND_EVENTS))
-        self.assertEqual(len(CORE_SOUND_EVENTS), len(set(CORE_SOUND_EVENTS)))
+        self.assertEqual(SOUND_PACK_SCHEMA1_REQUIRED_EVENTS, CORE_SOUND_EVENTS)
+        self.assertEqual(len(CORE_SOUND_EVENTS), len(core))
+        self.assertTrue(packaged <= core | owner)
+        self.assertFalse(core & owner)
         self.assertEqual("start", CORE_SOUND_EVENTS[0])
         self.assertLess(CORE_SOUND_EVENTS.index("end"), CORE_SOUND_EVENTS.index("tick"))
         self.assertEqual("low_time", CORE_SOUND_EVENTS[-1])
@@ -122,7 +125,7 @@ class SoundPackSchemaCompatibilityTests(unittest.TestCase):
             set(SOUND_PACK_SCHEMA1_REQUIRED_EVENTS),
             set(manifest.files),
         )
-        self.assertTrue(set(SOUND_PACK_SCHEMA1_REQUIRED_EVENTS) <= set(CORE_SOUND_EVENTS))
+        self.assertEqual(SOUND_PACK_SCHEMA1_REQUIRED_EVENTS, CORE_SOUND_EVENTS)
 
 
 class SoundPackManifestTests(unittest.TestCase):
