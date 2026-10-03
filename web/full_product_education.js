@@ -206,6 +206,56 @@
     if (status) status.textContent = String(message || "");
   }
 
+  function applyCollaborationFileProgress(root, progressInfo) {
+    if (
+      !root ||
+      !progressInfo ||
+      typeof progressInfo !== "object" ||
+      typeof root.querySelector !== "function"
+    ) {
+      return false;
+    }
+    const wrapper = root.querySelector("#classroom-collaboration");
+    if (!wrapper) return false;
+    const sessionKey = String(progressInfo.session_key || "");
+    if (
+      !sessionKey ||
+      wrapper.getAttribute("data-collaboration-session") !== sessionKey
+    ) {
+      return false;
+    }
+    const transferred = Number(progressInfo.transferred_bytes);
+    const total = Number(progressInfo.total_bytes);
+    if (
+      !Number.isSafeInteger(transferred) ||
+      !Number.isSafeInteger(total) ||
+      transferred < 0 ||
+      total < 0 ||
+      transferred > total
+    ) {
+      return false;
+    }
+    const container = wrapper.querySelector("#collaboration-file-transfer-progress");
+    if (!container || typeof container.replaceChildren !== "function") return false;
+    const meter = node("progress");
+    meter.id = "collaboration-file-transfer-meter";
+    const semanticMax = total === 0 ? 1 : total;
+    const semanticValue = (
+      total === 0 && progressInfo.complete === true ? 1 : transferred
+    );
+    meter.setAttribute("max", String(semanticMax));
+    meter.setAttribute("value", String(semanticValue));
+    const label = String(progressInfo.label || "File transfer progress");
+    const name = String(progressInfo.name || "");
+    meter.setAttribute("aria-label", name ? (label + ": " + name) : label);
+    const text = node("span", String(progressInfo.text || ""));
+    text.id = "collaboration-file-transfer-text";
+    text.setAttribute("aria-live", "off");
+    if (text.textContent) meter.setAttribute("aria-valuetext", text.textContent);
+    container.replaceChildren(meter, document.createTextNode(" "), text);
+    return true;
+  }
+
   function applyEducationEvent(
     root,
     result,
@@ -216,6 +266,10 @@
   ) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    if (result.kind === "collaboration.file.progress") {
+      applyCollaborationFileProgress(root, payload.file_progress);
+      return;
+    }
     const previousFocus = activeIdInside(root);
     const collaborationWasFocused = collaborationOwnsFocus(root);
     const previousPending = collaborationPendingState(root);
@@ -896,6 +950,14 @@
       );
     });
     fileSection.appendChild(choose);
+    const transferProgress = node("div");
+    transferProgress.id = "collaboration-file-transfer-progress";
+    transferProgress.setAttribute("aria-live", "off");
+    transferProgress.setAttribute(
+      "aria-label",
+      files.progress_label || "File transfer progress"
+    );
+    fileSection.appendChild(transferProgress);
     const olderFiles = node("button", files.older_label || "Older files");
     olderFiles.id = "collaboration-file-older";
     olderFiles.type = "button";
