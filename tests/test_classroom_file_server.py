@@ -159,6 +159,83 @@ class ClassroomFileServerTests(unittest.TestCase):
         )
         return PreparedFile(path, metadata)
 
+    def test_store_requires_durable_database_target_and_sanitizes_open_failure(self):
+        for target in ("", ":memory:"):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(
+                    ClassroomFileServerError,
+                    "durable file-server database path is required",
+                ):
+                    ClassroomFileServerSQLiteStore(target)
+
+        missing_parent = self.root / "missing-parent" / "server.sqlite3"
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "database open failed",
+        ) as raised:
+            ClassroomFileServerSQLiteStore(str(missing_parent))
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertFalse(missing_parent.exists())
+
+    def test_external_authorization_failure_drops_sensitive_exception_cause(self):
+        class BrokenAuthorization:
+            def authorize_file_action(self, **_kwargs):
+                raise RuntimeError("secret provider path C:/sensitive/auth.json")
+
+        service = ClassroomFileServerService(
+            store=self.store,
+            authorization=BrokenAuthorization(),
+            scanner=self.scanner,
+            object_store=self.objects,
+            quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+        )
+        client = ClassroomFileServerClient(
+            service=service,
+            trusted_caller_identity="student-1",
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "authorization failed",
+        ) as raised:
+            client.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=1,
+            )
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertNotIn("sensitive", str(raised.exception).lower())
+
+    def test_external_object_store_failure_drops_sensitive_exception_cause(self):
+        prepared = self.prepared(
+            attachment_id="sanitized-object-write",
+            content=b"opaque provider bytes",
+        )
+        self.objects.raise_after_put_once = True
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ) as raised:
+            self.student1.upload(prepared)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertNotIn("acknowledgement", str(raised.exception).lower())
+
+    def test_local_file_read_failure_drops_private_path_exception_cause(self):
+        prepared = self.prepared(attachment_id="missing-local-source")
+        prepared.local_path.unlink()
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "selected file could not be read for upload",
+        ) as raised:
+            self.student1.upload(prepared)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertNotIn(str(prepared.local_path), str(raised.exception))
+
     def test_arbitrary_binary_round_trip_rejoin_and_short_lived_token(self):
         prepared = self.prepared(
             attachment_id="file-a0",
