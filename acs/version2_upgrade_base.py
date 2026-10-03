@@ -670,27 +670,113 @@ class _UpgradeLock:
         self.path = path
         self.handle = None
 
+    @staticmethod
+    def _identity(info: os.stat_result) -> tuple[int, int]:
+        return int(info.st_dev), int(info.st_ino)
+
+    @staticmethod
+    def _require_private_regular(info: os.stat_result) -> None:
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or _reparse(info)
+            or not stat.S_ISREG(info.st_mode)
+            or int(getattr(info, "st_nlink", 1)) != 1
+        ):
+            raise Version2UpgradeError(
+                "upgrade lock must be one private regular file"
+            )
+
+    def _require_current_handle(self) -> os.stat_result:
+        assert self.handle is not None
+        opened = os.fstat(self.handle.fileno())
+        self._require_private_regular(opened)
+        try:
+            current = os.lstat(self.path)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock changed while opening"
+            ) from exc
+        self._require_private_regular(current)
+        if self._identity(opened) != self._identity(current):
+            raise Version2UpgradeError(
+                "upgrade lock changed while opening"
+            )
+        return opened
+
+    def _open_handle(self):
+        try:
+            before = os.lstat(self.path)
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock could not be inspected"
+            ) from exc
+        if before is not None:
+            self._require_private_regular(before)
+
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
+        try:
+            descriptor = os.open(self.path, flags, 0o600)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock could not be opened safely"
+            ) from exc
+
+        try:
+            handle = os.fdopen(descriptor, "r+b")
+            self.handle = handle
+            opened = self._require_current_handle()
+            if before is not None and self._identity(before) != self._identity(opened):
+                raise Version2UpgradeError(
+                    "upgrade lock changed while opening"
+                )
+            return handle
+        except BaseException:
+            if self.handle is not None:
+                self.handle.close()
+                self.handle = None
+            else:
+                os.close(descriptor)
+            raise
+
     def __enter__(self) -> "_UpgradeLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists() or self.path.is_symlink():
-            _safe_stat(self.path, "upgrade lock")
-        self.handle = self.path.open("a+b")
-        if self.handle.seek(0, os.SEEK_END) == 0:
-            self.handle.write(b"\0")
-            self.handle.flush()
-        self.handle.seek(0)
+        self._open_handle()
+        assert self.handle is not None
         try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (OSError, BlockingIOError) as exc:
+            opened = self._require_current_handle()
+            if opened.st_size == 0:
+                self.handle.seek(0)
+                self.handle.write(b"\0")
+                self.handle.flush()
+                self._require_current_handle()
+            self.handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(
+                        self.handle.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+            except (OSError, BlockingIOError) as exc:
+                raise Version2UpgradeBusy(
+                    "another Version 2 upgrade is active"
+                ) from exc
+            self._require_current_handle()
+            return self
+        except BaseException:
             self.handle.close()
             self.handle = None
-            raise Version2UpgradeBusy("another Version 2 upgrade is active") from exc
-        return self
+            raise
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self.handle is None:
