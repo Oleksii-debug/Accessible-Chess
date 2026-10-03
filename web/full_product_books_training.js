@@ -1181,9 +1181,6 @@
     }
     const heading = requiredUiText(snapshot.heading, "Book heading", 360);
     const actions = validateBookActions(snapshot.actions);
-    if (actions[8].enabled && snapshot.block.has_position !== true) {
-      throw new TypeError("Book open-position action requires a canonical position");
-    }
     const bookmark = validateBookmark(snapshot.bookmark);
     const starterCatalogue = validateStarterCatalogue(snapshot.starter_materials);
 
