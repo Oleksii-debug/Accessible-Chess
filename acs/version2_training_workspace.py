@@ -239,7 +239,8 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
-        if command == "training.continue" and not (
+        command_id = command.strip() if isinstance(command, str) else command
+        if command_id == "training.continue" and not (
             self.session.completed and self.has_next()
         ):
             # Continue is disabled unless a completed exercise has a validated
@@ -249,7 +250,7 @@ class Version2BookTrainingWorkspace:
             return bridge.projection.generic_error()
         if (
             self.session.completed
-            and command in ("training.hint", "training.reveal", "training.retry")
+            and command_id in ("training.hint", "training.reveal", "training.retry")
         ):
             # These controls are explicitly disabled in the canonical snapshot
             # after completion. Enforce the same boundary server-side so stale
@@ -280,9 +281,9 @@ class Version2BookTrainingWorkspace:
             self.language = before_language
 
         try:
-            event = bridge.dispatch(command, payload)
+            event = bridge.dispatch(command_id, payload)
         except Exception:
-            if command == "training.continue":
+            if command_id == "training.continue":
                 restore_continue_state()
             else:
                 # The bridge normally sanitizes projection failures. If the
@@ -299,7 +300,7 @@ class Version2BookTrainingWorkspace:
                 )
                 self._revision = revision
             raise
-        if command == "training.continue":
+        if command_id == "training.continue":
             if event.kind == "error":
                 restore_continue_state()
             return event
@@ -322,6 +323,13 @@ class Version2BookTrainingWorkspace:
             # just restored the authoritative pre-command projection, so never
             # return an error localized from the rejected transient state.
             return self.bridge.projection.generic_error()
+        if command_id in {"training.language", "training.reveal", "training.retry"}:
+            # Language, solution reveal and retry feedback are presentation-only.
+            # They do not change the canonical ExerciseSession snapshot and must
+            # remain usable when durable progress storage is busy/unavailable.
+            if command_id == "training.language":
+                self.language = self.bridge.projection.language
+            return event
         try:
             self.save()
         except Exception:
@@ -338,7 +346,7 @@ class Version2BookTrainingWorkspace:
                 )
             self._revision = revision
             raise
-        if command == "training.language":
+        if command_id == "training.language":
             self.language = self.bridge.projection.language
         return event
 
