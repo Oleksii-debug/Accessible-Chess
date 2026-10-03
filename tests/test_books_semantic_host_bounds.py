@@ -151,6 +151,33 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
 
         self.assert_accessible_fallback(rejected, reader, workflow, before)
 
+    def test_sanitized_empty_comments_do_not_consume_serialized_entry_budget(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # Raw preflight sees exactly eight semantic strings here: White, Black,
+        # effective/line result, SAN, move number, plus these two comments.
+        # Both comments sanitize to empty, so neither is serialized into the
+        # browser semantic tree and the browser-visible text-entry count remains
+        # the canonical eight entries for a single-move game.
+        game.line.leading_comments = [Comment(""), Comment(" \x00 ")]
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 8),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsInstance(snapshot["semantic_tree"], dict)
+        self.assertEqual(snapshot["semantic_tree"]["intro_comments"], ())
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
     def test_visible_text_budget_counts_generated_variation_and_result_labels(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
