@@ -456,6 +456,13 @@ class Version2Application:
                 return self.books.projection.generic_error()
             # The canonical BookBoard delegate owns board-opening publication.
             return self.books.dispatch(command_id, payload)
+        if command_id == "book.return_from_board":
+            # The canonical Book Board RETURNED_TO_BOOK event performs the one
+            # required durable Book-progress commit inside _book_event(). A
+            # second outer save would turn an already committed return into a
+            # false browser failure if storage becomes unavailable immediately
+            # afterwards.
+            return self.books.dispatch(command_id, payload)
         if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
