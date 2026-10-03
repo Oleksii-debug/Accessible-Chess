@@ -44,6 +44,7 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
             "d01-pgn-workspace-webview",
             "w4-v2-p0-fresh-windows-candidate",
             "w6-v2-package-preflight-current-runtime",
+            "w6-v2-package-assembler",
         ):
             self.assertIn(approved, self.text)
 
