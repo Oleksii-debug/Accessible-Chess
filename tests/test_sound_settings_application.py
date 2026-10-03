@@ -573,6 +573,43 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertFalse(item["compatible"])
         self.assertFalse(item["installed_compatible"])
 
+    def test_stale_catalog_does_not_offer_downgrade_for_newer_installed_pack(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        stale = _manifest("soft", "1.5.0")
+        entry = _entry(stale)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "classic",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("catalog_older", item["state"])
+        self.assertEqual("2.0.0", item["installed_version"])
+        self.assertFalse(item["can_install"])
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
     def test_incompatible_newer_catalog_version_does_not_disable_playable_installed_version(self) -> None:
         classic = _manifest("classic")
         installed = _manifest("soft", "1.0.0")
