@@ -171,6 +171,10 @@ def build_classroom_collaboration_http_runtime(
         path = Path(store_path)
     else:
         raise TypeError("store_path must be a non-empty path")
+    if str(path) == ":memory:":
+        raise ValueError(
+            "store_path must use durable filesystem storage, not SQLite memory"
+        )
     try:
         if path.exists() and not path.is_file():
             raise ValueError("store_path must reference a file, not a directory")
