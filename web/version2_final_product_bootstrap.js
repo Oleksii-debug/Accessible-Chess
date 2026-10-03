@@ -645,7 +645,31 @@
     return event.kind !== "error" && event.kind !== "status";
   }
 
+  function reconcileMediaProviderTransport() {
+    const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
+    if (!runtime || typeof runtime.reconcileTransport !== "function") {
+      return Promise.resolve();
+    }
+    return Promise.resolve(
+      runtime.reconcileTransport(areaInvoke("media"))
+    ).then(function (result) {
+      if (!result || typeof result !== "object") return;
+      const payload = result.payload && typeof result.payload === "object"
+        ? result.payload
+        : {};
+      if (payload.announcement) announce(String(payload.announcement));
+      if (result.kind === "error" && payload.message) {
+        announce(String(payload.message));
+      }
+      // Transport-loss reconciliation changes canonical connection/recovery
+      // state outside a direct button action. Always repaint from the trusted
+      // snapshot instead of trying to patch the media DOM from provider data.
+      return refresh(true);
+    }, function () {});
+  }
+
   function drainEvents() {
+    reconcileMediaProviderTransport();
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
     bridge.v2_drain_events().then(function (events) {
