@@ -14,7 +14,7 @@ from typing import Protocol
 
 
 _MAX_MIME_PATTERNS = 256
-_MIME_TOKEN = r"[!#$%&'*+.^_|~0-9A-Za-z-]+"
+_MIME_TOKEN = r"[!#$%&'+.^_|~0-9A-Za-z-]+"
 _MIME_RE = re.compile(rf"^({_MIME_TOKEN})/({_MIME_TOKEN})$")
 _MIME_PATTERN_RE = re.compile(rf"^({_MIME_TOKEN}|\*)/({_MIME_TOKEN}|\*)$")
 
