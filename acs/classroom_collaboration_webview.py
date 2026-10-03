@@ -1155,7 +1155,10 @@ class ClassroomCollaborationWebView:
             if (
                 item.sender_id == self._controller.local_participant_id
                 and item.retention == self._chat_retention
-                and self._chat_draft_fingerprint(item.body) == fingerprint
+                and (
+                    item.redacted
+                    or self._chat_draft_fingerprint(item.body) == fingerprint
+                )
             ):
                 recovered_fingerprints.append(fingerprint)
             else:
@@ -1173,6 +1176,7 @@ class ClassroomCollaborationWebView:
             for item in incoming
             if item.message_id not in before
             and not item.hidden
+            and not item.redacted
             and item.sender_id != self._controller.local_participant_id
         )
         self._unread_message_ids.update(item.message_id for item in new_remote)
