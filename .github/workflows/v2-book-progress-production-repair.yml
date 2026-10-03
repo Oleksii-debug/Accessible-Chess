@@ -9,6 +9,7 @@ on:
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/books-ingress-focus-convergence.yml'
       - 'acs/book_progress_store.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
@@ -57,6 +58,8 @@ jobs:
       DURABILITY_FOCUS_BOOTSTRAP_DOM_TEST_BLOB: 34df9e717adf52dcb41cd2caf1ee79e7a8dff37f
       DURABILITY_FOCUS_ACCESSIBILITY_TEST_BLOB: a9d6d065777156c3fe2327b2183df5d8898dc2cb
       DURABILITY_FOCUS_TRAINING_ROUTE_TEST_BLOB: 1e9b0e03c5c81ef187234a748bbd23c2759ad4cb
+      INGRESS_FOCUS_APPLICATION_BLOB: 557165c7f45a553a9cddad4ee402560e038cf384
+      INGRESS_FOCUS_APPLICATION_TEST_BLOB: 03257330c7b5519683533f33fd57145f395354d7
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -214,6 +217,43 @@ jobs:
             durability_focus_successor=true
           fi
 
+          ingress_focus_convergence=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/books-training-exact-payload-dict-20261003" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "converge/books-ingress-focus-recovery-20261003" ]; then
+            ingress_parent='26ae0578e34eadcad1abf9b717fbe2980519ebe0'
+            focus_parent='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
+            test "$PR_BASE_SHA" = "$ingress_parent"
+            git cat-file -e "$ingress_parent^{commit}"
+            git cat-file -e "$focus_parent^{commit}"
+            git merge-base --is-ancestor "$ingress_parent" HEAD
+            git merge-base --is-ancestor "$focus_parent" HEAD
+            test "$(git merge-base "$ingress_parent" HEAD)" = "$ingress_parent"
+            test "$(git merge-base "$focus_parent" HEAD)" = "$focus_parent"
+            git diff --check "$ingress_parent" HEAD
+            ingress_changed="$(git diff --name-only "$ingress_parent" HEAD | sort)"
+            ingress_expected="$(printf '%s\n' \
+              '.github/workflows/books-ingress-focus-convergence.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/full_product_ui_shell.py' \
+              'acs/version2_application.py' \
+              'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_v2_book_training_route_rollback.py' \
+              'tests/test_version2_application.py' \
+              'tests/test_version2_release_accessibility_contract.py' | sort)"
+            test "$ingress_changed" = "$ingress_expected"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$INGRESS_FOCUS_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$INGRESS_FOCUS_APPLICATION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "$DURABILITY_FOCUS_SHELL_BLOB"
+            test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$DURABILITY_FOCUS_BOOTSTRAP_DOM_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "$DURABILITY_FOCUS_ACCESSIBILITY_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "$DURABILITY_FOCUS_TRAINING_ROUTE_TEST_BLOB"
+            ingress_focus_convergence=true
+          fi
+
           bounded_feature=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             allowed="$(printf '%s\n' \
@@ -317,7 +357,10 @@ jobs:
             full_product_composition=true
           fi
 
-          if [ "$durability_focus_successor" = true ]; then
+          if [ "$ingress_focus_convergence" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=INGRESS_FOCUS_CONVERGENCE'
+          elif [ "$durability_focus_successor" = true ]; then
             git diff --check "$upstream" HEAD
             echo 'BOOK_PROGRESS_TOPOLOGY=DURABILITY_FOCUS_SUCCESSOR'
           elif [ "$semantic_durable_convergence" = true ]; then
@@ -402,10 +445,17 @@ jobs:
           if [ "$delegated_focus_successor" != true ] \
              && [ "$focus_recovery_successor" != true ] \
              && [ "$semantic_durable_convergence" != true ] \
-             && [ "$durability_focus_successor" != true ]; then
+             && [ "$durability_focus_successor" != true ] \
+             && [ "$ingress_focus_convergence" != true ]; then
             git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
           fi
-          if [ "$durability_focus_successor" = true ]; then
+          if [ "$ingress_focus_convergence" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$INGRESS_FOCUS_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$INGRESS_FOCUS_APPLICATION_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+          elif [ "$durability_focus_successor" = true ]; then
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$DURABILITY_FOCUS_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$DURABILITY_FOCUS_APPLICATION_TEST_BLOB"
