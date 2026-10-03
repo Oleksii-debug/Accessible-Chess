@@ -7,6 +7,7 @@ from unittest.mock import patch
 from acs.full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from acs.full_product_ui_shell import UILanguage
 from acs.gametree import parse_games, serialize_games
+from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
 
 
@@ -47,6 +48,7 @@ class PgnWebViewProjectionTests(unittest.TestCase):
             lambda: len(self.games),
             language=UILanguage.EN,
         )
+        self.bridge = PgnWebViewBridge(self.projection)
 
     def test_recursive_tree_tags_warnings_and_paths_are_safely_projected(self) -> None:
         snapshot = self.projection.snapshot()
@@ -303,6 +305,56 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         with patch.object(self.presenter, "view", return_value=malformed_tag):
             with self.assertRaisesRegex(TypeError, "tag entry is invalid"):
                 self.projection.snapshot()
+
+    def test_bridge_rejects_hostile_scalars_and_payload_dict_subclasses(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("bridge strip hook must never execute")
+
+            def __contains__(self, _item):
+                type(self).touched = True
+                raise AssertionError("bridge contains hook must never execute")
+
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("bridge len hook must never execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("bridge items hook must never execute")
+
+        result = self.bridge.dispatch(HostileText("pgn.parent"), {})
+        self.assertEqual("error", result.kind)
+        self.assertFalse(HostileText.touched)
+
+        result = self.bridge.dispatch("pgn.parent", HostileDict())
+        self.assertEqual("error", result.kind)
+        self.assertFalse(HostileDict.touched)
+
+        result = self.bridge.dispatch(
+            "pgn.select",
+            {"node_id": HostileText(self.presenter.selected_node_id or "")},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertFalse(HostileText.touched)
+
+    def test_bridge_rejects_oversized_command_before_normalization(self) -> None:
+        class StripBomb(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("oversized command must fail before strip")
+
+        result = self.bridge.dispatch(StripBomb("x" * 65), {})
+        self.assertEqual("error", result.kind)
+        self.assertFalse(StripBomb.touched)
 
     def test_comment_input_is_bounded_and_nul_rejected_before_dispatch(self) -> None:
         before = list(self.calls)
