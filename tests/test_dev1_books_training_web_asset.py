@@ -199,6 +199,8 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         text = self.text
         self.assertIn("const MAX_BOOKMARK_NAME = 80", text)
         self.assertIn("const MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024", text)
+        self.assertIn("const MAX_BOOK_LIST_ITEMS = 65536", text)
+        self.assertIn("block.list.items.length > MAX_BOOK_LIST_ITEMS", text)
         self.assertIn("const MAX_BOOK_HEADING_PATH_PARTS = 6", text)
         self.assertIn("const MAX_STARTER_BOOKLETS = 24", text)
         self.assertIn("const MAX_TRAINING_SOLUTION_MOVES = 64", text)
