@@ -129,6 +129,7 @@ class SoundSettingsApplication:
     def _local_pack_rights(
         self,
         pack_id: str,
+        manifest: SoundPackManifest,
     ) -> SoundPackRightsEvidence | None:
         provider = self._installed_rights_provider
         if provider is None:
@@ -137,6 +138,10 @@ class SoundSettingsApplication:
         if rights is not None and not isinstance(rights, SoundPackRightsEvidence):
             raise TypeError(
                 "installed rights provider must return SoundPackRightsEvidence or null"
+            )
+        if rights is not None and rights.license_id != manifest.license_id:
+            raise ValueError(
+                "installed rights evidence license must match installed manifest"
             )
         return rights
 
@@ -307,7 +312,7 @@ class SoundSettingsApplication:
                 stored_rights = (
                     None
                     if installed_manifest is None
-                    else self._local_pack_rights(pack_id)
+                    else self._local_pack_rights(pack_id, installed_manifest)
                 )
                 rights = (
                     entry.rights_evidence
@@ -362,7 +367,7 @@ class SoundSettingsApplication:
             if pack_id == "classic" or pack_id in represented:
                 continue
             compatible = self._local_pack_compatible(manifest)
-            rights = self._local_pack_rights(pack_id)
+            rights = self._local_pack_rights(pack_id, manifest)
             packs.append(
                 {
                     "pack_id": manifest.pack_id,
