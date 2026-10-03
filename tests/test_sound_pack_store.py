@@ -156,6 +156,39 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertFalse((root / "packs").exists())
 
 
+    def test_download_asset_swap_after_lstat_is_rejected_before_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, payloads = _staged_download(root, manifest)
+            target = Path(downloaded.payload_ref) / manifest.files["move"]
+            replacement = target.with_name("replacement.wav")
+            replacement.write_bytes(payloads[manifest.files["move"]])
+            store = FilesystemSoundPackStore(root / "packs")
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_pack_store.os.open",
+                side_effect=swap_before_open,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "changed before secure copy",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertTrue(swapped)
+            self.assertIsNone(store.active_version(manifest.pack_id))
+
     def test_rights_evidence_is_version_bound_and_survives_store_reopen(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
