@@ -228,6 +228,8 @@ class ClassroomChatRpcClient(ChatTransportPort):
     def _call(self, request: Mapping[str, object]) -> dict[str, object]:
         try:
             response = self._transport.call(request)
+        except ClassroomChatRpcError:
+            raise
         except Exception:
             raise ClassroomChatRpcError("classroom chat service unavailable") from None
         if type(response) is not dict:
