@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Iterator, Mapping
 
@@ -159,6 +160,92 @@ class EducationWorkspaceDurabilityError(RuntimeError):
     """
 
 
+def _is_unsafe_lock_file(info: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(info, "st_file_attributes", 0)
+    return (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or bool(reparse_flag and file_attributes & reparse_flag)
+    )
+
+
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return left.st_dev == right.st_dev and left.st_ino == right.st_ino
+
+
+def _open_peer_lock_file(path: Path):
+    """Open/create the stable lock inode without following an unsafe alias."""
+
+    for _attempt in range(3):
+        try:
+            before = path.lstat()
+        except FileNotFoundError:
+            before = None
+
+        if before is not None:
+            if stat.S_ISDIR(before.st_mode):
+                raise EducationWorkspaceBusyError(
+                    "education workspace store has a legacy peer lock directory"
+                )
+            if _is_unsafe_lock_file(before):
+                raise EducationWorkspaceStoreError(
+                    "education workspace peer lock must be one regular unlinked file"
+                )
+
+        flags = os.O_RDWR
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        if before is None:
+            flags |= os.O_CREAT | os.O_EXCL
+        elif hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        try:
+            fd = os.open(os.fspath(path), flags, 0o600)
+        except FileExistsError:
+            # Another well-behaved writer may have created the stable lock
+            # between lstat() and O_EXCL. Retry against that exact inode.
+            continue
+        except FileNotFoundError:
+            # The stable lock was replaced between inspection and open.
+            continue
+        except OSError as exc:
+            raise EducationWorkspaceStoreError(
+                "education workspace peer lock cannot be opened safely"
+            ) from exc
+
+        try:
+            opened = os.fstat(fd)
+            if _is_unsafe_lock_file(opened):
+                raise EducationWorkspaceStoreError(
+                    "education workspace peer lock must be one regular unlinked file"
+                )
+            try:
+                current = path.lstat()
+            except FileNotFoundError as exc:
+                raise EducationWorkspaceStoreError(
+                    "education workspace peer lock changed while opening"
+                ) from exc
+            if _is_unsafe_lock_file(current) or not _same_file_identity(opened, current):
+                raise EducationWorkspaceStoreError(
+                    "education workspace peer lock changed while opening"
+                )
+            if before is not None and not _same_file_identity(before, opened):
+                raise EducationWorkspaceStoreError(
+                    "education workspace peer lock changed while opening"
+                )
+            return os.fdopen(fd, "r+b")
+        except Exception:
+            os.close(fd)
+            raise
+
+    raise EducationWorkspaceBusyError(
+        "education workspace peer lock changed while acquiring"
+    )
+
+
 class EducationWorkspaceStore:
     """Atomic file store with exact file-level CAS.
 
@@ -185,14 +272,7 @@ class EducationWorkspaceStore:
         two writers hold locks on different files with the same path.
         """
 
-        try:
-            handle = self._lock_path.open("a+b")
-        except OSError as exc:
-            if self._lock_path.is_dir():
-                raise EducationWorkspaceBusyError(
-                    "education workspace store has a legacy peer lock directory"
-                ) from exc
-            raise
+        handle = _open_peer_lock_file(self._lock_path)
 
         acquired = False
         try:
