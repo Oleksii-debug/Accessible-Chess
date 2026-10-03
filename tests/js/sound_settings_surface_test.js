@@ -446,6 +446,21 @@ async function run() {
         active: false,
         can_install: false,
         can_uninstall: true
+      },
+      {
+        pack_id: "newer.installed",
+        title: "Newer Installed",
+        version: "1.5.0",
+        author: "Provider author",
+        license_id: "CC0-1.0",
+        provenance: "stale provider catalog",
+        compatible: true,
+        installed_compatible: true,
+        installed_version: "2.0.0",
+        state: "catalog_older",
+        active: false,
+        can_install: false,
+        can_uninstall: true
       }
     ]
   };
@@ -468,6 +483,18 @@ async function run() {
       "available update is incompatible"
     ),
     "catalog-update incompatibility must be visible without mislabeling the installed version"
+  );
+  assert.ok(
+    elements.get("sound-pack-newer.installed-select"),
+    "newer installed pack must remain selectable when catalog is stale"
+  );
+  assert.strictEqual(elements.get("sound-pack-newer.installed-install"), undefined,
+    "stale catalog must never expose a downgrade install action");
+  assert.ok(
+    elements.get("sound-pack-newer.installed-metadata").textContent.includes(
+      "catalog version is older than the installed version"
+    ),
+    "stale-catalog rollback protection must be visible/selectable text"
   );
 
   const savedCommandBridge = api.sound_settings_command;
