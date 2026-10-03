@@ -148,6 +148,39 @@ class SoundPackBuildError(RuntimeError):
     pass
 
 
+def _validate_new_game_timeline_contract() -> None:
+    """Fail closed if NEWGAME impact metadata can no longer drive 32-piece timing."""
+
+    start_variants = {variant_id for variant_id, _file, _uk, _en in EVENT_VARIANTS["start"]}
+    if set(NEW_GAME_IMPACTS_BY_VARIANT) != start_variants:
+        raise SoundPackBuildError("NEWGAME impact variants do not match selectable start sounds")
+    if set(NEW_GAME_DURATION_SECONDS_BY_VARIANT) != start_variants:
+        raise SoundPackBuildError("NEWGAME duration variants do not match selectable start sounds")
+
+    for variant_id in sorted(start_variants):
+        impacts = NEW_GAME_IMPACTS_BY_VARIANT[variant_id]
+        duration = NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id]
+        if (
+            not isinstance(impacts, tuple)
+            or len(impacts) != 32
+            or any(type(value) is not int or value <= 0 for value in impacts)
+            or tuple(sorted(set(impacts))) != impacts
+        ):
+            raise SoundPackBuildError(
+                f"NEWGAME impact timeline must contain 32 strictly increasing millisecond offsets: {variant_id}"
+            )
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or duration <= 0:
+            raise SoundPackBuildError(f"NEWGAME duration is invalid: {variant_id}")
+        duration_ms = float(duration) * 1000.0
+        if impacts[-1] > duration_ms:
+            raise SoundPackBuildError(f"NEWGAME final impact exceeds WAV duration: {variant_id}")
+        tail_ms = duration_ms - impacts[-1]
+        if not 100.0 <= tail_ms <= 350.0:
+            raise SoundPackBuildError(
+                f"NEWGAME impact timeline is not synchronized to the WAV tail: {variant_id}"
+            )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -455,6 +488,7 @@ def _build_sound_pack_unchecked(
             )
 
         _validate_event_paths(staging)
+        _validate_new_game_timeline_contract()
         for event, by_variant in SOUND_LAYERS.items():
             variants_for_event = {
                 variant_id: file_name
