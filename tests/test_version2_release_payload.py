@@ -103,6 +103,13 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             json.dumps(livekit_provenance, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
+        bundle_pin = patch.object(
+            payload,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            hashlib.sha256(livekit_bundle).hexdigest(),
+        )
+        bundle_pin.start()
+        self.addCleanup(bundle_pin.stop)
 
         self.sounds = self.root / "sounds"
         self.sounds.mkdir()
