@@ -146,6 +146,15 @@ let profileSnapshot = {
   revision: 1,
   announcement: ""
 };
+let profileRepairResult = {
+  ok: true,
+  exists: true,
+  displayName: "Player-TEST0001",
+  generatedAlias: true,
+  recoveryRequired: false,
+  revision: 1,
+  announcement: ""
+};
 const recordedFocus = [];
 
 function snapshot(route) {
@@ -195,6 +204,7 @@ const windowObject = {
         return Promise.resolve(snapshot(currentRoute));
       },
       profile_snapshot: () => Promise.resolve(Object.assign({}, profileSnapshot)),
+      profile_repair: () => Promise.resolve(Object.assign({}, profileRepairResult)),
       v2_browser_command: (area, command, payload) => {
         if (area !== "shell" || payload == null || Object.keys(payload).length !== 0) {
           return Promise.reject(new Error("unexpected browser command"));
@@ -416,6 +426,20 @@ async function clickRoute(routeId) {
   check(profileRepair.hidden === false, "recovery action remained hidden");
   check(profileRepair.disabled === false, "recovery action was unexpectedly disabled");
   check(documentRef.activeElement === profileRepair, "recovery-required dialog did not focus the required Repair action");
+
+  profileRepairResult = {
+    ok: false,
+    stateChanged: false,
+    announcement: "Recovery failed"
+  };
+  check(typeof profileRepair.listeners.click === "function", "profile repair click listener missing");
+  profileRepair.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "failed recovery unexpectedly closed the profile dialog");
+  check(profileRepair.disabled === false, "failed recovery left Repair disabled");
+  check(documentRef.activeElement === profileRepair, "failed recovery moved focus away from the required Repair action");
+
   check(typeof profileClose.listeners.click === "function", "profile close listener missing");
   profileClose.listeners.click({});
   check(profileDialog.open === false, "profile dialog did not close");
