@@ -280,7 +280,12 @@
           : ""
       )
       : (typeof payload.focus_target === "string" ? payload.focus_target : "");
-    const requestedFocus = payloadFocus || previousFocus || "";
+    const pendingOriginFocus = (
+      previousPending && typeof previousPending.focusControlId === "string"
+        ? previousPending.focusControlId
+        : ""
+    );
+    const requestedFocus = payloadFocus || previousFocus || pendingOriginFocus || "";
     if (
       !focusTarget(root, requestedFocus) &&
       payload.collaboration &&
