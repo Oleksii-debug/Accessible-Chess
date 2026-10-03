@@ -130,6 +130,28 @@ class BookProjectionTests(unittest.TestCase):
         self.assertEqual(before_index, self.presenter.current().index)
         self.assertEqual(before_calls, tuple(self.calls))
 
+    def test_projection_rejects_malformed_navigation_capabilities(self) -> None:
+        before = self.presenter.current().index
+        canonical = self.presenter.navigation_availability()
+
+        malformed = (
+            {**canonical, "next": "yes"},
+            {key: value for key, value in canonical.items() if key != "next"},
+            {**canonical, "unexpected": False},
+        )
+        for availability in malformed:
+            with self.subTest(keys=tuple(sorted(availability))):
+                with patch.object(
+                    self.presenter,
+                    "navigation_availability",
+                    return_value=availability,
+                ):
+                    with self.assertRaisesRegex(ValueError, "navigation availability is invalid"):
+                        self.projection.snapshot()
+
+        self.assertEqual(before, self.presenter.current().index)
+        self.assertEqual((), tuple(self.calls))
+
     def test_projection_rejects_excessive_heading_path_depth(self) -> None:
         current = self.presenter.current()
         with self.assertRaisesRegex(ValueError, "heading path is invalid"):
