@@ -23,6 +23,23 @@ class MemoryProfileStore:
         self.writes.append(dict(payload))
 
 
+class CommitThenRaiseProfileStore(MemoryProfileStore):
+    def __init__(self, payload=None):
+        super().__init__(payload)
+        self.raise_after_commit = False
+        self.fail_reads = False
+
+    def read_profile(self):
+        if self.fail_reads:
+            raise OSError("readback unavailable")
+        return super().read_profile()
+
+    def write_profile_atomically(self, payload):
+        super().write_profile_atomically(payload)
+        if self.raise_after_commit:
+            raise OSError("post-commit readback failed")
+
+
 class FakePackResolver:
     def __init__(self, usable=("classic", "wood"), fallback="classic"):
         self.usable = set(usable)
@@ -250,6 +267,50 @@ class SoundProfileManagerTests(unittest.TestCase):
             updated.preference_for("tick"),
             SoundEventPreference(False, 20, "soft.tick"),
         )
+
+    def test_post_commit_failure_refreshes_manager_to_durable_winner(self) -> None:
+        store = CommitThenRaiseProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.set_master(volume_percent=31)
+
+        self.assertEqual(31, manager.current.master_volume_percent)
+        self.assertEqual(31, store.payload["master_volume_percent"])
+
+    def test_failed_refresh_invalidates_stale_manager_state_until_readable(self) -> None:
+        store = CommitThenRaiseProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+        store.fail_reads = True
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.set_master(volume_percent=31)
+
+        with self.assertRaisesRegex(OSError, "readback unavailable"):
+            _ = manager.current
+
+        store.fail_reads = False
+        store.raise_after_commit = False
+        self.assertEqual(31, manager.current.master_volume_percent)
+
+    def test_future_replacement_post_commit_failure_refreshes_write_block_state(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = CommitThenRaiseProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+        replacement = SoundProfile(master_volume_percent=29)
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.replace_future_profile(replacement)
+
+        self.assertFalse(manager.writes_blocked)
+        self.assertEqual(replacement, manager.current)
+        self.assertEqual(replacement.to_mapping(), store.payload)
 
     def test_bad_resolver_result_fails_before_persistence(self) -> None:
         store = MemoryProfileStore(SoundProfile().to_mapping())
