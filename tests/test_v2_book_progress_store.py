@@ -1993,6 +1993,38 @@ class BookProgressStoreTests(unittest.TestCase):
             BookProgressStoreErrorCode.IO_FAILURE,
         )
 
+    def test_windows_path_confirmation_does_not_depend_on_cross_interface_ctime(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        raw = b'{"schema_version":1,"entries":{}}'
+        self.path.write_bytes(raw)
+        real_lstat = os.lstat
+        path_checks = 0
+
+        def alias_ctime_on_final_path_check(path: object) -> os.stat_result:
+            nonlocal path_checks
+            current = real_lstat(path)
+            if os.fspath(path) == os.fspath(self.path):
+                path_checks += 1
+                if path_checks == 3:
+                    alias = mock.Mock(wraps=current)
+                    alias.st_ctime_ns = getattr(current, "st_ctime_ns", 0) + 1
+                    return alias
+            return current
+
+        with (
+            mock.patch(
+                "acs.book_progress_store.os.lstat",
+                side_effect=alias_ctime_on_final_path_check,
+            ),
+            mock.patch("acs.book_progress_store.os.name", "nt"),
+        ):
+            self.assertEqual(
+                self.store._read_raw_file_unlocked(self.path, missing_ok=False),
+                raw,
+            )
+
+        self.assertEqual(path_checks, 3)
+
     def test_reads_do_not_reopen_path_after_file_identity_validation(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
