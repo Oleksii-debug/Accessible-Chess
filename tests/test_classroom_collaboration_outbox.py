@@ -448,7 +448,7 @@ class DurableChatOutboxTests(unittest.TestCase):
                 )
             self.assertEqual(self.secrets.values, {})
         finally:
-            if holder.stdin is not None:
+            if holder.poll() is None and holder.stdin is not None:
                 holder.stdin.write("\n")
                 holder.stdin.flush()
             _stdout, stderr = holder.communicate(timeout=15)
