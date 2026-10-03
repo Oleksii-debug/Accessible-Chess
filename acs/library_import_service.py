@@ -244,15 +244,20 @@ def _source_metadata(
     return source_name, normalized_format, source_sha256.lower()
 
 
-def _validate_games(games: object) -> tuple[Sequence[PgnGame], int]:
+def _validate_games(games: object) -> tuple[tuple[PgnGame, ...], int]:
     if isinstance(games, (str, bytes, bytearray)) or not isinstance(games, Sequence):
         raise TypeError("games must be a sequence of PgnGame objects")
-    total = len(games)
+    # Callbacks run after this boundary and may retain the caller's mutable list.
+    # Validate and publish from one stable container snapshot so replacing,
+    # reordering or removing later list entries cannot change which games are
+    # committed under the already-supplied immutable source digest.
+    parsed_games = tuple(games)
+    total = len(parsed_games)
     if total < 1:
         raise ValueError("games must contain at least one parsed game")
     if total > _SQLITE_INTEGER_MAX:
         raise ValueError("game count exceeds SQLite integer range")
-    for game in games:
+    for game in parsed_games:
         if not isinstance(game, PgnGame):
             raise TypeError("games must contain only PgnGame objects")
         source_index = game.source_index
@@ -262,7 +267,7 @@ def _validate_games(games: object) -> tuple[Sequence[PgnGame], int]:
             raise ValueError("game source_index must be non-negative")
         if source_index > _SQLITE_INTEGER_MAX:
             raise ValueError("game source_index exceeds SQLite integer range")
-    return games, total
+    return parsed_games, total
 
 
 def _validate_source_warning_count(value: object) -> int:
