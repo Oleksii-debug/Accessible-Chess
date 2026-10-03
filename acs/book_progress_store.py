@@ -890,6 +890,17 @@ class BookProgressStore:
         if existing is not None:
             self._require_private_data_metadata(existing)
 
+        if expected_target_raw is _EXPECTED_TARGET_UNSET:
+            # Even callers that intentionally replace the current target (the
+            # rolling backup path) must not silently overwrite a change that
+            # happens while the durable temp file is being prepared.
+            publication_base_raw = self._read_raw_file_unlocked(
+                target,
+                missing_ok=True,
+            )
+        else:
+            publication_base_raw = expected_target_raw
+
         temp_path: Path | None = None
         temp_identity: os.stat_result | None = None
         try:
@@ -936,16 +947,15 @@ class BookProgressStore:
                     "book progress temporary file changed before publication",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
-            if expected_target_raw is not _EXPECTED_TARGET_UNSET:
-                current_target_raw = self._read_raw_file_unlocked(
-                    target,
-                    missing_ok=True,
+            current_target_raw = self._read_raw_file_unlocked(
+                target,
+                missing_ok=True,
+            )
+            if current_target_raw != publication_base_raw:
+                raise BookProgressStoreError(
+                    "book progress changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
-                if current_target_raw != expected_target_raw:
-                    raise BookProgressStoreError(
-                        "book progress changed during publication preparation",
-                        code=BookProgressStoreErrorCode.STALE_WRITE,
-                    )
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
