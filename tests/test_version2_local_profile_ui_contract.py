@@ -106,6 +106,23 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn("profileClose.disabled = profileMutationPending;", source)
         self.assertIn("profileName.disabled = profileMutationPending;", source)
 
+    def test_recovery_required_dialog_focuses_repair_action_on_open(self) -> None:
+        source = self.source
+        self.assertIn(
+            "profileState.recoveryRequired === true &&",
+            source,
+        )
+        self.assertIn("!profileRepair.hidden", source)
+        self.assertIn("!profileRepair.disabled", source)
+        self.assertIn(
+            "profileRepair.focus({ preventScroll: true });",
+            source,
+        )
+        self.assertIn(
+            "profileName.focus();\n      profileName.select();",
+            source,
+        )
+
     def test_recovery_required_state_routes_rename_to_repair(self) -> None:
         source = self.source
         self.assertIn(
