@@ -361,6 +361,102 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 ),
             )
 
+    def test_real_trusted_server_retention_redaction_round_trips_and_restarts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "chat-redaction.sqlite3"
+            authorization = RealServerAuthorization()
+            server = ClassroomChatServerService(
+                store=ClassroomChatServerSQLiteStore(database),
+                authorization=authorization,
+                clock_unix_ms=lambda: 1700000000000,
+            )
+            endpoint = ClassroomChatRpcService(backend=server)
+            student = ClassroomChatRpcClient(
+                room_id="room-1",
+                participant_id="student-1",
+                transport=BoundCall(
+                    endpoint,
+                    room_id="room-1",
+                    participant_id="student-1",
+                ),
+            )
+            draft = ChatDraft(
+                "real-rpc-redacted",
+                "room-1",
+                "student-1",
+                "Private session payload",
+            )
+            sent = student.send_message(draft)
+
+            authority_updates = server.redact_retention(
+                room_id="room-1",
+                retentions=("session",),
+            )
+            self.assertEqual(1, len(authority_updates))
+            self.assertTrue(authority_updates[0].redacted)
+            self.assertFalse(authority_updates[0].hidden)
+
+            history = student.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=10,
+            )
+            self.assertEqual(1, len(history))
+            self.assertEqual(sent.message_id, history[0].message_id)
+            self.assertEqual(sent.sequence_no, history[0].sequence_no)
+            self.assertEqual(sent.sent_at_unix_ms, history[0].sent_at_unix_ms)
+            self.assertEqual("", history[0].body)
+            self.assertTrue(history[0].redacted)
+            self.assertEqual(
+                authority_updates,
+                student.state_updates_after(
+                    room_id="room-1",
+                    after_revision=None,
+                    limit=10,
+                ),
+            )
+
+            restarted = ClassroomChatServerService(
+                store=ClassroomChatServerSQLiteStore(database),
+                authorization=authorization,
+                clock_unix_ms=lambda: 1700000001000,
+            )
+            reconnected = ClassroomChatRpcClient(
+                room_id="room-1",
+                participant_id="student-1",
+                transport=BoundCall(
+                    ClassroomChatRpcService(backend=restarted),
+                    room_id="room-1",
+                    participant_id="student-1",
+                ),
+            )
+            durable = reconnected.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=10,
+            )
+            self.assertEqual("", durable[0].body)
+            self.assertTrue(durable[0].redacted)
+            self.assertEqual(authority_updates, reconnected.state_updates_after(
+                room_id="room-1",
+                after_revision=None,
+                limit=10,
+            ))
+
+            with self.assertRaisesRegex(
+                ClassroomChatRpcError,
+                "backend failed",
+            ):
+                reconnected.send_message(draft)
+            self.assertEqual(
+                "",
+                reconnected.history_after(
+                    room_id="room-1",
+                    after_sequence=None,
+                    limit=10,
+                )[0].body,
+            )
+
     def test_send_round_trip_is_idempotent_and_preserves_authoritative_timestamp(self):
         draft = ChatDraft("msg-1", "room-1", "student-1", "Hello")
         first = self.student.send_message(draft)
