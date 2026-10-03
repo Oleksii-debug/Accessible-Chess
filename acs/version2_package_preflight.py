@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import tempfile
+from urllib.parse import urlsplit
 import wave
 import zipfile
 import xml.etree.ElementTree as ET
@@ -549,6 +550,36 @@ def _provenance_text(value: object, *, label: str, max_length: int) -> str:
     return normalized
 
 
+def _provenance_source(value: object) -> str:
+    source = _provenance_text(value, label="source", max_length=1024)
+    if source != value:
+        _fail("sound provenance source must not contain surrounding whitespace")
+    if any(character.isspace() for character in source):
+        _fail("sound provenance source must not contain whitespace")
+    parsed = urlsplit(source)
+    if parsed.query or parsed.fragment:
+        _fail("sound provenance source must not contain query or fragment components")
+    if parsed.scheme == "https":
+        try:
+            hostname = parsed.hostname
+            parsed.port
+        except ValueError:
+            _fail("sound provenance source must be a stable HTTPS URL or URN")
+        if (
+            not parsed.netloc
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            _fail("sound provenance source must be a stable HTTPS URL or URN")
+    elif parsed.scheme == "urn":
+        if parsed.netloc or not parsed.path:
+            _fail("sound provenance source must be a stable HTTPS URL or URN")
+    else:
+        _fail("sound provenance source must be a stable HTTPS URL or URN")
+    return source
+
+
 def _validate_sound_provenance(
     root: Path,
     inventory: tuple[str, ...],
@@ -612,9 +643,7 @@ def _validate_sound_provenance(
         )
         if license_id.casefold() in _PROVENANCE_PLACEHOLDERS:
             _fail(f"sound provenance license identity is unresolved: {event.value}")
-        source = _provenance_text(entry.get("source"), label="source", max_length=1024)
-        if not (source.startswith("https://") or source.startswith("urn:")):
-            _fail(f"sound provenance source must be an HTTPS URL or URN: {event.value}")
+        source = _provenance_source(entry.get("source"))
         creator = _provenance_text(entry.get("creator"), label="creator", max_length=512)
         if creator.casefold() in _PROVENANCE_PLACEHOLDERS:
             _fail(f"sound provenance creator identity is unresolved: {event.value}")
