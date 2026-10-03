@@ -504,11 +504,26 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
             / "version2_final_product_bootstrap.js"
         ).read_text(encoding="utf-8")
         self.assertIn("function executeMediaProviderEvent(event)", source)
+        self.assertIn("function mediaProviderBoundaryCrossed(event)", source)
+        self.assertIn("function retireMediaProviderRuntimeFailure(event, invoke)", source)
         self.assertIn("function mediaInvoke(command, payload)", source)
         self.assertIn("AccessibleChessClassroomMediaProviderRuntime", source)
         self.assertIn('event.kind === "provider-dispatch"', source)
         self.assertIn("media.provider_not_started", source)
+        self.assertIn("media.provider_outcome_unknown", source)
         self.assertIn("snapshot.media || null,\n          mediaInvoke,", source)
+
+        runtime_source = (
+            Path(__file__).resolve().parents[1]
+            / "web"
+            / "livekit_classroom_media_runtime.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Object.seal(", runtime_source)
+        self.assertNotIn(
+            "Object.freeze(\n    new ClassroomMediaProviderRuntime()",
+            runtime_source,
+        )
+        self.assertIn("media.provider_outcome_unknown", runtime_source)
 
 
 if __name__ == "__main__":
