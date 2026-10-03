@@ -101,6 +101,35 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), before)
 
+    def test_semantic_reading_relocalizes_without_moving_reader_progress(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Language semantic reading",
+                blocks=[
+                    Game(
+                        pgn='[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n1. e4 (1. d4) e5 *',
+                        title="Game",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        ua = bridge.projection.snapshot()["semantic_tree"]
+        switched = bridge.dispatch("book.language", {"language": "en"})
+        en = switched.payload["snapshot"]["semantic_tree"]
+
+        self.assertEqual(switched.kind, "render")
+        self.assertEqual(ua["kind"], en["kind"])
+        self.assertEqual(ua["players"], en["players"])
+        self.assertEqual(ua["result"], en["result"])
+        self.assertNotEqual(ua["label"], en["label"])
+        self.assertEqual(en["label"], "Moves and variations")
+        self.assertTrue(any(item["kind"] == "variation" for item in en["items"]))
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_semantic_projection_failure_falls_back_without_leaking_error_details(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
