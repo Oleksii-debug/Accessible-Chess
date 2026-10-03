@@ -416,6 +416,25 @@ class Version2Application:
                 if action.endswith("search")
                 else self.library.projection.reset_filters()
             )
+            # Library projection owns backend error-to-view conversion. Native
+            # delegated actions must therefore inspect that typed render before
+            # committing the shell route; an error view is a failed operation,
+            # not a successful navigation.
+            if result.kind != "render":
+                raise ValueError("invalid Library projection result")
+            snapshot = result.payload.get("snapshot")
+            if not isinstance(snapshot, dict):
+                raise ValueError("invalid Library projection result")
+            status = snapshot.get("status")
+            if status == "error":
+                message = snapshot.get("message")
+                raise RuntimeError(
+                    message
+                    if isinstance(message, str) and message.strip()
+                    else "Library action failed"
+                )
+            if status not in {"ready", "empty"}:
+                raise ValueError("invalid Library projection status")
             self.shell.open_route("library")
             return result
         if action == "library.next_page": return self.library.projection.next_page()
