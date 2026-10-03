@@ -376,6 +376,68 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNone(arbiter.active_lease)
         self.assertIsNone(host.pending_effect)
 
+    def test_single_call_effect_commit_rejects_multi_chunk_before_any_acknowledgement(self):
+        controller, roster, host, _sessions, arbiter, binder = self.make_composition(
+            teacher_local=True,
+            student_count=30,
+        )
+        self.join(controller, roster, binder)
+        lease = binder.prepare_all_students_soft_mute(
+            actor_id="teacher-1",
+            muted=True,
+            operation_id="mute-all-single-call",
+        )
+        binder.mark_provider_dispatched(lease.transaction_id)
+        before_payload = binder.pending_browser_payload(lease.transaction_id)
+        self.assertEqual(len(before_payload["operations"]), 24)
+
+        with self.assertRaisesRegex(
+            MediaProviderExecutionError,
+            "multi-chunk",
+        ):
+            binder.commit_effect_success(lease.transaction_id)
+
+        after_payload = binder.pending_browser_payload(lease.transaction_id)
+        self.assertEqual(after_payload, before_payload)
+        self.assertEqual(host.recovery_status, None)
+        self.assertEqual(
+            arbiter.active_lease.transaction_id,
+            lease.transaction_id,
+        )
+        binder.provider_failed(lease.transaction_id)
+        binder.resolve_recovery(lease.transaction_id)
+
+    def test_expired_credential_before_handoff_releases_global_lease(self):
+        _controller, roster, _host, sessions, arbiter, binder = self.make_composition()
+        expired = JoinCredential(
+            room_id="room-1",
+            participant_id=roster.local_id,
+            token="expired-secret",
+            issued_at=NOW - timedelta(minutes=2),
+            expires_at=NOW - timedelta(minutes=1),
+        )
+        # Preparation validates against the explicit prepare time, so use a
+        # still-valid timestamp and let the handoff clock reject it later.
+        lease = binder.prepare_join(
+            expired,
+            now=NOW - timedelta(minutes=1, seconds=30),
+        )
+        with self.assertRaisesRegex(
+            Exception,
+            "expired before browser handoff",
+        ):
+            binder.take_session_credential(lease.transaction_id)
+
+        self.assertIsNone(sessions.pending_effect)
+        self.assertIsNone(sessions.recovery_status)
+        self.assertIsNone(arbiter.active_lease)
+        retry = binder.prepare_join(
+            credential(roster.local_id),
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(retry)
+        binder.provider_not_started(retry.transaction_id)
+
     def test_provider_failure_latches_global_recovery_and_blocks_other_owner(self):
         controller, roster, _host, _sessions, arbiter, binder = self.make_composition()
         self.join(controller, roster, binder)
