@@ -176,29 +176,48 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _fsync_directory_tree(root: Path) -> None:
+def _fsync_directory_tree(root: Path, *, max_directories: int) -> None:
     """Flush staged directory entries bottom-up before publishing the tree."""
 
     _require_real_dir(root, "sound pack staging tree")
-    directories: list[Path] = []
+    if (
+        isinstance(max_directories, bool)
+        or not isinstance(max_directories, int)
+        or not 0 <= max_directories <= _MAX_SOUND_PACK_TREE_DIRECTORIES
+    ):
+        raise SoundPackStoreError(
+            "sound pack staging topology exceeds the resource limit"
+        )
+
+    directories: list[Path] = [root]
+    pending = [root]
     try:
-        for current, dirnames, _filenames in os.walk(
-            root,
-            topdown=False,
-            followlinks=False,
-        ):
-            current_path = Path(current)
-            for name in dirnames:
-                _require_real_dir(
-                    current_path / name,
-                    "sound pack staging directory",
-                )
-            directories.append(current_path)
+        while pending:
+            current_path = pending.pop()
+            with os.scandir(current_path) as entries:
+                for entry in entries:
+                    child = Path(entry.path)
+                    metadata = os.lstat(child)
+                    if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata):
+                        raise SoundPackStoreError(
+                            "sound pack staging tree contains redirected content"
+                        )
+                    if not stat.S_ISDIR(metadata.st_mode):
+                        continue
+                    directories.append(child)
+                    if len(directories) - 1 > max_directories:
+                        raise SoundPackStoreError(
+                            "sound pack staging topology exceeds the resource limit"
+                        )
+                    pending.append(child)
+    except SoundPackStoreError:
+        raise
     except OSError as exc:
         raise SoundPackStoreError(
             "sound pack staging tree could not be synchronized"
         ) from exc
-    for directory in directories:
+
+    for directory in reversed(directories):
         _fsync_directory(directory)
 
 
@@ -1280,7 +1299,23 @@ class FilesystemSoundPackStore:
             # File contents were fsynced as they were written. Flush the staged
             # directory entries bottom-up as well before publishing the complete
             # version directory through one atomic rename.
-            _fsync_directory_tree(staging)
+            _fsync_directory_tree(
+                staging,
+                max_directories=len(
+                    _expected_directories(
+                        {
+                            _MANIFEST_NAME,
+                            _INTEGRITY_NAME,
+                            *digests,
+                            *(
+                                {_RIGHTS_NAME}
+                                if downloaded.rights_evidence is not None
+                                else set()
+                            ),
+                        }
+                    )
+                ),
+            )
 
             try:
                 os.replace(staging, destination)
