@@ -17,6 +17,7 @@ import shutil
 import stat
 import struct
 import tempfile
+import unicodedata
 from urllib.parse import urlsplit
 import wave
 import zipfile
@@ -444,7 +445,13 @@ def _provenance_text(value: object, *, label: str, max_length: int) -> str:
     if (
         not normalized
         or len(normalized) > max_length
-        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+        or any(
+            ord(character) < 32
+            or ord(character) == 127
+            or character in {"\u2028", "\u2029"}
+            or unicodedata.category(character) == "Cf"
+            for character in normalized
+        )
     ):
         raise Version2ReleasePayloadError(f"sound provenance {label} is invalid")
     return normalized
