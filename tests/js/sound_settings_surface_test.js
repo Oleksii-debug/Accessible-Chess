@@ -559,6 +559,21 @@ async function run() {
         active: false,
         can_install: false,
         can_uninstall: true
+      },
+      {
+        pack_id: "missing.selected",
+        title: "Missing Selected",
+        version: "1.0.0",
+        author: "Provider author",
+        license_id: "CC0-1.0",
+        provenance: "catalog only",
+        compatible: true,
+        installed_compatible: null,
+        installed_version: null,
+        state: "not_installed",
+        active: true,
+        can_install: false,
+        can_uninstall: false
       }
     ]
   };
@@ -629,6 +644,11 @@ async function run() {
       "Catalog version: 1.5.0"
     ),
     "stale catalog version must remain visible as a distinct candidate identity"
+  );
+  assert.strictEqual(
+    elements.get("sound-pack-missing.selected-active").textContent,
+    "Selected pack is unavailable for playback.",
+    "persisted-but-unavailable selection must not be announced as actively playable"
   );
   assert.ok(elements.get("sound-pack-rights.unverified-select"),
     "legacy installed pack must remain selectable despite missing durable rights audit");
