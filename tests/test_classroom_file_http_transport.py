@@ -25,6 +25,10 @@ from acs.classroom_file_rpc import (
     ClassroomFileRpcClient,
     ClassroomFileRpcService,
 )
+from acs.classroom_file_server import (
+    ClassroomFileServerSQLiteStore,
+    ClassroomFileServerService,
+)
 
 
 ROOM = "room-1"
@@ -142,6 +146,51 @@ class Backend:
         )
         if self.fail:
             raise RuntimeError("secret delete detail")
+
+
+class AllowMembers:
+    def __init__(self, members):
+        self.members = set(members)
+
+    def authorize_file_action(
+        self,
+        *,
+        trusted_caller_identity,
+        room_id,
+        action,
+        attachment_id,
+        retention,
+    ):
+        return (trusted_caller_identity, room_id) in self.members
+
+
+class CleanScanner:
+    def scan(self, **kwargs):
+        return "clean"
+
+
+class MemoryObjectStore:
+    def __init__(self):
+        self.objects = {}
+
+    def stored_sha256(self, *, object_key):
+        content = self.objects.get(object_key)
+        if content is None:
+            return None
+        return hashlib.sha256(content).hexdigest()
+
+    def put(self, *, object_key, content, expected_sha256):
+        if hashlib.sha256(content).hexdigest() != expected_sha256:
+            raise RuntimeError("hash mismatch")
+        self.objects[object_key] = bytes(content)
+
+    def issue_read_token(self, *, object_key, participant_id, ttl_seconds):
+        if object_key not in self.objects:
+            raise RuntimeError("missing object")
+        return f"token-{participant_id}-{ttl_seconds}"
+
+    def delete(self, *, object_key):
+        self.objects.pop(object_key, None)
 
 
 class FakeHttpResponse:
@@ -430,6 +479,48 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(self.backend.upload_calls))
         self.assertEqual(content, self.backend.upload_calls[0][2])
         self.assertEqual(["wire-token"], self.auth.calls)
+
+    async def test_full_https_to_rpc_to_trusted_sqlite_object_store_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            objects = MemoryObjectStore()
+            server = ClassroomFileServerService(
+                store=ClassroomFileServerSQLiteStore(
+                    str(Path(temp_dir) / "files.sqlite3")
+                ),
+                authorization=AllowMembers({(STUDENT, ROOM)}),
+                scanner=CleanScanner(),
+                object_store=objects,
+            )
+            endpoint = ClassroomFileHttpEndpoint(
+                service=ClassroomFileRpcService(backend=server),
+                authenticator=self.auth,
+            )
+            content = b"\x00\xfffull stack arbitrary bytes"
+            sent = await self.invoke(
+                endpoint=endpoint,
+                request=upload_request(content),
+            )
+            status, _, stored_payload = self.response(sent)
+            self.assertEqual(200, status)
+            stored = stored_payload["attachment"]
+            self.assertEqual("stored", stored["transfer_state"])
+            self.assertEqual("clean", stored["scan_state"])
+            self.assertEqual(content, objects.objects[stored["object_key"]])
+
+            sent = await self.invoke(
+                endpoint=endpoint,
+                request={
+                    "v": 1,
+                    "op": "history",
+                    "room_id": ROOM,
+                    "participant_id": STUDENT,
+                    "after_sequence": None,
+                    "limit": 10,
+                },
+            )
+            status, _, history_payload = self.response(sent)
+            self.assertEqual(200, status)
+            self.assertEqual([stored], history_payload["attachments"])
 
     async def test_nonupload_request_has_no_binary_tail_and_forwards_room(self):
         request = {
