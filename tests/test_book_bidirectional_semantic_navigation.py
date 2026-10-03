@@ -122,7 +122,21 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertTrue(availability["previous_game"])
 
     def test_navigation_availability_exactly_matches_every_navigation_command(self) -> None:
-        document = self.make_document()
+        base = self.make_document()
+        document = BookDocument(
+            title="Semantic availability equivalence",
+            blocks=[
+                *base.blocks,
+                Heading(text="Appendix", level=2, block_id="heading-2"),
+                Paragraph(text="Appendix context", block_id="paragraph-3"),
+                Position(fen=Board.START, caption="Appendix position", block_id="position-3"),
+                Game(
+                    pgn='[Result "*"]\n\n1. c4 *',
+                    title="Game three",
+                    block_id="game-3",
+                ),
+            ],
+        )
         commands = (
             ("previous", "previous_block", -1),
             ("next", "next_block", 1),
