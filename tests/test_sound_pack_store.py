@@ -454,6 +454,40 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             sync_directory.assert_called_once_with(store.root)
             self.assertNotIn(manifest.pack_id, store.installed())
 
+    def test_installed_inventory_scan_is_resource_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.root.mkdir()
+            for name in ("one", "two", "three"):
+                (store.root / name).mkdir()
+
+            with mock.patch(
+                "acs.sound_pack_store._MAX_SOUND_PACK_INVENTORY_ENTRIES",
+                2,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "inventory exceeds the resource limit",
+            ):
+                store.installed()
+
+    def test_version_inventory_scan_is_bounded_and_best_effort(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store.install_atomically(downloaded)
+            versions_dir = store.root / manifest.pack_id / "versions"
+            (versions_dir / "junk-a").mkdir()
+            (versions_dir / "junk-b").mkdir()
+
+            with mock.patch(
+                "acs.sound_pack_store._MAX_SOUND_PACK_VERSION_ENTRIES",
+                2,
+            ):
+                self.assertEqual((), store.versions(manifest.pack_id))
+
     def test_install_rehashes_staged_bytes_and_publishes_active_version(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
