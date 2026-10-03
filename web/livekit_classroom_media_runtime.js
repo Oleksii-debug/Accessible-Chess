@@ -306,7 +306,12 @@
     async execute(event, invoke) {
       invoke = requireInvoke(invoke);
       if (this._busy) {
-        throw new Error("media provider runtime already has an active dispatch");
+        try {
+          const parsed = providerInstruction(event);
+          return await this._providerNotStarted(invoke, parsed.transaction);
+        } catch (_error) {
+          return null;
+        }
       }
       this._busy = true;
       try {
