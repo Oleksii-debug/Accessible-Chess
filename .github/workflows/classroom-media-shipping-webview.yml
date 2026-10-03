@@ -195,31 +195,53 @@ jobs:
           tests/test_classroom_media_provider_binder.py
           tests/test_classroom_media_shipping_webview.py
 
-      - name: Run media transaction qualification
-        run: >-
-          python -m unittest -v
-          tests.test_classroom_media_shipping_webview
-          tests.test_classroom_media_provider_binder
-          tests.test_classroom_media_provider_execution
-          tests.test_classroom_media_session_transactions
-          tests.test_classroom_media_host_transactions
-          tests.test_classroom_media_webview
-          tests.test_classroom_realtime_media
-
-      - name: Run final-product and release qualification
+      - name: Test media shipping WebView
         if: always()
-        run: >-
-          python -m unittest -v
-          tests.test_version2_final_product_composition
-          tests.test_version2_final_release_binding
+        run: python -m unittest -v tests.test_classroom_media_shipping_webview
 
-      - name: Run payload, package and runtime-reachability qualification
+      - name: Test media provider binder
         if: always()
-        run: >-
-          python -m unittest -v
-          tests.test_version2_release_payload
-          tests.test_version2_package_preflight
-          tests.test_p0g_final_product_runtime_reachability
+        run: python -m unittest -v tests.test_classroom_media_provider_binder
+
+      - name: Test media provider execution
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_provider_execution
+
+      - name: Test media session transactions
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_session_transactions
+
+      - name: Test media host transactions
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_host_transactions
+
+      - name: Test media WebView
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_webview
+
+      - name: Test realtime media
+        if: always()
+        run: python -m unittest -v tests.test_classroom_realtime_media
+
+      - name: Test final-product composition
+        if: always()
+        run: python -m unittest -v tests.test_version2_final_product_composition
+
+      - name: Test final-release binding
+        if: always()
+        run: python -m unittest -v tests.test_version2_final_release_binding
+
+      - name: Test release payload
+        if: always()
+        run: python -m unittest -v tests.test_version2_release_payload
+
+      - name: Test package preflight
+        if: always()
+        run: python -m unittest -v tests.test_version2_package_preflight
+
+      - name: Test final-product runtime reachability
+        if: always()
+        run: python -m unittest -v tests.test_p0g_final_product_runtime_reachability
 
       - name: Core selftest
         if: always()
