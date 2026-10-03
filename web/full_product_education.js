@@ -405,9 +405,11 @@
     const meter = node("progress");
     meter.id = "collaboration-file-transfer-meter";
     const semanticMax = total === 0 ? 1 : total;
-    const semanticValue = total === 0 && complete ? 1 : transferred;
     meter.setAttribute("max", String(semanticMax));
-    meter.setAttribute("value", String(semanticValue));
+    if (!(total > 0 && transferred === total && !complete)) {
+      const semanticValue = total === 0 && complete ? 1 : transferred;
+      meter.setAttribute("value", String(semanticValue));
+    }
     const label = progressInfo.label || "File transfer progress";
     const name = progressInfo.name;
     meter.setAttribute("aria-label", name ? (label + ": " + name) : label);
