@@ -31,7 +31,7 @@ DEFAULT_EVENT_FILES = {
     "mate": "library/Server/Gong.WAV",
     "draw": "library/Server/Gong.WAV",
     "tick": "library/Board/Tick.wav",
-    "low_time": "library/Board/coach.wav",
+    "low_time": "library/Server/aooga.wav",
 }
 
 EVENT_VARIANTS = {
@@ -93,8 +93,8 @@ EVENT_VARIANTS = {
         ("3d", "library/Board3d/Tick.wav", "Годинник 3D", "3D clock"),
     ),
     "low_time": (
-        ("1", "library/Board/coach.wav", "Мало часу — попередження 1", "Low time — warning 1"),
-        ("2", "library/Board/failhigh.wav", "Мало часу — попередження 2", "Low time — warning 2"),
+        ("1", "library/Server/aooga.wav", "Мало часу — сигнал 1", "Low time — alert 1"),
+        ("2", "library/Server/ping.wav", "Мало часу — сигнал 2", "Low time — alert 2"),
     ),
 }
 
