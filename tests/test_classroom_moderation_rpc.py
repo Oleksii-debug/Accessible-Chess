@@ -327,6 +327,61 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn((ROOM, "op-recover"), self.ledger.reservations)
 
+    async def test_two_restarted_reconcilers_converge_without_provider_effect(self) -> None:
+        await self.leave_ambiguous_pending()
+        first_verifier = FakeProviderStateVerifier()
+        second_verifier = FakeProviderStateVerifier()
+        first_restarted = self.restarted(verifier=first_verifier)
+        second_restarted = self.restarted(verifier=second_verifier)
+        command = self.command()
+
+        results = await asyncio.gather(
+            first_restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=command,
+            ),
+            second_restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=command,
+            ),
+            return_exceptions=True,
+        )
+
+        self.assertEqual(results, [None, None])
+        self.assertEqual(self.restarted_provider.calls, [])
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.reservations)
+        self.assertIn((ROOM, "op-recover"), self.ledger.values)
+        self.assertEqual(
+            len(first_verifier.calls) + len(second_verifier.calls),
+            2,
+        )
+
+    async def test_committed_or_missing_recovery_never_queries_provider_state(self) -> None:
+        command = self.command()
+        restarted = self.restarted()
+        with self.assertRaisesRegex(
+            ClassroomModerationRpcError,
+            "not pending recovery",
+        ):
+            await restarted.reconcile_verified_pending(
+                room_id=ROOM,
+                command=command,
+            )
+        self.assertEqual(self.verifier.calls, [])
+
+        await self.leave_ambiguous_pending()
+        await restarted.reconcile_verified_pending(
+            room_id=ROOM,
+            command=command,
+        )
+        verifier_calls = len(self.verifier.calls)
+        await restarted.reconcile_verified_pending(
+            room_id=ROOM,
+            command=command,
+        )
+        self.assertEqual(len(self.verifier.calls), verifier_calls)
+        self.assertEqual(self.restarted_provider.calls, [])
+
     async def test_non_boolean_verifier_result_cannot_commit_pending_operation(self) -> None:
         await self.leave_ambiguous_pending()
         self.verifier.matches = 1
@@ -344,6 +399,20 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn((ROOM, "op-recover"), self.ledger.reservations)
         self.assertNotIn((ROOM, "op-recover"), self.ledger.values)
         self.assertEqual(self.restarted_provider.calls, [])
+
+
+class ClassroomModerationRecoveryConstructionTests(unittest.TestCase):
+    def test_state_verifier_port_must_expose_callable_verification(self) -> None:
+        with self.assertRaisesRegex(
+            TypeError,
+            "provider state verifier is invalid",
+        ):
+            ClassroomModerationRpcService(
+                authorization=FakeAuthorization(),
+                provider_admin=FakeProviderAdmin(),
+                ledger=FakeLedger(),
+                provider_state_verifier=object(),
+            )
 
 
 class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
