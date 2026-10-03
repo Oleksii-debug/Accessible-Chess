@@ -17,6 +17,7 @@ class FakeElement {
     this.type = "";
     this.disabled = false;
     this.tabIndex = undefined;
+    this.value = "";
     this._text = "";
   }
 
@@ -57,6 +58,12 @@ class FakeElement {
 
   click() {
     const listener = this.listeners.click;
+    if (typeof listener === "function") return listener({ target: this });
+    return undefined;
+  }
+
+  change() {
+    const listener = this.listeners.change;
     if (typeof listener === "function") return listener({ target: this });
     return undefined;
   }
@@ -110,8 +117,10 @@ class FakeDocument {
   }
 }
 
-function loadSurface(documentRef) {
-  const windowRef = {};
+function loadSurface(documentRef, mediaDevices) {
+  const windowRef = mediaDevices
+    ? { navigator: { mediaDevices: mediaDevices } }
+    : {};
   global.document = documentRef;
   global.window = windowRef;
   const source = fs.readFileSync(
@@ -321,6 +330,103 @@ async function run() {
   assert.equal(recoveryHeading.tabIndex, -1);
   assert.equal(documentRef.activeElement, recoveryHeading);
   assert.deepEqual(recoveryAnnouncements, ["Media state updated."]);
+
+  const deviceDocument = new FakeDocument();
+  const deviceRoot = deviceDocument.createElement("main");
+  deviceRoot.id = "v2-workspace";
+  deviceDocument.root = deviceRoot;
+  let enumerateCalls = 0;
+  const mediaDevices = {
+    enumerateDevices: () => {
+      enumerateCalls += 1;
+      return Promise.resolve([
+        { kind: "audioinput", deviceId: "mic-device-2", label: "USB microphone" },
+        { kind: "audiooutput", deviceId: "speaker-device-2", label: "" },
+        { kind: "videoinput", deviceId: "camera-device-2", label: "USB camera" },
+        { kind: "videoinput", deviceId: "x".repeat(513), label: "Invalid camera" }
+      ]);
+    }
+  };
+  const deviceSurface = loadSurface(deviceDocument, mediaDevices);
+  const deviceSnapshot = mediaSnapshot([]);
+  deviceSnapshot.connected = true;
+  const deviceAnnouncements = [];
+  let deviceInvocation = null;
+  deviceSurface.mount(
+    deviceRoot,
+    deviceSnapshot,
+    (command, payload) => {
+      deviceInvocation = { command, payload };
+      return Promise.resolve({
+        kind: "media-updated",
+        payload: {
+          announcement: "Media state updated.",
+          focus_target: "classroom-media-device-" + payload.kind
+        }
+      });
+    },
+    (message) => deviceAnnouncements.push(String(message)),
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(enumerateCalls, 1);
+  assert.match(deviceRoot.textContent, /Audio and video devices/);
+  assert.match(deviceRoot.textContent, /USB microphone/);
+  assert.match(deviceRoot.textContent, /Speakers 1/);
+  assert.match(deviceRoot.textContent, /USB camera/);
+  assert.doesNotMatch(deviceRoot.textContent, /Invalid camera/);
+
+  const micSelect = deviceRoot.querySelector("#classroom-media-device-microphone");
+  const speakerSelect = deviceRoot.querySelector("#classroom-media-device-speaker");
+  const cameraSelect = deviceRoot.querySelector("#classroom-media-device-camera");
+  assert.ok(micSelect && speakerSelect && cameraSelect);
+  assert.equal(micSelect.tagName, "SELECT");
+  assert.equal(speakerSelect.tagName, "SELECT");
+  assert.equal(cameraSelect.tagName, "SELECT");
+
+  micSelect.value = "mic-device-2";
+  micSelect.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(deviceInvocation, {
+    command: "media.recover_device",
+    payload: {
+      kind: "microphone",
+      device_id: "mic-device-2"
+    }
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(
+    deviceInvocation.payload,
+    "republish_enabled"
+  ), false);
+  assert.equal(deviceDocument.activeElement, micSelect);
+  assert.deepEqual(deviceAnnouncements, ["Media state updated."]);
+
+  const refresh = deviceRoot.querySelector("#classroom-media-device-refresh");
+  assert.ok(refresh);
+  refresh.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(enumerateCalls, 2);
+
+  const disconnectedDocument = new FakeDocument();
+  const disconnectedRoot = disconnectedDocument.createElement("main");
+  disconnectedDocument.root = disconnectedRoot;
+  const disconnectedSurface = loadSurface(disconnectedDocument, mediaDevices);
+  const disconnectedSnapshot = mediaSnapshot([]);
+  disconnectedSnapshot.connected = false;
+  disconnectedSurface.mount(
+    disconnectedRoot,
+    disconnectedSnapshot,
+    () => Promise.resolve(null),
+    () => {},
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+  assert.equal(
+    disconnectedRoot.querySelector("#classroom-media-devices-heading"),
+    null
+  );
 
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
