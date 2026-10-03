@@ -180,6 +180,44 @@ class SoundCachePlaybackLockTests(unittest.TestCase):
             )._cache_process_lock(cache)
             self.assertIs(first._play_lock, second._play_lock)
 
+    def test_cache_lock_swap_after_lstat_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-lock-swap-") as raw:
+            root = Path(raw)
+            cache = root / "cache"
+            cache.mkdir()
+            lock_path = cache / ".playback.lock"
+            lock_path.write_bytes(b"\0")
+            replacement = root / "replacement.lock"
+            replacement.write_bytes(b"\0")
+            adapter = _cache_adapter(cache, mock.Mock())
+            adapter._play_lock = __import__(
+                "acs.sound_profile_windows",
+                fromlist=["_cache_process_lock"],
+            )._cache_process_lock(cache)
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == lock_path and not swapped:
+                    swapped = True
+                    os.replace(replacement, lock_path)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_profile_windows.os.open",
+                side_effect=swap_before_open,
+            ), self.assertRaisesRegex(
+                RuntimeError,
+                "lock changed before secure open",
+            ):
+                with adapter._exclusive_playback():
+                    self.fail("cache lock identity swap must fail closed")
+
+            self.assertTrue(swapped)
+
     @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
     def test_cache_lock_symlink_is_rejected_without_following(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-cache-lock-symlink-") as raw:
