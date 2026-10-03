@@ -2104,6 +2104,45 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.webview(file_retention="forever")
 
+    def test_language_switch_advances_active_file_progress_projection(self) -> None:
+        self.selected_file = self.root / "localized-progress.pgn"
+        self.selected_file.write_bytes(b"abcd")
+        self.files.scan_state = "clean"
+        view = self.webview(language=UILanguage.EN)
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        en_files = uploaded.payload["collaboration"]["files"]
+        en_progress = en_files["transfer_progress"]
+        self.assertIsNotNone(en_progress)
+        assert en_progress is not None
+        self.assertEqual(en_files["progress_revision"], en_progress["progress_revision"])
+        en_revision = en_progress["progress_revision"]
+        transfer_key = en_progress["transfer_key"]
+        self.assertEqual("File transfer progress", en_progress["label"])
+        self.assertIn("Transferred", en_progress["text"])
+
+        view.set_language(UILanguage.UA)
+        ua_files = view.snapshot()["files"]
+        ua_progress = ua_files["transfer_progress"]
+        self.assertIsNotNone(ua_progress)
+        assert ua_progress is not None
+        self.assertEqual(en_revision + 1, ua_files["progress_revision"])
+        self.assertEqual(ua_files["progress_revision"], ua_progress["progress_revision"])
+        self.assertEqual(transfer_key, ua_progress["transfer_key"])
+        self.assertEqual(en_progress["transferred_bytes"], ua_progress["transferred_bytes"])
+        self.assertEqual(en_progress["total_bytes"], ua_progress["total_bytes"])
+        self.assertEqual("Прогрес передавання файла", ua_progress["label"])
+        self.assertIn("Передано", ua_progress["text"])
+
+        # Re-applying the same language is not a new projection generation.
+        stable_revision = ua_files["progress_revision"]
+        view.set_language(UILanguage.UA)
+        self.assertEqual(
+            stable_revision,
+            view.snapshot()["files"]["progress_revision"],
+        )
+
     def test_language_switch_changes_presentation_without_rebuilding_core(self) -> None:
         view = self.webview(language=UILanguage.EN)
         self.assertEqual("Chat", view.snapshot()["chat"]["heading"])
