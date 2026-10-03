@@ -366,11 +366,13 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
+        definition_digest = _definition_digest(definition)
         return cls._restore_path_snapshot(
             definition,
             snapshot,
             expected_fields=_TRAINING_SNAPSHOT_V4_FIELDS,
-            expected_definition_digest=_definition_digest(definition),
+            expected_definition_digest=definition_digest,
+            session_definition_digest=definition_digest,
         )
 
     @classmethod
@@ -379,11 +381,13 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
+        session_definition_digest = _definition_digest(definition)
         return cls._restore_path_snapshot(
             definition,
             snapshot,
             expected_fields=_TRAINING_SNAPSHOT_V3_FIELDS,
             expected_definition_digest=_legacy_definition_digest(definition),
+            session_definition_digest=session_definition_digest,
         )
 
     @classmethod
@@ -394,6 +398,7 @@ class ExerciseSession:
         *,
         expected_fields: frozenset[str],
         expected_definition_digest: str,
+        session_definition_digest: str,
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, expected_fields)
         common = _restore_common(
@@ -436,6 +441,8 @@ class ExerciseSession:
             _resolved_accepted_moves(definition.steps[step_index], board)
 
         session = cls(definition)
+        if session._definition_digest != session_definition_digest:
+            raise ValueError("exercise definition changed while restoring progress")
         session._board = board
         session._accepted_path = replayed
         session._step_index = step_index
@@ -452,6 +459,7 @@ class ExerciseSession:
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V2_FIELDS)
+        session_definition_digest = _definition_digest(definition)
         step_index, attempts, mistakes, hints_used, status = _restore_common(
             definition,
             snapshot,
@@ -473,6 +481,8 @@ class ExerciseSession:
             _resolved_accepted_moves(definition.steps[step_index], board)
 
         session = cls(definition)
+        if session._definition_digest != session_definition_digest:
+            raise ValueError("exercise definition changed while restoring progress")
         session._board = board
         session._accepted_path = accepted_path
         session._step_index = step_index
