@@ -573,6 +573,16 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 "stable HTTPS URL or URN",
             ),
             ("creator", {"creator": "TBD"}, "creator identity is unresolved"),
+            (
+                "creator-bidi",
+                {"creator": "Trusted\u202eCreator"},
+                "creator is invalid",
+            ),
+            (
+                "license-zero-width",
+                {"license_id": "CC0-1.0\u200b"},
+                "license_id is invalid",
+            ),
             ("file", {"file": "other.wav"}, "does not match manifest"),
         )
         for label, mutation, expected in cases:
