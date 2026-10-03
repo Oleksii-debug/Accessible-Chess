@@ -151,6 +151,36 @@ async function run() {
   check(calls.length === 0, "ArrowDown at the last option delegated an impossible move");
   check(announcements.length === 0, "ArrowDown at the last option produced an announcement");
 
+  const homeInside = keyEvent("Home");
+  options[1].listeners.keydown(homeInside);
+  await flushPromises();
+  check(homeInside.wasPrevented(), "Home was not handled");
+  check(calls.length === 1 && calls[0][0] === "management.select" && calls[0][1].kind === "class" && calls[0][1].record_id === "one",
+    "Home stopped delegating first-record selection through canonical management.select");
+
+  calls.length = 0;
+  const homeAtStart = keyEvent("Home");
+  options[0].listeners.keydown(homeAtStart);
+  await flushPromises();
+  check(homeAtStart.wasPrevented(), "Home at the first option was not handled");
+  check(calls.length === 0, "Home at the first option delegated a redundant selection");
+  check(announcements.length === 0, "Home at the first option produced an announcement");
+
+  const endInside = keyEvent("End");
+  options[1].listeners.keydown(endInside);
+  await flushPromises();
+  check(endInside.wasPrevented(), "End was not handled");
+  check(calls.length === 1 && calls[0][0] === "management.select" && calls[0][1].kind === "class" && calls[0][1].record_id === "three",
+    "End stopped delegating last-record selection through canonical management.select");
+
+  calls.length = 0;
+  const endAtEnd = keyEvent("End");
+  options[2].listeners.keydown(endAtEnd);
+  await flushPromises();
+  check(endAtEnd.wasPrevented(), "End at the last option was not handled");
+  check(calls.length === 0, "End at the last option delegated a redundant selection");
+  check(announcements.length === 0, "End at the last option produced an announcement");
+
   const enter = keyEvent("Enter");
   options[1].listeners.keydown(enter);
   await flushPromises();
@@ -158,7 +188,7 @@ async function run() {
   check(calls.length === 1 && calls[0][0] === "management.open",
     "Enter stopped delegating through canonical management.open");
 
-  console.log("Classroom listbox boundary keyboard contract PASS");
+  console.log("Classroom listbox boundary and direct-jump keyboard contract PASS");
 }
 
 run().catch(function (error) {
