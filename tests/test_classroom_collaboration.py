@@ -555,7 +555,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         # later authoritative row. The public append boundary now correctly
         # rejects this shape, so seed the historical state below that boundary.
         later = history[2]
-        with closing(sqlite3.connect(self.store.path)) as db:
+        with closing(sqlite3.connect(self.store.path)) as db, db:
             db.execute(
                 """
                 INSERT INTO collaboration_messages(
@@ -754,7 +754,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         third = self.chat.send_message(
             ChatDraft("legacy-gap-2", "room-1", "teacher-1", "Third")
         )
-        with closing(sqlite3.connect(self.store.path)) as db:
+        with closing(sqlite3.connect(self.store.path)) as db, db:
             db.execute(
                 """
                 INSERT INTO collaboration_messages(
