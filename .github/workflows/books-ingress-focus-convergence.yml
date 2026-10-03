@@ -1,0 +1,130 @@
+name: Books Ingress + Focus Recovery Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'fix/books-training-exact-payload-dict-20261003'
+    paths:
+      - '.github/workflows/books-ingress-focus-convergence.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/version2_application.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-ingress-focus-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact convergence candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Authenticate both live parent authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact_scalar_payload='26ae0578e34eadcad1abf9b717fbe2980519ebe0'
+          exact_focus_recovery='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
+          exact_scalar_parent='6edd00dce67b65876a6bf37a5cf7b6415a9d675b'
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git cat-file -e "$exact_scalar_payload^{commit}"
+          git cat-file -e "$exact_focus_recovery^{commit}"
+          git cat-file -e "$exact_scalar_parent^{commit}"
+          git merge-base --is-ancestor "$exact_scalar_payload" HEAD
+          git merge-base --is-ancestor "$exact_focus_recovery" HEAD
+          git merge-base --is-ancestor "$exact_scalar_parent" HEAD
+          test "$(git merge-base "$exact_scalar_payload" HEAD)" = "$exact_scalar_payload"
+          test "$(git merge-base "$exact_focus_recovery" HEAD)" = "$exact_focus_recovery"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'fix/books-training-exact-payload-dict-20261003'
+            test '${{ github.event.pull_request.base.sha }}' = "$exact_scalar_payload"
+          fi
+
+          git diff --check "$exact_scalar_payload" HEAD
+          changed="$(git diff --name-only "$exact_scalar_payload" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/books-ingress-focus-convergence.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
+            'acs/full_product_ui_shell.py' \
+            'acs/version2_application.py' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
+            'tests/test_v2_book_training_route_rollback.py' \
+            'tests/test_version2_application.py' \
+            'tests/test_version2_release_accessibility_contract.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '557165c7f45a553a9cddad4ee402560e038cf384'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = '03257330c7b5519683533f33fd57145f395354d7'
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '7bb116ea0587de51a191560cd39070aac9ead014'
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = '34df9e717adf52dcb41cd2caf1ee79e7a8dff37f'
+          test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = '1e9b0e03c5c81ef187234a748bbd23c2759ad4cb'
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = 'a9d6d065777156c3fe2327b2183df5d8898dc2cb'
+
+          # Prove the exact-ingress parent content survived the merge byte-for-byte.
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '2e9263f2b21f53e28d483ed38fa961956c0d2622'
+          test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = '247b7d4bbd2d9e0e7d7fc6a89c5cef45e63e65e7'
+          test "$(git rev-parse HEAD:acs/training_webview_bridge.py)" = 'c3e6e52873f2ec1e2d5bdbc70d227a402963405b'
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = '93387132c55130f2be9d050000e1923ec88414f4'
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = '485147fbcfd3a52705b611df4ad315c46d4e54bf'
+
+          echo 'BOOKS_INGRESS_FOCUS_CONVERGENCE_GEOMETRY=PASS'
+
+      - name: Compile converged runtime
+        run: >-
+          python -m compileall -q
+          acs/book_webview_bridge.py
+          acs/book_webview_projection.py
+          acs/training_webview_bridge.py
+          acs/version2_application.py
+          acs/full_product_ui_shell.py
+          tests/test_version2_application.py
+          tests/test_v2_book_training_route_rollback.py
+          tests/test_version2_release_accessibility_contract.py
+
+      - name: Prove packaged DOM focus contract
+        run: |
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Prove ingress, persistence, semantic and focus regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_projection
+          tests.test_version2_application
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_release_accessibility_contract
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_v2_book_transaction_current_runtime
+          tests.test_v2_book_board_workflow
+          tests.test_version2_training_current_runtime
+
+      - name: Core selftest
+        run: python -m acs.selftest
