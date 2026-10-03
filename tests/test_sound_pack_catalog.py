@@ -290,9 +290,9 @@ class SoundPackCatalogTests(unittest.TestCase):
         for malformed in (
             {},
             {**rights.to_mapping(), "extra": "x"},
+            {**rights.to_mapping(), "schema_version": 99},
             {
-                "license_id": rights.license_id,
-                "source_uri": rights.source_uri,
+                **rights.to_mapping(),
                 "license_uri": 7,
             },
         ):
