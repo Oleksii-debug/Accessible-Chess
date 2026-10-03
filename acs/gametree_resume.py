@@ -516,35 +516,123 @@ def _validate_regular_path(path: Path, *, allow_missing: bool) -> bool:
 
 
 def _read_store_bytes(path: Path) -> bytes:
-    _validate_regular_path(path, allow_missing=False)
     try:
-        before = path.lstat()
-        with path.open("rb") as handle:
-            payload = handle.read(MAX_RESUME_RECORD_BYTES + 2)
-        after = path.lstat()
+        validated = path.lstat()
+    except FileNotFoundError as exc:
+        raise GameTreeResumeError(
+            "resume store does not exist",
+            code=GameTreeResumeCode.IO_FAILURE,
+        ) from exc
+    except OSError as exc:
+        raise GameTreeResumeError(
+            "resume store metadata could not be read safely",
+            code=GameTreeResumeCode.IO_FAILURE,
+        ) from exc
+    if (
+        stat.S_ISLNK(validated.st_mode)
+        or _is_reparse_point(validated)
+        or not stat.S_ISREG(validated.st_mode)
+    ):
+        raise GameTreeResumeError(
+            "resume store must be a regular file",
+            code=GameTreeResumeCode.IO_FAILURE,
+        )
+    if validated.st_size > MAX_RESUME_RECORD_BYTES + 1:
+        raise GameTreeResumeError(
+            "resume store exceeds the safety limit",
+            code=GameTreeResumeCode.RESOURCE_LIMIT,
+        )
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    fd = -1
+    try:
+        fd = os.open(path, flags)
+        opened_before = os.fstat(fd)
+        current_before = path.lstat()
+
+        validated_identity = (validated.st_dev, validated.st_ino)
+        if (
+            stat.S_ISLNK(current_before.st_mode)
+            or _is_reparse_point(current_before)
+            or not stat.S_ISREG(current_before.st_mode)
+            or not stat.S_ISREG(opened_before.st_mode)
+            or (opened_before.st_dev, opened_before.st_ino) != validated_identity
+            or (current_before.st_dev, current_before.st_ino) != validated_identity
+        ):
+            raise GameTreeResumeError(
+                "resume store changed while being opened",
+                code=GameTreeResumeCode.STALE_WRITER,
+            )
+        if (
+            opened_before.st_size > MAX_RESUME_RECORD_BYTES + 1
+            or current_before.st_size > MAX_RESUME_RECORD_BYTES + 1
+        ):
+            raise GameTreeResumeError(
+                "resume store exceeds the safety limit",
+                code=GameTreeResumeCode.RESOURCE_LIMIT,
+            )
+
+        payload_buffer = bytearray()
+        remaining = MAX_RESUME_RECORD_BYTES + 2
+        while remaining > 0:
+            block = os.read(fd, min(1024 * 1024, remaining))
+            if not block:
+                break
+            payload_buffer.extend(block)
+            remaining -= len(block)
+        payload = bytes(payload_buffer)
+
+        opened_after = os.fstat(fd)
+        current_after = path.lstat()
+    except GameTreeResumeError:
+        raise
     except OSError as exc:
         raise GameTreeResumeError(
             "resume store could not be read safely",
             code=GameTreeResumeCode.IO_FAILURE,
         ) from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
     if len(payload) > MAX_RESUME_RECORD_BYTES + 1:
         raise GameTreeResumeError(
             "resume store exceeds the safety limit",
             code=GameTreeResumeCode.RESOURCE_LIMIT,
         )
-    before_key = (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        getattr(before, "st_mtime_ns", None),
-    )
-    after_key = (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        getattr(after, "st_mtime_ns", None),
-    )
-    if before_key != after_key:
+
+    if (
+        stat.S_ISLNK(current_after.st_mode)
+        or _is_reparse_point(current_after)
+        or not stat.S_ISREG(current_after.st_mode)
+        or not stat.S_ISREG(opened_after.st_mode)
+        or (opened_after.st_dev, opened_after.st_ino) != validated_identity
+        or (current_after.st_dev, current_after.st_ino) != validated_identity
+    ):
+        raise GameTreeResumeError(
+            "resume store changed while being read",
+            code=GameTreeResumeCode.STALE_WRITER,
+        )
+
+    def state_key(info: os.stat_result) -> tuple[object, ...]:
+        return (
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            getattr(info, "st_mtime_ns", None),
+            getattr(info, "st_ctime_ns", None),
+        )
+
+    if (
+        state_key(validated) != state_key(opened_before)
+        or state_key(opened_before) != state_key(opened_after)
+        or state_key(current_before) != state_key(current_after)
+        or state_key(opened_after) != state_key(current_after)
+    ):
         raise GameTreeResumeError(
             "resume store changed while being read",
             code=GameTreeResumeCode.STALE_WRITER,
@@ -695,8 +783,34 @@ def _publish_update(
 @contextmanager
 def _exclusive_store_lock(destination: Path) -> Iterator[None]:
     lock_path = destination.with_name(destination.name + ".lock")
-    if _validate_regular_path(lock_path, allow_missing=True):
-        pass
+    validated: os.stat_result | None
+    try:
+        validated = lock_path.lstat()
+    except FileNotFoundError:
+        validated = None
+    except OSError as exc:
+        raise GameTreeResumeError(
+            "resume store lock metadata could not be read safely",
+            code=GameTreeResumeCode.IO_FAILURE,
+        ) from exc
+
+    if validated is not None:
+        if (
+            stat.S_ISLNK(validated.st_mode)
+            or _is_reparse_point(validated)
+            or not stat.S_ISREG(validated.st_mode)
+            or getattr(validated, "st_nlink", 1) != 1
+        ):
+            raise GameTreeResumeError(
+                "resume store lock must be a single-link regular file",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        if validated.st_size > MAX_RESUME_RECORD_BYTES + 1:
+            raise GameTreeResumeError(
+                "resume store exceeds the safety limit",
+                code=GameTreeResumeCode.RESOURCE_LIMIT,
+            )
+
     try:
         handle = lock_path.open("a+b")
     except OSError as exc:
@@ -705,9 +819,9 @@ def _exclusive_store_lock(destination: Path) -> Iterator[None]:
             code=GameTreeResumeCode.IO_FAILURE,
         ) from exc
 
-    # Pre-open lstat is defense-in-depth only: the pathname can change
-    # between validation and open. Bind the opened handle back to the
-    # current lock pathname before any write or OS lock operation.
+    # A pre-existing lock has an exact inode/state authority. A missing lock may
+    # be created by this process or a racing peer, but the opened handle must in
+    # either case bind to the current safe pathname before any write/OS lock.
     try:
         opened = os.fstat(handle.fileno())
         current = lock_path.lstat()
@@ -717,8 +831,20 @@ def _exclusive_store_lock(destination: Path) -> Iterator[None]:
             "resume store lock identity could not be verified",
             code=GameTreeResumeCode.IO_FAILURE,
         ) from exc
+
+    def lock_state_key(info: os.stat_result) -> tuple[object, ...]:
+        return (
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            getattr(info, "st_mtime_ns", None),
+            getattr(info, "st_ctime_ns", None),
+            getattr(info, "st_nlink", 1),
+        )
+
     opened_key = (opened.st_dev, opened.st_ino)
     current_key = (current.st_dev, current.st_ino)
+    validated_state = None if validated is None else lock_state_key(validated)
     if (
         stat.S_ISLNK(current.st_mode)
         or _is_reparse_point(current)
@@ -727,6 +853,13 @@ def _exclusive_store_lock(destination: Path) -> Iterator[None]:
         or getattr(current, "st_nlink", 1) != 1
         or getattr(opened, "st_nlink", 1) != 1
         or opened_key != current_key
+        or (
+            validated_state is not None
+            and (
+                lock_state_key(opened) != validated_state
+                or lock_state_key(current) != validated_state
+            )
+        )
     ):
         handle.close()
         raise GameTreeResumeError(
