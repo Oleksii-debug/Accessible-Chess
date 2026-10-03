@@ -920,12 +920,15 @@ class ClassroomCollaborationWebView:
         *,
         announcement: str = "",
         focus_target: str = "",
+        clear_chat_draft: bool = False,
     ) -> ClassroomCollaborationWebViewEvent:
         payload: dict[str, object] = {"collaboration": self.safe_snapshot()}
         if announcement:
             payload["announcement"] = announcement
         if focus_target:
             payload["focus_target"] = focus_target
+        if clear_chat_draft:
+            payload["clear_chat_draft"] = True
         return ClassroomCollaborationWebViewEvent(kind, payload)
 
     def _error(
@@ -1113,6 +1116,7 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.chat.received",
             announcement=announcement,
+            clear_chat_draft=pending_recovered,
         )
 
     def refresh_chat(self) -> ClassroomCollaborationWebViewEvent:
@@ -1181,7 +1185,20 @@ class ClassroomCollaborationWebView:
         )
         self._unread_message_ids.update(item.message_id for item in new_remote)
         announcement = ""
-        if len(new_remote) == 1:
+        if pending_recovered and new_remote:
+            sent = _LABELS[self._language]["sent"]
+            if len(new_remote) == 1:
+                item = new_remote[0]
+                compact_body = self._announcement_body(item.body)
+                announcement = (
+                    f"{sent} {self._label(item.sender_id)}: {compact_body}"
+                )
+            else:
+                announcement = (
+                    f"{sent} "
+                    f"{_LABELS[self._language]['new_many'].format(count=len(new_remote))}"
+                )
+        elif len(new_remote) == 1:
             item = new_remote[0]
             compact_body = self._announcement_body(item.body)
             announcement = f"{self._label(item.sender_id)}: {compact_body}"
@@ -1189,7 +1206,11 @@ class ClassroomCollaborationWebView:
             announcement = _LABELS[self._language]["new_many"].format(count=len(new_remote))
         elif pending_recovered:
             announcement = _LABELS[self._language]["sent"]
-        return self._event("collaboration.chat.synced", announcement=announcement)
+        return self._event(
+            "collaboration.chat.synced",
+            announcement=announcement,
+            clear_chat_draft=pending_recovered,
+        )
 
     def refresh_files(self) -> ClassroomCollaborationWebViewEvent:
         """Refresh canonical file/history state after a trusted host notification."""

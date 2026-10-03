@@ -1029,6 +1029,53 @@ check(
   "collaboration redraw must preserve open message timestamp and retention disclosures"
 );
 
+const recoveredDraftRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  recoveredDraftRoot,
+  snapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+recoveredDraftRoot.querySelector("#collaboration-chat-input").value =
+  "Already accepted by the server";
+window.AccessibleChessEducationSurface.apply(
+  recoveredDraftRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  recoveredDraftRoot.querySelector("#collaboration-chat-input").value ===
+    "Already accepted by the server",
+  "ordinary chat refresh must preserve an unsent composer draft"
+);
+window.AccessibleChessEducationSurface.apply(
+  recoveredDraftRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration,
+      clear_chat_draft: true,
+      announcement: "Message sent."
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  recoveredDraftRoot.querySelector("#collaboration-chat-input").value === "",
+  "authoritatively recovered chat send must clear the already-committed draft"
+);
+
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
 check(
   pageStatus !== null &&
