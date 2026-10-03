@@ -353,7 +353,45 @@ _WINDOWS_1251_PGN_HEADER_ANCHORS = (
     b"[fen",
     b"[setup",
 )
-_WINDOWS_1251_CYRILLIC_BYTES = frozenset((*range(0xC0, 0x100), 0xA8, 0xB8))
+# Exact CP1251 bytes whose decoded scalar is a Cyrillic letter.  Keep this
+# evidence set narrower than "all high bytes": punctuation/currency must not
+# make arbitrary invalid UTF-8 look like a legacy PGN, and undefined 0x98 is
+# deliberately absent.
+_WINDOWS_1251_CYRILLIC_BYTES = frozenset(
+    (
+        *range(0xC0, 0x100),
+        0x80,
+        0x81,
+        0x83,
+        0x8A,
+        0x8C,
+        0x8D,
+        0x8E,
+        0x8F,
+        0x90,
+        0x9A,
+        0x9C,
+        0x9D,
+        0x9E,
+        0x9F,
+        0xA1,
+        0xA2,
+        0xA3,
+        0xA5,
+        0xA8,
+        0xAA,
+        0xAF,
+        0xB2,
+        0xB3,
+        0xB4,
+        0xB8,
+        0xBA,
+        0xBC,
+        0xBD,
+        0xBE,
+        0xBF,
+    )
+)
 
 
 def _looks_like_windows_1251_pgn(
