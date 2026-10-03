@@ -548,6 +548,10 @@ def _canonical_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
     _require_exact_definition(definition)
     if type(definition.steps) is not tuple:
         raise TypeError("exercise steps must be an exact tuple")
+    if type(definition.tags) is not tuple:
+        raise TypeError("exercise tags must be an exact tuple")
+    if type(definition.metadata) is not dict:
+        raise TypeError("exercise metadata must be an exact dict")
     if not definition.steps:
         raise ValueError("exercise requires at least one step")
     if len(definition.steps) > _MAX_EXERCISE_STEPS:
