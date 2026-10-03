@@ -108,6 +108,26 @@ class BookProjectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "navigation availability flags"):
                 self.projection.snapshot()
 
+    def test_snapshot_rejects_numbers_that_webview_cannot_represent_exactly(self) -> None:
+        block = self.presenter.current()
+        too_large = 1 << 53
+
+        with self.assertRaisesRegex(ValueError, "block index"):
+            self.projection._snapshot_from_block(replace(block, index=too_large))
+
+        with self.assertRaisesRegex(ValueError, "list start"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=("item",),
+                    list_ordered=True,
+                    list_start=too_large,
+                )
+            )
+
     def test_open_position_keeps_fen_inside_python_dispatch_boundary(self) -> None:
         self.projection.next_position()
         event = self.projection.open_position()
