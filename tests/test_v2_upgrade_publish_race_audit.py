@@ -170,6 +170,101 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             self.assertTrue(displaced_owned.is_dir())
             self.assertIsNone(coordinator._last_backup)
 
+    def test_recovery_json_rejects_same_bytes_inode_swap_on_open(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = root / "manifest.json"
+            payload = b'{"schema_version": 2}\n'
+            target.write_bytes(payload)
+            substitute = root / "same-bytes-manifest.json"
+            substitute.write_bytes(payload)
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            real_open = upgrade_base_module.os.open
+            injected = False
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if candidate == target and not injected:
+                    os.replace(substitute, target)
+                    injected = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "open",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "is unreadable",
+                ):
+                    coordinator._read_json(target, "upgrade backup manifest")
+
+            self.assertTrue(injected)
+            self.assertEqual(payload, target.read_bytes())
+
+    def test_descriptor_hash_rejects_same_bytes_inode_swap_on_open(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "backup.bin"
+            payload = b"same-bytes-but-different-inode"
+            target.write_bytes(payload)
+            substitute = root / "substitute.bin"
+            substitute.write_bytes(payload)
+            real_open = upgrade_base_module.os.open
+            injected = False
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if candidate == target and not injected:
+                    os.replace(substitute, target)
+                    injected = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "open",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "changed while opening",
+                ):
+                    upgrade_base_module._hash(
+                        target,
+                        label="upgrade backup file",
+                    )
+
+            self.assertTrue(injected)
+            self.assertEqual(payload, target.read_bytes())
+
+    def test_recovery_json_raw_limit_precedes_descriptor_open(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = root / "oversized.json"
+            target.write_bytes(
+                b"x" * (upgrade_base_module._MAX_RECOVERY_JSON_BYTES + 1)
+            )
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "open",
+                side_effect=AssertionError(
+                    "over-budget recovery JSON must fail before descriptor open"
+                ),
+            ) as opened:
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "is unreadable",
+                ):
+                    coordinator._read_json(target, "upgrade journal")
+            opened.assert_not_called()
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
