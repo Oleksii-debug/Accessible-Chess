@@ -170,75 +170,108 @@ class ClassroomChatServerSQLiteStore:
 
     def _ensure_schema(self) -> None:
         with closing(self._connect()) as db, db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS classroom_chat_server_meta(
-                    key TEXT PRIMARY KEY,
-                    value INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS classroom_chat_server_messages(
-                    message_id TEXT PRIMARY KEY,
-                    room_id TEXT NOT NULL,
-                    sender_id TEXT NOT NULL,
-                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
-                    body TEXT NOT NULL,
-                    retention TEXT NOT NULL,
-                    hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
-                    sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0),
-                    UNIQUE(room_id, sequence_no)
-                );
-                CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_messages_room
-                    ON classroom_chat_server_messages(room_id, sequence_no);
-                CREATE TABLE IF NOT EXISTS classroom_chat_server_permissions(
-                    room_id TEXT NOT NULL,
-                    target_id TEXT NOT NULL,
-                    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
-                    PRIMARY KEY(room_id, target_id)
-                );
-                CREATE TABLE IF NOT EXISTS classroom_chat_server_moderation_ops(
-                    room_id TEXT NOT NULL,
-                    operation_id TEXT NOT NULL,
-                    fingerprint TEXT NOT NULL,
-                    PRIMARY KEY(room_id, operation_id)
-                );
-                CREATE TABLE IF NOT EXISTS classroom_chat_server_state_updates(
-                    room_id TEXT NOT NULL,
-                    revision INTEGER NOT NULL CHECK(revision >= 0),
-                    message_id TEXT NOT NULL,
-                    hidden INTEGER NOT NULL CHECK(hidden = 1),
-                    PRIMARY KEY(room_id, revision)
-                );
-                CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_state_updates_message
-                    ON classroom_chat_server_state_updates(room_id, message_id);
-                """
-            )
-            row = db.execute(
-                "SELECT value FROM classroom_chat_server_meta WHERE key='schema_version'"
-            ).fetchone()
-            if row is None:
-                db.execute(
-                    "INSERT INTO classroom_chat_server_meta(key,value) VALUES('schema_version',?)",
-                    (_SERVER_SCHEMA_VERSION,),
+            try:
+                namespace_rows = db.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type IN ('table','index')
+                      AND name LIKE 'classroom_chat_server_%'
+                    """
+                ).fetchall()
+                namespace_objects = {row["name"] for row in namespace_rows}
+                meta_exists = (
+                    "classroom_chat_server_meta" in namespace_objects
                 )
-            else:
-                version = row["value"]
-                if type(version) is not int:
+                version: int | None = None
+                if meta_exists:
+                    row = db.execute(
+                        """
+                        SELECT value FROM classroom_chat_server_meta
+                        WHERE key='schema_version'
+                        """
+                    ).fetchone()
+                    if (
+                        row is None
+                        or type(row["value"]) is not int
+                        or row["value"] < 1
+                    ):
+                        raise ClassroomChatServerError(
+                            "invalid classroom chat server schema version"
+                        )
+                    version = row["value"]
+                    if version > _SERVER_SCHEMA_VERSION:
+                        raise ClassroomChatServerError(
+                            "unsupported classroom chat server schema"
+                        )
+                elif namespace_objects:
                     raise ClassroomChatServerError(
-                        "invalid classroom chat server schema version"
+                        "classroom chat server schema metadata is missing"
                     )
-                if version < 1:
-                    raise ClassroomChatServerError(
-                        "invalid classroom chat server schema version"
-                    )
-                if version > _SERVER_SCHEMA_VERSION:
-                    raise ClassroomChatServerError(
-                        "unsupported classroom chat server schema"
-                    )
-                if version < 2:
+
+                db.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS classroom_chat_server_meta(
+                        key TEXT PRIMARY KEY,
+                        value INTEGER NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS classroom_chat_server_messages(
+                        message_id TEXT PRIMARY KEY,
+                        room_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                        body TEXT NOT NULL,
+                        retention TEXT NOT NULL,
+                        hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
+                        sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0),
+                        UNIQUE(room_id, sequence_no)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_messages_room
+                        ON classroom_chat_server_messages(room_id, sequence_no);
+                    CREATE TABLE IF NOT EXISTS classroom_chat_server_permissions(
+                        room_id TEXT NOT NULL,
+                        target_id TEXT NOT NULL,
+                        allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+                        PRIMARY KEY(room_id, target_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS classroom_chat_server_moderation_ops(
+                        room_id TEXT NOT NULL,
+                        operation_id TEXT NOT NULL,
+                        fingerprint TEXT NOT NULL,
+                        PRIMARY KEY(room_id, operation_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS classroom_chat_server_state_updates(
+                        room_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL CHECK(revision >= 0),
+                        message_id TEXT NOT NULL,
+                        hidden INTEGER NOT NULL CHECK(hidden = 1),
+                        PRIMARY KEY(room_id, revision)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_state_updates_message
+                        ON classroom_chat_server_state_updates(room_id, message_id);
+                    """
+                )
+                if version is None:
                     db.execute(
-                        "UPDATE classroom_chat_server_meta SET value=? WHERE key='schema_version'",
+                        """
+                        INSERT INTO classroom_chat_server_meta(key,value)
+                        VALUES('schema_version',?)
+                        """,
                         (_SERVER_SCHEMA_VERSION,),
                     )
+                elif version < 2:
+                    db.execute(
+                        """
+                        UPDATE classroom_chat_server_meta
+                        SET value=? WHERE key='schema_version'
+                        """,
+                        (_SERVER_SCHEMA_VERSION,),
+                    )
+            except ClassroomChatServerError:
+                raise
+            except sqlite3.Error:
+                raise ClassroomChatServerError(
+                    "classroom chat server schema initialization failed"
+                ) from None
 
     @staticmethod
     def _row_message(row: sqlite3.Row) -> ChatMessageMetadata:

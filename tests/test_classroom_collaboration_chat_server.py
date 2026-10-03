@@ -583,6 +583,104 @@ class ClassroomChatServerTests(unittest.TestCase):
                     ).fetchone()[0]
                 self.assertEqual(value, persisted)
 
+    def test_invalid_schema_version_does_not_recreate_missing_tables(self) -> None:
+        path = Path(self.tmp.name) / "schema-no-repair.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP TABLE classroom_chat_server_state_updates")
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=0
+                WHERE key='schema_version'
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "invalid classroom chat server schema version",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='classroom_chat_server_state_updates'
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(
+                0,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+
+    def test_missing_schema_version_is_not_backfilled(self) -> None:
+        path = Path(self.tmp.name) / "schema-missing-version.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                DELETE FROM classroom_chat_server_meta
+                WHERE key='schema_version'
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "invalid classroom chat server schema version",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()
+            )
+
+    def test_missing_schema_metadata_table_is_not_recreated_over_existing_state(self) -> None:
+        path = Path(self.tmp.name) / "schema-missing-meta.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP TABLE classroom_chat_server_meta")
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema metadata is missing",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='classroom_chat_server_meta'
+                    """
+                ).fetchone()
+            )
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='classroom_chat_server_messages'
+                    """
+                ).fetchone()
+            )
+
     def test_two_client_controller_composition_reconnects_and_reconciles_hide(self) -> None:
         roster = SharedRoster()
         teacher_store = ClassroomCollaborationSQLiteStore(
