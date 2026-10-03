@@ -950,6 +950,24 @@ class BookProgressStore:
             snapshot = dict(entries[key])
         return BookReader.restore_snapshot(document, snapshot)
 
+    def restore_primary(self, book_key: str, document: BookDocument) -> BookReader:
+        """Restore only the current canonical primary; never fall back to backup."""
+        key = _book_key(book_key)
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be BookDocument")
+        with self._exclusive_access():
+            payload, _, _ = self._read_state_unlocked(
+                self._path,
+                missing_ok=False,
+            )
+            assert payload is not None
+            entries = payload["entries"]
+            assert isinstance(entries, dict)
+            if key not in entries:
+                raise LookupError("No saved reading progress for this book")
+            snapshot = dict(entries[key])
+        return BookReader.restore_snapshot(document, snapshot)
+
     def validated_backup_revision(self, book_key: str, document: BookDocument) -> str:
         """Validate the exact backup for this Book and return its byte revision.
 
