@@ -324,20 +324,29 @@ class ClassroomChatServerSQLiteStore:
                             "chat sending is disabled for participant"
                         )
 
-                sequence = int(
-                    db.execute(
-                        """
-                        SELECT COALESCE(MAX(sequence_no), -1) + 1
-                        FROM classroom_chat_server_messages
-                        WHERE room_id=?
-                        """,
-                        (draft.room_id,),
-                    ).fetchone()[0]
-                )
-                if sequence > MAX_WIRE_INTEGER:
-                    raise ClassroomChatServerError(
-                        "server message sequence exhausted"
-                    )
+                maximum_sequence = db.execute(
+                    """
+                    SELECT MAX(sequence_no)
+                    FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                    """,
+                    (draft.room_id,),
+                ).fetchone()[0]
+                if maximum_sequence is None:
+                    sequence = 0
+                else:
+                    if (
+                        type(maximum_sequence) is not int
+                        or not 0 <= maximum_sequence <= MAX_WIRE_INTEGER
+                    ):
+                        raise ClassroomChatServerError(
+                            "stored message sequence is invalid"
+                        )
+                    if maximum_sequence == MAX_WIRE_INTEGER:
+                        raise ClassroomChatServerError(
+                            "server message sequence exhausted"
+                        )
+                    sequence = maximum_sequence + 1
                 db.execute(
                     """
                     INSERT INTO classroom_chat_server_messages(
@@ -524,20 +533,29 @@ class ClassroomChatServerSQLiteStore:
                                 """,
                                 (room, command.message_id),
                             )
-                            revision = int(
-                                db.execute(
-                                    """
-                                    SELECT COALESCE(MAX(revision), -1) + 1
-                                    FROM classroom_chat_server_state_updates
-                                    WHERE room_id=?
-                                    """,
-                                    (room,),
-                                ).fetchone()[0]
-                            )
-                            if revision > MAX_WIRE_INTEGER:
-                                raise ClassroomChatServerError(
-                                    "server moderation revision exhausted"
-                                )
+                            maximum_revision = db.execute(
+                                """
+                                SELECT MAX(revision)
+                                FROM classroom_chat_server_state_updates
+                                WHERE room_id=?
+                                """,
+                                (room,),
+                            ).fetchone()[0]
+                            if maximum_revision is None:
+                                revision = 0
+                            else:
+                                if (
+                                    type(maximum_revision) is not int
+                                    or not 0 <= maximum_revision <= MAX_WIRE_INTEGER
+                                ):
+                                    raise ClassroomChatServerError(
+                                        "stored moderation revision is invalid"
+                                    )
+                                if maximum_revision == MAX_WIRE_INTEGER:
+                                    raise ClassroomChatServerError(
+                                        "server moderation revision exhausted"
+                                    )
+                                revision = maximum_revision + 1
                             db.execute(
                                 """
                                 INSERT INTO classroom_chat_server_state_updates(

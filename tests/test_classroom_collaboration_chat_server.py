@@ -368,6 +368,116 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_corrupt_sequence_counter_blocks_new_send_without_partial_insert(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "corrupt-sequence-counter",
+                    ROOM,
+                    STUDENT,
+                    "not-a-sequence",
+                    "Corrupt sequence counter",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored message sequence is invalid",
+        ) as raised:
+            self.send(self.draft("message-after-corrupt-sequence"))
+        self.assertIsNone(raised.exception.__cause__)
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_messages
+                    WHERE message_id=?
+                    """,
+                    ("message-after-corrupt-sequence",),
+                ).fetchone()
+            )
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
+    def test_corrupt_revision_counter_rolls_back_hide_and_operation(self) -> None:
+        sent = self.send(self.draft("message-before-corrupt-revision"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, "not-a-revision", sent.message_id),
+            )
+
+        hide = self.moderation(
+            "hide-after-corrupt-revision",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored moderation revision is invalid",
+        ) as raised:
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(hide,),
+            )
+        self.assertIsNone(raised.exception.__cause__)
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(
+                0,
+                db.execute(
+                    """
+                    SELECT hidden FROM classroom_chat_server_messages
+                    WHERE message_id=?
+                    """,
+                    (sent.message_id,),
+                ).fetchone()[0],
+            )
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_moderation_ops
+                    WHERE room_id=? AND operation_id=?
+                    """,
+                    (ROOM, hide.operation_id),
+                ).fetchone()
+            )
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
     def test_corrupt_schema_version_is_sanitized_and_never_auto_repaired(self) -> None:
         for value in ("not-an-integer", 0, 3):
             with self.subTest(value=value):
