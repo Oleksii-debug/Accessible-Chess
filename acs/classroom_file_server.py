@@ -71,6 +71,19 @@ class ClassroomFileScannerPort(Protocol):
         ...
 
 
+class ClassroomFileObjectStorePort(FileStorePort, Protocol):
+    """Durable object authority with exact retry reconciliation.
+
+    stored_sha256 is the authoritative pre-retry observation. It returns the
+    lowercase SHA-256 of the complete durable object, None when the object is
+    definitely absent, and raises when presence/integrity cannot be established.
+    The file server never blindly repeats an ambiguous PUT.
+    """
+
+    def stored_sha256(self, *, object_key: str) -> str | None:
+        ...
+
+
 def _server_id(value: object, label: str) -> str:
     try:
         return _id(value, label)
@@ -888,7 +901,7 @@ class ClassroomFileServerService:
         store: ClassroomFileServerSQLiteStore,
         authorization: ClassroomFileAuthorizationPort,
         scanner: ClassroomFileScannerPort,
-        object_store: FileStorePort,
+        object_store: ClassroomFileObjectStorePort,
         quota: FileQuotaPolicy = FileQuotaPolicy(),
     ) -> None:
         self._store = store
@@ -1016,6 +1029,33 @@ class ClassroomFileServerService:
             existing = self._store.reserve_upload(metadata, quota=self._quota)
             if existing is not None:
                 return existing
+
+        # Every scan-approved reservation may be a retry after an ambiguous
+        # object-store acknowledgement. Reconcile durable state before any PUT.
+        try:
+            stored_sha256 = self._object_store.stored_sha256(
+                object_key=metadata.object_key,
+            )
+        except Exception:
+            raise ClassroomFileServerError(
+                "durable object storage status is unavailable"
+            ) from None
+        if stored_sha256 is not None:
+            if (
+                type(stored_sha256) is not str
+                or len(stored_sha256) != 64
+                or stored_sha256 != stored_sha256.lower()
+                or any(ch not in "0123456789abcdef" for ch in stored_sha256)
+            ):
+                raise ClassroomFileServerError(
+                    "durable object storage returned invalid status"
+                )
+            if stored_sha256 != metadata.sha256:
+                raise CollaborationConflictError(
+                    "durable object identity conflicts with upload reservation"
+                )
+            return self._store.finalize_upload(metadata.attachment_id)
+
         try:
             self._object_store.put(
                 object_key=metadata.object_key,
