@@ -306,6 +306,47 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "visible-text budget"):
                 projection.snapshot()
 
+    def test_projection_action_enabled_state_matches_reader_at_every_cursor(self) -> None:
+        document = self.make_document()
+        command_to_availability = {
+            "book.previous": "previous",
+            "book.next": "next",
+            "book.previous_heading": "previous_heading",
+            "book.next_heading": "next_heading",
+            "book.previous_position": "previous_position",
+            "book.next_position": "next_position",
+            "book.previous_game": "previous_game",
+            "book.next_game": "next_game",
+        }
+
+        for index in range(len(document.blocks)):
+            with self.subTest(index=index):
+                reader = BookReader(document)
+                reader.go_to(index)
+                presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+                projection = BookWebViewProjection(
+                    presenter,
+                    lambda *_: None,
+                    language=UILanguage.EN,
+                )
+                expected = reader.navigation_availability()
+                snapshot = projection.snapshot()
+                self.assertEqual(index, snapshot["block"]["index"])
+
+                actions = {
+                    action["command"]: action["enabled"]
+                    for action in snapshot["actions"]
+                    if action["command"] in command_to_availability
+                }
+                self.assertEqual(set(command_to_availability), set(actions))
+                self.assertEqual(
+                    {
+                        command: expected[availability_key]
+                        for command, availability_key in command_to_availability.items()
+                    },
+                    actions,
+                )
+
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())
         presenter = BookReaderPresenter(reader, language=UILanguage.EN)
