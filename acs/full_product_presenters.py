@@ -364,19 +364,26 @@ class LibraryPresenter:
             cached = self.current_page()
             if cached is None:
                 raise RuntimeError("library page cache is inconsistent")
+            self._status = SurfaceStatus.READY if cached.items else SurfaceStatus.EMPTY
+            self._message = ""
             self._stabilize_selection(cached)
             return self.view()
         query = replace(
             self._pages[self._page_index][0],
             after_game_id=current.next_after_game_id,
         )
-        self._status = SurfaceStatus.LOADING
         try:
             page = self._service.search(query)
         except Exception as exc:
-            self._status = SurfaceStatus.ERROR
-            self._message = concise_user_error(exc, language=self._language)
-            return self.view()
+            # A failed page fetch is only an error for this attempted action.
+            # Keep the last committed page/selection/status available for retry,
+            # matching replacement-search transaction semantics.
+            current_view = self.view()
+            return replace(
+                current_view,
+                status=SurfaceStatus.ERROR,
+                message=concise_user_error(exc, language=self._language),
+            )
         self._pages.append((query, page))
         self._page_index += 1
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
@@ -388,11 +395,11 @@ class LibraryPresenter:
         if self._page_index <= 0:
             raise LookupError("No previous library page")
         self._page_index -= 1
-        self._status = SurfaceStatus.READY
-        self._message = ""
         page = self.current_page()
         if page is None:
             raise RuntimeError("library page cache is inconsistent")
+        self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
+        self._message = ""
         self._stabilize_selection(page)
         return self.view()
 
