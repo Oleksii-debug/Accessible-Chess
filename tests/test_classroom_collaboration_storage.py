@@ -390,6 +390,76 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             3,
         )
 
+    def test_attachment_snapshot_watermark_cannot_disappear_after_observation(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-required", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "d" * 64, "rooms/room/snapshot-required", "stored", "persistent", "clean"
+        )
+        self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(current,),
+            updates=(),
+            snapshot_state_revision=3,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "snapshot state watermark regressed",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(current,),
+                updates=(),
+                snapshot_state_revision=None,
+            )
+
+        self.assertEqual(self.store.room_attachments("room"), (current,))
+        self.assertEqual(
+            self.store.attachment_snapshot_state_revision(current.attachment_id),
+            3,
+        )
+
+    def test_corrupt_persisted_snapshot_watermark_fails_closed(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-corrupt", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "e" * 64, "rooms/room/snapshot-corrupt", "stored", "persistent", "clean"
+        )
+        self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(current,),
+            updates=(),
+            snapshot_state_revision=2,
+        )
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                UPDATE collaboration_attachment_snapshot_watermarks
+                SET revision=?
+                WHERE attachment_id=?
+                """,
+                (MAX_WIRE_INTEGER + 1, current.attachment_id),
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "stored attachment snapshot watermark is invalid",
+        ) as read_error:
+            self.store.attachment_snapshot_state_revision(current.attachment_id)
+        self.assertIsNone(read_error.exception.__cause__)
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "stored attachment snapshot watermark is invalid",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(current,),
+                updates=(),
+                snapshot_state_revision=3,
+            )
+        self.assertEqual(self.store.room_attachments("room"), (current,))
+
     def test_attachment_snapshot_watermark_rejects_invalid_revision_atomically(self) -> None:
         current = AttachmentMetadata(
             "snapshot-invalid", "room", "teacher", 0, "snapshot.bin", None, 1,
