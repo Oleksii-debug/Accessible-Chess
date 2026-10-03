@@ -681,6 +681,74 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 "bytes changed after verification must never cross the playback boundary",
             )
 
+    def test_absent_pack_uninstall_serializes_with_concurrent_first_install(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store_root = root / "packs"
+            installer_store = FilesystemSoundPackStore(store_root)
+            remover_store = FilesystemSoundPackStore(store_root)
+            manifest = _manifest(version="1.0.0")
+            downloaded, _ = _staged_download(root, manifest, seed=b"a")
+
+            install_entered = threading.Event()
+            release_install = threading.Event()
+            uninstall_started = threading.Event()
+            uninstall_done = threading.Event()
+            errors: list[BaseException] = []
+            original_locked = FilesystemSoundPackStore._install_atomically_locked
+
+            def blocking_install(self, candidate, digests, source):
+                install_entered.set()
+                if not release_install.wait(5):
+                    raise AssertionError("timed out waiting to release first install")
+                return original_locked(self, candidate, digests, source)
+
+            def install_worker():
+                try:
+                    installer_store.install_atomically(downloaded)
+                except BaseException as exc:
+                    errors.append(exc)
+
+            def uninstall_worker():
+                uninstall_started.set()
+                try:
+                    remover_store.uninstall(manifest.pack_id)
+                except BaseException as exc:
+                    errors.append(exc)
+                finally:
+                    uninstall_done.set()
+
+            with mock.patch.object(
+                FilesystemSoundPackStore,
+                "_install_atomically_locked",
+                autospec=True,
+                side_effect=blocking_install,
+            ):
+                installer = threading.Thread(target=install_worker)
+                installer.start()
+                self.assertTrue(install_entered.wait(5))
+                self.assertFalse(
+                    os.path.lexists(store_root / manifest.pack_id),
+                    "first install must still be pre-publication",
+                )
+
+                uninstaller = threading.Thread(target=uninstall_worker)
+                uninstaller.start()
+                self.assertTrue(uninstall_started.wait(5))
+                self.assertFalse(
+                    uninstall_done.wait(0.2),
+                    "uninstall must wait for the first install even while pack path is absent",
+                )
+
+                release_install.set()
+                installer.join(5)
+                uninstaller.join(5)
+
+            self.assertFalse(installer.is_alive())
+            self.assertFalse(uninstaller.is_alive())
+            self.assertEqual([], errors)
+            self.assertNotIn(manifest.pack_id, remover_store.installed())
+
     def test_install_and_uninstall_are_serialized_across_store_instances(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
