@@ -436,7 +436,13 @@ class Version2Application:
         if self.books is None or self.reader is None:
             raise ValueError("no book is open")
         if command_id == "book.language":
-            # Language is presentation state, not durable reader progress.
+            # Language is presentation-only, but the Book-local WebView must still
+            # own the visible route/focus before it may mutate projection state.
+            if (
+                self.shell.current_route.route_id != "books"
+                or self.shell.active_dialog_id is not None
+            ):
+                return self.books.projection.generic_error()
             return self.books.dispatch(command_id, payload)
         if command_id in self._BOOK_BOARD_OPEN_COMMANDS:
             # Native menu actions are globally reachable even though Book Board
@@ -449,7 +455,7 @@ class Version2Application:
             if self.book_workflow is not None and self.book_workflow.active:
                 return self.books.projection.generic_error()
             # The canonical BookBoard delegate owns board-opening publication.
-            return self.books.dispatch(command, payload)
+            return self.books.dispatch(command_id, payload)
         if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
