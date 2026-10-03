@@ -374,12 +374,22 @@
         text("Походження каталогу: ", "Catalog provenance: ") +
           String(item.catalog_provenance || "") + ".";
     }
+    const rightsMetadata = item.rights_auditable === true
+      ? " " +
+        text("Джерело прав: ", "Rights source: ") +
+        String(item.rights_source_uri || "") + ". " +
+        text("Доказ ліцензії: ", "License evidence: ") +
+        String(item.license_uri || "") + "."
+      : " " + text(
+          "Аудитований доказ прав каталогу відсутній.",
+          "Auditable catalog rights evidence is unavailable."
+        );
     metadata.textContent =
       text("Версія ", "Version ") + String(item.version || "") + ". " +
       text("Автор: ", "Author: ") + String(item.author || "") + ". " +
       text("Ліцензія: ", "License: ") + String(item.license_id || "") + ". " +
       text("Походження: ", "Provenance: ") + String(item.provenance || "") + ". " +
-      installed + "." + catalogMetadata;
+      installed + "." + catalogMetadata + rightsMetadata;
     group.appendChild(metadata);
 
     if (item.active === true) {
