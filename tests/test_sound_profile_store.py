@@ -112,7 +112,14 @@ class SoundProfileManagerTests(unittest.TestCase):
 
         result = manager.load()
 
-        self.assertEqual(result.profile, SoundProfile())
+        self.assertEqual(
+            result.profile,
+            SoundProfile(master_enabled=False),
+        )
+        self.assertFalse(
+            result.profile.master_enabled,
+            "unknown future sound semantics must fail closed for playback",
+        )
         self.assertEqual(
             result.recovery_reasons,
             (SoundProfileRecoveryReason.FUTURE_SCHEMA,),
@@ -128,6 +135,7 @@ class SoundProfileManagerTests(unittest.TestCase):
         store = MemoryProfileStore(raw)
         manager = SoundProfileManager(store, FakePackResolver())
         manager.load()
+        self.assertFalse(manager.current.master_enabled)
 
         mutations = (
             lambda: manager.set_master(enabled=False),
