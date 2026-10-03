@@ -1426,6 +1426,15 @@ class ClassroomFileServerService:
             raise CollaborationConflictError(
                 "durable object integrity conflicts with attachment metadata"
             )
+        # Status verification can cross a slow provider boundary. Recheck the
+        # canonical room policy immediately before minting a new read token so
+        # revocation during integrity verification cannot leak fresh access.
+        self._authorize(
+            caller=caller,
+            room_id=attachment.room_id,
+            action="download",
+            attachment_id=attachment.attachment_id,
+        )
         try:
             token = self._object_store.issue_read_token(
                 object_key=attachment.object_key,
