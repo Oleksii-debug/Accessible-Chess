@@ -1315,6 +1315,89 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), (stored,))
         self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
 
+    def test_upload_recovers_concurrent_remote_prefix_before_own_sequence(self):
+        remote = tuple(
+            AttachmentMetadata(
+                f"concurrent-remote-{sequence}",
+                "room-1",
+                "student-1",
+                sequence,
+                f"remote-{sequence}.bin",
+                None,
+                1,
+                f"{sequence + 1:x}" * 64,
+                f"rooms/room-1/concurrent-remote-{sequence}",
+                "stored",
+                "persistent",
+                "clean",
+            )
+            for sequence in range(2)
+        )
+        for attachment in remote:
+            self.files._remember(attachment)
+
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="concurrent-own",
+            local_path=self.make_file("concurrent-own.bin", b"mine"),
+            sequence_no=91,
+            retention="persistent",
+        )
+        self.files.scan_state = "clean"
+
+        stored = controller.upload_file(prepared)
+
+        self.assertEqual(stored.sequence_no, 2)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            remote + (stored,),
+        )
+
+    def test_retry_recovers_concurrent_remote_prefix_before_own_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="concurrent-retry",
+            local_path=self.make_file("concurrent-retry.bin", b"retry"),
+            sequence_no=92,
+            retention="persistent",
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+
+        remote = AttachmentMetadata(
+            "concurrent-before-retry",
+            "room-1",
+            "student-1",
+            0,
+            "before-retry.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room-1/concurrent-before-retry",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.files._remember(remote)
+        self.files.scan_state = "clean"
+
+        stored = controller.retry_file(prepared)
+
+        self.assertEqual(stored.sequence_no, 1)
+        persisted = self.store.room_attachments("room-1")
+        self.assertEqual(
+            tuple(
+                (item.attachment_id, item.sequence_no, item.transfer_state)
+                for item in persisted
+            ),
+            (
+                ("concurrent-before-retry", 0, "stored"),
+                ("concurrent-retry", 1, "stored"),
+            ),
+        )
+
     def test_failed_provisional_sequence_does_not_block_remote_authoritative_sequence(self):
         controller = self.controller("teacher-1")
         prepared = controller.prepare_file(
