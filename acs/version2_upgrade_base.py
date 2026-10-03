@@ -94,11 +94,17 @@ def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
 _TEMPFILE_TOKEN_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyz0123456789_"
 )
+# CPython's tempfile._RandomNameSequence, used by every canonical mkstemp
+# writer classified here, emits exactly eight characters from the alphabet
+# above. The upgrade classifier is intentionally tied to the shipped writer
+# grammar: accepting arbitrary lengths can misclassify preservation-backed user
+# files as disposable crash residue.
+_TEMPFILE_TOKEN_LENGTH = 8
 _HEX_CHARACTERS = frozenset("0123456789abcdef")
 
 
 def _is_tempfile_token(value: str) -> bool:
-    return bool(value) and all(
+    return len(value) == _TEMPFILE_TOKEN_LENGTH and all(
         character in _TEMPFILE_TOKEN_CHARACTERS for character in value
     )
 
@@ -781,11 +787,12 @@ class Version2UpgradeCoordinator:
                 in _DERIVED_ROOT_DIRECTORY_KEYS
             ):
                 continue
-            # Atomic GameTree/Book-progress writers may leave these exact-root
-            # temporary files behind only after abrupt process death. They are
-            # internal publication residue, not preservation-backed user data.
-            # Nested lookalikes and non-matching near names remain ordinary data.
-            if (
+            # Validate the filesystem object before trusting filename grammar.
+            # A symlink/reparse point that merely looks like writer residue is
+            # not authenticated writer output and must fail closed rather than
+            # disappearing from the preservation set.
+            info = _safe_stat(path, "user-data entry")
+            generated_runtime_file = (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
                 or _is_generated_education_workspace_file(relative_path)
@@ -794,7 +801,10 @@ class Version2UpgradeCoordinator:
                     settings_name=self.layout.settings_name,
                     library_name=self.layout.library_name,
                 )
-            ):
+            )
+            # Atomic writers leave regular files. An exact-looking directory is
+            # traversed normally so its children remain preservation-backed.
+            if generated_runtime_file and stat.S_ISREG(info.st_mode):
                 continue
             folded = relative.casefold()
             if folded in seen:
@@ -802,7 +812,6 @@ class Version2UpgradeCoordinator:
                     "user-data paths collide on Windows case-folding"
                 )
             seen.add(folded)
-            info = _safe_stat(path, "user-data entry")
             if stat.S_ISDIR(info.st_mode):
                 continue
             if not stat.S_ISREG(info.st_mode):
