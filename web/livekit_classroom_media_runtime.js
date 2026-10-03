@@ -104,6 +104,17 @@
       if ((operation === "connect" || operation === "reconnect") !== provider.credential_required) {
         throw new TypeError("session credential requirement is invalid");
       }
+      const enabledSources = new Set();
+      for (const source of provider.enabled_sources) {
+        if (!["microphone", "camera", "screen_share"].includes(source) ||
+            enabledSources.has(source)) {
+          throw new TypeError("session enabled sources are invalid");
+        }
+        enabledSources.add(source);
+      }
+      if (operation === "connect" && provider.enabled_sources.length !== 0) {
+        throw new TypeError("initial connect must not auto-publish media");
+      }
       if (operation === "disconnect" && provider.enabled_sources.length !== 0) {
         throw new TypeError("disconnect instruction must not publish media");
       }
@@ -465,7 +476,24 @@
         let current = event;
         for (let index = 0; index < MAX_DISPATCH_STEPS; index += 1) {
           if (!current || current.kind !== "provider-dispatch") return current;
-          current = await this._executeOne(current, invoke);
+          try {
+            current = await this._executeOne(current, invoke);
+          } catch (_error) {
+            // The event still belongs to an exact Python transaction even when
+            // its provider instruction is malformed. Ask the authoritative
+            // binder to retire it as not-started. If Python already recorded a
+            // crossed boundary, _providerNotStarted conservatively falls back
+            // to provider_outcome_unknown instead of releasing the lease.
+            let transaction;
+            try {
+              transaction = transactionId(
+                current && current.payload && current.payload.transaction_id
+              );
+            } catch (_identityError) {
+              return null;
+            }
+            current = await this._providerNotStarted(invoke, transaction);
+          }
         }
         const parsed = providerInstruction(current);
         return this._providerFailed(invoke, parsed.transaction);
