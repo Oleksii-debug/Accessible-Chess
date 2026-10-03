@@ -262,6 +262,77 @@ async function run() {
   check(!dialog.open, "reset dialog did not close on cancel");
   check(document.activeElement === reset, "reset cancel did not restore opener focus");
 
+  const resetFailureRoot = new FakeElement("div");
+  const resetFailureAnnouncements = [];
+  let resetFailureCalls = 0;
+  const resetFailureInvoke = (command) => {
+    check(command === "training.reset", "unexpected reset failure command");
+    resetFailureCalls += 1;
+    if (resetFailureCalls === 1) {
+      return {
+        kind: "render",
+        payload: {
+          snapshot: {},
+          focus_target: "training-answer"
+        }
+      };
+    }
+    return {
+      kind: "error",
+      payload: { message: "Reset host error" }
+    };
+  };
+  window.AccessibleChessTrainingSurface.render(
+    resetFailureRoot,
+    trainingSnapshot(),
+    resetFailureInvoke,
+    (message) => resetFailureAnnouncements.push(String(message)),
+    "training-answer",
+    "Reset action failed",
+    []
+  );
+  const resetFailureOpener = find(resetFailureRoot, "BUTTON", "Reset");
+  resetFailureOpener.listeners.click();
+  const resetFailureDialog = resetFailureRoot.querySelector("#training-reset-dialog");
+  const resetFailureConfirm = find(resetFailureDialog, "BUTTON", "Confirm");
+  check(resetFailureDialog.open, "reset failure dialog did not open");
+  check(document.activeElement === resetFailureConfirm, "reset failure confirm did not receive focus");
+  resetFailureConfirm.listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    resetFailureDialog.open,
+    "malformed reset result closed the dialog before validation"
+  );
+  check(
+    document.activeElement === resetFailureConfirm,
+    "malformed reset result stranded focus outside the open dialog"
+  );
+  check(
+    resetFailureAnnouncements.length === 1 &&
+      resetFailureAnnouncements[0] === "Reset action failed",
+    "malformed reset result did not announce the accessible fallback"
+  );
+  resetFailureConfirm.listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    resetFailureDialog.open,
+    "host reset error closed the dialog instead of allowing retry or cancel"
+  );
+  check(
+    resetFailureAnnouncements.includes("Reset host error"),
+    "host reset error was not announced"
+  );
+  const resetFailureCancel = find(resetFailureDialog, "BUTTON", "Cancel");
+  resetFailureCancel.listeners.click();
+  check(!resetFailureDialog.open, "reset failure dialog did not close on cancel");
+  check(
+    document.activeElement === resetFailureOpener,
+    "reset failure cancel did not restore opener focus"
+  );
+
+
   const bookRoot = new FakeElement("div");
   const bookInvoke = (command) => {
     check(command === "book.next", "unexpected book command");
@@ -425,6 +496,13 @@ async function run() {
   check(
     staleTrainingRoot.getAttribute("aria-busy") === "true",
     "pending Training action did not expose aria-busy"
+  );
+  const pendingTrainingReset = find(staleTrainingRoot, "BUTTON", "Reset");
+  const pendingTrainingDialog = staleTrainingRoot.querySelector("#training-reset-dialog");
+  pendingTrainingReset.listeners.click();
+  check(
+    !pendingTrainingDialog.open,
+    "pending Training action allowed a competing reset dialog to open"
   );
   const refreshedTraining = trainingSnapshot();
   refreshedTraining.title = "Newer external training render";
