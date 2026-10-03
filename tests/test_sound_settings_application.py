@@ -1170,6 +1170,50 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual("2.0.0", item["catalog_version"])
         self.assertFalse(item["can_install"])
 
+    def test_select_pack_uses_storage_authority_not_fail_soft_presentation_inventory(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            installed_pack_provider=lambda: {"soft": soft},
+        )
+        pack_storage.fail_inventory = True
+
+        with self.assertRaisesRegex(OSError, "inventory unavailable"):
+            app.select_pack("soft", language="en")
+
+        self.assertEqual("classic", profiles.current.pack_id)
+        self.assertEqual("classic", profile_storage.payload["pack_id"])
+
+    def test_absent_pack_uninstall_is_idempotent_without_fabricated_delete(self) -> None:
+        classic = _manifest("classic")
+        pack_storage = _PackStorage([classic])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+        )
+
+        result = app.uninstall_pack("absent.pack", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertIn("already absent", result.announcement.lower())
+        self.assertEqual([], pack_storage.uninstalled)
+        self.assertEqual("classic", profiles.current.pack_id)
+
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
         storage = _PackStorage([classic])
