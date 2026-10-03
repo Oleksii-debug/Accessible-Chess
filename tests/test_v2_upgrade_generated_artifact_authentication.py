@@ -11,6 +11,7 @@ from acs.version2_upgrade_base import (
     Version2UpgradeCoordinator,
     Version2UpgradeError,
     _UpgradeLock,
+    _atomic_bytes,
 )
 
 
@@ -101,6 +102,109 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
 
             self.assertTrue(injected)
             self.assertEqual(lock.read_bytes(), replacement_bytes)
+
+    def test_atomic_publication_rejects_substituted_temp_without_deleting_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "state.json"
+            substitute = root / "foreign-substitute.bin"
+            substitute_bytes = b"foreign-preservation-bytes"
+            substitute.write_bytes(substitute_bytes)
+            real_mkstemp = tempfile.mkstemp
+            real_lstat = os.lstat
+            temp_path: Path | None = None
+            injected = False
+
+            def tracking_mkstemp(*args, **kwargs):
+                nonlocal temp_path
+                descriptor, name = real_mkstemp(*args, **kwargs)
+                temp_path = Path(name)
+                return descriptor, name
+
+            def substituting_lstat(path, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if (
+                    temp_path is not None
+                    and candidate == temp_path
+                    and not injected
+                ):
+                    os.replace(substitute, temp_path)
+                    injected = True
+                return real_lstat(path, *args, **kwargs)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.tempfile.mkstemp",
+                side_effect=tracking_mkstemp,
+            ), mock.patch(
+                "acs.version2_upgrade_base.os.lstat",
+                side_effect=substituting_lstat,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "temporary file changed before publication",
+                ):
+                    _atomic_bytes(target, b"owned-publication")
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+            self.assertIsNotNone(temp_path)
+            assert temp_path is not None
+            self.assertTrue(temp_path.exists())
+            self.assertEqual(temp_path.read_bytes(), substitute_bytes)
+
+    def test_atomic_publication_rejects_hardlinked_temp_and_preserves_peer(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "state.json"
+            peer = root / "foreign-hardlink-peer.bin"
+            real_mkstemp = tempfile.mkstemp
+            real_lstat = os.lstat
+            temp_path: Path | None = None
+            injected = False
+
+            def tracking_mkstemp(*args, **kwargs):
+                nonlocal temp_path
+                descriptor, name = real_mkstemp(*args, **kwargs)
+                temp_path = Path(name)
+                return descriptor, name
+
+            def hardlinking_lstat(path, *args, **kwargs):
+                nonlocal injected
+                candidate = Path(path)
+                if (
+                    temp_path is not None
+                    and candidate == temp_path
+                    and not injected
+                ):
+                    try:
+                        os.link(temp_path, peer)
+                    except (OSError, NotImplementedError):
+                        self.skipTest("hard-link creation is unavailable on this runner")
+                    injected = True
+                return real_lstat(path, *args, **kwargs)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.tempfile.mkstemp",
+                side_effect=tracking_mkstemp,
+            ), mock.patch(
+                "acs.version2_upgrade_base.os.lstat",
+                side_effect=hardlinking_lstat,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "temporary file changed before publication",
+                ):
+                    _atomic_bytes(target, b"owned-publication")
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+            self.assertIsNotNone(temp_path)
+            assert temp_path is not None
+            self.assertTrue(temp_path.exists())
+            self.assertTrue(peer.exists())
+            self.assertEqual(temp_path.read_bytes(), b"owned-publication")
+            self.assertEqual(peer.read_bytes(), b"owned-publication")
 
     def test_control_name_directory_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
