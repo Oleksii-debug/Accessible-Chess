@@ -223,6 +223,11 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertNotIn("do-not-log-this-token", repr(invocation))
         self.assertNotIn("do-not-log-this-token", str(invocation))
         self.assertIn("arguments=<redacted>", repr(invocation))
+        self.assertNotIn("do-not-log-this-token", repr(invocation.arguments[0]))
+        self.assertEqual(
+            repr(invocation.arguments[0]),
+            "<redacted media credential>",
+        )
 
     def test_authorized_session_arguments_cannot_be_mutated_in_transit(self):
         _controller, _session, _effects, _arbiter, binder = self.make_binder()
@@ -736,6 +741,88 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             )
 
         self.assertEqual(arbiter.active_lease.lease_id, lease.lease_id)
+
+    def test_session_success_requires_exact_provider_snapshot_before_commit(self):
+        controller, session, _effects, arbiter, binder = self.make_binder()
+        before = controller.state
+        prepared = binder.prepare_join(
+            credential("student-1"),
+            now=NOW + timedelta(seconds=1),
+        )
+        binder.claim_browser_invocation(prepared.lease_id)
+        binder.mark_provider_started(prepared.lease_id)
+
+        with self.assertRaisesRegex(
+            ClassroomMediaBrowserBinderError,
+            "requires an exact provider snapshot",
+        ):
+            binder.acknowledge_provider_success(prepared.lease_id)
+
+        self.assertEqual(controller.state, before)
+        self.assertIsNotNone(session.pending_effect)
+        self.assertEqual(binder.active_transaction, prepared)
+        self.assertEqual(arbiter.active_lease.lease_id, prepared.lease_id)
+
+        result = binder.acknowledge_provider_success(
+            prepared.lease_id,
+            provider_snapshot=provider_snapshot(),
+        )
+        self.assertTrue(result.completed)
+        self.assertTrue(controller.state.connected)
+
+    def test_session_snapshot_mismatch_latches_global_recovery(self):
+        controller, session, _effects, arbiter, binder = self.make_binder()
+        before = controller.state
+        prepared = binder.prepare_join(
+            credential("student-1"),
+            now=NOW + timedelta(seconds=1),
+        )
+        binder.claim_browser_invocation(prepared.lease_id)
+        binder.mark_provider_started(prepared.lease_id)
+
+        with self.assertRaises(ClassroomMediaBrowserRecoveryRequired):
+            binder.acknowledge_provider_success(
+                prepared.lease_id,
+                provider_snapshot=provider_snapshot(
+                    participant_id="wrong-participant",
+                ),
+            )
+
+        self.assertEqual(controller.state, before)
+        self.assertIsNone(binder.active_transaction)
+        self.assertTrue(session.recovery_status.provider_outcome_unknown)
+        self.assertTrue(arbiter.recovery_status.provider_outcome_unknown)
+        self.assertTrue(
+            arbiter.recovery_status.lease.provider_boundary_crossed
+        )
+
+    def test_effect_success_rejects_provider_snapshot_as_authority(self):
+        controller, _session, effects, arbiter, binder = self.make_binder()
+        self.complete_join(controller, binder)
+        before = controller.state
+        prepared = binder.prepare_local_source(MediaSource.MICROPHONE, True)
+        binder.claim_browser_invocation(prepared.lease_id)
+        binder.mark_provider_started(prepared.lease_id)
+
+        with self.assertRaisesRegex(
+            ClassroomMediaBrowserBinderError,
+            "does not accept provider snapshot authority",
+        ):
+            binder.acknowledge_provider_success(
+                prepared.lease_id,
+                provider_snapshot=provider_snapshot(
+                    microphone_enabled=True,
+                ),
+            )
+
+        self.assertEqual(controller.state, before)
+        self.assertIsNotNone(effects.pending_effect)
+        self.assertEqual(binder.active_transaction, prepared)
+        self.assertEqual(arbiter.active_lease.lease_id, prepared.lease_id)
+
+        result = binder.acknowledge_provider_success(prepared.lease_id)
+        self.assertTrue(result.completed)
+        self.assertIn(MediaSource.MICROPHONE, controller.state.desired_sources)
 
     def test_adapter_contract_contains_every_method_emitted_by_binder(self):
         source = LIVEKIT_ADAPTER.read_text(encoding="utf-8")
