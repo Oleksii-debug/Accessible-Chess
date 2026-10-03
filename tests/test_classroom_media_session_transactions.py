@@ -178,6 +178,9 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
                 "token": TOKEN,
             },
         )
+        self.assertNotIn(TOKEN, repr(handed))
+        self.assertNotIn("room-1", repr(handed))
+        self.assertNotIn("student-1", repr(handed))
         with self.assertRaisesRegex(
             MediaHostTransactionError,
             "already handed off",
@@ -222,10 +225,12 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
         current["value"] = NOW + timedelta(seconds=6)
 
         with self.assertRaisesRegex(
-            ClassroomMediaError,
-            "not currently valid",
-        ):
+            MediaHostTransactionError,
+            "^media session credential expired before browser handoff$",
+        ) as caught:
             sessions.take_credential(effect.transaction_id)
+
+        self.assertIsNone(caught.exception.__cause__)
 
         self.assertIsNone(sessions.pending_effect)
         self.assertFalse(gate.occupied)
@@ -276,6 +281,76 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
         self.assertNotIn(TOKEN, repr(status))
         self.assertNotIn(TOKEN, repr(sessions))
         self.assertTrue(gate.occupied)
+
+    def test_verified_clean_connect_failure_allows_fresh_retry_without_recovery(self):
+        controller, _roster, gate, _nonsecret, sessions = self.make_composition()
+        effect = sessions.prepare_join(credential(), now=NOW + timedelta(seconds=1))
+        sessions.take_credential(effect.transaction_id)
+
+        sessions.provider_connection_failed_clean(
+            effect.transaction_id,
+            provider_snapshot(
+                connected=False,
+                room_id=None,
+                participant_id=None,
+            ),
+        )
+
+        self.assertFalse(gate.occupied)
+        self.assertIsNone(sessions.pending_effect)
+        self.assertIsNone(sessions.recovery_status)
+        self.assertEqual(controller.state.room_id, None)
+        retry = sessions.prepare_join(
+            credential(token="fresh-after-clean-failure"),
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(retry)
+        self.assertNotEqual(retry.transaction_id, effect.transaction_id)
+
+    def test_unproven_connect_cleanup_failure_latches_recovery(self):
+        controller, _roster, gate, _nonsecret, sessions = self.make_composition()
+        effect = sessions.prepare_join(credential(), now=NOW + timedelta(seconds=1))
+        sessions.take_credential(effect.transaction_id)
+
+        with self.assertRaisesRegex(
+            MediaHostRecoveryRequired,
+            "has not proven clean teardown",
+        ) as caught:
+            sessions.provider_connection_failed_clean(
+                effect.transaction_id,
+                provider_snapshot(
+                    connected=False,
+                    cleanup_required=True,
+                    room_id=None,
+                    participant_id=None,
+                ),
+            )
+
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(gate.occupied)
+        self.assertIsNotNone(sessions.recovery_status)
+        self.assertEqual(controller.state.room_id, None)
+
+    def test_verified_clean_failure_does_not_apply_to_disconnect(self):
+        controller, _roster, _gate, _nonsecret, sessions = self.make_composition()
+        self.join(controller, sessions)
+        effect = sessions.prepare_disconnect()
+
+        with self.assertRaisesRegex(
+            MediaHostTransactionError,
+            "only to connect or reconnect",
+        ):
+            sessions.provider_connection_failed_clean(
+                effect.transaction_id,
+                provider_snapshot(
+                    connected=False,
+                    room_id=None,
+                    participant_id=None,
+                ),
+            )
+
+        self.assertEqual(sessions.pending_effect, effect)
+        self.assertTrue(controller.state.connected)
 
     def test_provider_failure_drops_secret_from_recovery_and_blocks_new_effects(self):
         controller, _roster, gate, nonsecret, sessions = self.make_composition()
