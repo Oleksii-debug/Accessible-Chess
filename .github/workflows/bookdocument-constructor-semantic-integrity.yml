@@ -1,0 +1,89 @@
+name: BookDocument Constructor Semantic Integrity
+
+on:
+  pull_request:
+    paths:
+      - "acs/bookdocument.py"
+      - "tests/test_bookdocument.py"
+      - ".github/workflows/bookdocument-constructor-semantic-integrity.yml"
+  push:
+    branches:
+      - "fix/bookdocument-constructor-block-validation-20260929"
+    paths:
+      - "acs/bookdocument.py"
+      - "tests/test_bookdocument.py"
+      - ".github/workflows/bookdocument-constructor-semantic-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCT_REF: work/full-product-teacher-education-reachability-20260911
+
+jobs:
+  semantic-integrity:
+    name: BookDocument semantic integrity (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove bounded current-Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.base_ref }}"
+            event_base='${{ github.event.pull_request.base.sha }}'
+          else
+            base_ref="$PRODUCT_REF"
+            event_base=""
+          fi
+          test -n "$base_ref"
+          git fetch --no-tags origin \
+            "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          git cat-file -e "$upstream^{commit}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$upstream"
+          fi
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          actual="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
+            'acs/bookdocument.py' \
+            'tests/test_bookdocument.py' | sort)"
+          test "$actual" = "$expected"
+          git diff --check "$upstream" HEAD
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile changed boundary
+        run: python -m py_compile acs/bookdocument.py tests/test_bookdocument.py
+
+      - name: Run focused semantic regressions
+        run: >-
+          python -m unittest
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_game_content
+          tests.test_v2_book_library_game_lookup
+
+      - name: Run product self-test
+        run: python -m acs.selftest
