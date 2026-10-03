@@ -6,6 +6,18 @@
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
   const MAX_BOOK_SEMANTIC_DETAILS = 4;
   const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
+  const BOOK_SEMANTIC_DETAIL_KINDS = Object.freeze({
+    event: true,
+    site: true,
+    date: true,
+    round: true
+  });
+  const BOOK_SEMANTIC_RESULTS = Object.freeze({
+    "1-0": true,
+    "0-1": true,
+    "1/2-1/2": true,
+    "*": true
+  });
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -61,8 +73,13 @@
     return semanticText(value, name, budget);
   }
 
+  function semanticRequiredText(value, name, budget) {
+    const text = semanticText(value, name, budget);
+    if (!text.trim()) throw new TypeError(name + " must contain visible text");
+    return text;
+  }
+
   function semanticTextArray(value, name, budget) {
-    if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throw new TypeError(name + " must be an array");
     if (value.length > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
       throw new TypeError(name + " has too many entries");
@@ -80,7 +97,6 @@
   }
 
   function semanticDetails(value, budget) {
-    if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throw new TypeError("book semantic details must be an array");
     if (value.length > MAX_BOOK_SEMANTIC_DETAILS) {
       throw new TypeError("book semantic details limit exceeded");
@@ -94,12 +110,23 @@
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("book semantic detail must be an object");
       }
-      const label = semanticText(item.label, "book semantic detail label", budget);
-      const detailValue = semanticText(item.value, "book semantic detail value", budget);
-      if (!label.trim() || !detailValue.trim()) {
-        throw new TypeError("book semantic detail must contain visible text");
+      const kind = item.kind;
+      if (
+        typeof kind !== "string" ||
+        !Object.prototype.hasOwnProperty.call(BOOK_SEMANTIC_DETAIL_KINDS, kind)
+      ) {
+        throw new TypeError("book semantic detail kind is invalid");
       }
-      out.push({ label: label, value: detailValue });
+      if (out.some(function (entry) { return entry.kind === kind; })) {
+        throw new TypeError("book semantic detail kind is duplicated");
+      }
+      const label = semanticRequiredText(
+        item.label, "book semantic detail label", budget
+      );
+      const detailValue = semanticRequiredText(
+        item.value, "book semantic detail value", budget
+      );
+      out.push({ kind: kind, label: label, value: detailValue });
     }
     return out;
   }
@@ -141,42 +168,43 @@
     }
 
     const budget = { used: 0, entries: 0 };
-    const playersLabel = semanticOptionalText(
-      semantic.players_label, "book semantic players label", budget, "Players"
+    const playersLabel = semanticRequiredText(
+      semantic.players_label, "book semantic players label", budget
     );
-    const resultLabel = semanticOptionalText(
-      semantic.result_label, "book semantic result label", budget, "Result"
+    const resultLabel = semanticRequiredText(
+      semantic.result_label, "book semantic result label", budget
     );
-    const detailsLabel = semanticOptionalText(
-      semantic.details_label, "book semantic details label", budget, "Game details"
+    const detailsLabel = semanticRequiredText(
+      semantic.details_label, "book semantic details label", budget
     );
-    const commentsLabel = semanticOptionalText(
-      semantic.comments_label, "book semantic comments label", budget, ""
+    const commentsLabel = semanticRequiredText(
+      semantic.comments_label, "book semantic comments label", budget
     );
-    const introCommentsLabel = semanticOptionalText(
+    const introCommentsLabel = semanticRequiredText(
       semantic.intro_comments_label,
       "book semantic intro comments label",
-      budget,
-      commentsLabel
+      budget
     );
-    const outroCommentsLabel = semanticOptionalText(
+    const outroCommentsLabel = semanticRequiredText(
       semantic.outro_comments_label,
       "book semantic outro comments label",
-      budget,
-      commentsLabel
+      budget
     );
-    const warningsLabel = semanticOptionalText(
-      semantic.warnings_label, "book semantic warnings label", budget, ""
+    const warningsLabel = semanticRequiredText(
+      semantic.warnings_label, "book semantic warnings label", budget
     );
-    const movesLabel = semanticOptionalText(
-      semantic.label, "book semantic moves label", budget, ""
+    const movesLabel = semanticRequiredText(
+      semantic.label, "book semantic moves label", budget
     );
     const players = semanticOptionalText(
       semantic.players, "book semantic players", budget, ""
     );
-    const result = semanticOptionalText(
-      semantic.result, "book semantic result", budget, ""
+    const result = semanticRequiredText(
+      semantic.result, "book semantic result", budget
     );
+    if (!Object.prototype.hasOwnProperty.call(BOOK_SEMANTIC_RESULTS, result)) {
+      throw new TypeError("book semantic result is invalid");
+    }
 
     if (players) {
       container.appendChild(node("p", playersLabel + ": " + players));
