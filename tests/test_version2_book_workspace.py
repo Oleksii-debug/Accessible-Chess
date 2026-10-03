@@ -43,7 +43,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
     def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
         cases = (
             Game(
-                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
+                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[ECO "C20"]\n[Annotator ""]\n[CustomTag "analysis"]\n[Source "/home/private/custom-source.pgn"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
                 title="Annotated game",
                 block_id="game",
             ),
@@ -72,9 +72,28 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                         item["label"]: item["value"]
                         for item in tree["details"]
                     }
+                    detail_kinds = {
+                        item["label"]: item["kind"]
+                        for item in tree["details"]
+                    }
+                    self.assertEqual(detail_kinds["Подія"], "event")
+                    self.assertEqual(detail_kinds["Дата"], "date")
+                    self.assertEqual(detail_kinds["Тур"], "round")
+                    self.assertEqual(detail_kinds["ECO"], "custom:ECO")
+                    self.assertEqual(detail_kinds["Annotator"], "custom:Annotator")
+                    self.assertEqual(detail_kinds["CustomTag"], "custom:CustomTag")
+                    self.assertEqual(detail_kinds["Source"], "custom:Source")
                     self.assertEqual(details["Подія"], "Accessible Cup")
                     self.assertEqual(details["Дата"], "2026.10.03")
                     self.assertEqual(details["Тур"], "3")
+                    self.assertEqual(details["ECO"], "C20")
+                    self.assertEqual(details["Annotator"], "")
+                    self.assertEqual(details["CustomTag"], "analysis")
+                    self.assertNotEqual(details["Source"], "/home/private/custom-source.pgn")
+                    self.assertNotIn("private", details["Source"].casefold())
+                    self.assertNotIn("White", details)
+                    self.assertNotIn("Black", details)
+                    self.assertNotIn("Result", details)
                     self.assertNotIn("private", json.dumps(tree["details"]).casefold())
                 else:
                     self.assertEqual(tree["details"], ())
