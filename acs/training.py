@@ -115,18 +115,18 @@ class ExerciseDefinition:
     def __post_init__(self) -> None:
         if type(self.exercise_id) is not str:
             raise TypeError("exercise_id must be a string")
+        if len(self.exercise_id) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise_id is too long")
         exercise_id = self.exercise_id.strip()
         if not exercise_id:
             raise ValueError("exercise_id must not be empty")
-        if len(exercise_id) > _MAX_IDENTITY_TEXT:
-            raise ValueError("exercise_id is too long")
         if type(self.start_fen) is not str:
             raise TypeError("start_fen must be a string")
+        if len(self.start_fen) > _MAX_IDENTITY_TEXT:
+            raise ValueError("start_fen is too long")
         start_fen = self.start_fen.strip()
         if not start_fen:
             raise ValueError("start_fen must not be empty")
-        if len(start_fen) > _MAX_IDENTITY_TEXT:
-            raise ValueError("start_fen is too long")
         # Position syntax and legality belong to the shared canonical chess core.
         Board(start_fen)
         try:
@@ -805,20 +805,20 @@ def _snapshot_move(value: object) -> str:
 def _normalize_move(value: str) -> str:
     if type(value) is not str:
         raise TypeError("move must be a string")
+    if len(value) > _MAX_MOVE_TEXT:
+        raise ValueError("move text is too long")
     text = " ".join(value.strip().split())
     if not text:
         raise ValueError("move must not be empty")
-    if len(text) > _MAX_MOVE_TEXT:
-        raise ValueError("move text is too long")
     return text
 
 
 def _normalize_tag(value: str) -> str:
     if type(value) is not str:
         raise TypeError("exercise tag must be a string")
+    if len(value) > _MAX_IDENTITY_TEXT:
+        raise ValueError("exercise tag is too long")
     text = value.strip().casefold()
     if not text:
         raise ValueError("exercise tag must not be empty")
-    if len(text) > _MAX_IDENTITY_TEXT:
-        raise ValueError("exercise tag is too long")
     return text
