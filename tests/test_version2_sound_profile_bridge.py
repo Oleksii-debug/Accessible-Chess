@@ -13,12 +13,15 @@ from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 class _Storage:
     def __init__(self) -> None:
         self.raw = None
+        self.raise_after_commit = False
 
     def read_profile(self):
         return self.raw
 
     def write_profile_atomically(self, payload):
         self.raw = dict(payload)
+        if self.raise_after_commit:
+            raise OSError("post-commit readback failed")
 
 
 class _Playback:
@@ -132,6 +135,22 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         )
         self.assertTrue(capture["enabled"])
         self.assertEqual(100, capture["volume_percent"])
+
+    def test_post_commit_sound_failure_returns_durable_refreshed_snapshot(self) -> None:
+        api, manager, _ = _api()
+        storage = manager._storage
+        storage.raise_after_commit = True
+
+        result = api.sound_settings_command(
+            "set_master",
+            {"volume_percent": 31},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(31, manager.current.master_volume_percent)
+        self.assertEqual(31, storage.raw["master_volume_percent"])
+        self.assertEqual(31, result["snapshot"]["master_volume_percent"])
+        self.assertIn("refreshed", result["message"].lower())
 
     def test_browser_pack_commands_route_only_closed_world_payloads(self) -> None:
         api, manager, _ = _api()
