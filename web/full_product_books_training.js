@@ -4,7 +4,7 @@
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
   const MAX_BOOK_SEMANTIC_DEPTH = 256;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
-  const MAX_BOOK_SEMANTIC_DETAILS = 4;
+  const MAX_BOOK_SEMANTIC_DETAILS = 4096;
   const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
 
   const TRAINING_ACTION_IDS = Object.freeze({
@@ -103,8 +103,8 @@
       }
       const label = semanticText(item.label, "book semantic detail label", budget);
       const detailValue = semanticText(item.value, "book semantic detail value", budget);
-      if (!label.trim() || !detailValue.trim()) {
-        throw new TypeError("book semantic detail must contain visible text");
+      if (!label.trim()) {
+        throw new TypeError("book semantic detail label must contain visible text");
       }
       out.push({ label: label, value: detailValue });
     }
