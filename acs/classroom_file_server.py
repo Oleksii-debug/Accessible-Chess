@@ -1,0 +1,1112 @@
+from __future__ import annotations
+
+"""Trusted provider-neutral server authority for classroom file collaboration.
+
+The desktop-facing adapter implements the canonical FileTransferPort/FileStorePort
+contracts but owns no provider secret. Authorization, malware scanning, durable
+object storage and short-lived read-token issuance are injected on the trusted
+server side. SQLite owns only authoritative attachment metadata/recovery state.
+"""
+
+from contextlib import closing
+from dataclasses import replace
+import hashlib
+from pathlib import Path
+import sqlite3
+from typing import Protocol
+
+from .classroom_domain import MAX_WIRE_INTEGER
+from .classroom_collaboration import (
+    MAX_SYNC_ATTACHMENTS,
+    FileQuotaPolicy,
+    PreparedFile,
+    _canonical_object_key,
+    _id,
+)
+from .classroom_collaboration_storage import (
+    AttachmentMetadata,
+    AttachmentStateUpdate,
+    CollaborationConflictError,
+    CollaborationQuotaError,
+    FileStorePort,
+)
+
+
+SERVER_SCHEMA_VERSION = 1
+
+
+class ClassroomFileServerError(RuntimeError):
+    """Sanitized trusted file-server failure."""
+
+
+class ClassroomFileAuthorizationPort(Protocol):
+    """Canonical external room/membership policy; this service does not own roster truth."""
+
+    def authorize_file_action(
+        self,
+        *,
+        trusted_caller_identity: str,
+        room_id: str,
+        action: str,
+        attachment_id: str | None,
+        retention: str | None,
+    ) -> bool:
+        ...
+
+
+class ClassroomFileScannerPort(Protocol):
+    """Server-side opaque-byte scan boundary."""
+
+    def scan(
+        self,
+        *,
+        room_id: str,
+        sender_id: str,
+        display_name: str,
+        sha256: str,
+        content: bytes,
+    ) -> str:
+        """Return exactly clean, blocked or failed."""
+        ...
+
+
+def _server_id(value: object, label: str) -> str:
+    try:
+        return _id(value, label)
+    except Exception as error:
+        raise ClassroomFileServerError(f"invalid {label}") from error
+
+
+def _bounded_cursor(value: object, label: str) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
+        raise ClassroomFileServerError(f"invalid {label}")
+    return value
+
+
+def _bounded_limit(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= MAX_SYNC_ATTACHMENTS:
+        raise ClassroomFileServerError("invalid file history limit")
+    return value
+
+
+class ClassroomFileServerSQLiteStore:
+    """Durable authoritative file metadata, sequencing and deletion recovery."""
+
+    def __init__(self, path: str) -> None:
+        if type(path) is not str or not path:
+            raise ValueError("file-server database path is required")
+        self._path = path
+        self._migrate()
+
+    def _connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(self._path, timeout=30.0)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=FULL")
+        return db
+
+    def _migrate(self) -> None:
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS classroom_file_server_meta(
+                        key TEXT PRIMARY KEY,
+                        value INTEGER NOT NULL
+                    )
+                    """
+                )
+                row = db.execute(
+                    "SELECT value FROM classroom_file_server_meta "
+                    "WHERE key='schema_version'"
+                ).fetchone()
+                if row is not None:
+                    value = row["value"]
+                    if type(value) is not int or value != SERVER_SCHEMA_VERSION:
+                        raise ClassroomFileServerError(
+                            "unsupported classroom file-server schema"
+                        )
+                    self._verify_current_schema(db)
+                    db.commit()
+                    return
+
+                db.execute(
+                    """
+                    CREATE TABLE classroom_file_server_attachments(
+                        attachment_id TEXT PRIMARY KEY,
+                        room_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        sequence_no INTEGER,
+                        display_name TEXT NOT NULL,
+                        mime_type TEXT,
+                        size_bytes INTEGER NOT NULL,
+                        sha256 TEXT NOT NULL,
+                        object_key TEXT NOT NULL UNIQUE,
+                        retention TEXT NOT NULL,
+                        transfer_state TEXT NOT NULL,
+                        scan_state TEXT NOT NULL,
+                        delete_completed INTEGER NOT NULL DEFAULT 1
+                            CHECK(delete_completed IN (0,1))
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    CREATE UNIQUE INDEX
+                    uq_classroom_file_server_room_sequence
+                    ON classroom_file_server_attachments(room_id, sequence_no)
+                    WHERE transfer_state IN ('stored','deleted')
+                    """
+                )
+                db.execute(
+                    """
+                    CREATE INDEX idx_classroom_file_server_room
+                    ON classroom_file_server_attachments(room_id, sequence_no)
+                    """
+                )
+                db.execute(
+                    """
+                    CREATE TABLE classroom_file_server_state_updates(
+                        room_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        attachment_id TEXT NOT NULL,
+                        transfer_state TEXT NOT NULL,
+                        scan_state TEXT NOT NULL,
+                        PRIMARY KEY(room_id, revision),
+                        FOREIGN KEY(attachment_id)
+                            REFERENCES classroom_file_server_attachments(attachment_id)
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    INSERT INTO classroom_file_server_meta(key,value)
+                    VALUES('schema_version',?)
+                    """,
+                    (SERVER_SCHEMA_VERSION,),
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+
+    @staticmethod
+    def _verify_current_schema(db: sqlite3.Connection) -> None:
+        required = {
+            "classroom_file_server_attachments",
+            "classroom_file_server_state_updates",
+        }
+        tables = {
+            row["name"]
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not required.issubset(tables):
+            raise ClassroomFileServerError(
+                "classroom file-server schema is incomplete"
+            )
+        index = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='uq_classroom_file_server_room_sequence'"
+        ).fetchone()
+        if index is None or "WHERE transfer_state IN ('stored','deleted')" not in (
+            " ".join(index["sql"].split()).replace(", ", ",")
+        ):
+            raise ClassroomFileServerError(
+                "classroom file-server sequence authority is invalid"
+            )
+
+    @staticmethod
+    def _immutable_tuple(metadata: AttachmentMetadata) -> tuple[object, ...]:
+        return (
+            metadata.attachment_id,
+            metadata.room_id,
+            metadata.sender_id,
+            metadata.display_name,
+            metadata.mime_type,
+            metadata.size_bytes,
+            metadata.sha256,
+            metadata.object_key,
+            metadata.retention,
+        )
+
+    @staticmethod
+    def _row_immutable_tuple(row: sqlite3.Row) -> tuple[object, ...]:
+        return (
+            row["attachment_id"],
+            row["room_id"],
+            row["sender_id"],
+            row["display_name"],
+            row["mime_type"],
+            row["size_bytes"],
+            row["sha256"],
+            row["object_key"],
+            row["retention"],
+        )
+
+    @staticmethod
+    def _terminal_from_row(row: sqlite3.Row) -> AttachmentMetadata:
+        sequence = row["sequence_no"]
+        if type(sequence) is not int or not 0 <= sequence <= MAX_WIRE_INTEGER:
+            raise ClassroomFileServerError(
+                "stored attachment sequence is invalid"
+            )
+        if row["transfer_state"] not in {"stored", "deleted"}:
+            raise ClassroomFileServerError(
+                "non-terminal server attachment cannot enter history"
+            )
+        try:
+            return AttachmentMetadata(
+                row["attachment_id"],
+                row["room_id"],
+                row["sender_id"],
+                sequence,
+                row["display_name"],
+                row["mime_type"],
+                row["size_bytes"],
+                row["sha256"],
+                row["object_key"],
+                row["transfer_state"],
+                row["retention"],
+                row["scan_state"],
+            )
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ClassroomFileServerError(
+                "stored attachment metadata is invalid"
+            ) from error
+
+    @staticmethod
+    def _state_from_row(row: sqlite3.Row) -> AttachmentStateUpdate:
+        try:
+            return AttachmentStateUpdate(
+                row["room_id"],
+                row["attachment_id"],
+                row["revision"],
+                row["transfer_state"],
+                row["scan_state"],
+            )
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ClassroomFileServerError(
+                "stored attachment state update is invalid"
+            ) from error
+
+    def reserve_upload(
+        self,
+        metadata: AttachmentMetadata,
+        *,
+        quota: FileQuotaPolicy,
+    ) -> AttachmentMetadata | None:
+        """Reserve quota/identity; return existing stored result on exact replay."""
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (metadata.attachment_id,),
+                ).fetchone()
+                if row is not None:
+                    if self._row_immutable_tuple(row) != self._immutable_tuple(metadata):
+                        raise CollaborationConflictError(
+                            "attachment identity was reused with different payload"
+                        )
+                    if row["transfer_state"] == "deleted":
+                        raise CollaborationConflictError(
+                            "deleted attachment identity cannot be reused"
+                        )
+                    if row["transfer_state"] == "stored":
+                        result = self._terminal_from_row(row)
+                        db.commit()
+                        return result
+                    if row["transfer_state"] != "uploading":
+                        raise ClassroomFileServerError(
+                            "stored upload reservation has invalid state"
+                        )
+                    db.commit()
+                    return None
+
+                if metadata.size_bytes > quota.max_file_bytes:
+                    raise CollaborationQuotaError(
+                        "file exceeds authoritative server size limit"
+                    )
+                used_row = db.execute(
+                    """
+                    SELECT COALESCE(SUM(size_bytes),0) AS used
+                    FROM classroom_file_server_attachments
+                    WHERE room_id=? AND transfer_state!='deleted'
+                    """,
+                    (metadata.room_id,),
+                ).fetchone()
+                used = used_row["used"]
+                if type(used) is not int or used < 0:
+                    raise ClassroomFileServerError(
+                        "stored room quota accounting is invalid"
+                    )
+                if used + metadata.size_bytes > quota.max_room_bytes:
+                    raise CollaborationQuotaError(
+                        "room file quota would be exceeded"
+                    )
+                db.execute(
+                    """
+                    INSERT INTO classroom_file_server_attachments(
+                        attachment_id, room_id, sender_id, sequence_no,
+                        display_name, mime_type, size_bytes, sha256, object_key,
+                        retention, transfer_state, scan_state, delete_completed
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)
+                    """,
+                    (
+                        metadata.attachment_id,
+                        metadata.room_id,
+                        metadata.sender_id,
+                        None,
+                        metadata.display_name,
+                        metadata.mime_type,
+                        metadata.size_bytes,
+                        metadata.sha256,
+                        metadata.object_key,
+                        metadata.retention,
+                        "uploading",
+                        "pending",
+                    ),
+                )
+                db.commit()
+                return None
+            except Exception:
+                db.rollback()
+                raise
+
+    def finalize_upload(self, attachment_id: str) -> AttachmentMetadata:
+        attachment = _server_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (attachment,),
+                ).fetchone()
+                if row is None:
+                    raise ClassroomFileServerError(
+                        "upload reservation is missing"
+                    )
+                if row["transfer_state"] == "stored":
+                    result = self._terminal_from_row(row)
+                    db.commit()
+                    return result
+                if row["transfer_state"] != "uploading":
+                    raise ClassroomFileServerError(
+                        "upload reservation is not finalizable"
+                    )
+                last = db.execute(
+                    """
+                    SELECT MAX(sequence_no) AS last_sequence
+                    FROM classroom_file_server_attachments
+                    WHERE room_id=? AND transfer_state IN ('stored','deleted')
+                    """,
+                    (row["room_id"],),
+                ).fetchone()["last_sequence"]
+                if last is None:
+                    sequence = 0
+                elif type(last) is int and 0 <= last < MAX_WIRE_INTEGER:
+                    sequence = last + 1
+                else:
+                    raise ClassroomFileServerError(
+                        "authoritative file sequence is exhausted or corrupt"
+                    )
+                db.execute(
+                    """
+                    UPDATE classroom_file_server_attachments
+                    SET sequence_no=?, transfer_state='stored',
+                        scan_state='clean', delete_completed=1
+                    WHERE attachment_id=?
+                    """,
+                    (sequence, attachment),
+                )
+                updated = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (attachment,),
+                ).fetchone()
+                result = self._terminal_from_row(updated)
+                db.commit()
+                return result
+            except Exception:
+                db.rollback()
+                raise
+
+    def cancel(
+        self,
+        *,
+        trusted_sender_id: str,
+        attachment_id: str,
+    ) -> tuple[AttachmentMetadata | None, str | None]:
+        sender = _server_id(trusted_sender_id, "trusted sender identity")
+        attachment = _server_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (attachment,),
+                ).fetchone()
+                if row is None:
+                    db.commit()
+                    return None, None
+                if row["sender_id"] != sender:
+                    raise ClassroomFileServerError(
+                        "participant cannot cancel another participant's attachment"
+                    )
+                if row["transfer_state"] == "uploading":
+                    object_key = row["object_key"]
+                    db.execute(
+                        "DELETE FROM classroom_file_server_attachments "
+                        "WHERE attachment_id=?",
+                        (attachment,),
+                    )
+                    db.commit()
+                    return None, object_key
+                if row["transfer_state"] == "deleted":
+                    result = self._terminal_from_row(row)
+                    key = result.object_key if not bool(row["delete_completed"]) else None
+                    db.commit()
+                    return result, key
+                if row["transfer_state"] != "stored":
+                    raise ClassroomFileServerError(
+                        "attachment has invalid cancellation state"
+                    )
+
+                revisions = db.execute(
+                    "SELECT MAX(revision) AS last_revision "
+                    "FROM classroom_file_server_state_updates WHERE room_id=?",
+                    (row["room_id"],),
+                ).fetchone()["last_revision"]
+                if revisions is None:
+                    revision = 0
+                elif type(revisions) is int and 0 <= revisions < MAX_WIRE_INTEGER:
+                    revision = revisions + 1
+                else:
+                    raise ClassroomFileServerError(
+                        "attachment state revision is exhausted or corrupt"
+                    )
+                db.execute(
+                    """
+                    UPDATE classroom_file_server_attachments
+                    SET transfer_state='deleted', delete_completed=0
+                    WHERE attachment_id=?
+                    """,
+                    (attachment,),
+                )
+                db.execute(
+                    """
+                    INSERT INTO classroom_file_server_state_updates(
+                        room_id, revision, attachment_id,
+                        transfer_state, scan_state
+                    ) VALUES(?,?,?,?,?)
+                    """,
+                    (
+                        row["room_id"],
+                        revision,
+                        attachment,
+                        "deleted",
+                        row["scan_state"],
+                    ),
+                )
+                updated = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (attachment,),
+                ).fetchone()
+                result = self._terminal_from_row(updated)
+                db.commit()
+                return result, result.object_key
+            except Exception:
+                db.rollback()
+                raise
+
+    def history_after(
+        self,
+        *,
+        room_id: str,
+        after_sequence: int | None,
+        limit: int,
+    ) -> tuple[AttachmentMetadata, ...]:
+        room = _server_id(room_id, "room id")
+        after = _bounded_cursor(after_sequence, "attachment sequence cursor")
+        count = _bounded_limit(limit)
+        query = (
+            "SELECT * FROM classroom_file_server_attachments "
+            "WHERE room_id=? AND transfer_state IN ('stored','deleted') "
+        )
+        args: list[object] = [room]
+        if after is not None:
+            query += "AND sequence_no>? "
+            args.append(after)
+        query += "ORDER BY sequence_no LIMIT ?"
+        args.append(count)
+        with closing(self._connect()) as db:
+            return tuple(
+                self._terminal_from_row(row)
+                for row in db.execute(query, tuple(args))
+            )
+
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[AttachmentStateUpdate, ...]:
+        room = _server_id(room_id, "room id")
+        after = _bounded_cursor(after_revision, "attachment state cursor")
+        count = _bounded_limit(limit)
+        query = (
+            "SELECT * FROM classroom_file_server_state_updates "
+            "WHERE room_id=? "
+        )
+        args: list[object] = [room]
+        if after is not None:
+            query += "AND revision>? "
+            args.append(after)
+        query += "ORDER BY revision LIMIT ?"
+        args.append(count)
+        with closing(self._connect()) as db:
+            return tuple(
+                self._state_from_row(row)
+                for row in db.execute(query, tuple(args))
+            )
+
+    def attachment_for_object_key(
+        self,
+        object_key: str,
+    ) -> AttachmentMetadata | None:
+        if type(object_key) is not str:
+            raise ClassroomFileServerError("invalid object key")
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT * FROM classroom_file_server_attachments "
+                "WHERE object_key=? AND transfer_state IN ('stored','deleted')",
+                (object_key,),
+            ).fetchone()
+        return None if row is None else self._terminal_from_row(row)
+
+    def pending_deletions(self) -> tuple[tuple[str, str], ...]:
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                """
+                SELECT attachment_id, object_key
+                FROM classroom_file_server_attachments
+                WHERE transfer_state='deleted' AND delete_completed=0
+                ORDER BY room_id, sequence_no
+                """
+            ).fetchall()
+        return tuple((row["attachment_id"], row["object_key"]) for row in rows)
+
+    def complete_deletion(self, attachment_id: str) -> None:
+        attachment = _server_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT transfer_state FROM classroom_file_server_attachments "
+                "WHERE attachment_id=?",
+                (attachment,),
+            ).fetchone()
+            if row is None or row["transfer_state"] != "deleted":
+                raise ClassroomFileServerError(
+                    "file deletion completion lost tombstone authority"
+                )
+            db.execute(
+                "UPDATE classroom_file_server_attachments "
+                "SET delete_completed=1 WHERE attachment_id=?",
+                (attachment,),
+            )
+
+    def integrity_check(self) -> None:
+        with closing(self._connect()) as db:
+            if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ClassroomFileServerError(
+                    "classroom file-server SQLite integrity check failed"
+                )
+            self._verify_current_schema(db)
+            version = db.execute(
+                "SELECT value FROM classroom_file_server_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()
+            if (
+                version is None
+                or type(version["value"]) is not int
+                or version["value"] != SERVER_SCHEMA_VERSION
+            ):
+                raise ClassroomFileServerError(
+                    "classroom file-server schema version is invalid"
+                )
+
+            expected_by_room: dict[str, int] = {}
+            for row in db.execute(
+                """
+                SELECT *
+                FROM classroom_file_server_attachments
+                WHERE transfer_state IN ('stored','deleted')
+                ORDER BY room_id, sequence_no
+                """
+            ):
+                item = self._terminal_from_row(row)
+                expected = expected_by_room.get(item.room_id, 0)
+                if item.sequence_no != expected:
+                    raise ClassroomFileServerError(
+                        "authoritative file history has a sequence gap"
+                    )
+                expected_by_room[item.room_id] = expected + 1
+                delete_completed = row["delete_completed"]
+                if type(delete_completed) is not int or delete_completed not in {0, 1}:
+                    raise ClassroomFileServerError(
+                        "stored deletion completion flag is invalid"
+                    )
+                if item.transfer_state == "stored" and delete_completed != 1:
+                    raise ClassroomFileServerError(
+                        "stored attachment cannot have pending deletion"
+                    )
+
+            last_revision: dict[str, int] = {}
+            for row in db.execute(
+                "SELECT * FROM classroom_file_server_state_updates "
+                "ORDER BY room_id, revision"
+            ):
+                update = self._state_from_row(row)
+                expected = last_revision.get(update.room_id, -1) + 1
+                if update.revision != expected:
+                    raise ClassroomFileServerError(
+                        "attachment state history has a revision gap"
+                    )
+                target = db.execute(
+                    "SELECT room_id, transfer_state, scan_state "
+                    "FROM classroom_file_server_attachments WHERE attachment_id=?",
+                    (update.attachment_id,),
+                ).fetchone()
+                if (
+                    target is None
+                    or target["room_id"] != update.room_id
+                    or target["transfer_state"] != "deleted"
+                    or update.transfer_state != "deleted"
+                ):
+                    raise ClassroomFileServerError(
+                        "attachment state update lost tombstone authority"
+                    )
+                last_revision[update.room_id] = update.revision
+
+
+class ClassroomFileServerService:
+    """Trusted file metadata/bytes authority behind authenticated transport."""
+
+    def __init__(
+        self,
+        *,
+        store: ClassroomFileServerSQLiteStore,
+        authorization: ClassroomFileAuthorizationPort,
+        scanner: ClassroomFileScannerPort,
+        object_store: FileStorePort,
+        quota: FileQuotaPolicy = FileQuotaPolicy(),
+    ) -> None:
+        self._store = store
+        self._authorization = authorization
+        self._scanner = scanner
+        self._object_store = object_store
+        self._quota = quota
+
+    def _authorize(
+        self,
+        *,
+        caller: str,
+        room_id: str,
+        action: str,
+        attachment_id: str | None = None,
+        retention: str | None = None,
+    ) -> None:
+        trusted = _server_id(caller, "trusted caller identity")
+        room = _server_id(room_id, "room id")
+        try:
+            allowed = self._authorization.authorize_file_action(
+                trusted_caller_identity=trusted,
+                room_id=room,
+                action=action,
+                attachment_id=attachment_id,
+                retention=retention,
+            )
+        except Exception as error:
+            raise ClassroomFileServerError(
+                "classroom file authorization failed"
+            ) from error
+        if allowed is not True:
+            raise ClassroomFileServerError(
+                "classroom file action is not authorized"
+            )
+
+    @staticmethod
+    def _validate_upload(
+        caller: str,
+        metadata: AttachmentMetadata,
+        content: bytes,
+    ) -> None:
+        if type(metadata) is not AttachmentMetadata:
+            raise ClassroomFileServerError("invalid attachment metadata")
+        if metadata.sender_id != caller:
+            raise ClassroomFileServerError(
+                "attachment sender does not match authenticated caller"
+            )
+        if metadata.transfer_state not in {"pending", "uploading"}:
+            raise ClassroomFileServerError(
+                "upload metadata must be provisional"
+            )
+        try:
+            canonical_key = _canonical_object_key(
+                metadata.room_id,
+                metadata.attachment_id,
+            )
+        except Exception as error:
+            raise ClassroomFileServerError(
+                "attachment namespace is invalid"
+            ) from error
+        if metadata.object_key != canonical_key:
+            raise ClassroomFileServerError(
+                "attachment object key is outside canonical namespace"
+            )
+        if type(content) is not bytes:
+            raise ClassroomFileServerError("file upload requires opaque bytes")
+        if len(content) != metadata.size_bytes:
+            raise ClassroomFileServerError("file size changed during upload")
+        digest = hashlib.sha256(content).hexdigest()
+        if digest != metadata.sha256:
+            raise ClassroomFileServerError("file hash changed during upload")
+
+    def upload(
+        self,
+        *,
+        trusted_caller_identity: str,
+        metadata: AttachmentMetadata,
+        content: bytes,
+    ) -> AttachmentMetadata:
+        caller = _server_id(trusted_caller_identity, "trusted caller identity")
+        self._validate_upload(caller, metadata, content)
+        self._authorize(
+            caller=caller,
+            room_id=metadata.room_id,
+            action="upload",
+            attachment_id=metadata.attachment_id,
+            retention=metadata.retention,
+        )
+        try:
+            scan_state = self._scanner.scan(
+                room_id=metadata.room_id,
+                sender_id=caller,
+                display_name=metadata.display_name,
+                sha256=metadata.sha256,
+                content=content,
+            )
+        except Exception:
+            scan_state = "failed"
+        if scan_state not in {"clean", "blocked", "failed"}:
+            raise ClassroomFileServerError(
+                "malware scanner returned invalid state"
+            )
+        if scan_state != "clean":
+            return replace(
+                metadata,
+                transfer_state="failed",
+                scan_state=scan_state,
+            )
+
+        existing = self._store.reserve_upload(metadata, quota=self._quota)
+        if existing is not None:
+            return existing
+        try:
+            self._object_store.put(
+                object_key=metadata.object_key,
+                content=content,
+                expected_sha256=metadata.sha256,
+            )
+        except Exception as error:
+            raise ClassroomFileServerError(
+                "durable object storage write failed"
+            ) from error
+        return self._store.finalize_upload(metadata.attachment_id)
+
+    def cancel(
+        self,
+        *,
+        trusted_caller_identity: str,
+        attachment_id: str,
+    ) -> None:
+        caller = _server_id(trusted_caller_identity, "trusted caller identity")
+        attachment = _server_id(attachment_id, "attachment id")
+        # The room is obtained from durable state when accepted; an unknown
+        # identity may be an exact retry of a cancellation that preceded server
+        # acceptance, so authorization is deferred until a record exists.
+        record_room: str | None = None
+        with closing(self._store._connect()) as db:
+            row = db.execute(
+                "SELECT room_id FROM classroom_file_server_attachments "
+                "WHERE attachment_id=?",
+                (attachment,),
+            ).fetchone()
+            if row is not None:
+                record_room = row["room_id"]
+        if record_room is None:
+            return
+        self._authorize(
+            caller=caller,
+            room_id=record_room,
+            action="cancel",
+            attachment_id=attachment,
+        )
+        _result, object_key = self._store.cancel(
+            trusted_sender_id=caller,
+            attachment_id=attachment,
+        )
+        if object_key is None:
+            return
+        try:
+            self._object_store.delete(object_key=object_key)
+        except Exception as error:
+            raise ClassroomFileServerError(
+                "durable object deletion failed"
+            ) from error
+        # Uploading reservations were removed, while terminal tombstones remain.
+        record = self._store.attachment_for_object_key(object_key)
+        if record is not None and record.transfer_state == "deleted":
+            self._store.complete_deletion(record.attachment_id)
+
+    def history_after(
+        self,
+        *,
+        trusted_caller_identity: str,
+        room_id: str,
+        after_sequence: int | None,
+        limit: int,
+    ) -> tuple[AttachmentMetadata, ...]:
+        caller = _server_id(trusted_caller_identity, "trusted caller identity")
+        room = _server_id(room_id, "room id")
+        self._authorize(caller=caller, room_id=room, action="history")
+        return self._store.history_after(
+            room_id=room,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+
+    def state_updates_after(
+        self,
+        *,
+        trusted_caller_identity: str,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[AttachmentStateUpdate, ...]:
+        caller = _server_id(trusted_caller_identity, "trusted caller identity")
+        room = _server_id(room_id, "room id")
+        self._authorize(caller=caller, room_id=room, action="state")
+        return self._store.state_updates_after(
+            room_id=room,
+            after_revision=after_revision,
+            limit=limit,
+        )
+
+    def issue_read_token(
+        self,
+        *,
+        trusted_caller_identity: str,
+        object_key: str,
+        ttl_seconds: int,
+    ) -> str:
+        caller = _server_id(trusted_caller_identity, "trusted caller identity")
+        if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 3600:
+            raise ClassroomFileServerError("invalid download token TTL")
+        attachment = self._store.attachment_for_object_key(object_key)
+        if (
+            attachment is None
+            or attachment.transfer_state != "stored"
+            or attachment.scan_state != "clean"
+        ):
+            raise ClassroomFileServerError(
+                "attachment is not cleared for download"
+            )
+        self._authorize(
+            caller=caller,
+            room_id=attachment.room_id,
+            action="download",
+            attachment_id=attachment.attachment_id,
+        )
+        try:
+            token = self._object_store.issue_read_token(
+                object_key=attachment.object_key,
+                participant_id=caller,
+                ttl_seconds=ttl_seconds,
+            )
+        except Exception as error:
+            raise ClassroomFileServerError(
+                "durable read-token issuance failed"
+            ) from error
+        if type(token) is not str or not token:
+            raise ClassroomFileServerError(
+                "durable object store returned invalid read token"
+            )
+        return token
+
+    def delete_object(
+        self,
+        *,
+        trusted_caller_identity: str,
+        object_key: str,
+    ) -> None:
+        caller = _server_id(trusted_caller_identity, "trusted caller identity")
+        attachment = self._store.attachment_for_object_key(object_key)
+        if attachment is None or attachment.transfer_state != "deleted":
+            raise ClassroomFileServerError(
+                "object deletion requires authoritative tombstone"
+            )
+        self._authorize(
+            caller=caller,
+            room_id=attachment.room_id,
+            action="delete",
+            attachment_id=attachment.attachment_id,
+        )
+        try:
+            self._object_store.delete(object_key=attachment.object_key)
+        except Exception as error:
+            raise ClassroomFileServerError(
+                "durable object deletion failed"
+            ) from error
+        self._store.complete_deletion(attachment.attachment_id)
+
+    def drain_pending_deletions(self) -> int:
+        """Trusted restart/operator recovery; no client authorization is involved."""
+        completed = 0
+        for attachment_id, object_key in self._store.pending_deletions():
+            try:
+                self._object_store.delete(object_key=object_key)
+            except Exception as error:
+                raise ClassroomFileServerError(
+                    "durable object deletion recovery failed"
+                ) from error
+            self._store.complete_deletion(attachment_id)
+            completed += 1
+        return completed
+
+    def integrity_check(self) -> None:
+        self._store.integrity_check()
+
+
+class ClassroomFileServerClient:
+    """Identity-bound desktop adapter implementing canonical file transport/storage ports."""
+
+    def __init__(
+        self,
+        *,
+        service: ClassroomFileServerService,
+        trusted_caller_identity: str,
+    ) -> None:
+        self._service = service
+        self._caller = _server_id(
+            trusted_caller_identity,
+            "trusted caller identity",
+        )
+
+    @staticmethod
+    def _read_prepared(prepared: PreparedFile) -> bytes:
+        if type(prepared) is not PreparedFile:
+            raise ClassroomFileServerError("file transfer requires PreparedFile")
+        try:
+            content = Path(prepared.local_path).read_bytes()
+        except OSError as error:
+            raise ClassroomFileServerError(
+                "selected file could not be read for upload"
+            ) from error
+        if (
+            len(content) != prepared.metadata.size_bytes
+            or hashlib.sha256(content).hexdigest() != prepared.metadata.sha256
+        ):
+            raise ClassroomFileServerError(
+                "selected file changed before server upload"
+            )
+        return content
+
+    def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
+        return self._service.upload(
+            trusted_caller_identity=self._caller,
+            metadata=prepared.metadata,
+            content=self._read_prepared(prepared),
+        )
+
+    def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
+        return self.upload(prepared)
+
+    def cancel(self, *, attachment_id: str) -> None:
+        self._service.cancel(
+            trusted_caller_identity=self._caller,
+            attachment_id=attachment_id,
+        )
+
+    def history_after(
+        self,
+        *,
+        room_id: str,
+        after_sequence: int | None,
+        limit: int,
+    ) -> tuple[AttachmentMetadata, ...]:
+        return self._service.history_after(
+            trusted_caller_identity=self._caller,
+            room_id=room_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+
+    def state_updates_after(
+        self,
+        *,
+        room_id: str,
+        after_revision: int | None,
+        limit: int,
+    ) -> tuple[AttachmentStateUpdate, ...]:
+        return self._service.state_updates_after(
+            trusted_caller_identity=self._caller,
+            room_id=room_id,
+            after_revision=after_revision,
+            limit=limit,
+        )
+
+    def issue_read_token(
+        self,
+        *,
+        object_key: str,
+        participant_id: str,
+        ttl_seconds: int,
+    ) -> str:
+        participant = _server_id(participant_id, "participant id")
+        if participant != self._caller:
+            raise ClassroomFileServerError(
+                "download participant does not match bound caller"
+            )
+        return self._service.issue_read_token(
+            trusted_caller_identity=self._caller,
+            object_key=object_key,
+            ttl_seconds=ttl_seconds,
+        )
+
+    def delete(self, *, object_key: str) -> None:
+        self._service.delete_object(
+            trusted_caller_identity=self._caller,
+            object_key=object_key,
+        )
+
+
+__all__ = [
+    "ClassroomFileAuthorizationPort",
+    "ClassroomFileScannerPort",
+    "ClassroomFileServerClient",
+    "ClassroomFileServerError",
+    "ClassroomFileServerSQLiteStore",
+    "ClassroomFileServerService",
+]

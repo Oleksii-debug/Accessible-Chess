@@ -1,0 +1,61 @@
+name: Classroom File Server Contract
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-collaboration-contract-20260926
+    paths:
+      - ".github/workflows/classroom-file-server.yml"
+      - "acs/classroom_file_server.py"
+      - "tests/test_classroom_file_server.py"
+      - "acs/classroom_collaboration.py"
+      - "acs/classroom_collaboration_storage.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove exact additive PR scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+          test "$(git merge-base "${EVENT_BASE_SHA}" HEAD)" = "${EVENT_BASE_SHA}"
+          git diff --check "${EVENT_BASE_SHA}" HEAD
+          mapfile -t changed < <(git diff --name-only "${EVENT_BASE_SHA}" HEAD | sort)
+          expected=(
+            ".github/workflows/classroom-file-server.yml"
+            "acs/classroom_file_server.py"
+            "tests/test_classroom_file_server.py"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${changed[*]}" = "${expected_sorted[*]}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile trusted file-server boundary
+        run: python -m py_compile acs/classroom_file_server.py tests/test_classroom_file_server.py
+
+      - name: Run focused file-server and canonical collaboration contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_file_server
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
