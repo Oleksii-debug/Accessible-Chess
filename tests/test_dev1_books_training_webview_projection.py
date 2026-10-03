@@ -804,6 +804,84 @@ class TrainingProjectionTests(unittest.TestCase):
             self.projection.submit("😀" * 65)
         self.assertEqual(before, self.presenter.snapshot())
 
+    def test_failed_submit_render_restores_progress_message_and_session_identity(self) -> None:
+        before = self.presenter.snapshot()
+        before_message = self.presenter.message
+        retained_session = self.presenter.session
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated Training render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "Training render"):
+                self.projection.submit("e4")
+
+        self.assertIs(retained_session, self.presenter.session)
+        self.assertEqual(before, self.presenter.snapshot())
+        self.assertEqual(before_message, self.presenter.message)
+
+    def test_failed_hint_render_restores_hint_counter_and_message(self) -> None:
+        before = self.presenter.snapshot()
+        before_message = self.presenter.message
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated hint render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "hint render"):
+                self.projection.hint()
+
+        self.assertEqual(before, self.presenter.snapshot())
+        self.assertEqual(before_message, self.presenter.message)
+
+    def test_failed_reset_render_restores_exact_progress(self) -> None:
+        self.projection.submit("e3")
+        self.projection.submit("e4")
+        before = self.presenter.snapshot()
+        before_message = self.presenter.message
+        retained_session = self.presenter.session
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated reset render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "reset render"):
+                self.projection.reset(confirmed=True)
+
+        self.assertIs(retained_session, self.presenter.session)
+        self.assertEqual(before, self.presenter.snapshot())
+        self.assertEqual(before_message, self.presenter.message)
+
+    def test_failed_reveal_and_retry_render_restore_transient_message(self) -> None:
+        self.projection.hint()
+        before = self.presenter.snapshot()
+        before_message = self.presenter.message
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated reveal render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "reveal render"):
+                self.projection.reveal()
+
+        self.assertEqual(before, self.presenter.snapshot())
+        self.assertEqual(before_message, self.presenter.message)
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated retry render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "retry render"):
+                self.projection.retry()
+
+        self.assertEqual(before, self.presenter.snapshot())
+        self.assertEqual(before_message, self.presenter.message)
+
     def test_reset_requires_exact_true_and_resets_canonical_session(self) -> None:
         self.projection.submit("e3")
         before = self.presenter.snapshot()
