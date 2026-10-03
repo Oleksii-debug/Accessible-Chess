@@ -10,6 +10,7 @@ and browser presentation remain in their existing canonical owners.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+import ntpath
 import sys
 from typing import cast
 
@@ -241,11 +242,16 @@ def build_classroom_collaboration_http_runtime(
                     return item
             return None
 
+        storage_scope = (
+            ntpath.normcase(str(path))
+            if sys.platform == "win32"
+            else str(path)
+        )
         chat_outbox = DurableChatDraftOutbox(
             secret_store=selected_secret_store,
             room_id=room_id,
             participant_id=participant_id,
-            storage_scope=str(path),
+            storage_scope=storage_scope,
             lock_path=path.with_name(f".{path.name}.chat-outbox.lock"),
             message_lookup=lookup_local_message,
         )
