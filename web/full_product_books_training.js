@@ -528,6 +528,21 @@
       }
     }
 
+    if (!Array.isArray(solution) || solution.length > 64) {
+      throw new TypeError("Training solution must be a bounded dense array");
+    }
+    for (let index = 0; index < solution.length; index += 1) {
+      if (
+        !Object.prototype.hasOwnProperty.call(solution, index) ||
+        typeof solution[index] !== "string" ||
+        !solution[index].trim() ||
+        solution[index].length > 128 ||
+        solution[index].indexOf("\u0000") !== -1
+      ) {
+        throw new TypeError("Training solution item is invalid");
+      }
+    }
+
     const allowedFocus = Object.create(null);
     allowedFocus[""] = true;
     if (!answer.disabled) allowedFocus["training-answer"] = true;
@@ -551,7 +566,8 @@
       progress: progress,
       answer: answer,
       actions: actions,
-      reset_dialog: reset
+      reset_dialog: reset,
+      solution: solution.slice()
     };
   }
 
@@ -1196,7 +1212,7 @@
     }
     requireFunction(invoke, "Training invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
-    const validated = validateTrainingSnapshot(snapshot, solution, requestedFocus);
+    const validated = validateTrainingSnapshot(snapshot, requestedFocus, solution);
     const progress = validated.progress;
     const answerSpec = validated.answer;
     const actions = validated.actions;
