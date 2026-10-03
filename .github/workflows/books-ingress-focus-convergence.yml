@@ -122,6 +122,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = 'b7ad9899f614c42589b9f53fddbebe59dee2b9c7'
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = '81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a'
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = '6aa9cddc68a630228e3a2266c5dcf3382b86a674'
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = '85e4ef957d587d607c47f3b6c143970fdb5fa9d2'
 
           echo 'BOOKS_INGRESS_FOCUS_CONVERGENCE_GEOMETRY=PASS'
 
@@ -158,6 +159,10 @@ jobs:
           tests.test_v2_book_transaction_current_runtime
           tests.test_v2_book_board_workflow
           tests.test_version2_training_current_runtime
+          tests.test_books_semantic_host_bounds
+          tests.test_version2_book_workspace
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_book_board_refresh_focus_order_evidence
 
       - name: Core selftest
         run: python -m acs.selftest
