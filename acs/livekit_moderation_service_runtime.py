@@ -199,6 +199,12 @@ class LiveKitModerationServiceRuntime:
                 options=options,
             )
             self._connected = True
+        except asyncio.CancelledError:
+            # A cancelled await cannot prove that the provider did not connect.
+            # Retain the Room handle and require explicit cleanup before any
+            # reconnect or RPC authority can be exposed.
+            self._cleanup_required = True
+            raise
         except Exception:
             await self._cleanup_failed_connection(
                 "LiveKit moderation service connection failed"
@@ -255,6 +261,9 @@ class LiveKitModerationServiceRuntime:
             return
         try:
             await room.disconnect()
+        except asyncio.CancelledError:
+            self._cleanup_required = True
+            raise
         except Exception:
             self._cleanup_required = True
             raise LiveKitModerationServiceRuntimeError(
@@ -295,6 +304,9 @@ class LiveKitModerationServiceRuntime:
             if room is not None and (self._connected or self._cleanup_required):
                 try:
                     await room.disconnect()
+                except asyncio.CancelledError:
+                    self._cleanup_required = True
+                    raise
                 except Exception:
                     disconnect_failed = True
                 else:
