@@ -338,14 +338,18 @@ class ClassroomSnapshot:
 
     def to_record(self) -> dict[str, Any]:
         record = self._body()
-        record["digest"] = _digest(record)
+        # Anything emitted by the canonical classroom authority must be
+        # reopenable under the same aggregate wire budget.  Bound the body
+        # while computing its digest, then bound the complete record including
+        # that digest before returning it.
+        record["digest"] = _digest(record, max_bytes=MAX_SNAPSHOT_BYTES)
+        _digest(record, max_bytes=MAX_SNAPSHOT_BYTES)
         return record
 
     def to_json(self) -> str:
-        text = _canonical_json_text(self.to_record())
-        if _utf8_size(text, "classroom snapshot JSON") > MAX_SNAPSHOT_BYTES:
-            raise ClassroomDomainError("classroom snapshot exceeds size limit")
-        return text
+        # to_record() proves the complete canonical record budget before this
+        # bounded JSON string is materialized.
+        return _canonical_json_text(self.to_record())
 
     @classmethod
     def from_record(cls, value: Mapping[str, Any]) -> "ClassroomSnapshot":
@@ -360,16 +364,31 @@ class ClassroomSnapshot:
             if type(raw) is not list or len(raw) > MAX_RECORDS_PER_COLLECTION:
                 raise ClassroomDomainError(f"{wire_key} must be a bounded JSON array")
             kwargs[attr] = tuple(_decode_record(record_type, item) for item in raw)
+
+        # Run all semantic and cross-reference validation before hashing an
+        # attacker-controlled aggregate record.
         snapshot = cls(version=data["version"], **kwargs)
-        if snapshot.digest != supplied_digest:
+
+        # Authenticate the exact validated wire body rather than a reconstructed
+        # object.  Incremental canonical encoding avoids a full pre-limit JSON
+        # allocation while preserving the existing digest byte contract.
+        body = {key: data[key] for key in data if key != "digest"}
+        actual_digest = _digest(body, max_bytes=MAX_SNAPSHOT_BYTES)
+        if actual_digest != supplied_digest:
             raise ClassroomDomainError("classroom snapshot digest mismatch")
+
+        # Direct Mapping callers receive the same complete-record byte ceiling
+        # as JSON callers, including the digest field.
+        full_record = dict(body)
+        full_record["digest"] = supplied_digest
+        _digest(full_record, max_bytes=MAX_SNAPSHOT_BYTES)
         return snapshot
 
     @classmethod
     def from_json(cls, text: str) -> "ClassroomSnapshot":
         if type(text) is not str:
             raise ClassroomDomainError("classroom snapshot JSON must be exact text")
-        if _utf8_size(text, "classroom snapshot JSON") > MAX_SNAPSHOT_BYTES:
+        if _utf8_size_exceeds_limit(text, MAX_SNAPSHOT_BYTES):
             raise ClassroomDomainError("classroom snapshot exceeds size limit")
         try:
             raw = json.loads(
@@ -550,11 +569,29 @@ def _digest_text(value) -> str:
     return value
 
 
-def _utf8_size(value: str, label: str) -> int:
-    try:
-        return len(value.encode("utf-8"))
-    except UnicodeEncodeError as exc:
-        raise ClassroomDomainError(f"{label} contains an invalid Unicode scalar value") from exc
+def _utf8_size_exceeds_limit(value: str, limit: int) -> bool:
+    if type(value) is not str:
+        raise ClassroomDomainError("classroom snapshot JSON must be exact text")
+    if type(limit) is not int or limit < 0:
+        raise ValueError("UTF-8 size limit must be a non-negative integer")
+    total = 0
+    for character in value:
+        codepoint = ord(character)
+        if codepoint <= 0x7F:
+            total += 1
+        elif codepoint <= 0x7FF:
+            total += 2
+        elif 0xD800 <= codepoint <= 0xDFFF:
+            raise ClassroomDomainError(
+                "classroom snapshot JSON contains an invalid Unicode scalar value"
+            )
+        elif codepoint <= 0xFFFF:
+            total += 3
+        else:
+            total += 4
+        if total > limit:
+            return True
+    return False
 
 
 def _canonical_json_text(value: object) -> str:
@@ -564,13 +601,36 @@ def _canonical_json_text(value: object) -> str:
         raise ClassroomDomainError("classroom snapshot cannot be serialized canonically") from exc
 
 
-def _digest(value) -> str:
-    text = _canonical_json_text(value)
+def _digest(value: object, *, max_bytes: int | None = None) -> str:
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("canonical digest byte limit must be a non-negative integer")
+
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256()
+    total = 0
     try:
-        data = text.encode("utf-8")
-    except UnicodeEncodeError as exc:
-        raise ClassroomDomainError("classroom snapshot contains an invalid Unicode scalar value") from exc
-    return hashlib.sha256(data).hexdigest()
+        for chunk in encoder.iterencode(value):
+            try:
+                encoded = chunk.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ClassroomDomainError(
+                    "classroom snapshot contains an invalid Unicode scalar value"
+                ) from exc
+            total += len(encoded)
+            if max_bytes is not None and total > max_bytes:
+                raise ClassroomDomainError("classroom snapshot exceeds size limit")
+            digest.update(encoded)
+    except ClassroomDomainError:
+        raise
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ClassroomDomainError(
+            "classroom snapshot cannot be serialized canonically"
+        ) from exc
+    return digest.hexdigest()
 
 
 def _parse_wire_integer(value: str) -> int:
