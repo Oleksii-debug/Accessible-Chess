@@ -108,6 +108,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 "gametree-resume.json.cas-abcd1234.bak",
                 ".book-progress.json.abcd1234.tmp",
                 ".book-progress.json.bak.abcd1234.tmp",
+                "gametree-resume.json.ab_cd123.tmp",
             )
             for name in generated:
                 (root / name).write_bytes(b"derived-runtime-residue")
@@ -121,6 +122,17 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 "gametree-resume.json.abcd1234.tmp.keep",
                 "gametree-resume.json.cas-abcd1234.bak.keep",
                 ".book-progress.json.abcd1234.tmp.keep",
+                # Prefix/suffix alone is insufficient: canonical tempfile names
+                # have exactly one eight-character random segment.
+                "gametree-resume.json.notes.tmp",
+                "gametree-resume.json.abcdefghi.tmp",
+                "gametree-resume.json.cas-family.bak",
+                ".book-progress.json.notes.tmp",
+                ".book-progress.json.bak.notes.tmp",
+                # Canonical writers receive lowercase release paths and tempfile
+                # preserves their prefix casing.
+                "GAMETREE-RESUME.JSON.ABCD1234.TMP",
+                ".BOOK-PROGRESS.JSON.ABCD1234.TMP",
             )
             for name in near_misses:
                 (root / name).write_bytes(b"root-user-data")

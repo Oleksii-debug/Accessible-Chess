@@ -44,19 +44,57 @@ _DERIVED_ROOT_DIRECTORIES = {
 _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
 )
+# CPython tempfile._RandomNameSequence currently emits exactly eight characters
+# from this alphabet. The release workflows pin CPython 3.12.10. If tempfile
+# changes in a future runtime, preserving an unknown residue in the backup is
+# safer than silently dropping a user file that merely resembles writer state.
+_TEMPFILE_RANDOM_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def _has_tempfile_random_token(
+    name: str,
+    *,
+    prefix: str,
+    suffix: str,
+) -> bool:
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return False
+    token = name[len(prefix):len(name) - len(suffix)]
+    return (
+        len(token) == 8
+        and all(character in _TEMPFILE_RANDOM_CHARS for character in token)
+    )
 
 
 def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
-    """Return whether a root file is crash residue from a canonical writer."""
+    """Recognize only exact root residue shapes emitted by canonical writers."""
     if len(relative_path.parts) != 1:
         return False
-    name = relative_path.parts[0].casefold()
+    # Do not case-fold generated names. The production writers receive the exact
+    # lowercase canonical paths from version2_release_app and tempfile preserves
+    # those prefixes. Case/shape near-misses are ordinary preservation-backed data.
+    name = relative_path.parts[0]
     return (
-        name.startswith("gametree-resume.json.") and name.endswith(".tmp")
-    ) or (
-        name.startswith("gametree-resume.json.cas-") and name.endswith(".bak")
-    ) or (
-        name.startswith(".book-progress.json.") and name.endswith(".tmp")
+        _has_tempfile_random_token(
+            name,
+            prefix="gametree-resume.json.",
+            suffix=".tmp",
+        )
+        or _has_tempfile_random_token(
+            name,
+            prefix="gametree-resume.json.cas-",
+            suffix=".bak",
+        )
+        or _has_tempfile_random_token(
+            name,
+            prefix=".book-progress.json.",
+            suffix=".tmp",
+        )
+        or _has_tempfile_random_token(
+            name,
+            prefix=".book-progress.json.bak.",
+            suffix=".tmp",
+        )
     )
 
 
