@@ -8,6 +8,7 @@ on:
       - 'web/index.html'
       - 'tests/js/p0_dynamic_selection_runtime_test.js'
       - 'tests/js/p0_accessibility_partial_replacement_test.js'
+      - 'tests/js/p0_selection_ambiguity_runtime_test.js'
       - 'tests/test_p0_dynamic_selection_action_delivery.py'
       - 'tests/test_p0_dynamic_selection_partial_replacement.py'
       - 'tests/test_p0_semantic_document_copy.py'
@@ -118,9 +119,11 @@ jobs:
           node --check tests/js/p0_accessibility_runtime_test.js
           node --check tests/js/p0_dynamic_selection_runtime_test.js
           node --check tests/js/p0_accessibility_partial_replacement_test.js
+          node --check tests/js/p0_selection_ambiguity_runtime_test.js
           node tests/js/p0_accessibility_runtime_test.js
           node tests/js/p0_dynamic_selection_runtime_test.js
           node tests/js/p0_accessibility_partial_replacement_test.js
+          node tests/js/p0_selection_ambiguity_runtime_test.js
 
       - name: Focused P0 copy and selection tests
         run: >-
