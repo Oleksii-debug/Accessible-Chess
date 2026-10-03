@@ -879,6 +879,10 @@ class Version2UpgradeCoordinator:
                     raise Version2UpgradeError(
                         "user-data control entry must be a regular file"
                     )
+                if int(getattr(control_info, "st_nlink", 1)) != 1:
+                    raise Version2UpgradeError(
+                        "user-data control entry must be a private file"
+                    )
                 continue
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
