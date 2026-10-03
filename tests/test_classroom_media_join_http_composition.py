@@ -182,6 +182,42 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         self.assertEqual(len(worker_threads), 1)
         self.assertNotEqual(worker_threads[0], owner_thread)
 
+    def test_completed_worker_cannot_commit_provider_state_before_owner_finish(self):
+        application, _controller, transactions = self.application()
+        owner_thread = threading.get_ident()
+        clock_threads = []
+        self.configure(
+            application,
+            lambda: "account-token",
+            now_provider=lambda: (
+                clock_threads.append(threading.get_ident())
+                or NOW + timedelta(seconds=1)
+            ),
+        )
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            return_value=credential(),
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            pending = application._media_join_http_pending
+            self.assertIsNotNone(pending)
+            pending.future.exception(timeout=2.0)
+
+            self.assertEqual(transactions.join_calls, [])
+            self.assertIsNone(transactions.binder.active_lease)
+            self.assertEqual(list(application._events), [])
+            self.assertEqual(clock_threads, [])
+
+            rendered = application.finish_classroom_media_join_http(request_id)
+
+        self.assertEqual(rendered["kind"], "provider-dispatch")
+        self.assertEqual(len(transactions.join_calls), 1)
+        self.assertEqual(clock_threads, [owner_thread])
+        self.assertEqual(list(application._events), [rendered])
+
     def test_worker_failure_is_sanitized_and_never_creates_provider_lease(self):
         application, _controller, transactions = self.application()
         self.configure(application, lambda: "account-token")
