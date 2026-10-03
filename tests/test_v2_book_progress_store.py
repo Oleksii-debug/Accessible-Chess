@@ -1149,6 +1149,49 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_primary_publication_rechecks_backup_after_temp_fsync(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:primary-backup-guard", reader)
+        reader.go_to(2)
+        self.store.save("book:primary-backup-guard", reader)
+
+        primary_before = self.path.read_bytes()
+        external_backup = b'{"entries":{},"generation":77,"schema_version":2}'
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def backup_changes_during_primary_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.path.name}.":
+                self.store.backup_path.write_bytes(external_backup)
+                injected = True
+            return descriptor, name
+
+        reader.go_to(3)
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=backup_changes_during_primary_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:primary-backup-guard", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), external_backup)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
     def test_save_preserves_newer_backup_when_primary_advances_before_backup_publish(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
