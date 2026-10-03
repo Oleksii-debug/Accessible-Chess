@@ -288,6 +288,68 @@ async function run() {
     "synchronous host failure left the Book surface busy"
   );
 
+  const malformedBookRoot = new FakeElement("div");
+  const malformedBookAnnouncements = [];
+  window.AccessibleChessBookSurface.render(
+    malformedBookRoot,
+    bookSnapshot(14, "Malformed Book result probe"),
+    () => 17,
+    (message) => malformedBookAnnouncements.push(String(message)),
+    "book-block-14",
+    "Book action failed"
+  );
+  const malformedBookBefore = malformedBookRoot.querySelector("#book-block-14");
+  find(malformedBookRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedBookRoot.querySelector("#book-block-14") === malformedBookBefore,
+    "malformed Book host result mutated the current render"
+  );
+  check(
+    malformedBookAnnouncements.length === 1 &&
+      malformedBookAnnouncements[0] === "Book action failed",
+    "malformed Book host result did not fail closed with the accessible fallback"
+  );
+  check(
+    malformedBookRoot.getAttribute("aria-busy") === null,
+    "malformed Book host result left the surface busy"
+  );
+
+  const malformedTrainingRoot = new FakeElement("div");
+  const malformedTrainingAnnouncements = [];
+  window.AccessibleChessTrainingSurface.render(
+    malformedTrainingRoot,
+    trainingSnapshot(),
+    () => ({ kind: "render", payload: {} }),
+    (message) => malformedTrainingAnnouncements.push(String(message)),
+    "training-answer",
+    "Training action failed",
+    []
+  );
+  const malformedTrainingBefore = malformedTrainingRoot.querySelector("#training-answer");
+  malformedTrainingBefore.value = "e4";
+  find(malformedTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedTrainingRoot.querySelector("#training-answer") === malformedTrainingBefore,
+    "malformed Training render result replaced the current input"
+  );
+  check(
+    malformedTrainingRoot.querySelector("#training-answer").value === "e4",
+    "malformed Training result lost the user's pending answer"
+  );
+  check(
+    malformedTrainingAnnouncements.length === 1 &&
+      malformedTrainingAnnouncements[0] === "Training action failed",
+    "malformed Training host result did not fail closed with the accessible fallback"
+  );
+  check(
+    malformedTrainingRoot.getAttribute("aria-busy") === null,
+    "malformed Training host result left the surface busy"
+  );
+
   const pendingRoot = new FakeElement("div");
   let pendingCalls = 0;
   let resolveFirstPending = null;
