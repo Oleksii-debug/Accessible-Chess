@@ -241,7 +241,38 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
         self.assertIsNone(snapshot["semantic_tree"])
         self.assertFalse(actions["book.open_game"])
+        self.assertIn("вимкнено", snapshot["block"]["warning"])
         self.assertNotIn("provider detail", repr(snapshot))
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.index, 0)
+
+    def test_unavailable_variation_content_disables_position_handoff(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Unavailable variation",
+                blocks=[
+                    VariationTree(
+                        root_fen=Board.START,
+                        pgn='[Result "*"]\n\n1. e4 *',
+                        title="Readable variation",
+                    )
+                ],
+            )
+        )
+        error = BookBoardWorkflowError(
+            "invalid root detail must not escape",
+            code=BookBoardWorkflowCode.INVALID_POSITION,
+        )
+
+        with patch.object(workflow, "semantic_game_snapshot", side_effect=error):
+            snapshot = bridge.projection.snapshot()
+
+        actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertFalse(actions["book.open_position"])
+        self.assertIn("вимкнено", snapshot["block"]["warning"])
+        self.assertNotIn("invalid root detail", repr(snapshot))
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.index, 0)
