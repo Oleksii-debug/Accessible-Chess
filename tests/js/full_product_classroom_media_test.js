@@ -360,6 +360,7 @@ async function run() {
       return Promise.resolve({
         kind: "media-updated",
         payload: {
+          snapshot: deviceSnapshot,
           announcement: "Media state updated.",
           focus_target: "classroom-media-device-" + payload.kind
         }
@@ -400,7 +401,14 @@ async function run() {
     deviceInvocation.payload,
     "republish_enabled"
   ), false);
-  assert.equal(deviceDocument.activeElement, micSelect);
+  await new Promise((resolve) => setImmediate(resolve));
+  const rerenderedMicSelect = deviceRoot.querySelector(
+    "#classroom-media-device-microphone"
+  );
+  assert.ok(rerenderedMicSelect);
+  assert.notEqual(rerenderedMicSelect, micSelect);
+  assert.equal(rerenderedMicSelect.value, "mic-device-2");
+  assert.equal(deviceDocument.activeElement, rerenderedMicSelect);
   assert.deepEqual(deviceAnnouncements, ["Media state updated."]);
 
   const refresh = deviceRoot.querySelector("#classroom-media-device-refresh");
@@ -426,6 +434,24 @@ async function run() {
   assert.equal(
     disconnectedRoot.querySelector("#classroom-media-devices-heading"),
     null
+  );
+
+  // A later connection must not claim that the pre-disconnect device choice
+  // is still active in a newly created provider Room.
+  const reconnectedSnapshot = mediaSnapshot([]);
+  reconnectedSnapshot.connected = true;
+  disconnectedSurface.mount(
+    disconnectedRoot,
+    reconnectedSnapshot,
+    () => Promise.resolve(null),
+    () => {},
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    disconnectedRoot.querySelector("#classroom-media-device-microphone").value,
+    ""
   );
 
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
