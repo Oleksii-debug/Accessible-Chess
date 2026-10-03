@@ -207,6 +207,23 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
 
+    def test_book_open_game_menu_uses_remappable_canonical_action(self) -> None:
+        controller, calls, commands, exits = make_controller(
+            bindings={"book.open_game": "Ctrl+Shift+G"}
+        )
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        open_game = next(
+            item for item in books_menu.items
+            if item.action_id == "book.open_game"
+        )
+        self.assertTrue(open_game.label.endswith("\tCtrl+Shift+G"))
+
+        command = controller.activate(open_game)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("book.open_game", {})], calls)
+        self.assertEqual([], commands)
+        self.assertEqual([], exits)
+
     def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
         controller, _calls, _commands, _exits = make_controller()
         form = FakeForm()
