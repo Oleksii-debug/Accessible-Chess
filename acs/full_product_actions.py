@@ -191,6 +191,12 @@ class FullProductActionRouter:
                 route_id=route_id,
                 focus_target=focus_target,
             )
+        # Delegated domain actions may change the route themselves (for
+        # example Book Reader -> Board). Preserve the invoking element before
+        # delegation so an exact return can restore keyboard/NVDA focus to the
+        # element the user actually left, just as shell-owned route actions do.
+        if current_focus_id:
+            self._shell.record_focus(current_focus_id)
         value = self._delegate(action_id, dict(payload or {}))
         return ActionDispatchResult(
             action_id=action_id,
