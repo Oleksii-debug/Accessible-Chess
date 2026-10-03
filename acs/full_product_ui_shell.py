@@ -62,6 +62,8 @@ _LOCAL_PATH_PATTERN = re.compile(
     r'(?:^|[\s"\'(=])/(?:[^/\s]+/)+[^/\s]+)',
     re.IGNORECASE,
 )
+_FOCUS_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,160}$")
+
 _UCI_PROTOCOL_PATTERN = re.compile(
     r'^\s*(?:uci|isready|uciok|readyok|stop|quit|ponderhit)\s*$|'
     r'^\s*(?:id\s+(?:name|author)\b|option\s+name\b|bestmove\b|info\b|'
@@ -121,7 +123,11 @@ class AccessibleShellState:
     def _clean_focus_id(element_id: str) -> str:
         if not isinstance(element_id, str):
             raise TypeError("focus target id must be text")
-        return element_id.strip()
+        if not element_id:
+            return ""
+        if _FOCUS_ID_PATTERN.fullmatch(element_id) is None:
+            raise ValueError("focus target id is invalid")
+        return element_id
 
     def record_focus(self, element_id: str) -> None:
         clean = self._clean_focus_id(element_id)

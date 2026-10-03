@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.bookdocument import BookDocument, Exercise
 from acs.bookreader import BookReader
@@ -94,6 +95,47 @@ class Version2TrainingCurrentRuntimeTests(unittest.TestCase):
             assert restored is not None
             self.assertEqual("Second exercise", restored["title"])
             self.assertTrue(restored["progress"]["completed"])
+
+    def test_presentation_only_commands_do_not_write_durable_progress(self) -> None:
+        document = make_book()
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-training-presentation-") as raw:
+            root = Path(raw)
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=root,
+                language=UILanguage.EN,
+            )
+            workspace.start_current()
+            before = workspace.session.snapshot()
+            before_revision = workspace._revision
+            store = workspace._store
+            self.assertIsNotNone(store)
+            assert store is not None
+
+            with patch.object(
+                store,
+                "save",
+                side_effect=AssertionError(
+                    "presentation-only Training command must not write durable progress"
+                ),
+            ) as save:
+                revealed = workspace.dispatch("training.reveal", {})
+                retried = workspace.dispatch(" training.retry ", {})
+                localized = workspace.dispatch(
+                    "training.language",
+                    {"language": "uk"},
+                )
+
+            save.assert_not_called()
+            self.assertEqual("render", revealed.kind)
+            self.assertTrue(revealed.payload["solution"])
+            self.assertEqual("render", retried.kind)
+            self.assertEqual("render", localized.kind)
+            self.assertEqual(before, workspace.session.snapshot())
+            self.assertEqual(before_revision, workspace._revision)
+            self.assertEqual(UILanguage.UA, workspace.language)
+            self.assertEqual((), tuple(root.glob("*.json")))
 
     def test_invalid_semantic_exercise_is_not_advertised_and_next_valid_is_used(self) -> None:
         document = BookDocument(
