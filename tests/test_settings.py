@@ -93,6 +93,21 @@ class SettingsTests(unittest.TestCase):
             settings.reset()
             self.assertEqual(settings.data, DEFAULTS)
 
+    def test_newgame_animation_defaults_on_persists_and_requires_boolean(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            self.assertIs(settings.get("newgame_animation"), True)
+
+            settings.set("newgame_animation", False)
+            restored = Settings(path)
+            self.assertIs(restored.get("newgame_animation"), False)
+
+            with self.assertRaises(SettingsError):
+                restored.set("newgame_animation", 1)
+            with self.assertRaises(SettingsError):
+                restored.set("newgame_animation", "false")
+
     def test_sound_variants_default_to_one_and_persist_per_event(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
