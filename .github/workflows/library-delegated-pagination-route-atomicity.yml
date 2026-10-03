@@ -52,7 +52,7 @@ jobs:
             'acs/version2_application.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = "98a758a1ba40da37391564ee4c10327396b57233"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "df3c6fc019c9943be072983c5e4f01f6ab84d8d2"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "b334162dbd8d225abae722721eb9ff2d76164c95"
           git diff --check "$live_parent" HEAD
 
