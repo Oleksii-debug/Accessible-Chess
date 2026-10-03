@@ -362,6 +362,38 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
 
+    def test_package_preflight_accepts_8bit_pcm_sound_asset(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sound_root = root / "AccessibleChess" / "assets" / "sounds"
+            manifest = json.loads(
+                (sound_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            file_name = manifest["files"][SoundEvent.LOW_TIME.value]
+            sound_path = sound_root / file_name
+            with wave.open(str(sound_path), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(8000)
+                writer.writeframes(bytes([0, 64, 128, 192, 255] * 4))
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][SoundEvent.LOW_TIME.value]["sha256"] = _sha256(
+                sound_path
+            )
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            report = _validate_tree(root)
+            self.assertEqual(report.integration_sha, _SHA)
+
     def test_sound_manifest_allows_provenance_verified_semantic_alias(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
