@@ -417,6 +417,7 @@ def _validate_sound_pack(product_dir: Path) -> None:
         resolver = PackagedSoundAssetResolver(product_dir)
         manifest = resolver.load_manifest()
         variants = resolver.load_variant_catalog()
+        layers = resolver.load_layer_catalog()
     except Exception as exc:
         raise Version2ReleasePayloadError(
             "sound pack does not satisfy the production resolver contract"
@@ -431,6 +432,12 @@ def _validate_sound_pack(product_dir: Path) -> None:
     for path in {
         *manifest.files.values(),
         *(option.path for options in variants.values() for option in options),
+        *(
+            path
+            for by_variant in layers.values()
+            for sequence in by_variant.values()
+            for path in sequence
+        ),
     }:
         try:
             with wave.open(str(path), "rb") as reader:
