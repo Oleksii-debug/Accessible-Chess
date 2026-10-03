@@ -387,6 +387,31 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_winforms_accessibility_config_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            config = base / "AccessibleChess.exe.config"
+            config.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+            replacement = base / "replacement.config"
+            replacement.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == config and not swapped:
+                    swapped = True
+                    os.replace(replacement, config)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "WinForms accessibility app-config changed while being opened",
+                ):
+                    validate_winforms_accessibility_app_config(config)
+            self.assertTrue(swapped)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
