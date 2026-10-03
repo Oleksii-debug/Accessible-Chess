@@ -4,6 +4,7 @@ import json
 import traceback
 from pathlib import Path
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.book_game_content import (
@@ -150,6 +151,59 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                     self.assertIsNone(caught.exception.__cause__)
                     rendered = "".join(traceback.format_exception(caught.exception))
                     self.assertNotIn(payload, rendered)
+
+    def test_warning_metadata_respects_canonical_pgn_resource_bounds(self) -> None:
+        cases = (
+            ("MAX_PGN_TEXT_CHARS", 4, '["x"]'),
+            ("MAX_PGN_LEXICAL_TOKENS", 1, '["one","two"]'),
+            ("MAX_PGN_TOKEN_CHARS", 3, '["four"]'),
+        )
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            lookup = AcsdbBookGameLookup(database)
+
+            for constant, limit, payload in cases:
+                with self.subTest(constant=constant):
+                    with database.conn:
+                        database.conn.execute(
+                            "UPDATE games SET warnings_json=? WHERE id=?",
+                            (payload, game_id),
+                        )
+                    with mock.patch(
+                        f"acs.book_library_game_lookup.{constant}",
+                        limit,
+                    ):
+                        with self.assertRaises(BookLibraryGameLookupError) as caught:
+                            lookup.load_book_game(game_id)
+                    self.assertEqual(
+                        str(caught.exception),
+                        "stored book game warnings are invalid",
+                    )
+                    self.assertIsNone(caught.exception.__cause__)
+
+    def test_empty_nul_and_whitespace_warning_metadata_fail_closed(self) -> None:
+        malformed = (
+            '[""]',
+            '["   "]',
+            '["prefix\\u0000suffix"]',
+        )
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            lookup = AcsdbBookGameLookup(database)
+            for payload in malformed:
+                with self.subTest(payload=payload):
+                    with database.conn:
+                        database.conn.execute(
+                            "UPDATE games SET warnings_json=? WHERE id=?",
+                            (payload, game_id),
+                        )
+                    with self.assertRaises(BookLibraryGameLookupError) as caught:
+                        lookup.load_book_game(game_id)
+                    self.assertEqual(
+                        str(caught.exception),
+                        "stored book game warnings are invalid",
+                    )
+                    self.assertIsNone(caught.exception.__cause__)
 
     def test_each_load_returns_a_fresh_canonical_graph(self) -> None:
         with AcsDatabase() as database:
