@@ -552,6 +552,26 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             ("digest", {"sha256": "0" * 64}, "SHA-256 mismatch"),
             ("license", {"license_id": "unknown"}, "license identity is unresolved"),
             ("source", {"source": r"C:\\private\\sound.wav"}, "HTTPS URL or URN"),
+            (
+                "source-userinfo",
+                {"source": "https://user:secret@example.invalid/sound"},
+                "stable HTTPS URL or URN",
+            ),
+            (
+                "source-query",
+                {"source": "https://example.invalid/sound?token=secret"},
+                "query or fragment",
+            ),
+            (
+                "source-fragment",
+                {"source": "urn:accessible-chess:sound:move#private"},
+                "query or fragment",
+            ),
+            (
+                "source-port",
+                {"source": "https://example.invalid:notaport/sound"},
+                "stable HTTPS URL or URN",
+            ),
             ("creator", {"creator": "TBD"}, "creator identity is unresolved"),
             ("file", {"file": "other.wav"}, "does not match manifest"),
         )
