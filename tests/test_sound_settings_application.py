@@ -432,6 +432,42 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertIsNone(pref.sound_id)
         self.assertEqual("move", manager.current.selected_sound_id("move"))
 
+    def test_verified_local_pack_can_be_uninstalled_without_remote_catalog_entry(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("local.wood")
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "local.wood",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={},
+            installed_pack_provider=lambda: {"local.wood": local},
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("local_installed", item["state"])
+        self.assertTrue(item["can_uninstall"])
+
+        result = app.uninstall_pack("local.wood", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertEqual("classic", profiles.current.pack_id)
+        self.assertEqual(["local.wood"], pack_storage.uninstalled)
+
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
         storage = _PackStorage([classic])
