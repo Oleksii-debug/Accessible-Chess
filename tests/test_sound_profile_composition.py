@@ -13,6 +13,7 @@ from acs.sound_pack_catalog import (
     DownloadedSoundPack,
     SoundAssetDigest,
     SoundPackCatalogEntry,
+    SoundPackRightsEvidence,
 )
 from acs.sound_pack_store import FilesystemSoundPackStore
 from acs.sound_profile_composition import (
@@ -70,6 +71,11 @@ def _catalog_entry_from_manifest(
             manifest=manifest,
             assets=assets,
             total_bytes=sum(item.size_bytes for item in assets.values()),
+            rights_evidence=SoundPackRightsEvidence(
+                license_id=manifest.license_id,
+                source_uri=f"https://example.invalid/source/{manifest.pack_id}/{manifest.version}",
+                license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+            ),
         ),
         staging,
     )
