@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -Eq 'os\.(environ|getenv)|API_SECRET|API_KEY|STORAGE_SECRET|LIVEKIT_SECRET'             acs/classroom_collaboration_runtime.py
+          ! grep -Eq 'os\.(environ|getenv)|API_SECRET|API_KEY|STORAGE_SECRET|LIVEKIT_SECRET'             acs/classroom_collaboration_runtime.py             acs/version2_final_product_application.py
           grep -Fq 'chat_bearer_token_provider' acs/classroom_collaboration_runtime.py
           grep -Fq 'file_bearer_token_provider' acs/classroom_collaboration_runtime.py
           grep -Fq 'ClassroomChatHttpRpcCall' acs/classroom_collaboration_runtime.py
