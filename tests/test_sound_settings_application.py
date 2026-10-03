@@ -8,6 +8,7 @@ from acs.sound_pack_catalog import (
     SoundAssetDigest,
     SoundPackCatalogEntry,
     SoundPackManager,
+    SoundPackRightsEvidence,
 )
 from acs.sound_pack_profile import SoundPackProfileCoordinator
 from acs.sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
@@ -98,6 +99,11 @@ def _entry(manifest: SoundPackManifest, *, compatible: bool = True) -> SoundPack
         assets=assets,
         total_bytes=sum(asset.size_bytes for asset in assets.values()),
         compatible=compatible,
+        rights_evidence=SoundPackRightsEvidence(
+            license_id=manifest.license_id,
+            source_uri=f"https://example.invalid/source/{manifest.pack_id}/{manifest.version}",
+            license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        ),
     )
 
 
@@ -372,6 +378,43 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual("capture", changed_move["sound_id"])
         with self.assertRaisesRegex(ValueError, "not available"):
             app.set_event("move", sound_id="missing.sound", language="en")
+
+    def test_catalog_without_rights_evidence_is_visible_but_not_installable(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        audited = _entry(soft)
+        entry = SoundPackCatalogEntry(
+            manifest=audited.manifest,
+            assets=audited.assets,
+            total_bytes=audited.total_bytes,
+        )
+        pack_storage = _PackStorage([classic])
+        downloader = _Downloader()
+        pack_manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, pack_manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(pack_manager, profiles),
+            catalog={"soft": entry},
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertFalse(item["rights_auditable"])
+        self.assertEqual("", item["rights_source_uri"])
+        self.assertEqual("", item["license_uri"])
+        self.assertFalse(item["can_install"])
+        with self.assertRaisesRegex(
+            ValueError,
+            "auditable license/provenance evidence",
+        ):
+            app.install_pack("soft", activate=True, language="en")
+        self.assertEqual([], downloader.entries)
+        self.assertEqual([], pack_storage.installed_payloads)
 
     def test_catalog_version_drift_never_projects_uninstalled_future_sound_ids(self) -> None:
         classic = _manifest("classic")
