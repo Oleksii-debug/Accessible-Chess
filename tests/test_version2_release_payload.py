@@ -741,6 +741,25 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._assert_no_publication(output)
         self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
 
+    def test_livekit_bundle_and_provenance_coordinated_substitution_fails_pin(self) -> None:
+        livekit_root = self.standalone / "web" / "vendor" / "livekit"
+        bundle = livekit_root / "livekit-client.umd.js"
+        bundle.write_bytes(bundle.read_bytes() + b"coordinated-substitution")
+        provenance_path = livekit_root / "provenance.json"
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        provenance["bundle_sha256"] = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        provenance_path.write_text(
+            json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        output = self.root / "payload-livekit-coordinated-substitution"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "bundle_sha256 does not match the pinned release",
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
     def test_non_pcm_empty_or_truncated_wav_fails_without_output(self) -> None:
         target = self.sounds / f"{next(iter(SoundEvent)).value}.wav"
         for label, bytes_value in (
