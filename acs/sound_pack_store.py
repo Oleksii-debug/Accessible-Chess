@@ -1228,7 +1228,15 @@ class FilesystemSoundPackStore:
             return None
         try:
             installed = self._installed_disk_pack(identity)
-            return self._read_rights(installed.version_dir)
+            _digests, rights_sha256 = self._read_integrity(
+                installed.version_dir
+            )
+            if rights_sha256 is None:
+                return None
+            rights = self._read_rights(installed.version_dir)
+            if rights is None or _rights_sha256(rights) != rights_sha256:
+                return None
+            return rights
         except (TypeError, ValueError, SoundPackStoreError):
             return None
 
