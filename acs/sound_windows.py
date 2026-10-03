@@ -360,6 +360,19 @@ class WindowsSoundPlaybackAdapter:
             self._logger.exception("chess sound playback failed for event=%s", event.value)
             raise
 
+    def stop(self) -> None:
+        """Stop the currently playing Windows WAV, if any."""
+
+        if sys.platform != "win32":
+            return
+        try:
+            import winsound
+
+            winsound.PlaySound(None, 0)
+        except Exception:
+            self._logger.exception("could not stop current chess sound")
+            raise
+
     def _scaled_copy(self, source: Path, event: SoundEvent, volume: int) -> Path:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
