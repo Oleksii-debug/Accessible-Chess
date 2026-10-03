@@ -127,6 +127,23 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertEqual(list(root.glob(".pack.building-*")), [])
 
+    def test_zip_source_rejects_oversized_compressed_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "sounds.zip"
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as writer:
+                writer.writestr("library/Board/MOVE.WAV", b"x" * 64)
+            destination = root / "pack"
+
+            with (
+                patch("scripts.build_user_sound_pack.MAX_ARCHIVE_BYTES", 16),
+                self.assertRaisesRegex(Exception, "compressed size limit"),
+            ):
+                build_sound_pack(archive, destination)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(root.glob(".pack.building-*")), [])
+
     def test_zip_source_rejects_wrong_sha256_before_extraction(self):
         with tempfile.TemporaryDirectory() as td:
             archive = Path(td) / "sounds.zip"
