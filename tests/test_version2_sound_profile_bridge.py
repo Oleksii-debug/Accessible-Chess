@@ -4,6 +4,8 @@ import threading
 import unittest
 from unittest import mock
 
+from acs.sound_pack_store import SoundPackStoreError
+from acs.sound_profile_file_store import SoundProfileFileError
 from acs.sound_profile_store import SoundProfileManager
 from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
 from acs.sound_settings_application import SoundSettingsApplication, SoundSettingsResult
@@ -215,6 +217,38 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
                 self.assertFalse(result["ok"])
                 self.assertEqual(before, manager.current)
                 self.assertEqual([], playback.requests)
+
+    def test_storage_failures_are_reported_as_operational_not_invalid_input(self) -> None:
+        api, _manager, _ = _api()
+        sound = api._sound_settings_application
+        self.assertIsNotNone(sound)
+
+        failures = (
+            (
+                "set_master",
+                {"volume_percent": 31},
+                "set_master",
+                SoundProfileFileError("sound profile storage is busy"),
+            ),
+            (
+                "uninstall_pack",
+                {"pack_id": "soft"},
+                "uninstall_pack",
+                SoundPackStoreError("sound pack storage mutation lock is unavailable"),
+            ),
+        )
+        for command, payload, method_name, failure in failures:
+            with self.subTest(command=command), mock.patch.object(
+                sound,
+                method_name,
+                side_effect=failure,
+            ):
+                result = api.sound_settings_command(command, payload)
+
+            self.assertFalse(result["ok"])
+            self.assertIn("could not be fully applied", result["message"].lower())
+            self.assertNotIn("invalid sound settings", result["message"].lower())
+            self.assertIn("snapshot", result)
 
     def test_partial_pack_failure_returns_current_authoritative_snapshot(self) -> None:
         api, manager, _ = _api()
