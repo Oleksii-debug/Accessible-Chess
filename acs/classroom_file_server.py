@@ -1030,6 +1030,16 @@ class ClassroomFileServerService:
                     scan_state=scan_state,
                 )
 
+            # Scanning is an external, potentially slow boundary. Recheck the
+            # canonical room policy before reserving quota or creating durable
+            # recovery state so revoked membership cannot survive scan latency.
+            self._authorize(
+                caller=caller,
+                room_id=metadata.room_id,
+                action="upload",
+                attachment_id=metadata.attachment_id,
+                retention=metadata.retention,
+            )
             existing = self._store.reserve_upload(metadata, quota=self._quota)
             if existing is not None:
                 return existing
@@ -1058,8 +1068,24 @@ class ClassroomFileServerService:
                 raise CollaborationConflictError(
                     "durable object identity conflicts with upload reservation"
                 )
+            self._authorize(
+                caller=caller,
+                room_id=metadata.room_id,
+                action="upload",
+                attachment_id=metadata.attachment_id,
+                retention=metadata.retention,
+            )
             return self._store.finalize_upload(metadata.attachment_id)
 
+        # Recheck immediately before the external durable mutation as status
+        # reconciliation can itself cross a slow provider boundary.
+        self._authorize(
+            caller=caller,
+            room_id=metadata.room_id,
+            action="upload",
+            attachment_id=metadata.attachment_id,
+            retention=metadata.retention,
+        )
         try:
             self._object_store.put(
                 object_key=metadata.object_key,
