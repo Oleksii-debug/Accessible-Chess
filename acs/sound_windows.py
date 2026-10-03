@@ -17,7 +17,7 @@ import sys
 import tempfile
 import wave
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .sound_events import SoundEvent
 
@@ -81,10 +81,12 @@ class PackagedSoundAssetResolver:
             value = mapping.get(event.value)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"sound manifest missing event: {event.value}")
-            relative = Path(value)
-            if relative.is_absolute() or ".." in relative.parts:
+            if "\\" in value or "\x00" in value:
                 raise ValueError(f"unsafe sound asset path for {event.value}")
-            path = (self.root / relative).resolve()
+            relative = PurePosixPath(value)
+            if relative.is_absolute() or ".." in relative.parts or relative.as_posix() != value:
+                raise ValueError(f"unsafe sound asset path for {event.value}")
+            path = self.root.joinpath(*relative.parts).resolve()
             root = self.root.resolve()
             if root not in path.parents and path != root:
                 raise ValueError(f"sound asset escapes packaged root: {event.value}")
@@ -112,10 +114,12 @@ class PackagedSoundAssetResolver:
     def _variant_path(self, value: object, *, label: str) -> Path:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"sound variant file is invalid: {label}")
-        relative = Path(value)
-        if relative.is_absolute() or ".." in relative.parts:
+        if "\\" in value or "\x00" in value:
             raise ValueError(f"unsafe sound variant path: {label}")
-        path = (self.root / relative).resolve()
+        relative = PurePosixPath(value)
+        if relative.is_absolute() or ".." in relative.parts or relative.as_posix() != value:
+            raise ValueError(f"unsafe sound variant path: {label}")
+        path = self.root.joinpath(*relative.parts).resolve()
         root = self.root.resolve()
         if root not in path.parents and path != root:
             raise ValueError(f"sound variant escapes packaged root: {label}")
