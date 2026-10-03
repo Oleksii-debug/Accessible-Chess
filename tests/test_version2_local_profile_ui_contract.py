@@ -27,13 +27,15 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertIn('test "$(git merge-base "$live_base" HEAD)" = "$live_base"', workflow)
         self.assertIn('git diff --check "$live_base" HEAD', workflow)
         self.assertIn('git diff --name-only "$live_base" HEAD', workflow)
-        self.assertIn("EXACT_SIXTEEN_PATHS", workflow)
+        self.assertIn("EXACT_FOURTEEN_PATHS", workflow)
         self.assertNotIn("feature/local-profile-first-launch-ui-20260929", workflow)
         self.assertNotIn("EXACT_MUTATION_SUCCESSOR", workflow)
         self.assertNotIn("local-profile-identity.yml", workflow)
         self.assertNotIn("p0-release-critical-triad-convergence", workflow)
-        self.assertIn("'acs/local_profile.py'", workflow)
-        self.assertIn("'tests/test_local_profile.py'", workflow)
+        self.assertNotIn("'acs/local_profile.py'", workflow)
+        self.assertNotIn("'tests/test_local_profile.py'", workflow)
+        self.assertIn("'acs/version2_local_profile_api.py'", workflow)
+        self.assertIn("'tests/test_version2_local_profile_api.py'", workflow)
         self.assertIn('python-version: "3.12.10"', workflow)
 
     def test_profile_dialog_is_semantic_keyboard_native_html(self) -> None:
